@@ -33,3 +33,12 @@
 - Updated governance/docs to distinguish confirmed user-local status from independently verified GitHub status. Phase 2 and NB23 remain BLOCKED for formal Module 00.
 - Checks: 26 Module IDs, 11 operational IDs, none checked; source package Gate present in all 11. No product code, tests, API, model download, deploy, paid operations or migration.
 - Next: verify changed paths/Markdown/JSON, update Draft PR and submit for supervisory review.
+
+## Final foundation handoff — READY_FOR_REVIEW (not accepted)
+
+- **Starting head:** `main@bd5e365e9ad3f39ba4c1e5a44f1d9e217b613158`. **Working branch:** `prep/foundation`; Draft PR #1 targets main and remains unmerged. Final commit is the HEAD of that PR once this checkpoint update lands.
+- **Implemented:** governance, README, proposed architecture/ADRs, contract separation, ownership, canonical Phase 3 checklist and source integrity manifest. No running product stack.
+- **Checks performed:** complete GitHub tree inspection; eight reference Git Blob SHA pairs match upstream; SHA-256 recorded for eight pinned copy contents; three NB23 content digests cross-checked; JSON manifest parsed; module IDs P3M00–P3M25 present exactly once; operational IDs P3OP01–P3OP11 present exactly once; all reference links in checklist resolve; 39 checklist items unchecked, zero checked.
+- **Not executed:** app build, unit/integration/security/end-to-end, notebook replay, live API/model, migrations, paid operations or deploy.
+- **Acceptance:** supervisor review pending; no Phase 2 release acceptance, no NB23 formal readiness, no Module 00/01 pass.
+- **Open:** accepted Phase 2 handoff, finalized auth/privacy/retention/export/hosting/budget/SLO, role assignment for production operations and specialist integration contracts. UI/DB/API planning can proceed in separate task records without duplicated checklist credit.

@@ -9,3 +9,12 @@ Read `AGENTS.md`, `coordination/ownership.md`, `coordination/phase3_checklist.md
 The current source version is `Shahbazi-Amir/RAG_finance@7c74783c3dcda897b010ba9ea358d113f172ed1f`. The eight existing source copies are documented in [`references/phase2/source_manifest.json`](references/phase2/source_manifest.json) with source commit, Git Blob SHA and SHA-256. User confirms the `660566e` bundle is present on the Mac with a clean working tree. GitHub-side integrity was checked separately; local Mac files were not inspected by this agent. No manual transfer or repeated copy is required.
 
 **MVP:** auth/consent, chat with Citation/Attribution, no-answer/safety, history, feedback, privacy and basic operations. **Phase 4 excluded:** exams, personal financial profile, coaching, action plans, extensive administration. No model, server, auth provider, retention, budget, SLO or capacity has been selected.
+
+## Agent handoff and verification
+
+- **API:** draft product envelope/adapter boundaries only; see [contract README](packages/contracts/README.md) and [ownership](coordination/ownership.md).
+- **Database:** prepare isolated data model and consent/retention decision points without a migration.
+- **UI:** prepare RTL, source-aware chat and failure-state designs without implying live NB23 streaming/Citation support.
+- **Foundation:** sole editor of the [canonical checklist](coordination/phase3_checklist.md) and [checkpoint](coordination/tasks/AGENT-FOUNDATION-01.md).
+
+No package installation or executable start command is provided because no product API, database or UI implementation currently exists. Before implementation, inspect repository status on the worker's own machine; GitHub remote verification is not a local Git health check.
