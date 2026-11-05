@@ -17,3 +17,11 @@
 - Future: supervisor review and transfer method, accepted Phase 2 Release/Module00, employer scope/auth/privacy/SLO decisions, specialized mission files with linked P3M IDs.
 
 **Implemented:** documentation and prior reference copies only. **Tested:** document/source structural checks only. **Accepted:** no; supervisor pending.
+
+## Checkpoint B — Source provenance verification (2026-11-05)
+
+- User reports the `660566e` reference bundle is received on their Mac and working tree is clean; direct local verification was not available to this agent.
+- Manual transfer is canceled. No new source copies created or existing references rewritten.
+- Created `references/phase2/source_manifest.json` with all eight copy source paths, pinned commit, exact matching Git Blob SHAs, independently calculated SHA-256 and byte lengths.
+- Verified SHA-256 helper against published test vector and checked C011/request/response hashes against NB23 saved outputs. GitHub remote source/copy equivalence verified. This is a documentation integrity check, not Module 00 acceptance.
+- Pending: governance/checklist wording cleanup; final PR review.

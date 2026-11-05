@@ -1,0 +1,110 @@
+{
+  "manifest_version": "phase3.foundation.source_manifest.v1",
+  "purpose": "Immutable provenance for existing copies only; no new reference files transferred",
+  "source_repository": "Shahbazi-Amir/RAG_finance",
+  "source_branch": "rag-phase2",
+  "pinned_source_commit": "7c74783c3dcda897b010ba9ea358d113f172ed1f",
+  "target_repository": "Shahbazi-Amir/RAG_finance_app",
+  "copied_in_prior_commit": "660566eefd4fdcbe49162846a6461176a0634b19",
+  "copy_count": 8,
+  "verification": {
+    "scope": "Remote repository Git objects and UTF-8 contents at pinned commit; not a direct recheck of user's local Mac filesystem",
+    "method": "Compare source and destination Git Blob SHA (exact Git bytes), then independently calculate SHA-256 over fetched copy content",
+    "hash_algorithm": "SHA-256",
+    "all_blob_pairs_match": true,
+    "all_copy_sha256_calculated": true,
+    "nb23_handoff_status": "DRAFT_NOT_ACCEPTED"
+  },
+  "copies": [
+    {
+      "source_path": "data/Road_Maps/RAG_finance_master_roadmap.md",
+      "copy_path": "references/phase2/roadmaps/RAG_finance_master_roadmap.md",
+      "kind": "roadmap",
+      "source_commit": "7c74783c3dcda897b010ba9ea358d113f172ed1f",
+      "source_git_blob_sha": "c239b7081e88e1f9d806a3e8095f6482a20cbf86",
+      "copy_git_blob_sha": "c239b7081e88e1f9d806a3e8095f6482a20cbf86",
+      "copy_sha256": "d5532545004506820f0577dec40f69b13a037c3d5d34f8ce609b76c573a12953",
+      "copy_size_bytes": 12386
+    },
+    {
+      "source_path": "data/Road_Maps/RAG_finance_phase2_modular_notebooks_execution_plan.md",
+      "copy_path": "references/phase2/roadmaps/RAG_finance_phase2_modular_notebooks_execution_plan.md",
+      "kind": "roadmap",
+      "source_commit": "7c74783c3dcda897b010ba9ea358d113f172ed1f",
+      "source_git_blob_sha": "e3ec855f54922b7e18d7541bf1aadb39d5c759d3",
+      "copy_git_blob_sha": "e3ec855f54922b7e18d7541bf1aadb39d5c759d3",
+      "copy_sha256": "31b91c072cccde2fb0e0a37fe10a67ec545ede325385b743b978a60cc4869e9e",
+      "copy_size_bytes": 54800
+    },
+    {
+      "source_path": "data/Road_Maps/RAG_finance_phase2_operational_roadmap.md",
+      "copy_path": "references/phase2/roadmaps/RAG_finance_phase2_operational_roadmap.md",
+      "kind": "roadmap",
+      "source_commit": "7c74783c3dcda897b010ba9ea358d113f172ed1f",
+      "source_git_blob_sha": "a8215a10695e9bed8ab57d78cac8cdc059e486d3",
+      "copy_git_blob_sha": "a8215a10695e9bed8ab57d78cac8cdc059e486d3",
+      "copy_sha256": "6f8d4502665e148cd099e0f8b811c4541d19bfaf862a2653493d0a1989b2b38c",
+      "copy_size_bytes": 15956
+    },
+    {
+      "source_path": "data/Road_Maps/RAG_finance_phase3_modular_execution_plan.md",
+      "copy_path": "references/phase2/roadmaps/RAG_finance_phase3_modular_execution_plan.md",
+      "kind": "roadmap",
+      "source_commit": "7c74783c3dcda897b010ba9ea358d113f172ed1f",
+      "source_git_blob_sha": "53b44fbc9196bdd7c2d4a8f84a90676894bc210d",
+      "copy_git_blob_sha": "53b44fbc9196bdd7c2d4a8f84a90676894bc210d",
+      "copy_sha256": "4bced77ca283243f0641ec94a35f8f551bcc66351ea37d802dc08903a04aab04",
+      "copy_size_bytes": 42279
+    },
+    {
+      "source_path": "data/Road_Maps/RAG_finance_phase3_operational_roadmap.md",
+      "copy_path": "references/phase2/roadmaps/RAG_finance_phase3_operational_roadmap.md",
+      "kind": "roadmap",
+      "source_commit": "7c74783c3dcda897b010ba9ea358d113f172ed1f",
+      "source_git_blob_sha": "8d7e9549f91369d9ca3bbfe107db8c62ca835f18",
+      "copy_git_blob_sha": "8d7e9549f91369d9ca3bbfe107db8c62ca835f18",
+      "copy_sha256": "a4fedc03339bcabda0b04c4988d5159d9e200b5c63c783e455f95ff20aa5be6f",
+      "copy_size_bytes": 12746
+    },
+    {
+      "source_path": "schemas/phase2/rag_request.schema.json",
+      "copy_path": "references/phase2/contracts/rag_request.schema.json",
+      "kind": "nb23_draft_schema",
+      "source_commit": "7c74783c3dcda897b010ba9ea358d113f172ed1f",
+      "source_git_blob_sha": "48ad79a69b030b2b0ebd0bf908bc35b853ead78e",
+      "copy_git_blob_sha": "48ad79a69b030b2b0ebd0bf908bc35b853ead78e",
+      "copy_sha256": "fd350ad387cc7312753fbb22202b593f6642cc225cb58475efc46ff1e79b2613",
+      "copy_size_bytes": 655
+    },
+    {
+      "source_path": "schemas/phase2/rag_response.schema.json",
+      "copy_path": "references/phase2/contracts/rag_response.schema.json",
+      "kind": "nb23_draft_schema",
+      "source_commit": "7c74783c3dcda897b010ba9ea358d113f172ed1f",
+      "source_git_blob_sha": "83f8eac8110ffaeb7b92fba16a9348e076a3adc8",
+      "copy_git_blob_sha": "83f8eac8110ffaeb7b92fba16a9348e076a3adc8",
+      "copy_sha256": "5295130a605ebe79493989a1da908e84911c048567c404f8f79dae03cc83b58c",
+      "copy_size_bytes": 3385
+    },
+    {
+      "source_path": "docs/phase2/phase3_handoff/nb23/5e887e429a08bd6ca30297cc293912ddbd4b1b90f25f0ee0a2d894ee24cdc3d6/NB23.C011.consumer_guide_fa.6ec85fa74ad81655cc576d1a8cfc53a20f87267c325074d6d248c4a724525df8.md",
+      "copy_path": "references/phase2/NB23_C011_consumer_guide_fa.md",
+      "kind": "nb23_draft_consumer_guide",
+      "source_commit": "7c74783c3dcda897b010ba9ea358d113f172ed1f",
+      "source_git_blob_sha": "31683a7e80c61feeb005c5128260fe92b537cc0c",
+      "copy_git_blob_sha": "31683a7e80c61feeb005c5128260fe92b537cc0c",
+      "copy_sha256": "6ec85fa74ad81655cc576d1a8cfc53a20f87267c325074d6d248c4a724525df8",
+      "copy_size_bytes": 4367
+    }
+  ],
+  "not_copied": [
+    {
+      "source_path": "notebooks/phase2/23_phase3_handoff.ipynb",
+      "reason": "decision output C012 read only; notebook not transferred"
+    },
+    {
+      "source_path": "notebooks/reports/RAG_phase2_metrics_roadmap_fa.md",
+      "reason": "status consulted read only; not transferred"
+    }
+  ]
+}
