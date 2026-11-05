@@ -25,3 +25,11 @@
 - Created `references/phase2/source_manifest.json` with all eight copy source paths, pinned commit, exact matching Git Blob SHAs, independently calculated SHA-256 and byte lengths.
 - Verified SHA-256 helper against published test vector and checked C011/request/response hashes against NB23 saved outputs. GitHub remote source/copy equivalence verified. This is a documentation integrity check, not Module 00 acceptance.
 - Pending: governance/checklist wording cleanup; final PR review.
+
+## Checkpoint C — operational gates and provenance documentation
+
+- Source transfer restriction lifted: user confirms `660566e` obtained on clean Mac checkout; no files copied again. The eight copies are pinned by Git Blob SHA and copy SHA-256 in `references/phase2/source_manifest.json` (remote GitHub verification only).
+- Replaced synthesized operational summary with 11 real source-package acceptance records, quoting source Gate text and listing actual package activities and mapped modular IDs. Canonical Module 00–25 items remain unchecked, and no progress is counted twice.
+- Updated governance/docs to distinguish confirmed user-local status from independently verified GitHub status. Phase 2 and NB23 remain BLOCKED for formal Module 00.
+- Checks: 26 Module IDs, 11 operational IDs, none checked; source package Gate present in all 11. No product code, tests, API, model download, deploy, paid operations or migration.
+- Next: verify changed paths/Markdown/JSON, update Draft PR and submit for supervisory review.

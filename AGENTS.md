@@ -11,7 +11,7 @@ Supervisor: «مغز فاز سوم». This repo is in preparatory mode; never cl
 ## Git, references and safety
 
 - Inspect branch, HEAD, status and existing work first. Foundation changes allowed only on `prep/foundation`; never write main or parent `AI-Agent-projects`, force-push, rewrite history or merge Draft PR.
-- `RAG_finance` is strictly read-only. **Further reference transfer is PAUSED** until supervisor determines Mac method. Do not alter existing `references/` copies.
+- `RAG_finance` is strictly read-only. Manual Mac transfer was canceled by the user. Eight existing pinned reference copies are registered in `references/phase2/source_manifest.json`; do not change their bytes, re-copy them, or silently switch versions. A future update requires an explicit new source decision.
 - Never introduce Secrets, PII, large notebook artifacts, model weights, cached data or indexes. No model API, purchase, paid operations, deploy, live migration or download.
 
 ## Evidence and handoff

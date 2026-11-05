@@ -7,6 +7,6 @@
 | UI | RTL/chat/source/consent flows and future UI scope | `coordination/tasks/AGENT-UI-*.md` |
 | database | Conceptual data/isolation/privacy and future migrations after permission | `coordination/tasks/AGENT-DATABASE-*.md` |
 
-Only **foundation** edits `coordination/phase3_checklist.md`. Specialist task files cite `P3Mxx` IDs and evidence, **never count completion again**. `P3OPxx` are operational overlays mapped to modules. Supervisor approval separately recorded. No further reference transfers/rewrites before Mac procedure.
+Only **foundation** edits `coordination/phase3_checklist.md`. Specialist task files cite `P3Mxx` IDs and evidence, **never count completion again**. `P3OPxx` are operational overlays mapped to modules. Supervisor approval separately recorded. Existing source copies are inventoried in `references/phase2/source_manifest.json`. The transfer issue is closed; preserve original source bytes. Subsequent version changes require supervisor review.
 
 Parallel foundation docs/UI sketch/DB design/API contract planning allowed; live NB23 adapter, true Citation/streaming, Module 00 acceptance, migrations, provider/deploy blocked. Any missing security/operations human owner remains assignment-pending with foundation accountable for coordination.
