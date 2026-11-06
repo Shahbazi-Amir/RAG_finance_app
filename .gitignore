@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+# Node
+node_modules/
+.next/
+.nuxt/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+# Local/secret
+.DS_Store
+.idea/
+.vscode/
+*.log
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+secrets/
+# Large generated outputs
+artifacts/
+cache/
+.ipynb_checkpoints/
+*.safetensors
+*.gguf
+*.pt
+*.onnx
+*.parquet
+*.sqlite3
+*.db
