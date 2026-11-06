@@ -123,3 +123,81 @@ history و فیلترها ورودی تأییدشدهٔ موتور نیستند�
 
 - فقط پس از پذیرش Foundation و مأموریت اجرایی جدید، Starting HEAD واقعی، مرز فایل‌ها، آزمون واقعی، نتیجه، محل شاهد و مانع هر شناسه ثبت شود.
 - Mock/Fixture فقط در دامنهٔ خود شاهد است؛ پذیرش Runtime/Model یا امنیت نهایی نیست. هیچ درصد پیشرفت یا قبولی از ثبت این فایل نتیجه نمی‌شود.
+
+---
+
+## بستهٔ برنامه‌ریزی UI-01 — Journey، صفحات/Stateها و مرز کامپوننت‌ها
+
+**نوع خروجی:** طراحی مستند در پروندهٔ مأموریت، نه پیاده‌سازی Frontend. **نسخه:** UI-01 planning v1 (provisional). **Starting commit:** 2f59c3e3d571aedeef907b944b8273762338cf4e، شاخهٔ agent/ui.
+**وضعیت این بسته:** آمادهٔ بازبینی ناظر (review). وضعیت اجرایی UI-01 در چک‌لیست بالا همچنان planned و تیک‌نخورده است؛ **Implemented: NOT_RUN / L1: NOT_RUN / L2: NOT_RUN / Gate: NOT_ASSESSED**.
+**منبع:** نقشهٔ ماژولار فاز سوم M01/M03/M11/M13/M14/M15، نقشهٔ عملیاتی P3-01/P3-05، پروندهٔ مصوب UI v1.1، AGENTS.md و coordination/ownership.md.
+**حدود:** فقط طراحی؛ انتخاب Stack، تعیین URL/Route نهایی، قرارداد مشترک، API Client، کدنویسی و تست در این بسته مجاز نیست.
+
+### A) Journeyهای پیشنهادی کاربر (بدون فرض توان عملیاتی موتور)
+
+| شناسه | مسیر کاربر | شاخه‌ها و پایان قابل مشاهده | وابستگی باز |
+|---|---|---|---|
+| J1 | Landing → معرفی دامنهٔ آموزش مالی → ورود/ثبت‌نام → Session → Consent → ورود به فضای مکالمه | خطای ورود، نشست منقضی، رضایت ردشده/نسخهٔ جدید؛ عبور فقط بعد از تأییدهای معتبر Backend | روش Auth، متن و نسخهٔ Consent و سیاست دسترسی |
+| J2 | فضای مکالمه → ایجاد/انتخاب مکالمه → نوشتن پرسش فارسی → ارسال → دریافت وضعیت/پاسخ → مشاهده Claim و منبع مرتبط | Answer یا No-answer یا Clarification یا Refusal یا Partial یا Error فقط بر مبنای نتیجهٔ معتبر Product API؛ خطای Provider نباید به No-answer تبدیل شود | قرارداد Message/Answer، adapter، نگاشت Outcome، Citation Resolver |
+| J3 | انتخاب Claim → بازکردن Source drawer → مشاهدهٔ نوع منبع، نقش‌های انتساب و Locator معتبر → بازکردن منبع در صورت مجازبودن | نبود/خرابی Locator و انتساب نامشخص با توضیح شفاف؛ هرگز نام/زمان/صفحه/URL ساخته نشود | Source-details DTO، سیاست URL و Resolver معتبر |
+| J4 | فهرست مکالمات خود کاربر → انتخاب گفتگو → تاریخچه → بازگشت به چت / Refresh | Empty، Loading، Error، Unauthorized، Session expired؛ عدم ادعای بازیابی پایدار تا اثبات سرور | History API، Pagination و isolation؛ NB23 history-input ندارد |
+| J5 | پاسخ نمایش‌داده‌شده → ثبت Feedback یا گزارش Citation/Attribution نادرست → مشاهدهٔ نتیجهٔ ثبت | Pending، Submitted، Failed؛ بدون نمایش موفقیت صرفاً با تعامل محلی | قرارداد Feedback و Answer ID معتبر |
+| J6 | حساب/حریم خصوصی → Consent status → درخواست حذف داده یا حساب → تأیید → پردازش → نتیجه | قبل از ارسال: Cancel؛ بعد از ارسال: requesting/processing/succeeded/failed؛ فقط تأیید نهایی Backend موفقیت است؛ Export جدا و تصمیم‌باز | سیاست Retention/Deletion، نشست پس از حذف و endpointهای محصول |
+
+**قاعدهٔ عبور:** سیستم فقط وضعیت‌هایی را در رابط نشان می‌دهد که از قرارداد تأییدشده و پاسخ واقعی API حاصل شوند. مسیرهای J2/J3/J4 هم‌اکنون مشخصات تجربهٔ کاربرند، نه ادعای آمادگی RAG/History.
+
+### B) فهرست صفحات و Stateهای نمایشی
+
+این‌ها **مفهوم صفحه/ناحیه** هستند، نه URL قطعی یا انتخاب Router. واژه‌های State در این جدول زبان طراحی UI هستند و تا قرارداد محصول تصویب نشود Enum موتور/API محسوب نمی‌شوند.
+
+| صفحه یا ناحیه | Stateهای UI پیشنهادی | شرط نمایش/محدودیت |
+|---|---|---|
+| Landing و مرز محصول | default، content-unavailable | توضیح دامنهٔ آموزشی و محدودیت؛ بدون قابلیت فاز ۴ |
+| Sign-up / Login / Session | idle، validating، submitting، authenticated، rejected، expired، network-error | روش ورود و error mapping هنوز تصویب نشده |
+| Consent | required، reviewing، submitting، accepted، declined، revoked، superseded، error | هیچ پذیرش ساختگی؛ نسخه و نتیجه از Backend |
+| فهرست مکالمات | loading، empty، loaded، loading-more، error، unauthorized | Sorting/Pagination/History هنوز قرارداد محصول لازم دارند؛ عدم نشت بین کاربران |
+| Chat / Composer | idle، composing، submitting، awaiting-response، response-visible، submit-failed، unknown-result | پیام و status به شناسهٔ معتبر مربوط؛ جلوگیری از ارسال تکراری پس از Retry/Refresh |
+| ناحیهٔ نمایش پاسخ | answer، partial، no-answer، clarification، safety-refusal، error، confidence-unmeasured | این‌ها فقط حالت‌های پیشنهادی ارائه‌اند؛ نگاشت واقعی Outcome/Confidence اثبات نشده |
+| Streaming / Cancellation | connecting، receiving، cancelling، cancelled، completed، failed، unknown؛ نمایش جزئی retrieving/generating فقط در صورت Event معتبر | **Streaming و Cancellation الزام باقی می‌مانند**؛ ترتیب رویداد، توقف واقعی سرور و بازیابی هنوز قرارداد/adapter معتبر ندارند؛ UI حدس نمی‌زند |
+| Citation / Source drawer | closed، loading، resolved، unresolved، unavailable، invalid-locator، unsafe-link، error | resolved_citations فیلد رسمی NB23 Response نیست؛ ارتباط Claim/Citation و صحت محل شاهد باید از قرارداد محصول تأیید شود |
+| Feedback / Report | idle، submitting، submitted، failed | با Answer ID و تأیید ثبت از API |
+| Account / Privacy | loading، loaded، session-expired، error | حذف مستقل از تصمیم Export |
+| حذف داده/حساب | confirmation، requesting، processing، succeeded، failed | succeeded فقط بر اساس تأیید نهایی Backend؛ حذف واقعی جزو مسئولیت UI نیست |
+| Export (در صورت تصویب) | out-of-scope-pending؛ Stateهای عملیاتی بعداً | نبود تصمیم Export نباید مسیر حذف را مسدود کند |
+
+**قواعد مشترک State:** در همهٔ مسیرها بازخورد قابل‌فهم فارسی، RTL، Focus و اعلان دسترس‌پذیر، حالت Empty/Error واقعی، حفظ حریم خصوصی و عدم نمایش Prompt/Debug لازم است. وضعیت‌های داخلی موتور یا وضعیت‌های فرضی شبکه به موفقیت تبدیل نمی‌شوند.
+
+### C) مرز کامپوننت‌ها — فقط مالکیت مفهومی
+
+| ناحیهٔ UI | مسئولیت نمایش و تعامل | داده/عملیات خارج از مالکیت UI |
+|---|---|---|
+| Page shell / Navigation | RTL، چیدمان واکنش‌گرا، جابه‌جایی صفحات، Focus و دسترس‌پذیری | Auth policy، انتخاب Stack/Router |
+| Auth & Consent views | فرم، وضعیت، اعلان خطا و تصمیم کاربر | هویت، نشست، versioning رضایت و ثبت آن در Backend |
+| Conversation list / History view | فهرست و Empty/Error/Pagination UI، انتخاب و بازگشت | ذخیره/ایزولاسیون تاریخچه، عنوان‌سازی و قرارداد فیلتر |
+| Chat composer / Message view | متن فارسی، ارسال کاربر، جلوگیری از تعامل تکراری در UI، ترتیب پیام‌ها | persistence، idempotency واقعی، RAG orchestration |
+| Answer state presenter | تفکیک وضعیت جواب، نبود پاسخ، سؤال روشن‌کننده، refusal، error و Confidence ناموجود | تصمیم Answerability/Safety، امتیاز یا Enum واقعی موتور |
+| Stream / Cancel presenter | بازنمایی Eventهای معتبر، لغو نمایشی، Recovery/Retry affordance | event protocol، توقف پردازش سرور، billing و delivery guarantee |
+| Claim + Citation presentation / Source drawer | اتصال دیداری Claim به Citation، نمایش نقش‌های مستقل نویسنده/سردبیر/گوینده و Locator دریافتی | Source resolver، اعتبار علمی/معنایی شاهد، تولید URL/نام/Timestamp |
+| Feedback / Privacy / Deletion views | ثبت تعامل، وضعیت ارسال و نتیجهٔ تأییدشده، درخواست حذف | Feedback persistence، حذف واقعی، Retention، export |
+| Safe content renderer | escaped-by-default rendering، لینک‌های مجاز، عدم اجرای HTML/Script و مخفی‌کردن Debug | پاک‌سازی upstream، سیاست امنیت سرور و اعتبار منبع |
+| Product API boundary (مصرف‌کننده در آینده) | فقط مصرف DTO تأییدشده در محدودهٔ مجاز | تعریف/ویرایش packages/contracts، API endpoint، adapter و schema |
+
+**مرز مسیر:** مالک فعلی این سند فقط coordination/tasks/AGENT-UI-01.md است. مسیرهای احتمالی کد UI بعداً صرفاً زیر apps/web/** و تست‌های نام‌فضادار tests/phase3/ui/** و tests/phase3/integration/ui/** و فقط با مجوز مأموریت بعدی قابل استفاده‌اند؛ هیچ مسیر/اسکلت جدیدی در این مأموریت ساخته نمی‌شود.
+
+### D) وابستگی‌ها، دو سطح شاهد و شرط پذیرش UI-01
+
+| بخش | L1 — شاهد مستقل UI/Mock (آینده) | L2 — اتصال واقعی و پذیرش (آینده) |
+|---|---|---|
+| Journey و Navigation | مرور مسیرها و تست نمایشی با Fixture برچسب‌خوردهٔ مصنوعی، آزمون Focus/RTL | E2E مسیر Login → Chat → Citation → History روی API و نشست واقعی مصوب |
+| Stateهای پاسخ، خطا و Recovery | تست State و پیام‌ها با Fixtureهای صریحاً Synthetic؛ پاسخ خطا از No-answer تفکیک شود | تأیید نگاشت Response/HTTP و retry/idempotency با API/adapter واقعی |
+| Streaming و Cancellation | Mock انتقال Event/قطع ارتباط/لغو/Retry/Refresh و نمایش نامعلوم | آزمون ترتیب و پایان رویدادها، لغو واقعی سرور و وضعیت پایدار پس از قطع اتصال |
+| Source، Privacy و امنیت نمایش | Fixtureهای Claim/Citation، misattribution، Missing locator، HTML/Script و URL خطرناک | Resolver/Locator و منبع مجاز، عدم افشای Debug/Prompt و کنترل یکپارچهٔ امنیت |
+| حذف داده/حساب | Mock حالت‌های درخواست، پردازش، موفقیت/شکست و لغو پیش از ارسال | نتیجهٔ قطعی حذف و رفتار نشست از Backend و آزمون مستقل عدم دسترسی |
+
+**وضعیت فعلی:** هر دو سطح L1 و L2: **NOT_RUN**؛ شواهد اجرایی: **NOT_AVAILABLE**؛ تأیید نهایی ناظر: **PENDING**. طراحی UI-01 برای بازبینی آماده است اما به معنی PASS شدن UI-01، P3M14، Module 00 یا پذیرش کل محصول نیست.
+
+**تصمیم‌های باز:** روش ورود، متن Consent، قرارداد Product API و error/identity، تاریخچه/Pagination، Event/Cancel/Retry، Citation/Attribution و نگاشت speaker ↔ speaker_name، policy حذف، معیارهای مرورگر/Accessibility، Stack و Router. هیچ‌کدام در این سند Freeze یا جایگزین نشده‌اند.
+
+**موانع فاز دوم:** NB23 Draft فقط question و contract_version را در Request تأیید می‌کند؛ source filters و history را پشتیبانی اثبات‌شده فرض نکنید. وضعیت‌های Outcome پیشنهاد مصرف‌کننده‌اند؛ resolved_citations رسمی نیست؛ confidence: null مقدار اندازه‌گیری‌نشده است. استفاده از Synthetic Fixture هرگز مدرک Citation واقعی، عملکرد موتور، Safety یا قابلیت Streaming زنده نیست.
+
+**گام بعدی (بدون اجرا در این مأموریت):** بازبینی همین بسته توسط ناظر و سپس تطبیق با Contract و مسیرهای نهایی پس از صدور مأموریت مستقل. هیچ Dependency نصب، UI Code، API Code، قرارداد مشترک، Test execution یا Deploy در این بسته انجام نشده است.
