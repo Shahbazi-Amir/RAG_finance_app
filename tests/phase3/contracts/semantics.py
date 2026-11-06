@@ -1,0 +1,170 @@
+"""Cross-document invariants for provisional product.v1; no I/O, backend or model."""
+import hashlib
+import json
+
+TERMINALS = frozenset({'completed', 'failed', 'server_cancelled', 'unknown'})
+
+
+def cross_checks(document):
+    """Return stable diagnostic codes; call JSON Schema validator first."""
+    kind = document.get('kind')
+    errors = []
+    if kind == 'answer':
+        claims = document['claims']
+        citations = document['citations']
+        claim_ids = [c['claim_id'] for c in claims]
+        cite_ids = [c['citation_id'] for c in citations]
+        if len(claim_ids) != len(set(claim_ids)):
+            errors.append('DUPLICATE_CLAIM_ID')
+        if len(cite_ids) != len(set(cite_ids)):
+            errors.append('DUPLICATE_CITATION_ID')
+        claim_map = {c['claim_id']: c for c in claims}
+        cite_map = {c['citation_id']: c for c in citations}
+        for claim in claims:
+            for cid in claim['citation_ids']:
+                if cid not in cite_map:
+                    errors.append('MISSING_CITATION_REF')
+                elif claim['claim_id'] not in cite_map[cid]['claim_ids']:
+                    errors.append('ASYMMETRIC_CITATION_REF')
+        for citation in citations:
+            for cid in citation['claim_ids']:
+                if cid not in claim_map:
+                    errors.append('MISSING_CLAIM_REF')
+                elif citation['citation_id'] not in claim_map[cid]['citation_ids']:
+                    errors.append('ASYMMETRIC_CLAIM_REF')
+        if document['provenance']['origin'] == 'SYNTHETIC':
+            if any(c['source']['resolution_status'] != 'unresolved' for c in citations):
+                errors.append('SYNTHETIC_SOURCE_MARKED_REAL')
+        if document['outcome'] == 'error' and document['error']['category'] != 'technical':
+            errors.append('ERROR_OUTCOME_MUST_BE_TECHNICAL')
+        if document['outcome'] in {'no_answer', 'clarification', 'refusal'} and document['error'] is not None:
+            errors.append('BUSINESS_OUTCOME_WITH_TECHNICAL_ERROR')
+        if document['outcome'] == 'partial' and document['answer_text'] is None:
+            errors.append('PARTIAL_MUST_CONTAIN_VISIBLE_CONTENT')
+        if document['outcome'] in {'unknown','cancelled'} and document['claims']:
+            errors.append('UNFINALIZED_HAS_FINAL_CLAIMS')
+
+    elif kind == 'conversation_snapshot':
+        conversation = document['conversation']
+        conv_id = conversation['conversation_id']
+        owner = conversation['owner_user_id']
+        messages = document['messages']
+        answers = document['answers']
+        feedback = document['feedback']
+        for key, data, field in [('message', messages,'message_id'), ('answer',answers,'answer_id'),('feedback',feedback,'feedback_id')]:
+            ids = [x[field] for x in data]
+            if len(set(ids)) != len(ids):
+                errors.append('DUPLICATE_'+key.upper()+'_ID')
+        message_by_id = {m['message_id']:m for m in messages}
+        answer_by_id = {a['answer_id']:a for a in answers}
+        for msg in messages:
+            if msg['owner_user_id'] != owner or msg['conversation_id'] != conv_id:
+                errors.append('CROSS_USER_OR_CONVERSATION_MESSAGE')
+            if msg['role'] == 'user' and msg['answer_id'] is not None:
+                errors.append('USER_MESSAGE_WITH_ANSWER_ID')
+            if msg['answer_id'] is not None and msg['answer_id'] not in answer_by_id:
+                errors.append('MESSAGE_ANSWER_NOT_FOUND')
+        for answer in answers:
+            if answer['conversation_id'] != conv_id:
+                errors.append('ANSWER_CONVERSATION_MISMATCH')
+            linked = message_by_id.get(answer['message_id'])
+            if linked is None or linked['role'] != 'assistant' or linked['answer_id'] != answer['answer_id']:
+                errors.append('ANSWER_MESSAGE_LINK_INVALID')
+            errors.extend(cross_checks(answer))
+        for item in feedback:
+            if item['owner_user_id'] != owner or item['conversation_id'] != conv_id:
+                errors.append('CROSS_USER_OR_CONVERSATION_FEEDBACK')
+            if item['answer_id'] not in answer_by_id:
+                errors.append('FEEDBACK_ANSWER_NOT_FOUND')
+
+    elif kind == 'conversation_page':
+        for conversation in document['items']:
+            if conversation['owner_user_id'] != document['scope_user_id']:
+                errors.append('CROSS_USER_PAGINATION')
+        if len(document['items']) > document['page']['limit']:
+            errors.append('PAGE_LIMIT_EXCEEDED')
+        ids = [x['conversation_id'] for x in document['items']]
+        if len(set(ids)) != len(ids):
+            errors.append('DUPLICATE_PAGE_ITEM')
+
+    elif kind == 'stream_session':
+        events = document['events']
+        if [e['seq'] for e in events] != list(range(events[0]['seq'], events[0]['seq']+len(events))):
+            errors.append('NONCONTIGUOUS_EVENT_SEQUENCE')
+        if events[0]['seq'] != 0:
+            errors.append('EVENT_SEQUENCE_MUST_START_ZERO')
+        for event in events:
+            if any(event[field] != document[field] for field in ('stream_id','answer_id','request_id','trace_id')):
+                errors.append('STREAM_IDENTITY_MISMATCH')
+        endings = [i for i,x in enumerate(events) if x['event_type'] in TERMINALS]
+        if len(endings) > 1 or (endings and endings[-1] != len(events)-1):
+            errors.append('MULTIPLE_OR_NONFINAL_TERMINAL_EVENTS')
+        if document['delivery_state'] == 'terminal' and (len(endings) != 1 or endings[0] != len(events)-1):
+            errors.append('TERMINAL_EVENT_REQUIRED')
+        if document['delivery_state'] != 'terminal' and endings:
+            errors.append('TERMINAL_EVENT_WITH_OPEN_DELIVERY')
+        if document['delivery_state'] == 'display_cancelled' and events[-1]['event_type'] != 'display_cancelled':
+            errors.append('DISPLAY_CANCEL_TERMINATOR_REQUIRED')
+        if document['delivery_state'] != 'display_cancelled' and any(x['event_type']=='display_cancelled' for x in events):
+            errors.append('DISPLAY_CANCELLATION_STATE_MISMATCH')
+        types = [e['event_type'] for e in events]
+        if 'server_cancelled' in types and 'cancel_requested' not in types:
+            errors.append('SERVER_CANCEL_WITHOUT_REQUEST')
+        if 'completed' in types and events[-1]['data'].get('final_answer_id') != document['answer_id']:
+            errors.append('FINAL_ANSWER_ID_MISMATCH')
+        if any(x['event_type'] in {'retrieving','generating'} and x['data'].get('reported_by')!='backend' for x in events):
+            errors.append('UNCONFIRMED_BACKEND_PHASE')
+        if 'display_cancelled' in types and 'server_cancelled' in types:
+            errors.append('DISPLAY_ONLY_MUST_NOT_CLAIM_SERVER_STOP')
+    return sorted(set(errors))
+
+
+def check_idempotency_history(receipts):
+    """Receipts are SERVER generated. Prevent duplicate persistence claims, not provider exactly-once."""
+    errors = []
+    grouped = {}
+    for r in receipts:
+        if r['kind'] != 'send_message_receipt':
+            errors.append('NOT_A_RECEIPT')
+            continue
+        scope = (r['owner_user_id'], r['idempotency_scope'], r['conversation_id'], r['client_message_id'], r['idempotency_key'])
+        old = grouped.get(scope)
+        if old is None:
+            if r['disposition'] != 'created':
+                errors.append('FIRST_RECEIPT_MUST_CREATE')
+            grouped[scope] = r
+            continue
+        same_payload = r['payload_sha256'] == old['payload_sha256']
+        if same_payload:
+            if r['disposition'] != 'replayed' or r['message_id'] != old['message_id']:
+                errors.append('RETRY_MUST_REPLAY_SAME_PERSISTED_MESSAGE')
+        else:
+            if r['disposition'] != 'conflict' or r['message_id'] is not None:
+                errors.append('IDEMPOTENCY_KEY_PAYLOAD_CONFLICT')
+    return sorted(set(errors))
+
+
+def canonical_request_fingerprint(request):
+    """Compute server-side fingerprint of exactly the stable client payload keys."""
+    if request['kind'] != 'send_message_request':
+        raise ValueError('NOT_SEND_MESSAGE_REQUEST')
+    stable = {k: request[k] for k in ('client_message_id','conversation_id','question')}
+    raw = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8')
+    return hashlib.sha256(raw).hexdigest()
+
+
+def check_request_receipt(request, receipt, actor):
+    """A server-only consistency check; authentication provider is not selected."""
+    errors = []
+    if request['kind'] != 'send_message_request' or receipt['kind'] != 'send_message_receipt' or actor['kind'] != 'trusted_actor_context':
+        return ['WRONG_CONTRACT_KIND']
+    if actor['principal_source'] != 'server_auth_context' or receipt['owner_user_id'] != actor['owner_user_id']:
+        errors.append('UNTRUSTED_IDENTITY')
+    for key in ('conversation_id','client_message_id','idempotency_key'):
+        if receipt[key] != request[key]:
+            errors.append('RECEIPT_REQUEST_MISMATCH_' + key.upper())
+    if receipt['payload_sha256'] != canonical_request_fingerprint(request):
+        errors.append('PAYLOAD_FINGERPRINT_MISMATCH')
+    if receipt['request_id'] != actor['request_id'] or receipt['trace_id'] != actor['trace_id']:
+        errors.append('TRACE_CONTEXT_MISMATCH')
+    return sorted(set(errors))

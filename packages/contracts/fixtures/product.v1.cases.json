@@ -1,0 +1,3021 @@
+{
+  "fixture_set_version": "product.v1.synthetic-cases.v1",
+  "origin": "SYNTHETIC",
+  "not_evidence_of": [
+    "NB23 runtime",
+    "real source locator",
+    "actual user privacy",
+    "model quality",
+    "provider cancellation"
+  ],
+  "cases": [
+    {
+      "case_id": "valid_conversation",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "conversation",
+        "contract_version": "product.v1",
+        "conversation_id": "conv_1",
+        "owner_user_id": "user_1",
+        "title": "نمونه",
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+        "state": "active"
+      }
+    },
+    {
+      "case_id": "valid_user_message",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "message",
+        "contract_version": "product.v1",
+        "message_id": "msg_1",
+        "conversation_id": "conv_1",
+        "owner_user_id": "user_1",
+        "role": "user",
+        "text": "پرسش نمونهٔ مصنوعی",
+        "created_at": "2026-01-01T00:00:00Z",
+        "answer_id": null
+      }
+    },
+    {
+      "case_id": "valid_assistant_message",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "message",
+        "contract_version": "product.v1",
+        "message_id": "msg_2",
+        "conversation_id": "conv_1",
+        "owner_user_id": "user_1",
+        "role": "assistant",
+        "text": "پاسخ آزمایشی",
+        "created_at": "2026-01-01T00:00:00Z",
+        "answer_id": "ans_1"
+      }
+    },
+    {
+      "case_id": "valid_answer_unresolved_source",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "completed",
+        "outcome": "answer",
+        "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_1"
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "citation_id": "cite_1",
+            "claim_ids": [
+              "claim_1"
+            ],
+            "source": {
+              "resolution_status": "unresolved",
+              "source_id": null,
+              "locator": null,
+              "credited_author_name": null,
+              "editorial_supervisor_name": null,
+              "speaker_name": null,
+              "content_authority_type": null,
+              "attribution_status": "unknown"
+            }
+          }
+        ],
+        "confidence": null,
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "valid_answer_no_answer",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "completed",
+        "outcome": "no_answer",
+        "answer_text": "شاهد کافی نیست",
+        "claims": [],
+        "citations": [],
+        "confidence": null,
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "valid_answer_partial",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "partial",
+        "outcome": "partial",
+        "answer_text": "پاسخ ناقص",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_1"
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "citation_id": "cite_1",
+            "claim_ids": [
+              "claim_1"
+            ],
+            "source": {
+              "resolution_status": "unresolved",
+              "source_id": null,
+              "locator": null,
+              "credited_author_name": null,
+              "editorial_supervisor_name": null,
+              "speaker_name": null,
+              "content_authority_type": null,
+              "attribution_status": "unknown"
+            }
+          }
+        ],
+        "confidence": null,
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "valid_answer_technical_error",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "failed",
+        "outcome": "error",
+        "answer_text": null,
+        "claims": [],
+        "citations": [],
+        "confidence": null,
+        "error": {
+          "category": "technical",
+          "code": "UPSTREAM_UNAVAILABLE",
+          "message": "Synthetic technical failure"
+        },
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "valid_answer_unknown",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "unknown",
+        "outcome": "unknown",
+        "answer_text": null,
+        "claims": [],
+        "citations": [],
+        "confidence": null,
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "valid_confidence_calibrated_example",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "completed",
+        "outcome": "answer",
+        "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_1"
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "citation_id": "cite_1",
+            "claim_ids": [
+              "claim_1"
+            ],
+            "source": {
+              "resolution_status": "unresolved",
+              "source_id": null,
+              "locator": null,
+              "credited_author_name": null,
+              "editorial_supervisor_name": null,
+              "speaker_name": null,
+              "content_authority_type": null,
+              "attribution_status": "unknown"
+            }
+          }
+        ],
+        "confidence": {
+          "value": 0.85,
+          "meaning": "illustrative calibration only",
+          "calibration_scope": "synthetic_fixture"
+        },
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "valid_feedback",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "feedback",
+        "contract_version": "product.v1",
+        "feedback_id": "fb_1",
+        "owner_user_id": "user_1",
+        "conversation_id": "conv_1",
+        "answer_id": "ans_1",
+        "rating": "positive",
+        "reason": null,
+        "created_at": "2026-01-01T00:00:00Z"
+      }
+    },
+    {
+      "case_id": "valid_snapshot_relations",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "conversation_snapshot",
+        "contract_version": "product.v1",
+        "conversation": {
+          "kind": "conversation",
+          "contract_version": "product.v1",
+          "conversation_id": "conv_1",
+          "owner_user_id": "user_1",
+          "title": "نمونه",
+          "created_at": "2026-01-01T00:00:00Z",
+          "updated_at": "2026-01-01T00:00:00Z",
+          "state": "active"
+        },
+        "messages": [
+          {
+            "kind": "message",
+            "contract_version": "product.v1",
+            "message_id": "msg_1",
+            "conversation_id": "conv_1",
+            "owner_user_id": "user_1",
+            "role": "user",
+            "text": "پرسش نمونهٔ مصنوعی",
+            "created_at": "2026-01-01T00:00:00Z",
+            "answer_id": null
+          },
+          {
+            "kind": "message",
+            "contract_version": "product.v1",
+            "message_id": "msg_2",
+            "conversation_id": "conv_1",
+            "owner_user_id": "user_1",
+            "role": "assistant",
+            "text": "پاسخ آزمایشی",
+            "created_at": "2026-01-01T00:00:00Z",
+            "answer_id": "ans_1"
+          }
+        ],
+        "answers": [
+          {
+            "kind": "answer",
+            "contract_version": "product.v1",
+            "answer_id": "ans_1",
+            "conversation_id": "conv_1",
+            "message_id": "msg_2",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "state": "completed",
+            "outcome": "answer",
+            "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+            "claims": [
+              {
+                "claim_id": "claim_1",
+                "text": "یک ادعای آزمایشی",
+                "citation_ids": [
+                  "cite_1"
+                ]
+              }
+            ],
+            "citations": [
+              {
+                "citation_id": "cite_1",
+                "claim_ids": [
+                  "claim_1"
+                ],
+                "source": {
+                  "resolution_status": "unresolved",
+                  "source_id": null,
+                  "locator": null,
+                  "credited_author_name": null,
+                  "editorial_supervisor_name": null,
+                  "speaker_name": null,
+                  "content_authority_type": null,
+                  "attribution_status": "unknown"
+                }
+              }
+            ],
+            "confidence": null,
+            "error": null,
+            "provenance": {
+              "origin": "SYNTHETIC",
+              "rag_binding": {
+                "status": "provisional",
+                "blocked_by": "NB23",
+                "release_id": null,
+                "adapter_verified": false
+              },
+              "producer_reference": null,
+              "source_fingerprint": null
+            }
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "feedback",
+            "contract_version": "product.v1",
+            "feedback_id": "fb_1",
+            "owner_user_id": "user_1",
+            "conversation_id": "conv_1",
+            "answer_id": "ans_1",
+            "rating": "positive",
+            "reason": null,
+            "created_at": "2026-01-01T00:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "valid_send_message_request",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "send_message_request",
+        "contract_version": "product.v1",
+        "conversation_id": "conv_1",
+        "client_message_id": "client_msg_1",
+        "question": "سؤال آزمایشی",
+        "idempotency_key": "key_test_001"
+      }
+    },
+    {
+      "case_id": "valid_send_message_receipt",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "send_message_receipt",
+        "contract_version": "product.v1",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "owner_user_id": "user_1",
+        "conversation_id": "conv_1",
+        "client_message_id": "client_msg_1",
+        "idempotency_key": "key_test_001",
+        "idempotency_scope": "trusted_user+send_message+conversation",
+        "payload_sha256": "8df9c1a4a52d13ac3920d43479ac960ac264c7936fde7d562fbb7ba1d1933b99",
+        "disposition": "created",
+        "message_id": "msg_1",
+        "error": null
+      }
+    },
+    {
+      "case_id": "valid_trusted_actor_context",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "trusted_actor_context",
+        "contract_version": "product.v1",
+        "owner_user_id": "user_1",
+        "principal_source": "server_auth_context",
+        "authenticated_at": "2026-01-01T00:00:00Z",
+        "request_id": "req_1",
+        "trace_id": "trace_1"
+      }
+    },
+    {
+      "case_id": "valid_paginated_conversations",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "conversation_page",
+        "contract_version": "product.v1",
+        "scope_user_id": "user_1",
+        "items": [
+          {
+            "kind": "conversation",
+            "contract_version": "product.v1",
+            "conversation_id": "conv_1",
+            "owner_user_id": "user_1",
+            "title": "نمونه",
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "state": "active"
+          }
+        ],
+        "page": {
+          "limit": 20,
+          "has_more": false,
+          "next_cursor": null
+        }
+      }
+    },
+    {
+      "case_id": "valid_delete_command_confirmed",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "delete_command",
+        "contract_version": "product.v1",
+        "request_id": "req_del",
+        "trace_id": "trace_del",
+        "deletion_scope": "account",
+        "conversation_id": null,
+        "confirmed_by_user": true,
+        "client_action_id": "act_1"
+      }
+    },
+    {
+      "case_id": "valid_delete_processing",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "delete_status",
+        "contract_version": "product.v1",
+        "deletion_request_id": "del_1",
+        "owner_user_id": "user_1",
+        "request_id": "req_del",
+        "trace_id": "trace_del",
+        "deletion_scope": "account",
+        "conversation_id": null,
+        "state": "processing",
+        "backend_confirmed": false,
+        "requested_at": "2026-01-01T00:00:00Z",
+        "completed_at": null,
+        "error": null
+      }
+    },
+    {
+      "case_id": "valid_stream_completed",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "stream_session",
+        "contract_version": "product.v1",
+        "stream_id": "stream_1",
+        "answer_id": "ans_1",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "delivery_state": "terminal",
+        "events": [
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 0,
+            "event_type": "connected",
+            "data": {}
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 1,
+            "event_type": "retrieving",
+            "data": {
+              "reported_by": "backend"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 2,
+            "event_type": "generating",
+            "data": {
+              "reported_by": "backend"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 3,
+            "event_type": "delta",
+            "data": {
+              "text": "سلام"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 4,
+            "event_type": "completed",
+            "data": {
+              "final_answer_id": "ans_1",
+              "final_state": "completed"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "valid_stream_failed",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "stream_session",
+        "contract_version": "product.v1",
+        "stream_id": "stream_1",
+        "answer_id": "ans_1",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "delivery_state": "terminal",
+        "events": [
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 0,
+            "event_type": "connected",
+            "data": {}
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 1,
+            "event_type": "failed",
+            "data": {
+              "error": {
+                "category": "technical",
+                "code": "UPSTREAM_UNAVAILABLE",
+                "message": "Synthetic technical failure"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "valid_stream_server_cancelled",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "stream_session",
+        "contract_version": "product.v1",
+        "stream_id": "stream_1",
+        "answer_id": "ans_1",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "delivery_state": "terminal",
+        "events": [
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 0,
+            "event_type": "connected",
+            "data": {}
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 1,
+            "event_type": "cancel_requested",
+            "data": {
+              "effect": "server_requested"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 2,
+            "event_type": "server_cancelled",
+            "data": {
+              "server_stopped": true,
+              "confirmation_ref": "server_ack_1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "valid_stream_unknown",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "stream_session",
+        "contract_version": "product.v1",
+        "stream_id": "stream_1",
+        "answer_id": "ans_1",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "delivery_state": "terminal",
+        "events": [
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 0,
+            "event_type": "connected",
+            "data": {}
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 1,
+            "event_type": "unknown",
+            "data": {
+              "reason": "Connection lost; backend state unknown"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "valid_stream_display_only_cancel",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "provisional contract structural + semantic validity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "stream_session",
+        "contract_version": "product.v1",
+        "stream_id": "stream_1",
+        "answer_id": "ans_1",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "delivery_state": "display_cancelled",
+        "events": [
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 0,
+            "event_type": "connected",
+            "data": {}
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 1,
+            "event_type": "display_cancelled",
+            "data": {
+              "effect": "display_only"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "invalid_client_forges_user",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Client must never control trusted identity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "send_message_request",
+        "contract_version": "product.v1",
+        "conversation_id": "conv_1",
+        "client_message_id": "client_msg_1",
+        "question": "سؤال آزمایشی",
+        "idempotency_key": "key_test_001",
+        "owner_user_id": "user_2"
+      }
+    },
+    {
+      "case_id": "invalid_unsupported_nb23_field",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "No RAG filter on provisional product request",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "send_message_request",
+        "contract_version": "product.v1",
+        "conversation_id": "conv_1",
+        "client_message_id": "client_msg_1",
+        "question": "سؤال آزمایشی",
+        "idempotency_key": "key_test_001",
+        "authority_filter": [
+          "author"
+        ]
+      }
+    },
+    {
+      "case_id": "invalid_bad_idempotency_key",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Idempotency key minimum length",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "send_message_request",
+        "contract_version": "product.v1",
+        "conversation_id": "conv_1",
+        "client_message_id": "client_msg_1",
+        "question": "سؤال آزمایشی",
+        "idempotency_key": "short"
+      }
+    },
+    {
+      "case_id": "invalid_missing_answer_ref",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Request ID required",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "trace_id": "trace_1",
+        "state": "completed",
+        "outcome": "answer",
+        "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_1"
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "citation_id": "cite_1",
+            "claim_ids": [
+              "claim_1"
+            ],
+            "source": {
+              "resolution_status": "unresolved",
+              "source_id": null,
+              "locator": null,
+              "credited_author_name": null,
+              "editorial_supervisor_name": null,
+              "speaker_name": null,
+              "content_authority_type": null,
+              "attribution_status": "unknown"
+            }
+          }
+        ],
+        "confidence": null,
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_negative_confidence",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "confidence bounds",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "completed",
+        "outcome": "answer",
+        "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_1"
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "citation_id": "cite_1",
+            "claim_ids": [
+              "claim_1"
+            ],
+            "source": {
+              "resolution_status": "unresolved",
+              "source_id": null,
+              "locator": null,
+              "credited_author_name": null,
+              "editorial_supervisor_name": null,
+              "speaker_name": null,
+              "content_authority_type": null,
+              "attribution_status": "unknown"
+            }
+          }
+        ],
+        "confidence": {
+          "value": -0.01,
+          "meaning": "illustrative calibration only",
+          "calibration_scope": "synthetic_fixture"
+        },
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_greater_than_one_confidence",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "confidence bounds",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "completed",
+        "outcome": "answer",
+        "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_1"
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "citation_id": "cite_1",
+            "claim_ids": [
+              "claim_1"
+            ],
+            "source": {
+              "resolution_status": "unresolved",
+              "source_id": null,
+              "locator": null,
+              "credited_author_name": null,
+              "editorial_supervisor_name": null,
+              "speaker_name": null,
+              "content_authority_type": null,
+              "attribution_status": "unknown"
+            }
+          }
+        ],
+        "confidence": {
+          "value": 1.01,
+          "meaning": "illustrative calibration only",
+          "calibration_scope": "synthetic_fixture"
+        },
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_confidence_unmeasured_fake_zero",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Do not invent confidence calibration fields",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "completed",
+        "outcome": "answer",
+        "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_1"
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "citation_id": "cite_1",
+            "claim_ids": [
+              "claim_1"
+            ],
+            "source": {
+              "resolution_status": "unresolved",
+              "source_id": null,
+              "locator": null,
+              "credited_author_name": null,
+              "editorial_supervisor_name": null,
+              "speaker_name": null,
+              "content_authority_type": null,
+              "attribution_status": "unknown"
+            }
+          }
+        ],
+        "confidence": {
+          "value": 0,
+          "meaning": "",
+          "calibration_scope": ""
+        },
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_technical_error_mislabeled_noanswer",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "No answer is not technical failure",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "completed",
+        "outcome": "no_answer",
+        "answer_text": "شاهد کافی نیست",
+        "claims": [],
+        "citations": [],
+        "confidence": null,
+        "error": {
+          "category": "technical",
+          "code": "UPSTREAM_UNAVAILABLE",
+          "message": "Synthetic technical failure"
+        },
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_error_outcome_without_error",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Technical error requires error object",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "failed",
+        "outcome": "error",
+        "answer_text": null,
+        "claims": [],
+        "citations": [],
+        "confidence": null,
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_error_with_citations",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Technical error must not claim success",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "failed",
+        "outcome": "error",
+        "answer_text": null,
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_1"
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "citation_id": "cite_1",
+            "claim_ids": [
+              "claim_1"
+            ],
+            "source": {
+              "resolution_status": "unresolved",
+              "source_id": null,
+              "locator": null,
+              "credited_author_name": null,
+              "editorial_supervisor_name": null,
+              "speaker_name": null,
+              "content_authority_type": null,
+              "attribution_status": "unknown"
+            }
+          }
+        ],
+        "confidence": null,
+        "error": {
+          "category": "technical",
+          "code": "UPSTREAM_UNAVAILABLE",
+          "message": "Synthetic technical failure"
+        },
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_unverified_source_fake_timestamp",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Unresolved citation must not present synthetic locator as evidence",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "completed",
+        "outcome": "answer",
+        "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_1"
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "citation_id": "cite_1",
+            "claim_ids": [
+              "claim_1"
+            ],
+            "source": {
+              "resolution_status": "unresolved",
+              "source_id": null,
+              "locator": {
+                "kind": "transcript_timestamp",
+                "url": null,
+                "page": null,
+                "timestamp_ms": 12000
+              },
+              "credited_author_name": null,
+              "editorial_supervisor_name": null,
+              "speaker_name": null,
+              "content_authority_type": null,
+              "attribution_status": "unknown"
+            }
+          }
+        ],
+        "confidence": null,
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_unverified_source_fake_author",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Unresolved source must not invent author",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "completed",
+        "outcome": "answer",
+        "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_1"
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "citation_id": "cite_1",
+            "claim_ids": [
+              "claim_1"
+            ],
+            "source": {
+              "resolution_status": "unresolved",
+              "source_id": null,
+              "locator": null,
+              "credited_author_name": "نام ساختگی",
+              "editorial_supervisor_name": null,
+              "speaker_name": null,
+              "content_authority_type": null,
+              "attribution_status": "unknown"
+            }
+          }
+        ],
+        "confidence": null,
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_synthetic_claims_real_verified_source",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Synthetic fixture cannot claim source verification",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "completed",
+        "outcome": "answer",
+        "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_1"
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "citation_id": "cite_1",
+            "claim_ids": [
+              "claim_1"
+            ],
+            "source": {
+              "resolution_status": "verified",
+              "source_id": "src_1",
+              "locator": {
+                "kind": "book_page",
+                "url": null,
+                "page": 10,
+                "timestamp_ms": null
+              },
+              "credited_author_name": null,
+              "editorial_supervisor_name": null,
+              "speaker_name": null,
+              "content_authority_type": null,
+              "attribution_status": "verified"
+            }
+          }
+        ],
+        "confidence": null,
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_fake_release_on_provisional",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Provisional cannot carry real release id",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "completed",
+        "outcome": "answer",
+        "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_1"
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "citation_id": "cite_1",
+            "claim_ids": [
+              "claim_1"
+            ],
+            "source": {
+              "resolution_status": "unresolved",
+              "source_id": null,
+              "locator": null,
+              "credited_author_name": null,
+              "editorial_supervisor_name": null,
+              "speaker_name": null,
+              "content_authority_type": null,
+              "attribution_status": "unknown"
+            }
+          }
+        ],
+        "confidence": null,
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": "fake_release",
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_fake_live_provenance",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Synthetic data may not claim live producer",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "completed",
+        "outcome": "answer",
+        "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_1"
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "citation_id": "cite_1",
+            "claim_ids": [
+              "claim_1"
+            ],
+            "source": {
+              "resolution_status": "unresolved",
+              "source_id": null,
+              "locator": null,
+              "credited_author_name": null,
+              "editorial_supervisor_name": null,
+              "speaker_name": null,
+              "content_authority_type": null,
+              "attribution_status": "unknown"
+            }
+          }
+        ],
+        "confidence": null,
+        "error": null,
+        "provenance": {
+          "origin": "LIVE_VERIFIED",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_missing_server_confirmation",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Delete success requires confirmed backend and completed at",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "delete_status",
+        "contract_version": "product.v1",
+        "deletion_request_id": "del_1",
+        "owner_user_id": "user_1",
+        "request_id": "req_del",
+        "trace_id": "trace_del",
+        "deletion_scope": "account",
+        "conversation_id": null,
+        "state": "succeeded",
+        "backend_confirmed": false,
+        "requested_at": "2026-01-01T00:00:00Z",
+        "completed_at": null,
+        "error": null
+      }
+    },
+    {
+      "case_id": "invalid_delete_without_confirmation",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Delete command must have explicit user confirmation",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "delete_command",
+        "contract_version": "product.v1",
+        "request_id": "req_del",
+        "trace_id": "trace_del",
+        "deletion_scope": "account",
+        "conversation_id": null,
+        "confirmed_by_user": false,
+        "client_action_id": "act_1"
+      }
+    },
+    {
+      "case_id": "invalid_delete_not_independent_of_export",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Delete does not depend on optional Export contract",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "delete_command",
+        "contract_version": "product.v1",
+        "request_id": "req_del",
+        "trace_id": "trace_del",
+        "deletion_scope": "account",
+        "conversation_id": null,
+        "confirmed_by_user": true,
+        "client_action_id": "act_1",
+        "export_required": true
+      }
+    },
+    {
+      "case_id": "invalid_pagination_cursor_missing",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Pagination more needs opaque next cursor",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "conversation_page",
+        "contract_version": "product.v1",
+        "scope_user_id": "user_1",
+        "items": [
+          {
+            "kind": "conversation",
+            "contract_version": "product.v1",
+            "conversation_id": "conv_1",
+            "owner_user_id": "user_1",
+            "title": "نمونه",
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "state": "active"
+          }
+        ],
+        "page": {
+          "limit": 20,
+          "has_more": true,
+          "next_cursor": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_cross_user_page",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Page must contain only authenticated owner",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "conversation_page",
+        "contract_version": "product.v1",
+        "scope_user_id": "user_1",
+        "items": [
+          {
+            "kind": "conversation",
+            "contract_version": "product.v1",
+            "conversation_id": "conv_1",
+            "owner_user_id": "user_2",
+            "title": "نمونه",
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "state": "active"
+          }
+        ],
+        "page": {
+          "limit": 20,
+          "has_more": false,
+          "next_cursor": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_cancel_confirmation_false",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Client display cancel != confirmed server cancellation",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "stream_session",
+        "contract_version": "product.v1",
+        "stream_id": "stream_1",
+        "answer_id": "ans_1",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "delivery_state": "terminal",
+        "events": [
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 0,
+            "event_type": "connected",
+            "data": {}
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 1,
+            "event_type": "cancel_requested",
+            "data": {
+              "effect": "server_requested"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 2,
+            "event_type": "server_cancelled",
+            "data": {
+              "server_stopped": false,
+              "confirmation_ref": "server_ack_1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "invalid_retrieving_without_backend",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Internal RAG phase must be backend-reported",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "stream_session",
+        "contract_version": "product.v1",
+        "stream_id": "stream_1",
+        "answer_id": "ans_1",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "delivery_state": "terminal",
+        "events": [
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 0,
+            "event_type": "connected",
+            "data": {}
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 1,
+            "event_type": "retrieving",
+            "data": {
+              "reported_by": "ui_assumption"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 2,
+            "event_type": "generating",
+            "data": {
+              "reported_by": "backend"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 3,
+            "event_type": "delta",
+            "data": {
+              "text": "سلام"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 4,
+            "event_type": "completed",
+            "data": {
+              "final_answer_id": "ans_1",
+              "final_state": "completed"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "invalid_stream_terminal_without_final_event",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Terminal session must have one end event",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "stream_session",
+        "contract_version": "product.v1",
+        "stream_id": "stream_1",
+        "answer_id": "ans_1",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "delivery_state": "terminal",
+        "events": [
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 0,
+            "event_type": "connected",
+            "data": {}
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 1,
+            "event_type": "retrieving",
+            "data": {
+              "reported_by": "backend"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 2,
+            "event_type": "generating",
+            "data": {
+              "reported_by": "backend"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 3,
+            "event_type": "delta",
+            "data": {
+              "text": "سلام"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "invalid_stream_end_then_delta",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "No deltas after terminal",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "stream_session",
+        "contract_version": "product.v1",
+        "stream_id": "stream_1",
+        "answer_id": "ans_1",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "delivery_state": "terminal",
+        "events": [
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 0,
+            "event_type": "connected",
+            "data": {}
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 1,
+            "event_type": "retrieving",
+            "data": {
+              "reported_by": "backend"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 2,
+            "event_type": "generating",
+            "data": {
+              "reported_by": "backend"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 3,
+            "event_type": "delta",
+            "data": {
+              "text": "سلام"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 4,
+            "event_type": "completed",
+            "data": {
+              "final_answer_id": "ans_1",
+              "final_state": "completed"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 5,
+            "event_type": "delta",
+            "data": {
+              "text": "late"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "invalid_stream_terminal_two_ends",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "No multiple end events",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "stream_session",
+        "contract_version": "product.v1",
+        "stream_id": "stream_1",
+        "answer_id": "ans_1",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "delivery_state": "terminal",
+        "events": [
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 0,
+            "event_type": "connected",
+            "data": {}
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 1,
+            "event_type": "retrieving",
+            "data": {
+              "reported_by": "backend"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 2,
+            "event_type": "generating",
+            "data": {
+              "reported_by": "backend"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 3,
+            "event_type": "delta",
+            "data": {
+              "text": "سلام"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 4,
+            "event_type": "completed",
+            "data": {
+              "final_answer_id": "ans_1",
+              "final_state": "completed"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 5,
+            "event_type": "failed",
+            "data": {
+              "error": {
+                "category": "technical",
+                "code": "UPSTREAM_UNAVAILABLE",
+                "message": "Synthetic technical failure"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "invalid_stream_skipped_sequence",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Seq cannot skip",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "stream_session",
+        "contract_version": "product.v1",
+        "stream_id": "stream_1",
+        "answer_id": "ans_1",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "delivery_state": "terminal",
+        "events": [
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 0,
+            "event_type": "connected",
+            "data": {}
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 1,
+            "event_type": "retrieving",
+            "data": {
+              "reported_by": "backend"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 7,
+            "event_type": "generating",
+            "data": {
+              "reported_by": "backend"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 3,
+            "event_type": "delta",
+            "data": {
+              "text": "سلام"
+            }
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 4,
+            "event_type": "completed",
+            "data": {
+              "final_answer_id": "ans_1",
+              "final_state": "completed"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "invalid_stream_unknown_no_reason",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Unknown terminal must carry reason",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "stream_session",
+        "contract_version": "product.v1",
+        "stream_id": "stream_1",
+        "answer_id": "ans_1",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "delivery_state": "terminal",
+        "events": [
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 0,
+            "event_type": "connected",
+            "data": {}
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 1,
+            "event_type": "unknown",
+            "data": {}
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "invalid_stream_display_only_claims_server_stop",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "UI display stop != actual backend stop",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "stream_session",
+        "contract_version": "product.v1",
+        "stream_id": "stream_1",
+        "answer_id": "ans_1",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "delivery_state": "display_cancelled",
+        "events": [
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 0,
+            "event_type": "connected",
+            "data": {}
+          },
+          {
+            "kind": "stream_event",
+            "contract_version": "product.v1",
+            "stream_id": "stream_1",
+            "answer_id": "ans_1",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "seq": 1,
+            "event_type": "server_cancelled",
+            "data": {
+              "server_stopped": true,
+              "confirmation_ref": "fake_server_stop"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "invalid_receipt_conflict_without_error",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Idempotency conflict requires error and no message ID",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "send_message_receipt",
+        "contract_version": "product.v1",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "owner_user_id": "user_1",
+        "conversation_id": "conv_1",
+        "client_message_id": "client_msg_1",
+        "idempotency_key": "key_test_001",
+        "idempotency_scope": "trusted_user+send_message+conversation",
+        "payload_sha256": "8df9c1a4a52d13ac3920d43479ac960ac264c7936fde7d562fbb7ba1d1933b99",
+        "disposition": "conflict",
+        "message_id": "msg_1",
+        "error": null
+      }
+    },
+    {
+      "case_id": "invalid_message_answer_ref_not_existing",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Snapshot link must match persisted answer ID",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "conversation_snapshot",
+        "contract_version": "product.v1",
+        "conversation": {
+          "kind": "conversation",
+          "contract_version": "product.v1",
+          "conversation_id": "conv_1",
+          "owner_user_id": "user_1",
+          "title": "نمونه",
+          "created_at": "2026-01-01T00:00:00Z",
+          "updated_at": "2026-01-01T00:00:00Z",
+          "state": "active"
+        },
+        "messages": [
+          {
+            "kind": "message",
+            "contract_version": "product.v1",
+            "message_id": "msg_1",
+            "conversation_id": "conv_1",
+            "owner_user_id": "user_1",
+            "role": "user",
+            "text": "پرسش نمونهٔ مصنوعی",
+            "created_at": "2026-01-01T00:00:00Z",
+            "answer_id": null
+          },
+          {
+            "kind": "message",
+            "contract_version": "product.v1",
+            "message_id": "msg_2",
+            "conversation_id": "conv_1",
+            "owner_user_id": "user_1",
+            "role": "assistant",
+            "text": "پاسخ آزمایشی",
+            "created_at": "2026-01-01T00:00:00Z",
+            "answer_id": "other_answer"
+          }
+        ],
+        "answers": [
+          {
+            "kind": "answer",
+            "contract_version": "product.v1",
+            "answer_id": "ans_1",
+            "conversation_id": "conv_1",
+            "message_id": "msg_2",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "state": "completed",
+            "outcome": "answer",
+            "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+            "claims": [
+              {
+                "claim_id": "claim_1",
+                "text": "یک ادعای آزمایشی",
+                "citation_ids": [
+                  "cite_1"
+                ]
+              }
+            ],
+            "citations": [
+              {
+                "citation_id": "cite_1",
+                "claim_ids": [
+                  "claim_1"
+                ],
+                "source": {
+                  "resolution_status": "unresolved",
+                  "source_id": null,
+                  "locator": null,
+                  "credited_author_name": null,
+                  "editorial_supervisor_name": null,
+                  "speaker_name": null,
+                  "content_authority_type": null,
+                  "attribution_status": "unknown"
+                }
+              }
+            ],
+            "confidence": null,
+            "error": null,
+            "provenance": {
+              "origin": "SYNTHETIC",
+              "rag_binding": {
+                "status": "provisional",
+                "blocked_by": "NB23",
+                "release_id": null,
+                "adapter_verified": false
+              },
+              "producer_reference": null,
+              "source_fingerprint": null
+            }
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "feedback",
+            "contract_version": "product.v1",
+            "feedback_id": "fb_1",
+            "owner_user_id": "user_1",
+            "conversation_id": "conv_1",
+            "answer_id": "ans_1",
+            "rating": "positive",
+            "reason": null,
+            "created_at": "2026-01-01T00:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "invalid_feedback_orphan_answer",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Feedback must target persisted answer",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "conversation_snapshot",
+        "contract_version": "product.v1",
+        "conversation": {
+          "kind": "conversation",
+          "contract_version": "product.v1",
+          "conversation_id": "conv_1",
+          "owner_user_id": "user_1",
+          "title": "نمونه",
+          "created_at": "2026-01-01T00:00:00Z",
+          "updated_at": "2026-01-01T00:00:00Z",
+          "state": "active"
+        },
+        "messages": [
+          {
+            "kind": "message",
+            "contract_version": "product.v1",
+            "message_id": "msg_1",
+            "conversation_id": "conv_1",
+            "owner_user_id": "user_1",
+            "role": "user",
+            "text": "پرسش نمونهٔ مصنوعی",
+            "created_at": "2026-01-01T00:00:00Z",
+            "answer_id": null
+          },
+          {
+            "kind": "message",
+            "contract_version": "product.v1",
+            "message_id": "msg_2",
+            "conversation_id": "conv_1",
+            "owner_user_id": "user_1",
+            "role": "assistant",
+            "text": "پاسخ آزمایشی",
+            "created_at": "2026-01-01T00:00:00Z",
+            "answer_id": "ans_1"
+          }
+        ],
+        "answers": [
+          {
+            "kind": "answer",
+            "contract_version": "product.v1",
+            "answer_id": "ans_1",
+            "conversation_id": "conv_1",
+            "message_id": "msg_2",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "state": "completed",
+            "outcome": "answer",
+            "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+            "claims": [
+              {
+                "claim_id": "claim_1",
+                "text": "یک ادعای آزمایشی",
+                "citation_ids": [
+                  "cite_1"
+                ]
+              }
+            ],
+            "citations": [
+              {
+                "citation_id": "cite_1",
+                "claim_ids": [
+                  "claim_1"
+                ],
+                "source": {
+                  "resolution_status": "unresolved",
+                  "source_id": null,
+                  "locator": null,
+                  "credited_author_name": null,
+                  "editorial_supervisor_name": null,
+                  "speaker_name": null,
+                  "content_authority_type": null,
+                  "attribution_status": "unknown"
+                }
+              }
+            ],
+            "confidence": null,
+            "error": null,
+            "provenance": {
+              "origin": "SYNTHETIC",
+              "rag_binding": {
+                "status": "provisional",
+                "blocked_by": "NB23",
+                "release_id": null,
+                "adapter_verified": false
+              },
+              "producer_reference": null,
+              "source_fingerprint": null
+            }
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "feedback",
+            "contract_version": "product.v1",
+            "feedback_id": "fb_1",
+            "owner_user_id": "user_1",
+            "conversation_id": "conv_1",
+            "answer_id": "missing_answer",
+            "rating": "positive",
+            "reason": null,
+            "created_at": "2026-01-01T00:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "invalid_cross_user_message",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Cross user snapshot exposure",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "conversation_snapshot",
+        "contract_version": "product.v1",
+        "conversation": {
+          "kind": "conversation",
+          "contract_version": "product.v1",
+          "conversation_id": "conv_1",
+          "owner_user_id": "user_1",
+          "title": "نمونه",
+          "created_at": "2026-01-01T00:00:00Z",
+          "updated_at": "2026-01-01T00:00:00Z",
+          "state": "active"
+        },
+        "messages": [
+          {
+            "kind": "message",
+            "contract_version": "product.v1",
+            "message_id": "msg_1",
+            "conversation_id": "conv_1",
+            "owner_user_id": "user_2",
+            "role": "user",
+            "text": "پرسش نمونهٔ مصنوعی",
+            "created_at": "2026-01-01T00:00:00Z",
+            "answer_id": null
+          },
+          {
+            "kind": "message",
+            "contract_version": "product.v1",
+            "message_id": "msg_2",
+            "conversation_id": "conv_1",
+            "owner_user_id": "user_1",
+            "role": "assistant",
+            "text": "پاسخ آزمایشی",
+            "created_at": "2026-01-01T00:00:00Z",
+            "answer_id": "ans_1"
+          }
+        ],
+        "answers": [
+          {
+            "kind": "answer",
+            "contract_version": "product.v1",
+            "answer_id": "ans_1",
+            "conversation_id": "conv_1",
+            "message_id": "msg_2",
+            "request_id": "req_1",
+            "trace_id": "trace_1",
+            "state": "completed",
+            "outcome": "answer",
+            "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+            "claims": [
+              {
+                "claim_id": "claim_1",
+                "text": "یک ادعای آزمایشی",
+                "citation_ids": [
+                  "cite_1"
+                ]
+              }
+            ],
+            "citations": [
+              {
+                "citation_id": "cite_1",
+                "claim_ids": [
+                  "claim_1"
+                ],
+                "source": {
+                  "resolution_status": "unresolved",
+                  "source_id": null,
+                  "locator": null,
+                  "credited_author_name": null,
+                  "editorial_supervisor_name": null,
+                  "speaker_name": null,
+                  "content_authority_type": null,
+                  "attribution_status": "unknown"
+                }
+              }
+            ],
+            "confidence": null,
+            "error": null,
+            "provenance": {
+              "origin": "SYNTHETIC",
+              "rag_binding": {
+                "status": "provisional",
+                "blocked_by": "NB23",
+                "release_id": null,
+                "adapter_verified": false
+              },
+              "producer_reference": null,
+              "source_fingerprint": null
+            }
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "feedback",
+            "contract_version": "product.v1",
+            "feedback_id": "fb_1",
+            "owner_user_id": "user_1",
+            "conversation_id": "conv_1",
+            "answer_id": "ans_1",
+            "rating": "positive",
+            "reason": null,
+            "created_at": "2026-01-01T00:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "invalid_duplicate_claim_id",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Claims unique within answer",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "completed",
+        "outcome": "answer",
+        "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_1"
+            ]
+          },
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_1"
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "citation_id": "cite_1",
+            "claim_ids": [
+              "claim_1"
+            ],
+            "source": {
+              "resolution_status": "unresolved",
+              "source_id": null,
+              "locator": null,
+              "credited_author_name": null,
+              "editorial_supervisor_name": null,
+              "speaker_name": null,
+              "content_authority_type": null,
+              "attribution_status": "unknown"
+            }
+          }
+        ],
+        "confidence": null,
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_broken_claim_to_citation",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Every claim reference must resolve",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "completed",
+        "outcome": "answer",
+        "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_missing"
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "citation_id": "cite_1",
+            "claim_ids": [
+              "claim_1"
+            ],
+            "source": {
+              "resolution_status": "unresolved",
+              "source_id": null,
+              "locator": null,
+              "credited_author_name": null,
+              "editorial_supervisor_name": null,
+              "speaker_name": null,
+              "content_authority_type": null,
+              "attribution_status": "unknown"
+            }
+          }
+        ],
+        "confidence": null,
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_broken_citation_to_claim",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Every citation reverse reference must resolve",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "completed",
+        "outcome": "answer",
+        "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_1"
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "citation_id": "cite_1",
+            "claim_ids": [
+              "claim_missing"
+            ],
+            "source": {
+              "resolution_status": "unresolved",
+              "source_id": null,
+              "locator": null,
+              "credited_author_name": null,
+              "editorial_supervisor_name": null,
+              "speaker_name": null,
+              "content_authority_type": null,
+              "attribution_status": "unknown"
+            }
+          }
+        ],
+        "confidence": null,
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_nonreciprocal_link",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Citation and claim reverse links must agree",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "completed",
+        "outcome": "answer",
+        "answer_text": "پاسخ مصنوعی برای سنجش اتصال.",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_1"
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "citation_id": "cite_1",
+            "claim_ids": [
+              "claim_1",
+              "claim_fake"
+            ],
+            "source": {
+              "resolution_status": "unresolved",
+              "source_id": null,
+              "locator": null,
+              "credited_author_name": null,
+              "editorial_supervisor_name": null,
+              "speaker_name": null,
+              "content_authority_type": null,
+              "attribution_status": "unknown"
+            }
+          }
+        ],
+        "confidence": null,
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_partial_without_content",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Partial output must retain visible partial content",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "partial",
+        "outcome": "partial",
+        "answer_text": null,
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "یک ادعای آزمایشی",
+            "citation_ids": [
+              "cite_1"
+            ]
+          }
+        ],
+        "citations": [
+          {
+            "citation_id": "cite_1",
+            "claim_ids": [
+              "claim_1"
+            ],
+            "source": {
+              "resolution_status": "unresolved",
+              "source_id": null,
+              "locator": null,
+              "credited_author_name": null,
+              "editorial_supervisor_name": null,
+              "speaker_name": null,
+              "content_authority_type": null,
+              "attribution_status": "unknown"
+            }
+          }
+        ],
+        "confidence": null,
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_unknown_as_success",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Unknown outcome cannot be successful completed result",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "answer",
+        "contract_version": "product.v1",
+        "answer_id": "ans_1",
+        "conversation_id": "conv_1",
+        "message_id": "msg_2",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "state": "completed",
+        "outcome": "unknown",
+        "answer_text": null,
+        "claims": [],
+        "citations": [],
+        "confidence": null,
+        "error": null,
+        "provenance": {
+          "origin": "SYNTHETIC",
+          "rag_binding": {
+            "status": "provisional",
+            "blocked_by": "NB23",
+            "release_id": null,
+            "adapter_verified": false
+          },
+          "producer_reference": null,
+          "source_fingerprint": null
+        }
+      }
+    },
+    {
+      "case_id": "invalid_send_receipt_unauthenticated",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "Receipt must include server-bound user identity",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "send_message_receipt",
+        "contract_version": "product.v1",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "owner_user_id": null,
+        "conversation_id": "conv_1",
+        "client_message_id": "client_msg_1",
+        "idempotency_key": "key_test_001",
+        "idempotency_scope": "trusted_user+send_message+conversation",
+        "payload_sha256": "8df9c1a4a52d13ac3920d43479ac960ac264c7936fde7d562fbb7ba1d1933b99",
+        "disposition": "created",
+        "message_id": "msg_1",
+        "error": null
+      }
+    },
+    {
+      "case_id": "invalid_forged_actor_origin",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "No client-supplied trusted actor",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "trusted_actor_context",
+        "contract_version": "product.v1",
+        "owner_user_id": "user_1",
+        "principal_source": "from_browser",
+        "authenticated_at": "2026-01-01T00:00:00Z",
+        "request_id": "req_1",
+        "trace_id": "trace_1"
+      }
+    }
+  ]
+}
