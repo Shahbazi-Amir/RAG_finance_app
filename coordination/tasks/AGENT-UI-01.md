@@ -312,3 +312,23 @@ history و فیلترها ورودی تأییدشدهٔ موتور نیستند�
 **خطا، اصلاح و بازآزمایی باز:** خطاهای مبدأ `react-hooks/refs` ناشی از خواندن/نوشتن Ref هنگام Render و خواندن Ref در JSX بودند؛ حذف شدند و فقط Check ساختاری ممکن بود؛ برای اثبات Lint باید روی مک با Lockfile به‌روز اجرا شود. خطای Peer ترانزیتیو ESLint 10 با انتخاب ESLint 9.39.5 رفع *در manifest* شد؛ `npm ls` بعد از نصب هنوز اجرا نشده است. Lockfile موجود مک نباید با فایل ساختگی یا بازنویسی از این محیط جایگزین شود.
 
 **وضعیت مستقل و گام بعد:** `implemented=SELECTIVE_SOURCE_FIX`، `static_checks=PASS`، `mac_prechange_evidence=TYPECHECK_AND_8_MOCK_TESTS_REPORTED_PASS`، `postchange_lint=NOT_RUN`، `postchange_build=NOT_RUN`، `postchange_browser=NOT_RUN`، `L1=PARTIAL_NOT_ACCEPTED`، `L2=NOT_RUN`، `P3M14_GATE=NOT_PASSED`، `supervisor_acceptance=PENDING`. هر ۱۴ چک‌باکس اجرایی تیک‌نخورده باقی ماندند. گام بعد: ناظر روی مک Lockfile را با نسخهٔ جدید هماهنگ و آزمون‌های واقعی را تکرار کند؛ سپس شواهد در همین پروندهٔ تجمعی ثبت شوند. PR #7 فقط Draft و بدون Merge باقی می‌ماند.
+
+## Checkpoint — UI-CHAT-L1-MAC-04
+
+- Roadmap: P3M02-A02/A06; P3M14-A03–A10/A12. No Module Gate accepted.
+- Baseline: agent/ui-l1-chat@feeda7a621e3586da62e34d39d674787aaaec6b9.
+- Evidence source: employer-provided Mac terminal output and manual-test report.
+- Observed tools: Node 24.19.0, npm 11.17.0.
+- Changed files: apps/web/package-lock.json, apps/web/next-env.d.ts, apps/web/tsconfig.json and this checkpoint.
+- Lockfile SHA-256: ed76ee9368f40f14a435c9342210769b76153e243ef62cd0156e0bd4b6a28307.
+- Dependency correction: ESLint 10 peer conflicts resolved using 9.39.5; npm ls --all exited 0. ESLint 9 end-of-support warning remains an open dependency-maintenance issue.
+- Actual Mac checks: npm run typecheck PASS; npm run lint PASS; npm test PASS (8 tests).
+- Clean install: npm ci --ignore-scripts --no-audit --no-fund PASS.
+- Build: NEXT_TELEMETRY_DISABLED=1 npm run build PASS.
+- Next build updated generated type references and added .next/dev/types/**/*.ts to tsconfig. Generated .next output is not committed.
+- Local execution: production build served using npm run start on loopback; manual test reported successful by employer. Not Docker.
+- Automated DOM/focus/browser checks: NOT_RUN. Screenshots: NOT_PROVIDED. Visual design and Persian copy: require improvement.
+- Implemented: local dependency lock and Next type configuration.
+- Tested: checks above only; manual report is separate from automated evidence.
+- Accepted: full L1, L2 and P3M14 Gate remain pending. No real Backend/model/RAG connection.
+- Next: supervisor review, commit/push these files, then complete browser evidence and define visual/Persian refinement.
