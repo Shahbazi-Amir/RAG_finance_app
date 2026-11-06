@@ -31,12 +31,28 @@ def main():
                 dialog.dismiss()
             page.on("dialog", handle_dialog)
             page.goto(base, wait_until="domcontentloaded", timeout=15000)
-            expect(page.get_by_text("نسخهٔ آزمایشی — پاسخ‌های نمونه")).to_be_visible()
+            expect(page.get_by_text("نسخهٔ آزمایشی؛ پاسخ‌ها نمونه‌اند و به موتور پاسخ‌گویی متصل نیستند.")).to_be_visible()
+            assert page.locator(".side-panel").count() == 0, "The large intro column reappeared"
+            assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "Desktop horizontal overflow"
+            assert page.locator(".messages").evaluate("(el) => getComputedStyle(el).overflowY") != "auto", "Nested messages scroll returned"
+            assert page.locator(".topbar").evaluate("(el) => getComputedStyle(el).position") == "sticky"
+            assert page.locator(".chat-footer").evaluate("(el) => getComputedStyle(el).position") == "sticky"
+            assert page.locator(".composer").is_visible(), "Composer should be visible at the desktop viewport"
+            composer_box = page.locator(".composer").bounding_box()
+            assert composer_box and 0 <= composer_box["y"] and composer_box["y"] + composer_box["height"] <= 900 + 1, (
+                "Composer was outside 1280x900 viewport before scrolling"
+            )
+            # Technical controls are intentionally progressive disclosure.
+            if page.locator(".test-tools").get_attribute("open") is None:
+                page.locator(".test-tools summary").click()
+            expect(page.locator("#scenario")).to_be_visible()
             page.locator("#scenario").select_option("answer")
             page.locator("#question").fill("سؤال آزمون منبع")
-            page.get_by_role("button", name=re.compile("ارسال پرسش")).click()
+            page.get_by_role("button", name=re.compile("^ارسال")).click()
             expect(page.locator(".answer-text").last).to_contain_text("نه پاسخ موتور واقعی.", timeout=12000)
             expect(page.locator(".source-button").last).to_be_visible()
+            expect(page.get_by_text("اطمینان پاسخ ارزیابی نشده است.")).to_be_visible()
+            assert "null" not in page.locator(".messages").inner_text(), "Technical null leaked to chat"
             opener = page.locator(".source-button").last
             opener.click()
             drawer = page.get_by_role("dialog", name="جزئیات منبع نمونه")
@@ -56,10 +72,12 @@ def main():
             expect(opener).to_be_focused()
             page.screenshot(path=str(evidence / "desktop.png"), full_page=True)
             # Real DOM injection regression: React must render malicious strings as text.
-            page.get_by_role("button", name="شروع گفتگوی آزمایشی تازه").click()
+            page.get_by_role("button", name="گفتگوی تازه").click()
+            if page.locator(".test-tools").get_attribute("open") is None:
+                page.locator(".test-tools summary").click()
             page.locator("#scenario").select_option("malicious")
             page.locator("#question").fill("آزمایش HTML و URL مخرب")
-            page.get_by_role("button", name=re.compile("ارسال پرسش")).click()
+            page.get_by_role("button", name=re.compile("^ارسال")).click()
             content = page.locator(".answer-text").last
             expect(content).to_contain_text("<script>alert(1)</script>", timeout=12000)
             assert content.locator("script,img,svg").count() == 0, "HTML parsed instead of escaped"
@@ -72,38 +90,47 @@ def main():
             assert not dialogs, f"JavaScript dialog executed: {dialogs}"
             page.keyboard.press("Escape")
             # Replay and conflict share a message row in UI.
-            page.get_by_role("button", name="ارسال مجدد با همان شناسه").click()
+            page.get_by_role("button", name="تکرار همان درخواست (Replay)").click()
             expect(page.get_by_text(re.compile("replayed"), exact=False).last).to_be_visible(timeout=12000)
-            page.get_by_role("button", name="آزمایش Conflict").click()
-            expect(page.get_by_text("متن متفاوت با همان کلید رد شد؛ پیام جدید ثبت نشد.")).to_be_visible(timeout=12000)
+            page.get_by_role("button", name="آزمایش تعارض (Conflict)").click()
+            expect(page.get_by_text("درخواست تکراری با متن متفاوت پذیرفته نشد؛ پیام جدیدی ثبت نشد.")).to_be_visible(timeout=12000)
             # Regression: the renderable local "cancel requested" flag is scoped to
             # each attempt and must reset on a fresh run, replay and clear.
-            page.get_by_role("button", name="شروع گفتگوی آزمایشی تازه").click()
+            page.get_by_role("button", name="گفتگوی تازه").click()
+            if page.locator(".test-tools").get_attribute("open") is None:
+                page.locator(".test-tools summary").click()
             page.locator("#scenario").select_option("answer")
             page.locator("#question").fill("لغو سمت Mock")
-            page.get_by_role("button", name=re.compile("ارسال پرسش")).click()
-            cancel_button = page.get_by_role("button", name="درخواست لغو به سرور نمونه")
+            page.get_by_role("button", name=re.compile("^ارسال")).click()
+            cancel_button = page.get_by_role("button", name="درخواست توقف پردازش")
             expect(cancel_button).to_be_enabled(timeout=5000)
             cancel_button.click()
-            expect(page.locator(".message-set").last).to_contain_text("Mock توقف را تأیید کرد", timeout=8000)
+            expect(page.locator(".message-set").last).to_contain_text("توقف پردازش در شبیه‌ساز تأیید شد", timeout=8000)
             # Retry the same message: cancellation request must not remain disabled.
-            page.get_by_role("button", name="ارسال مجدد با همان شناسه").click()
-            cancel_button = page.get_by_role("button", name="درخواست لغو به سرور نمونه")
+            page.get_by_role("button", name="تکرار همان درخواست (Replay)").click()
+            cancel_button = page.get_by_role("button", name="درخواست توقف پردازش")
             expect(cancel_button).to_be_enabled(timeout=5000)
-            page.get_by_role("button", name="توقف نمایش (نه موتور)").click()
-            expect(page.locator(".message-set").last).to_contain_text("فقط نمایش متوقف شد", timeout=5000)
-            assert "Mock توقف را تأیید کرد" not in page.locator(".message-set").last.inner_text(), (
+            page.get_by_role("button", name="توقف نمایش").click()
+            expect(page.locator(".message-set").last).to_contain_text("نمایش پاسخ متوقف شد", timeout=5000)
+            assert "توقف پردازش در شبیه‌ساز تأیید شد" not in page.locator(".message-set").last.inner_text(), (
                 "Display-only cancellation was shown as server-confirmed stop"
             )
             # Clearing the chat resets the mock and its render flags.
-            page.get_by_role("button", name="شروع گفتگوی آزمایشی تازه").click()
+            page.get_by_role("button", name="گفتگوی تازه").click()
             expect(page.locator(".message-set")).to_have_count(0)
             page.locator("#question").fill("تلاش تازه بعد از پاک‌کردن")
-            page.get_by_role("button", name=re.compile("ارسال پرسش")).click()
-            expect(page.get_by_role("button", name="درخواست لغو به سرور نمونه")).to_be_enabled(timeout=5000)
+            page.get_by_role("button", name=re.compile("^ارسال")).click()
+            expect(page.get_by_role("button", name="درخواست توقف پردازش")).to_be_enabled(timeout=5000)
             mobile = browser.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=1)
             mobile.goto(base, wait_until="domcontentloaded", timeout=15000)
             expect(mobile.locator("#question")).to_be_visible()
+            expect(mobile.get_by_text("نسخهٔ آزمایشی؛ پاسخ‌ها نمونه‌اند و به موتور پاسخ‌گویی متصل نیستند.")).to_be_visible()
+            assert mobile.locator(".composer").is_visible(), "Composer is not visible at 390x844"
+            mobile_composer = mobile.locator(".composer").bounding_box()
+            assert mobile_composer and 0 <= mobile_composer["y"] and mobile_composer["y"] + mobile_composer["height"] <= 844 + 1, (
+                "Composer was outside the 390x844 initial viewport"
+            )
+            assert mobile.locator(".topbar").is_visible(), "Header is not visible at 390x844"
             assert mobile.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "Mobile horizontal overflow"
             mobile.locator("#question").focus()
             expect(mobile.locator("#question")).to_be_focused()
