@@ -40,3 +40,9 @@ cache/
 *.parquet
 *.sqlite3
 *.db
+
+# Task-local tool caches / auxiliary isolated environments
+.venv*/
+.uv-cache/
+.direnv/
+.npm/
