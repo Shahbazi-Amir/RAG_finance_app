@@ -33,7 +33,7 @@ def cross_checks(document):
                 elif citation['citation_id'] not in claim_map[cid]['citation_ids']:
                     errors.append('ASYMMETRIC_CLAIM_REF')
         if document['provenance']['origin'] == 'SYNTHETIC':
-            if any(c['source']['resolution_status'] != 'unresolved' for c in citations):
+            if any(c['source']['resolution_status'] == 'verified' or c['source']['attribution_status'] == 'verified' for c in citations):
                 errors.append('SYNTHETIC_SOURCE_MARKED_REAL')
         if document['outcome'] == 'error' and document['error']['category'] != 'technical':
             errors.append('ERROR_OUTCOME_MUST_BE_TECHNICAL')
@@ -43,6 +43,20 @@ def cross_checks(document):
             errors.append('PARTIAL_MUST_CONTAIN_VISIBLE_CONTENT')
         if document['outcome'] in {'unknown','cancelled'} and document['claims']:
             errors.append('UNFINALIZED_HAS_FINAL_CLAIMS')
+
+    elif kind == 'send_message_receipt':
+        # For new conversations the client requested ID stays null; the server must
+        # return a non-null allocated ID on success. Existing conversations cannot
+        # silently resolve to a different thread.
+        if document['disposition'] in {'created', 'replayed'}:
+            requested = document['requested_conversation_id']
+            resolved = document['resolved_conversation_id']
+            if resolved is None:
+                errors.append('SUCCESS_RECEIPT_MISSING_RESOLVED_CONVERSATION')
+            elif requested is not None and resolved != requested:
+                errors.append('RESOLVED_CONVERSATION_MISMATCH')
+        elif document['resolved_conversation_id'] is not None:
+            errors.append('CONFLICT_MUST_NOT_ALLOCATE_CONVERSATION')
 
     elif kind == 'conversation_snapshot':
         conversation = document['conversation']
@@ -127,7 +141,7 @@ def check_idempotency_history(receipts):
         if r['kind'] != 'send_message_receipt':
             errors.append('NOT_A_RECEIPT')
             continue
-        scope = (r['owner_user_id'], r['idempotency_scope'], r['conversation_id'], r['client_message_id'], r['idempotency_key'])
+        scope = (r['owner_user_id'], r['idempotency_scope'], r['requested_conversation_id'], r['client_message_id'], r['idempotency_key'])
         old = grouped.get(scope)
         if old is None:
             if r['disposition'] != 'created':
@@ -138,8 +152,10 @@ def check_idempotency_history(receipts):
         if same_payload:
             if r['disposition'] != 'replayed' or r['message_id'] != old['message_id']:
                 errors.append('RETRY_MUST_REPLAY_SAME_PERSISTED_MESSAGE')
+            if r['resolved_conversation_id'] != old['resolved_conversation_id']:
+                errors.append('RETRY_MUST_REPLAY_SAME_RESOLVED_CONVERSATION')
         else:
-            if r['disposition'] != 'conflict' or r['message_id'] is not None:
+            if r['disposition'] != 'conflict' or r['message_id'] is not None or r['resolved_conversation_id'] is not None:
                 errors.append('IDEMPOTENCY_KEY_PAYLOAD_CONFLICT')
     return sorted(set(errors))
 
@@ -148,7 +164,7 @@ def canonical_request_fingerprint(request):
     """Compute server-side fingerprint of exactly the stable client payload keys."""
     if request['kind'] != 'send_message_request':
         raise ValueError('NOT_SEND_MESSAGE_REQUEST')
-    stable = {k: request[k] for k in ('client_message_id','conversation_id','question')}
+    stable = {k: request[k] for k in ('client_message_id','requested_conversation_id','question')}
     raw = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8')
     return hashlib.sha256(raw).hexdigest()
 
@@ -160,9 +176,18 @@ def check_request_receipt(request, receipt, actor):
         return ['WRONG_CONTRACT_KIND']
     if actor['principal_source'] != 'server_auth_context' or receipt['owner_user_id'] != actor['owner_user_id']:
         errors.append('UNTRUSTED_IDENTITY')
-    for key in ('conversation_id','client_message_id','idempotency_key'):
+    for key in ('requested_conversation_id','client_message_id','idempotency_key'):
         if receipt[key] != request[key]:
             errors.append('RECEIPT_REQUEST_MISMATCH_' + key.upper())
+    requested = request['requested_conversation_id']
+    resolved = receipt['resolved_conversation_id']
+    if receipt['disposition'] in {'created', 'replayed'}:
+        if resolved is None:
+            errors.append('SUCCESS_RECEIPT_MISSING_RESOLVED_CONVERSATION')
+        elif requested is not None and resolved != requested:
+            errors.append('RESOLVED_CONVERSATION_MISMATCH')
+    elif resolved is not None:
+        errors.append('CONFLICT_MUST_NOT_ALLOCATE_CONVERSATION')
     if receipt['payload_sha256'] != canonical_request_fingerprint(request):
         errors.append('PAYLOAD_FINGERPRINT_MISMATCH')
     if receipt['request_id'] != actor['request_id'] or receipt['trace_id'] != actor['trace_id']:

@@ -97,6 +97,7 @@ class TestMachineReadableContract(unittest.TestCase):
         self.assertIsNone(source['locator'])
         self.assertIsNone(source['speaker_name'])
         source['resolution_status'] = 'verified'
+        source['source_type'] = 'transcript'
         source['source_id'] = 'source_1'
         source['locator'] = {'kind':'transcript_timestamp','url':None,'page':None,'timestamp_ms':1234}
         source['attribution_status'] = 'verified'
@@ -133,7 +134,7 @@ class TestMachineReadableContract(unittest.TestCase):
         bad_replay['message_id'] = 'msg_duplicate'
         self.assertIn('RETRY_MUST_REPLAY_SAME_PERSISTED_MESSAGE',check_idempotency_history([original,bad_replay]))
         diff = copy.deepcopy(replay)
-        diff.update(payload_sha256='b'*64,disposition='conflict',message_id=None,error={'category':'validation','code':'IDEMPOTENCY_CONFLICT','message':'changed payload'})
+        diff.update(payload_sha256='b'*64,disposition='conflict',resolved_conversation_id=None,message_id=None,error={'category':'validation','code':'IDEMPOTENCY_CONFLICT','message':'changed payload'})
         self.assertEqual(errors_for(diff), [])
         self.assertEqual(check_idempotency_history([original,diff]), [])
         wrong = copy.deepcopy(diff)
@@ -158,6 +159,122 @@ class TestMachineReadableContract(unittest.TestCase):
         forged = copy.deepcopy(receipt)
         forged['owner_user_id'] = 'user_2'
         self.assertIn('UNTRUSTED_IDENTITY',check_request_receipt(request,forged,actor))
+
+    def test_delta_space_newline_empty_and_exact_text_reconstruction(self):
+        for name in ('valid_delta_space', 'valid_delta_newline'):
+            self.assertEqual(errors_for(fixture(name)), [], name)
+        self.assertTrue(errors_for(fixture('invalid_delta_empty')))
+        session = fixture('valid_stream_reconstruct_preserves_whitespace')
+        self.assertEqual(errors_for(session), [])
+        chunks = [e['data']['text'] for e in session['events'] if e['event_type'] == 'delta']
+        self.assertEqual(chunks, ['سلام', ' ', 'دنیا', '\n', 'خط دوم'])
+        self.assertEqual(''.join(chunks), 'سلام دنیا\nخط دوم')
+        self.assertEqual(session['events'][-1]['event_type'], 'completed')
+        invalid_final = fixture('valid_answer_unresolved_source')
+        invalid_final['answer_text'] = '  \n '
+        self.assertTrue(errors_for(invalid_final), 'Only delta text accepts whitespace-only, not final answer')
+        reordered = copy.deepcopy(session)
+        reordered['events'][4]['seq'] = 99
+        self.assertIn('NONCONTIGUOUS_EVENT_SEQUENCE', errors_for(reordered))
+
+    def test_new_conversation_idempotency_and_stable_allocation(self):
+        request = fixture('valid_request_new_conversation')
+        receipt = fixture('valid_receipt_new_conversation_allocated')
+        actor = fixture('valid_trusted_actor_context')
+        self.assertIsNone(request['requested_conversation_id'])
+        self.assertEqual(receipt['resolved_conversation_id'], 'conv_alloc_01')
+        self.assertEqual(errors_for(request), [])
+        self.assertEqual(errors_for(receipt), [])
+        self.assertEqual(check_request_receipt(request, receipt, actor), [])
+        self.assertEqual(receipt['payload_sha256'], canonical_request_fingerprint(request))
+        replay = copy.deepcopy(receipt)
+        replay['disposition'] = 'replayed'
+        self.assertEqual(check_idempotency_history([receipt, replay]), [])
+        self.assertEqual(check_request_receipt(request, replay, actor), [])
+        bad_replay = copy.deepcopy(replay)
+        bad_replay['resolved_conversation_id'] = 'conv_wrong'
+        self.assertIn('RETRY_MUST_REPLAY_SAME_RESOLVED_CONVERSATION', check_idempotency_history([receipt, bad_replay]))
+        bad_replay['resolved_conversation_id'] = receipt['resolved_conversation_id']
+        bad_replay['message_id'] = 'msg_other'
+        self.assertIn('RETRY_MUST_REPLAY_SAME_PERSISTED_MESSAGE', check_idempotency_history([receipt, bad_replay]))
+        changed = copy.deepcopy(request)
+        changed['question'] = 'پیام دیگر با کلید تکراری'
+        self.assertNotEqual(canonical_request_fingerprint(request), canonical_request_fingerprint(changed))
+        conflict = copy.deepcopy(receipt)
+        conflict.update(disposition='conflict', message_id=None, resolved_conversation_id=None,
+                        payload_sha256=canonical_request_fingerprint(changed),
+                        error={'category':'validation','code':'IDEMPOTENCY_CONFLICT','message':'different payload'})
+        self.assertEqual(errors_for(conflict), [])
+        self.assertEqual(check_idempotency_history([receipt, conflict]), [])
+        self.assertEqual(check_request_receipt(changed, conflict, actor), [])
+        same_other_user = copy.deepcopy(receipt)
+        same_other_user['owner_user_id'] = 'user_other'
+        self.assertEqual(check_idempotency_history([receipt, same_other_user]), [])
+        self.assertIn('UNTRUSTED_IDENTITY', check_request_receipt(request, same_other_user, actor))
+
+        existing = fixture('valid_send_message_request')
+        existing_receipt = fixture('valid_send_message_receipt')
+        self.assertEqual(existing['requested_conversation_id'], 'conv_1')
+        self.assertEqual(existing_receipt['resolved_conversation_id'], 'conv_1')
+        self.assertEqual(check_request_receipt(existing, existing_receipt, actor), [])
+        wrong_thread = copy.deepcopy(existing_receipt)
+        wrong_thread['resolved_conversation_id'] = 'conv_other'
+        self.assertIn('RESOLVED_CONVERSATION_MISMATCH', errors_for(wrong_thread))
+        self.assertIn('RESOLVED_CONVERSATION_MISMATCH', check_request_receipt(existing, wrong_thread, actor))
+        missing_resolved = copy.deepcopy(receipt)
+        missing_resolved['resolved_conversation_id'] = None
+        self.assertTrue(errors_for(missing_resolved))
+        self.assertIn('SUCCESS_RECEIPT_MISSING_RESOLVED_CONVERSATION', check_request_receipt(request, missing_resolved, actor))
+
+    def test_locator_variants_and_source_type_compatibility(self):
+        source_validator = Draft202012Validator({
+            '$schema': SCHEMA['$schema'], '$defs': SCHEMA['$defs'], '$ref': '#/$defs/source_attribution'
+        }, format_checker=FormatChecker())
+        def source_errors(source):
+            return list(source_validator.iter_errors(source))
+        def source_for(source_type, locator):
+            return {
+                'resolution_status': 'verified', 'source_type': source_type,
+                'source_id': 'source_fixture_only', 'locator': locator,
+                'credited_author_name': None, 'editorial_supervisor_name': None,
+                'speaker_name': None, 'content_authority_type': None,
+                'attribution_status': 'unknown'
+            }
+        book_anchor = {'kind':'book_anchor','url':None,'page':None,'timestamp_ms':None,
+                       'work_id':'work_edition_test','edition_id':'ed1','anchor':'chapter_3_p4'}
+        transcript_segment = {'kind':'transcript_segment','url':None,'page':None,
+                              'timestamp_ms':None,'episode_id':'episode_test','segment_anchor':'segment_17'}
+        website = {'kind':'url','url':'https://example.invalid/test','page':None,'timestamp_ms':None}
+        old_book_page = {'kind':'book_page','url':None,'page':7,'timestamp_ms':None}
+        old_time = {'kind':'transcript_timestamp','url':None,'page':None,'timestamp_ms':2000}
+        for typ,loc in [('book',book_anchor),('transcript',transcript_segment),
+                        ('website',website),('book',old_book_page),('transcript',old_time)]:
+            self.assertEqual(source_errors(source_for(typ,loc)), [], (typ,loc))
+        self.assertTrue(source_errors(source_for('website',book_anchor)))
+        self.assertTrue(source_errors(source_for('transcript',old_book_page)))
+        self.assertTrue(source_errors(source_for('book',transcript_segment)))
+        bad_book = copy.deepcopy(book_anchor)
+        del bad_book['edition_id']
+        self.assertTrue(source_errors(source_for('book',bad_book)))
+        bad_episode = copy.deepcopy(transcript_segment)
+        bad_episode['timestamp_ms'] = 0
+        self.assertTrue(source_errors(source_for('transcript',bad_episode)))
+
+        for cid in ('valid_source_metadata_unresolved_book','valid_source_metadata_unresolved_transcript','valid_unresolved_hypothetical_author'):
+            answer = fixture(cid)
+            self.assertEqual(errors_for(answer), [], cid)
+            meta = answer['citations'][0]['source']
+            self.assertIsNone(meta['locator'])
+            self.assertEqual(meta['attribution_status'], 'unknown')
+            self.assertTrue(meta['credited_author_name'])
+        forged = fixture('valid_source_metadata_unresolved_book')
+        forged['citations'][0]['source']['attribution_status'] = 'verified'
+        self.assertIn('SYNTHETIC_SOURCE_MARKED_REAL', errors_for(forged))
+        forged = fixture('valid_source_metadata_unresolved_book')
+        source = forged['citations'][0]['source']
+        source.update(resolution_status='verified', locator=book_anchor)
+        self.assertIn('SYNTHETIC_SOURCE_MARKED_REAL', errors_for(forged))
+        # A structurally valid locator is NOT real source evidence in a SYNTHETIC envelope.
 
     def test_no_export_dependency_on_deletion(self):
         command = fixture('valid_delete_command_confirmed')

@@ -334,7 +334,9 @@
           "enum": [
             "url",
             "book_page",
-            "transcript_timestamp"
+            "book_anchor",
+            "transcript_timestamp",
+            "transcript_segment"
           ]
         },
         "url": {
@@ -370,6 +372,31 @@
               "type": "null"
             }
           ]
+        },
+        "work_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "edition_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "anchor": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "episode_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "segment_anchor": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
         }
       },
       "required": [
@@ -385,7 +412,10 @@
               "kind": {
                 "const": "url"
               }
-            }
+            },
+            "required": [
+              "kind"
+            ]
           },
           "then": {
             "properties": {
@@ -400,7 +430,40 @@
               "timestamp_ms": {
                 "type": "null"
               }
-            }
+            },
+            "allOf": [
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "work_id"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "edition_id"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "anchor"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "episode_id"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "segment_anchor"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
           }
         },
         {
@@ -409,7 +472,10 @@
               "kind": {
                 "const": "book_page"
               }
-            }
+            },
+            "required": [
+              "kind"
+            ]
           },
           "then": {
             "properties": {
@@ -423,7 +489,78 @@
               "timestamp_ms": {
                 "type": "null"
               }
-            }
+            },
+            "allOf": [
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "anchor"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "episode_id"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "segment_anchor"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "book_anchor"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "url": {
+                "type": "null"
+              },
+              "page": {
+                "type": "null"
+              },
+              "timestamp_ms": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "work_id",
+              "edition_id",
+              "anchor"
+            ],
+            "allOf": [
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "episode_id"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "segment_anchor"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
           }
         },
         {
@@ -432,7 +569,10 @@
               "kind": {
                 "const": "transcript_timestamp"
               }
-            }
+            },
+            "required": [
+              "kind"
+            ]
           },
           "then": {
             "properties": {
@@ -446,10 +586,91 @@
                 "type": "integer",
                 "minimum": 0
               }
-            }
+            },
+            "allOf": [
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "work_id"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "edition_id"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "anchor"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "segment_anchor"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "transcript_segment"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "url": {
+                "type": "null"
+              },
+              "page": {
+                "type": "null"
+              },
+              "timestamp_ms": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "episode_id",
+              "segment_anchor"
+            ],
+            "allOf": [
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "work_id"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "edition_id"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "anchor"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
           }
         }
-      ]
+      ],
+      "$comment": "book_anchor requires work_id + edition_id + stable anchor; transcript_segment requires episode_id + stable segment_anchor. Missing page/timestamp stays null, never synthetic zero."
     },
     "source_attribution": {
       "type": "object",
@@ -539,10 +760,25 @@
             "unknown",
             "verified"
           ]
+        },
+        "source_type": {
+          "oneOf": [
+            {
+              "enum": [
+                "website",
+                "book",
+                "transcript"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
         "resolution_status",
+        "source_type",
         "source_id",
         "locator",
         "credited_author_name",
@@ -558,30 +794,15 @@
               "resolution_status": {
                 "const": "unresolved"
               }
-            }
+            },
+            "required": [
+              "resolution_status"
+            ]
           },
           "then": {
             "properties": {
-              "source_id": {
-                "type": "null"
-              },
               "locator": {
                 "type": "null"
-              },
-              "credited_author_name": {
-                "type": "null"
-              },
-              "editorial_supervisor_name": {
-                "type": "null"
-              },
-              "speaker_name": {
-                "type": "null"
-              },
-              "content_authority_type": {
-                "type": "null"
-              },
-              "attribution_status": {
-                "const": "unknown"
               }
             }
           }
@@ -592,7 +813,10 @@
               "resolution_status": {
                 "const": "verified"
               }
-            }
+            },
+            "required": [
+              "resolution_status"
+            ]
           },
           "then": {
             "properties": {
@@ -600,16 +824,159 @@
                 "type": "string",
                 "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
               },
+              "source_type": {
+                "enum": [
+                  "website",
+                  "book",
+                  "transcript"
+                ]
+              },
               "locator": {
                 "$ref": "#/$defs/locator"
-              },
-              "attribution_status": {
-                "const": "verified"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "source_type": {
+                "const": "website"
+              }
+            },
+            "required": [
+              "source_type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "locator": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "allOf": [
+                      {
+                        "$ref": "#/$defs/locator"
+                      },
+                      {
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "url"
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "source_type": {
+                "const": "book"
+              }
+            },
+            "required": [
+              "source_type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "locator": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "allOf": [
+                      {
+                        "$ref": "#/$defs/locator"
+                      },
+                      {
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "book_page",
+                              "book_anchor"
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "source_type": {
+                "const": "transcript"
+              }
+            },
+            "required": [
+              "source_type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "locator": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "allOf": [
+                      {
+                        "$ref": "#/$defs/locator"
+                      },
+                      {
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "transcript_timestamp",
+                              "transcript_segment"
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "source_type": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "source_type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "locator": {
+                "type": "null"
               }
             }
           }
         }
-      ]
+      ],
+      "$comment": "source_type and known source metadata may survive an unresolved locator; attribution_status is separate from locator resolution. Verification requires independent provenance; synthetic fixtures never prove either."
     },
     "claim": {
       "type": "object",
@@ -1158,17 +1525,6 @@
         "contract_version": {
           "const": "product.v1"
         },
-        "conversation_id": {
-          "oneOf": [
-            {
-              "type": "string",
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "client_message_id": {
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
@@ -1183,12 +1539,23 @@
           "minLength": 8,
           "maxLength": 128,
           "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "requested_conversation_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
         "kind",
         "contract_version",
-        "conversation_id",
+        "requested_conversation_id",
         "client_message_id",
         "question",
         "idempotency_key"
@@ -1215,17 +1582,6 @@
         "owner_user_id": {
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
-        },
-        "conversation_id": {
-          "oneOf": [
-            {
-              "type": "string",
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
-            },
-            {
-              "type": "null"
-            }
-          ]
         },
         "client_message_id": {
           "type": "string",
@@ -1270,6 +1626,28 @@
               "type": "null"
             }
           ]
+        },
+        "requested_conversation_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resolved_conversation_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -1278,7 +1656,8 @@
         "request_id",
         "trace_id",
         "owner_user_id",
-        "conversation_id",
+        "requested_conversation_id",
+        "resolved_conversation_id",
         "client_message_id",
         "idempotency_key",
         "idempotency_scope",
@@ -1303,6 +1682,9 @@
               },
               "error": {
                 "$ref": "#/$defs/error"
+              },
+              "resolved_conversation_id": {
+                "type": "null"
               }
             }
           }
@@ -1326,11 +1708,16 @@
               },
               "error": {
                 "type": "null"
+              },
+              "resolved_conversation_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
               }
             }
           }
         }
-      ]
+      ],
+      "$comment": "requested_conversation_id is the immutable original client request input, possibly null; resolved_conversation_id is a server-assigned non-null identifier on created/replayed, the same across safe replays, and null for conflict. No exactly-once model guarantee."
     },
     "trusted_actor_context": {
       "type": "object",
@@ -1907,8 +2294,7 @@
                 "properties": {
                   "text": {
                     "type": "string",
-                    "minLength": 1,
-                    "pattern": "\\S"
+                    "minLength": 1
                   }
                 },
                 "required": [

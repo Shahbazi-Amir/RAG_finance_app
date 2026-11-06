@@ -13,9 +13,9 @@
 | Wire `kind` | Ownership boundary / key invariants |
 |---|---|
 | `conversation`, `message`, `answer`, `feedback`, `conversation_snapshot` | Server-owned `owner_user_id`, stable IDs; snapshot checks conversation/message/answer/feedback ownership, assistant-message link, citation cross-references, and feedback target. DB defines storage/index/RLS, not this document. |
-| `send_message_request` | Browser sends `conversation_id` (nullable for a new thread), `client_message_id`, `question`, `idempotency_key`; **never a user identity**, trusted context, NB23 history or authority/source/context filters. |
+| `send_message_request` | Browser sends `requested_conversation_id` (nullable for a new thread), `client_message_id`, `question`, `idempotency_key`; **never a user identity**, trusted context, NB23 history or authority/source/context filters. |
 | `trusted_actor_context` | **Internal server-generated** identity context only: `principal_source=server_auth_context`. No login, session, cookie or token strategy is selected; the backend must not deserialize this type from untrusted browser input. |
-| `send_message_receipt` | Server returns `owner_user_id`, `request_id`, `trace_id`, idempotency disposition, message ID or explicit conflict. Rejects inconsistent client/trusted-server ownership in relational checks. |
+| `send_message_receipt` | Server returns `owner_user_id`, `request_id`, `trace_id`, `requested_conversation_id` (unchanged original input), `resolved_conversation_id` (server-assigned on success), idempotency disposition, stable `message_id` or explicit conflict. Rejects inconsistent client/trusted-server ownership in relational checks. |
 | `conversation_page` | Opaque cursor, limit 1–100, `next_cursor` required only when `has_more=true`; product must authorize all returned conversations to the authenticated owner, also independently tested. |
 | `stream_event`, `stream_session` | Backend-reported phases, ordered sequence, request/trace IDs and explicit end/error/unknown/server-cancel semantics. The schema is **provisional**: not a verified NB23 event stream. |
 | `delete_command`, `delete_status` | User confirmation, `requesting→processing→succeeded/failed` consumer vocabulary; only backend confirmation may set `succeeded`. Optional Export is *not* a prerequisite for deletion. |
@@ -25,7 +25,7 @@
 
 The runnable cross-checks reject orphan/duplicated claim/citation IDs and asymmetric **two-way** links, answer-to-assistant-message mismatch, cross-user snapshots, feedback for an unknown answer, unauthorized pagination results, skipped or duplicated event sequences, missing/repeated terminal events, synthetic source verification and inconsistent request receipts. These checks are **local synthetic contract checks**, not live services, database RLS tests, or real source accuracy tests.
 
-**Attribution:** `credited_author_name`, `editorial_supervisor_name` and `speaker_name` are separate nullable fields. `content_authority_type`/`attribution_status` do not authorize inventing identity, page, URL or timestamp. For `SYNTHETIC` examples, citation `resolution_status=unresolved`, `locator=null`, and every attribution field is `null`; synthetic data must **never** be presented as verified source evidence. Future `verified` source claims require independent server-side provenance and actual resolver checks; schema acceptance alone is insufficient. `speaker`/`speaker_name` mapping to NB23 is pending.
+**Attribution:** `credited_author_name`, `editorial_supervisor_name` and `speaker_name` are separate nullable fields. `content_authority_type`/`attribution_status` do not authorize inventing identity, page, URL or timestamp. For `SYNTHETIC` examples, citation `resolution_status=unresolved` and `locator=null` remain mandatory for honest evidence labeling, but **known or hypothetical source metadata may be present** with `attribution_status=unknown`. Synthetic data must **never** be presented as verified locator or attribution evidence. Verified source attribution requires independent provenance, even if an unresolved entry already contains names or a source identifier. Future `verified` source claims require independent server-side provenance and actual resolver checks; schema acceptance alone is insufficient. `speaker`/`speaker_name` mapping to NB23 is pending.
 
 **Confidence:** `null` means **unmeasured**, not a measured value of zero. If a value is genuinely measured, it must be an object with `value` in `[0,1]` plus nonempty `meaning` and `calibration_scope`. A synthetic example with numeric value is not evidence of actual calibration.
 
@@ -33,9 +33,9 @@ The runnable cross-checks reject orphan/duplicated claim/citation IDs and asymme
 
 ## Send-message idempotency policy — no Exactly-once model claim
 
-1. The request comes without a trusted identity. Server derives the **authenticated principal** independently, then scopes the idempotency record by `(trusted_user, operation=send_message, conversation_id, client_message_id, idempotency_key)`. A null conversation ID for a new thread is stabilized by the same `client_message_id` and key, not inferred from a display label.
-2. Server computes `payload_sha256` over the exact UTF-8 bytes of JSON with **only** `client_message_id`, `conversation_id`, `question`, sorted keys, compact separators `(',',':')`, `ensure_ascii=False`, no Unicode case/whitespace normalization. The server does not trust a client-provided hash.
-3. First request persists one `created` receipt. Same authenticated scope/key and same fingerprint returns `replayed` with the **same persisted `message_id`**. Changed canonical payload under the same scoped key returns `conflict`, no message ID and an explicit validation error (the HTTP status mapping is a separate API decision). Same key in a *different authenticated user scope* is independent.
+1. The request comes without a trusted identity. Server derives the **authenticated principal** independently, then scopes the idempotency record by `(trusted_user, operation=send_message, requested_conversation_id, client_message_id, idempotency_key)`. A null `requested_conversation_id` for a new thread stays **null** on the original request/retry; the new server-assigned `resolved_conversation_id` must never be substituted into its idempotency scope.
+2. Server computes `payload_sha256` over the exact UTF-8 bytes of JSON with **only** `client_message_id`, `requested_conversation_id`, `question`, sorted keys, compact separators `(',',':')`, `ensure_ascii=False`, no Unicode case/whitespace normalization. The server does not trust a client-provided hash.
+3. First request persists one `created` receipt. Same authenticated scope/key and same fingerprint returns `replayed` with the **same persisted `message_id` and `resolved_conversation_id`**. Successful `created`/`replayed` receipts must contain non-null resolved IDs; on `conflict`, both `message_id` and `resolved_conversation_id` are null. Changed canonical payload under the same scoped key returns `conflict`, no message ID and an explicit validation error (the HTTP status mapping is a separate API decision). Same key in a *different authenticated user scope* is independent.
 4. This policy is for **duplicate message persistence/receipt and safe client retry**, **not** a guarantee of exactly-once model/provider execution, server cancellation, transaction retry or external side effects. API, DB and Foundation must agree on transaction boundary, commit/abort, authorization, timeout handling and stable error mapping before runtime integration.
 
 ## Streaming and cancellation — proposed events, not provider facts
@@ -73,3 +73,34 @@ Result for the initial package authoring environment: `12 tests`, `OK` on Python
 The supervisor-wide rule in [`AGENTS.md`](../../AGENTS.md) applies to all contract changes. **Every working push** affecting the product contracts must include an updated [`AGENT-CONTRACTS-01` mission checkpoint](../../coordination/tasks/AGENT-CONTRACTS-01.md) in the same change, with subtask `CT-xx`, source Module/section, baseline, changed files, rationale, exact commands and actual results, error/recheck record, pending work and links to task-owned evidence. Fixture/Schema artifacts under `packages/contracts/` and executable checks under `tests/phase3/contracts/` are the task-owned reproducible evidence; do not create a report per shell command.
 
 **Handoff to Foundation:** Send `CT-01..CT-08` (and any subsequent mission subtask IDs) mapped to `P3M03`, `P3M04`, `P3M06`, `P3M10`, `P3M11`, `P3M12`, `P3M13`, `P3M14`, `P3M15` and `P3M21`, with check outputs/evidence paths. Specialist owners must not edit `coordination/phase3_checklist.md`. Contract Fixture pass is not acceptance of NB23, the producer, Module 00 or Module 03 Gate.
+
+## Reviewed correction set — product.v1 regression.1 (still PROVISIONAL)
+
+### CT-FIX-01 — exact delta reconstruction (P3M13/14)
+
+- `stream_event.event_type=delta` now requires `data.text` to be a **nonempty string**, allowing `" "`, `"\\n"` and other whitespace-only chunks without trim, normalization or dropping content.
+- This exception applies **only** to `delta.data.text`; final `answer_text` still requires visible non-whitespace content.
+- The synthetic stream-session regression concatenates `["سلام", " ", "دنیا", "\\n", "خط دوم"]` to the exact string `"سلام دنیا\\nخط دوم"`. Terminal, cancellation and ordered-sequence checks remain mandatory.
+
+### CT-FIX-02 — requested versus resolved conversation identity (P3M03/10/13)
+
+- **Client request:** `requested_conversation_id` is a non-null existing conversation ID or `null` for a new conversation. The prior ambiguous client field `conversation_id` was **renamed**; this provisional-breaking change requires coordinated API/UI/DB review before any freeze.
+- **Server receipt:** `requested_conversation_id` repeats that original client value, while `resolved_conversation_id` is the **server-assigned stable conversation ID** for successful `created` or `replayed`. `message_id` must also be stable. A `conflict` has both resolved ID and message ID set to `null`, with an explicit error.
+- **Existing thread:** resolved conversation must equal non-null requested conversation. **New thread:** requested stays `null`, resolved is non-null. This distinction is checked by Schema **and** `check_request_receipt` / `check_idempotency_history`.
+- **Fingerprint:** computed over the original immutable request fields `client_message_id`, `requested_conversation_id`, `question` in deterministic sorted UTF-8 JSON. Persisted receipt scope uses the same original requested ID. A later server allocation does not create a new idempotency scope, and retry returns both original IDs. Changed payload under the same scope remains a conflict; trusted identity is server-sourced and user scopes remain separate.
+- No claim of exactly-once execution of model, provider or any external side effect.
+
+### CT-FIX-03 — typed locators, anchors and independent source metadata (P3M11/14; M00 remains blocked)
+
+- `source_attribution.source_type` is explicit: `website | book | transcript | null`; `null` is allowed for genuinely unidentified unresolved sources.
+- `locator.kind=url` requires HTTPS for a website. Existing `book_page` (positive page) and `transcript_timestamp` (nonnegative known milliseconds) forms remain valid for their matching source type.
+- New `book_anchor` requires nonempty `work_id`, `edition_id` and stable `anchor` with `page=null`, `timestamp_ms=null`; new `transcript_segment` requires `episode_id` and `segment_anchor` with `timestamp_ms=null`. No guessed page `0` or made-up timestamp is used to fill missing data.
+- Mismatched `source_type` and Locator kinds, incompatible extra fields and missing anchors are rejected by Schema.
+- `resolution_status=unresolved` means **locator is not resolved** but may retain known `source_id`, `source_type` and distinct author/editor/speaker names. `attribution_status` represents separate verification, not a side effect of locator resolution. Synthetic answer provenance rejects **either** verified locator or verified attribution; metadata examples are explicitly hypothetical and never evidence of a real source.
+
+### Local regression validation and scope
+
+- **Exact command from task workspace root:** `.venv/bin/python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v`
+- **Result:** `Ran 15 tests in 1.390s — OK` (31 expected-valid and 43 expected-invalid SYNTHETIC fixtures checked, schema Draft 2020-12 validated; Python 3.13.5 / pinned `jsonschema==4.26.0` in a task-local venv populated from already-installed distribution files). No model API, download, paid call, database migration or deployment.
+- The revised tests and fixture cases are **machine-readable task-owned evidence**, not observed live producer events, validated source provenance or formal `P3M00/P3M03` Gate PASS.
+- Open: authoritative NB23 acceptance, real source locator validation and speaker mapping, actual streaming/cancel semantics, Auth and ownership middleware, idempotency TTL/transport mapping and persistence migration decisions.
