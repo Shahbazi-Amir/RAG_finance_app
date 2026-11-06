@@ -67,3 +67,9 @@ python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v
 Tests require Python 3 and `jsonschema==4.26.0` (with its own declared transitive dependencies). If not available, create a **separate disposable venv** and install `tests/phase3/contracts/requirements.txt` there; do not install packages globally or into Phase 2 environments. Tests use local JSON fixtures only; no network access is made by test code.
 
 Result for the initial package authoring environment: `12 tests`, `OK` on Python 3.13.5 / `jsonschema==4.26.0` (details in `coordination/tasks/AGENT-CONTRACTS-01.md`). No live integration, RAG compatibility, backend DB policy, accessibility or product Gate claims follow from these results.
+
+## Cumulative mission evidence and handoff
+
+The supervisor-wide rule in [`AGENTS.md`](../../AGENTS.md) applies to all contract changes. **Every working push** affecting the product contracts must include an updated [`AGENT-CONTRACTS-01` mission checkpoint](../../coordination/tasks/AGENT-CONTRACTS-01.md) in the same change, with subtask `CT-xx`, source Module/section, baseline, changed files, rationale, exact commands and actual results, error/recheck record, pending work and links to task-owned evidence. Fixture/Schema artifacts under `packages/contracts/` and executable checks under `tests/phase3/contracts/` are the task-owned reproducible evidence; do not create a report per shell command.
+
+**Handoff to Foundation:** Send `CT-01..CT-08` (and any subsequent mission subtask IDs) mapped to `P3M03`, `P3M04`, `P3M06`, `P3M10`, `P3M11`, `P3M12`, `P3M13`, `P3M14`, `P3M15` and `P3M21`, with check outputs/evidence paths. Specialist owners must not edit `coordination/phase3_checklist.md`. Contract Fixture pass is not acceptance of NB23, the producer, Module 00 or Module 03 Gate.
