@@ -842,7 +842,7 @@ These are traceability overlays for the **same** modular work, not extra progres
 
 - **Task reference:** [`AGENT-CONTRACTS-01.md`](tasks/AGENT-CONTRACTS-01.md), related to P3M03 (common contract foundation), P3M10–11/13–15 and P3M04/06 as interfaces, without adding another progress counter.
 - **Scope:** versioned product-only JSON Schema, synthetic fixtures, and independent contract/relationship checks under Foundation-owned `tests/phase3/contracts/**`; does not alter the read-only NB23 contract.
-- **Evidence:** 12 runnable local tests; 22 positive and 40 negative **SYNTHETIC** cases, subject to task PR review. This is **task-level evidence only**. Canonical Module 03 acceptance, all runtime Gates and supervisor acceptance **remain unchecked**; live RAG/Streaming, source locators and real producer mapping are `provisional/blocked_by=NB23`.
+- **Evidence (historical, not re-executed here):** at the exact reviewed Contracts HEAD [`d6efb852`](https://github.com/Shahbazi-Amir/RAG_finance_app/commit/d6efb85249980593372dc35d236206baff8a2d7f), **21 synthetic contract tests** passed; the last recorded suite evaluated **98 SYNTHETIC fixtures (37 expected-valid / 61 expected-invalid)**. Supervisor accepted [PR #4](https://github.com/Shahbazi-Amir/RAG_finance_app/pull/4) as a **PROVISIONAL development baseline only**. This is task-level contract evidence, **not** a test run by AGENT-PLAN-01 and **not** Module 03 Gate PASS. Module 00, real DB/RLS, UI L1/L2, runtime Gates and NB23 producer/stream/citation compatibility remain unaccepted or blocked.
 
 ## Additional source constraints — not omitted or double counted
 
