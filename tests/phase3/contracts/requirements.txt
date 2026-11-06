@@ -1,0 +1,2 @@
+# Used only by isolated contract tests; version verified in task execution environment.
+jsonschema==4.26.0
