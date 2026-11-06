@@ -24,7 +24,7 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, executable_path=executable)
         try:
-            page = browser.new_page(viewport={"width": 1280, "height": 900}, device_scale_factor=1)
+            page = browser.new_page(viewport={"width": 1280, "height": 800}, device_scale_factor=1)
             dialogs = []
             def handle_dialog(dialog):
                 dialogs.append(dialog.message)
@@ -33,14 +33,19 @@ def main():
             page.goto(base, wait_until="domcontentloaded", timeout=15000)
             expect(page.get_by_text("نسخهٔ آزمایشی؛ پاسخ‌ها نمونه‌اند و به موتور پاسخ‌گویی متصل نیستند.")).to_be_visible()
             assert page.locator(".side-panel").count() == 0, "The large intro column reappeared"
+            assert page.locator(".chat-panel").evaluate("(el) => getComputedStyle(el).backgroundColor") == "rgba(0, 0, 0, 0)", "The large white chat card reappeared"
+            assert page.locator(".chat-panel").evaluate("(el) => getComputedStyle(el).boxShadow") == "none", "The chat card shadow reappeared"
+            width = page.locator(".chat-panel").bounding_box()["width"]
+            assert 720 <= width <= 800, f"Desktop reading column is not ~720-800px: {width}"
+            expect(page.get_by_role("heading", name="چه پرسشی دربارهٔ امور مالی دارید؟")).to_be_visible()
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "Desktop horizontal overflow"
             assert page.locator(".messages").evaluate("(el) => getComputedStyle(el).overflowY") != "auto", "Nested messages scroll returned"
             assert page.locator(".topbar").evaluate("(el) => getComputedStyle(el).position") == "sticky"
             assert page.locator(".chat-footer").evaluate("(el) => getComputedStyle(el).position") == "sticky"
             assert page.locator(".composer").is_visible(), "Composer should be visible at the desktop viewport"
             composer_box = page.locator(".composer").bounding_box()
-            assert composer_box and 0 <= composer_box["y"] and composer_box["y"] + composer_box["height"] <= 900 + 1, (
-                "Composer was outside 1280x900 viewport before scrolling"
+            assert composer_box and 0 <= composer_box["y"] and composer_box["y"] + composer_box["height"] <= 800 + 1, (
+                "Composer was outside 1280x800 viewport before scrolling"
             )
             # Technical controls are intentionally progressive disclosure.
             if page.locator(".test-tools").get_attribute("open") is None:
@@ -51,7 +56,15 @@ def main():
             page.get_by_role("button", name=re.compile("^ارسال")).click()
             expect(page.locator(".answer-text").last).to_contain_text("نه پاسخ موتور واقعی.", timeout=12000)
             expect(page.locator(".source-button").last).to_be_visible()
+            expect(page.locator(".claim .source-button").last).to_be_visible()
             expect(page.get_by_text("اطمینان پاسخ ارزیابی نشده است.")).to_be_visible()
+            expect(page.get_by_role("heading", name="چه پرسشی دربارهٔ امور مالی دارید؟")).to_have_count(0)
+            assert page.locator(".message-set").last.locator(".state-line").count() == 0, (
+                "Completed normal answer displayed redundant status labels"
+            )
+            assert page.locator(".message-set").last.locator(".outcome").count() == 0, (
+                "Obsolete outcome label reappeared"
+            )
             assert "null" not in page.locator(".messages").inner_text(), "Technical null leaked to chat"
             opener = page.locator(".source-button").last
             opener.click()
@@ -70,6 +83,16 @@ def main():
             page.keyboard.press("Escape")
             expect(drawer).to_have_count(0)
             expect(opener).to_be_focused()
+            # Keep the technical drawer collapsed in the visual evidence.
+            if page.locator(".test-tools").get_attribute("open") is not None:
+                page.locator(".test-tools summary").click()
+            page.evaluate("window.scrollTo(0, 0)")
+            # At 1280x800 the first short exchange, header and composer should be in view.
+            for selector in [".topbar", ".user-bubble", ".answer-text", ".composer"]:
+                box = page.locator(selector).last.bounding_box()
+                assert box and box["y"] >= -1 and box["y"] + box["height"] <= 801, (
+                    f"{selector} is clipped in initial 1280x800 reading view: {box}"
+                )
             page.screenshot(path=str(evidence / "desktop.png"), full_page=True)
             # Real DOM injection regression: React must render malicious strings as text.
             page.get_by_role("button", name="گفتگوی تازه").click()
@@ -89,11 +112,34 @@ def main():
             expect(drawer.locator(".disabled-link")).to_be_visible()
             assert not dialogs, f"JavaScript dialog executed: {dialogs}"
             page.keyboard.press("Escape")
-            # Replay and conflict share a message row in UI.
+            # Replay and conflict remain usable behind the disclosure.
+            if page.locator(".test-tools").get_attribute("open") is None:
+                page.locator(".test-tools summary").click()
             page.get_by_role("button", name="تکرار همان درخواست (Replay)").click()
             expect(page.get_by_text(re.compile("replayed"), exact=False).last).to_be_visible(timeout=12000)
             page.get_by_role("button", name="آزمایش تعارض (Conflict)").click()
             expect(page.get_by_text("درخواست تکراری با متن متفاوت پذیرفته نشد؛ پیام جدیدی ثبت نشد.")).to_be_visible(timeout=12000)
+            # Distinct non-success states must not be swallowed by a generic success label.
+            for scenario, expected_status in [
+                ("partial", "پاسخ ناقص است"),
+                ("unknown", "نتیجه مشخص نیست"),
+                ("error", "خطای فنی رخ داد"),
+                ("no_answer", "شواهد کافی برای پاسخ"),
+                ("clarification", "برای پاسخ دقیق‌تر"),
+                ("refusal", "در این نمونه امکان پاسخ‌گویی"),
+            ]:
+                page.get_by_role("button", name="گفتگوی تازه").click()
+                if page.locator(".test-tools").get_attribute("open") is None:
+                    page.locator(".test-tools summary").click()
+                page.locator("#scenario").select_option(scenario)
+                page.locator("#question").fill("بررسی وضعیت نمونه")
+                page.get_by_role("button", name=re.compile("^ارسال")).click()
+                expect(page.locator(".message-set").last.locator(".state-line")).to_contain_text(
+                    expected_status, timeout=12000
+                )
+                assert page.locator(".message-set").last.locator(".state-line").count() == 1, (
+                    "More than one status is visible for one answer"
+                )
             # Regression: the renderable local "cancel requested" flag is scoped to
             # each attempt and must reset on a fresh run, replay and clear.
             page.get_by_role("button", name="گفتگوی تازه").click()

@@ -14,12 +14,6 @@ const scenarioNames:Record<Scenario,string>={
   clarification:'نیازمند توضیح',refusal:'امتناع',error:'خطای فنی',
   unknown:'وضعیت نامعلوم',malicious:'آزمایش محتوای مخرب (امن)'
 };
-const outcomeNames:Record<string,string>={
-  answer:'پاسخ آماده است',partial:'پاسخ ناقص است',
-  no_answer:'شواهد کافی برای پاسخ وجود ندارد',clarification:'به توضیح بیشتری نیاز است',
-  refusal:'امکان پاسخ‌گویی وجود ندارد',error:'خطا در دریافت پاسخ',
-  unknown:'نتیجهٔ پاسخ مشخص نیست',cancelled:'پاسخ لغو شد'
-};
 const phaseNames:Record<string,string>={
   submitting:'در حال ارسال پرسش',connected:'در حال آماده‌سازی پاسخ نمونه',
   retrieving:'مرحلهٔ جست‌وجوی شبیه‌سازی‌شده',generating:'مرحلهٔ تولید شبیه‌سازی‌شده',
@@ -30,6 +24,36 @@ const phaseNames:Record<string,string>={
   unknown:'نتیجهٔ پردازش مشخص نیست',conflict:'درخواست تکراری پذیرفته نشد',
   replayed:'درخواست قبلی دوباره دریافت شد'
 };
+
+type ItemStatus={label:string;tone:'pending'|'caution'|'error'};
+function visibleStatus(item:Item):ItemStatus|null{
+  // A completed normal answer has no redundant status. Terminal outcomes stay distinct.
+  if(item.terminal==='conflict')
+    return {label:'درخواست تکراری با متن متفاوت پذیرفته نشد؛ پیام جدیدی ثبت نشد.',tone:'error'};
+  if(item.displayStopped||item.terminal==='display-only')
+    return {label:'نمایش پاسخ متوقف شد؛ توقف پردازش تأیید نشده است.',tone:'caution'};
+  if(item.terminal==='server-cancelled')
+    return {label:'توقف پردازش در شبیه‌ساز تأیید شد.',tone:'caution'};
+  if(item.terminal==='failed')
+    return {label:'خطای فنی رخ داد؛ پاسخ کامل دریافت نشد.',tone:'error'};
+  if(item.terminal==='unknown')
+    return {label:'نتیجه مشخص نیست؛ پاسخ کامل تأیید نشده است.',tone:'caution'};
+  if(item.terminal==='partial'||item.answer?.outcome==='partial')
+    return {label:'پاسخ ناقص است؛ نتیجهٔ کامل دریافت نشده است.',tone:'caution'};
+  if(item.answer){
+    if(item.answer.outcome==='no_answer')
+      return {label:'شواهد کافی برای پاسخ در این نمونه وجود ندارد.',tone:'caution'};
+    if(item.answer.outcome==='clarification')
+      return {label:'برای پاسخ دقیق‌تر، پرسش را روشن‌تر کنید.',tone:'caution'};
+    if(item.answer.outcome==='refusal')
+      return {label:'در این نمونه امکان پاسخ‌گویی وجود ندارد.',tone:'caution'};
+    if(item.answer.outcome==='answer')return null;
+    return {label:'وضعیت پاسخ نمونه مشخص نیست.',tone:'caution'};
+  }
+  if(item.terminal==='complete'||item.phase==='completed')return null;
+  return {label:phaseNames[item.phase]??'در حال آماده‌سازی پاسخ نمونه',tone:'pending'};
+}
+
 function SourceDrawer({source,claim,onClose}:{source:Source;claim:string;onClose:()=>void}){
   const closeRef=useRef<HTMLButtonElement>(null);
   const panelRef=useRef<HTMLElement>(null);
@@ -184,92 +208,84 @@ export default function HomePage(){
   }
   return <main className="app-shell" dir="rtl">
     <header className="topbar">
-      <div className="brand">
-        <span className="brand-mark" aria-hidden="true">ف</span>
-        <div className="brand-title"><strong>راگ مالی</strong><small>گفتگوی آموزشی</small></div>
+      <div className="topbar-inner">
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true">ف</span>
+          <strong>راگ مالی</strong>
+        </div>
+        <button type="button" className="new-chat-button" onClick={clearChat}>
+          <span aria-hidden="true">＋</span> گفتگوی تازه
+        </button>
       </div>
-      <button className="new-chat-button" onClick={clearChat} type="button">
-        <span aria-hidden="true">＋</span> گفتگوی تازه
-      </button>
     </header>
     <div className="workspace">
       <section className="chat-panel" aria-label="گفتگوی فارسی">
-        <div className="chat-heading">
-          <div>
-            <p className="eyebrow">گفتگو</p>
-            <h1>پرسش مالی خود را بنویسید</h1>
-          </div>
-          <p className="session-note">این گفتگو فقط در همین صفحه نگه داشته می‌شود.</p>
-        </div>
-        <div className="demo-note" role="note">
-          <span className="note-icon" aria-hidden="true">i</span>
-          <p>نسخهٔ آزمایشی؛ پاسخ‌ها نمونه‌اند و به موتور پاسخ‌گویی متصل نیستند.</p>
-        </div>
+        <p className="demo-note" role="note">
+          نسخهٔ آزمایشی؛ پاسخ‌ها نمونه‌اند و به موتور پاسخ‌گویی متصل نیستند.
+        </p>
         <div className="messages" aria-live="polite" aria-relevant="additions text">
-          {!items.length&&<div className="empty-state">
+          {items.length===0&&<div className="empty-state">
             <div className="empty-icon" aria-hidden="true">✦</div>
-            <h2>از همین‌جا شروع کنید</h2>
-            <p>یک سؤال کوتاه بپرسید و پاسخ نمونه را ببینید.</p>
-            <p className="empty-example">مثلاً «چرا بودجه‌بندی ماهانه مهم است؟»</p>
+            <h1>چه پرسشی دربارهٔ امور مالی دارید؟</h1>
+            <p>برای دیدن یک پاسخ آزمایشی، سؤال خود را در کادر پایین بنویسید.</p>
+            <p className="empty-example">مثلاً: چرا بودجه‌بندی ماهانه مهم است؟</p>
           </div>}
-          {items.map(item=><article className="message-set" key={item.key}>
-            <div className="user-bubble">
-              <span className="message-label">پرسش شما</span>
-              <p>{item.request.question}</p>
-            </div>
-            <div className="answer-bubble">
-              <div className="answer-head">
-                <span className="assistant-icon" aria-hidden="true">ف</span>
-                <span className="message-label">پاسخ نمونه</span>
+          {items.map(item=>{
+            const status=visibleStatus(item);
+            return <article className="message-set" key={item.key}>
+              <div className="user-bubble">
+                <p>{item.request.question}</p>
               </div>
-              <div className="state-line" role="status">{phaseNames[item.phase]??'وضعیت نامشخص'}</div>
-              {item.terminal==='conflict'&&
-                <p className="error-text">درخواست تکراری با متن متفاوت پذیرفته نشد؛ پیام جدیدی ثبت نشد.</p>}
-              {item.text&&<p className="answer-text">{item.text}</p>}
-              {item.answer&&<>
-                <p className="outcome">{outcomeNames[item.answer.outcome]??'وضعیت پاسخ نامشخص است'}</p>
-                {item.answer.confidence===null&&
-                  <p className="confidence">اطمینان پاسخ ارزیابی نشده است.</p>}
-                {item.answer.claims.map(claim=><div className="claim" key={claim.claim_id}>
-                  <p><strong>نکتهٔ مرتبط:</strong> {claim.text}</p>
-                  {claim.citation_ids.map(cid=>{
-                    const citation=item.answer!.citations.find(x=>x.citation_id===cid);
-                    return citation?<button className="source-button" key={cid}
-                      onClick={event=>{drawerOpener.current=event.currentTarget;setDrawer({source:citation.source,claim:claim.text});}}>
-                      جزئیات منبع <span aria-hidden="true">↗</span>
-                    </button>:null;
-                  })}
-                </div>)}
-              </>}
-              {item.warning&&<p className="error-text">{item.warning}</p>}
-              {['partial','unknown','failed'].includes(item.terminal??'')&&
-                <p className="warning">این نتیجه پاسخ کامل و تأییدشده نیست.</p>}
-            </div>
-          </article>)}
+              <div className="answer-bubble">
+                <div className="answer-head">
+                  <span className="assistant-icon" aria-hidden="true">ف</span>
+                  <span className="message-label">پاسخ نمونه</span>
+                </div>
+                {status&&<p className="state-line" data-tone={status.tone} role="status">{status.label}</p>}
+                {item.text&&<p className="answer-text">{item.text}</p>}
+                {item.answer&&<>
+                  {item.answer.claims.map(claim=><div className="claim" key={claim.claim_id}>
+                    <p>{claim.text}</p>
+                    {claim.citation_ids.map(cid=>{
+                      const citation=item.answer!.citations.find(x=>x.citation_id===cid);
+                      return citation?<button className="source-button" type="button" key={cid}
+                        onClick={event=>{drawerOpener.current=event.currentTarget;setDrawer({source:citation.source,claim:claim.text});}}>
+                        جزئیات منبع <span aria-hidden="true">↗</span>
+                      </button>:null;
+                    })}
+                  </div>)}
+                  {item.answer.confidence===null&&
+                    <p className="confidence">اطمینان پاسخ ارزیابی نشده است.</p>}
+                </>}
+              </div>
+            </article>;
+          })}
           <div ref={endRef}/>
         </div>
         <div className="chat-footer">
           {active&&<div className="run-controls" role="group" aria-label="کنترل دریافت پاسخ">
-            <button className="secondary" onClick={cancelDisplay} type="button">توقف نمایش</button>
-            <button className="secondary" disabled={!active.receipt||!active.isRunning||active.cancelRequested}
-              onClick={cancelServer} type="button">درخواست توقف پردازش</button>
-            <p className="run-note">توقف نمایش فقط این صفحه را متوقف می‌کند؛ توقف پردازش نیازمند تأیید شبیه‌ساز است.</p>
+            <div className="run-buttons">
+              <button className="secondary" onClick={cancelDisplay} type="button">توقف نمایش</button>
+              <button className="secondary" disabled={!active.receipt||!active.isRunning||active.cancelRequested}
+                onClick={cancelServer} type="button">درخواست توقف پردازش</button>
+            </div>
+            <p className="run-note">توقف نمایش با توقف تأییدشدهٔ پردازش یکسان نیست.</p>
           </div>}
           <details className="test-tools">
-            <summary>ابزارهای آزمایش <span className="summary-chevron" aria-hidden="true">⌄</span></summary>
+            <summary>ابزارهای آزمایش <span aria-hidden="true">⌄</span></summary>
             <div className="tools-content">
               <div className="compose-tools">
                 <label htmlFor="scenario">نوع پاسخ نمونه</label>
                 <select id="scenario" value={scenario}
-                  onChange={e=>setScenario(e.target.value as Scenario)} disabled={!!activeKey}>
-                  {SCENARIOS.map(key=><option value={key} key={key}>{scenarioNames[key]}</option>)}
+                  onChange={event=>setScenario(event.target.value as Scenario)} disabled={!!activeKey}>
+                  {SCENARIOS.map(key=><option key={key} value={key}>{scenarioNames[key]}</option>)}
                 </select>
               </div>
               {!activeKey&&items.length>0&&<div className="tool-actions">
                 <button className="secondary" type="button" onClick={()=>retryLatest()}>تکرار همان درخواست (Replay)</button>
                 <button className="secondary" type="button" onClick={()=>retryLatest(true)}>آزمایش تعارض (Conflict)</button>
               </div>}
-              <p className="tools-description">این گزینه‌ها فقط برای بررسی رفتار رابط و داده‌های ساختگی هستند.</p>
+              <p className="tools-description">این گزینه‌ها فقط رفتار رابط و داده‌های ساختگی را بررسی می‌کنند.</p>
               <div className="technical-meta">
                 <span>نسخهٔ قرارداد: <code dir="ltr">{CONTRACT_VERSION}</code></span>
                 <span>منشأ داده‌ها: <code dir="ltr">{FIXTURE_ORIGIN}</code></span>
@@ -288,12 +304,14 @@ export default function HomePage(){
           </details>
           <form className="composer" onSubmit={event=>{event.preventDefault();submit()}}>
             <label htmlFor="question" className="sr-only">متن پرسش فارسی</label>
-            <textarea id="question" rows={2} value={draft} disabled={!!activeKey}
+            <textarea id="question" rows={Math.min(2,Math.max(1,draft.split('\n').length))}
+              value={draft} disabled={!!activeKey}
               onChange={event=>setDraft(event.target.value)}
               onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing){
                 event.preventDefault();submit();
               }}} placeholder="سؤال خود را بنویسید…"/>
-            <button type="submit" className="primary" disabled={!draft.trim()||!!activeKey}>
+            <button type="submit" className="primary" disabled={!draft.trim()||!!activeKey}
+              aria-label="ارسال پرسش">
               ارسال <span aria-hidden="true">←</span>
             </button>
           </form>
