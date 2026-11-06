@@ -18,3 +18,7 @@ The current source version is `Shahbazi-Amir/RAG_finance@7c74783c3dcda897b010ba9
 - **Foundation:** sole editor of the [canonical checklist](coordination/phase3_checklist.md) and [checkpoint](coordination/tasks/AGENT-FOUNDATION-01.md).
 
 No package installation or executable start command is provided because no product API, database or UI implementation currently exists. Before implementation, inspect repository status on the worker's own machine; GitHub remote verification is not a local Git health check.
+
+## Approved checklist onboarding (no implementation)
+
+The approved [UI v1.1 task checklist](coordination/tasks/AGENT-UI-01.md) and [DB v2 task checklist](coordination/tasks/AGENT-DB-01.md) are recorded, but both remain `ONBOARDING_ACCEPTED — IMPLEMENTATION_WAITING_FOR_FOUNDATION`. Read [ownership boundaries](coordination/ownership.md) before creating specialist implementations. A separate approved mission may later authorize independent UI/History/PostgreSQL Mock/Fixture tests; real model/RAG integration and Module 00 acceptance remain blocked. Streaming/Cancellation remain required but not verified. Account/data deletion is independent of Export scope approval.

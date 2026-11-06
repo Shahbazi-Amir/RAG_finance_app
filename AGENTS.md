@@ -19,3 +19,9 @@ Supervisor: «مغز فاز سوم». This repo is in preparatory mode; never cl
 Use statuses planned / active / blocked / review / accepted; keep implemented, tested and accepted distinct. Never tick a blocked or untested item. Add evidence link and test result before marking completion; record **supervisor approval separately**. Update owned mission checkpoint after meaningful batches only.
 
 NB23 Draft request supports **only** `contract_version` and `question`. Do not assume history, filters, context, streaming, real source resolution or producer outcome mapping. `confidence: null` is not a score. Distinguish credited author, editorial supervisor and speaker; never fabricate page/timestamp and do not expose unauthorized sources. Isolate user data.
+
+## Approved specialist checklist handoff (onboarding only)
+
+- UI v1.1: `coordination/tasks/AGENT-UI-01.md`; DB v2: `coordination/tasks/AGENT-DB-01.md`. Their onboarding is accepted, but implementation waits for Foundation acceptance and an explicit specialist task/starting SHA. Use these exact DB IDs; avoid `AGENT-DATABASE-*` aliases.
+- Ownership is path-specific in `coordination/ownership.md` (including namespaced tests; no exclusive owner for all integration tests). Shared Product schemas/contract paths, root configuration, and the canonical checklist are Foundation-only changes.
+- Independent Mock/Fixture UI, history, and PostgreSQL design/testing may run after authorized missions without NB23 live readiness. Runtime integration and Module 00 remain blocked. Streaming/Cancellation are required by the roadmap, not verified producer features. Deletion does not depend on Export approval.
