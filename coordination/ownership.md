@@ -26,3 +26,9 @@
 - پس از **پذیرش Foundation و مأموریت اجرایی مشخص**، طراحی و آزمون مستقل با Mock/Fixture و قرارداد provisional می‌تواند موازی پیش رود: UI/History/Persistence مستقل به پذیرش NB23 گره نمی‌خورد.
 - **همچنان blocked:** اتصال واقعی Runtime، قرارداد سازگاری موتور، پذیرش Module 00، کل Retrieval و Launch. Streaming و Cancellation الزام نقشه‌اند ولی آمادگی موتور ثابت نشده و حذف نمی‌شوند.
 - **حذف داده** به تصویب Export وابسته نیست. Auth، Retention، زیرساخت، SLO و هزینه تا تصمیم مصوب بازند.
+
+## AGENT-CONTRACTS-01 — Shared product contract test ownership
+
+- The **Foundation** agent alone owns and may edit `packages/contracts/**` and `tests/phase3/contracts/**` as the shared product-contract schema, SYNTHETIC fixtures and cross-component **contract-only** validation suite. This is distinct from `tests/phase3/integration/cross_component/**` and does **not** assign all `tests/` or all integration tests to Foundation.
+- API, UI and DB agents consume and review the same `product.v1` contract; they do not fork incompatible DTO copies or modify the Foundation-owned schema in their own folders. Specialist tests remain in `tests/phase3/api/**`, `tests/phase3/ui/**`, `tests/phase3/database/**` and their named integration subfolders.
+- Contracts are **provisional** until authorized integration and evidence; test success does not accept Module 00, the real RAG engine or Module 03 Gate. See `coordination/tasks/AGENT-CONTRACTS-01.md` and `packages/contracts/README.md`.
