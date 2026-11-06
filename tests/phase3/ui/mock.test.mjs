@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {MockTransport,newRequest,requestFingerprint,safeSourceHref,terminalDisplay} from '../../../apps/web/src/mock/transport.ts';
 async function collect(t,r,s='answer'){const updates=[];for await(const u of t.send(r,s))updates.push(u);return updates}
 const receipt=items=>items.find(x=>x.kind==='receipt').receipt;
@@ -76,4 +77,47 @@ test('malicious payload remains plain strings; unsafe hyperlinks rejected',async
   for(const url of ['javascript:alert(1)','data:text/html,<b>x</b>','http://example.com']){
     assert.equal(safeSourceHref({...s,resolution_status:'verified',locator:{kind:'url',url}}),null);
   }
+});
+
+test('receipt user message is separate from assistant Answer.message_id; replay preserves both',async()=>{
+  const t=new MockTransport(),req=newRequest('پرسش مستقل شناسه‌ها',null,'snapshot01');
+  const first=await collect(t,req);
+  const r=receipt(first),a=answer(first);
+  assert.ok(a && r.message_id);
+  assert.notEqual(r.message_id,a.message_id,'Receipt belongs to user, Answer to assistant');
+  assert.match(r.message_id,/^msg_user_mock_/);
+  assert.match(a.message_id,/^msg_assistant_mock_/);
+  const replay=await collect(t,req);
+  assert.equal(receipt(replay).disposition,'replayed');
+  assert.equal(receipt(replay).message_id,r.message_id);
+  assert.equal(answer(replay).message_id,a.message_id);
+  assert.equal(answer(replay).answer_id,a.answer_id);
+  assert.equal(receipt(replay).resolved_conversation_id,r.resolved_conversation_id);
+  assert.notEqual(receipt(replay).trace_id,r.trace_id,'current retry attempt owns trace');
+
+  // Reuse the shared contract's valid_snapshot_relations document shape;
+  // do not create a parallel Wire Schema or pretend mock records are persisted.
+  const registry=JSON.parse(readFileSync(new URL('../../../packages/contracts/fixtures/product.v1.cases.json',import.meta.url),'utf8'));
+  const template=registry.cases.find(x=>x.case_id==='valid_snapshot_relations')?.document;
+  assert.ok(template,'Snapshot fixture must exist in the UNCHANGED complete shared registry');
+  const snapshot=structuredClone(template);
+  snapshot.conversation.conversation_id=r.resolved_conversation_id;
+  snapshot.conversation.owner_user_id=r.owner_user_id;
+  const user={...snapshot.messages.find(m=>m.role==='user'),message_id:r.message_id,
+    conversation_id:r.resolved_conversation_id,owner_user_id:r.owner_user_id,text:req.question,answer_id:null};
+  const assistant={...snapshot.messages.find(m=>m.role==='assistant'),message_id:a.message_id,
+    conversation_id:r.resolved_conversation_id,owner_user_id:r.owner_user_id,
+    text:a.answer_text,answer_id:a.answer_id};
+  snapshot.messages=[user,assistant];snapshot.answers=[a];snapshot.feedback=[];
+  assert.equal(snapshot.kind,'conversation_snapshot');
+  assert.equal(snapshot.messages.filter(m=>m.role==='user').length,1);
+  assert.equal(snapshot.messages.filter(m=>m.role==='assistant').length,1);
+  assert.equal(new Set(snapshot.messages.map(m=>m.message_id)).size,2);
+  assert.equal(user.answer_id,null);
+  assert.equal(assistant.answer_id,a.answer_id);
+  assert.equal(a.message_id,assistant.message_id);
+  assert.equal(a.conversation_id,snapshot.conversation.conversation_id);
+  assert.ok(snapshot.messages.every(m=>m.owner_user_id===snapshot.conversation.owner_user_id));
+  assert.deepEqual(a.claims.map(c=>c.citation_ids),[['cite_1']]);
+  assert.deepEqual(a.citations[0].claim_ids,['claim_1']);
 });

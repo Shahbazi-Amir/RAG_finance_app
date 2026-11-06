@@ -75,7 +75,7 @@ export function terminalDisplay(event:StreamEvent):'complete'|'partial'|'failed'
     default:return null;
   }
 }
-type Saved={hash:string;conversation:string;message:string};
+type Saved={hash:string;conversation:string;userMessage:string;assistantMessage:string;answerId:string};
 export class MockTransport{
   private receipts=new Map<string,Saved>();
   private cancelRequested=new Set<string>();
@@ -94,8 +94,13 @@ export class MockTransport{
     const requestId='req_mock_'+this.serial;
     const traceId='trace_mock_'+this.serial;
     const conversation=conflict?null:(previous?.conversation??req.requested_conversation_id??'conv_mock_'+this.serial);
-    const message=conflict?null:(previous?.message??'msg_mock_'+this.serial);
-    if(!previous&&conversation&&message)this.receipts.set(scope,{hash,conversation,message});
+    // The receipt references a USER message; Answer references a distinct ASSISTANT message.
+    // All three persisted mock IDs remain stable across created/replayed receipts.
+    const message=conflict?null:(previous?.userMessage??'msg_user_mock_'+this.serial);
+    const assistantMessage=conflict?null:(previous?.assistantMessage??'msg_assistant_mock_'+this.serial);
+    const answerId=conflict?null:(previous?.answerId??'ans_mock_'+this.serial);
+    if(!previous&&conversation&&message&&assistantMessage&&answerId)
+      this.receipts.set(scope,{hash,conversation,userMessage:message,assistantMessage,answerId});
     const receipt:SendReceipt={
       kind:'send_message_receipt',contract_version:CONTRACT_VERSION,
       requested_conversation_id:req.requested_conversation_id,resolved_conversation_id:conversation,
@@ -105,8 +110,8 @@ export class MockTransport{
       owner_user_id:'mock_actor',idempotency_scope:'trusted_user+send_message+conversation',
       payload_sha256:hash,error:conflict?{category:'validation',code:'IDEMPOTENCY_CONFLICT',message:'synthetic conflict'}:null};
     yield {kind:'receipt',receipt};
-    if(conflict||!conversation||!message)return;
-    const answerId='ans_'+message, streamId='stream_'+requestId;
+    if(conflict||!conversation||!message||!assistantMessage||!answerId)return;
+    const streamId='stream_'+requestId;
     let seq=0;
     const makeEvent=(event_type:string,data:Record<string,unknown>):StreamEvent=>({
       kind:'stream_event',contract_version:CONTRACT_VERSION,seq:seq++,stream_id:streamId,answer_id:answerId,
@@ -150,7 +155,7 @@ export class MockTransport{
     const base=scenario==='no_answer'||scenario==='clarification'||scenario==='refusal'
       ?fixture<Answer>('valid_answer_no_answer')
       :scenario==='partial'?fixture<Answer>('valid_answer_partial'):source;
-    base.answer_id=answerId;base.conversation_id=conversation;base.message_id=message;
+    base.answer_id=answerId;base.conversation_id=conversation;base.message_id=assistantMessage;
     base.request_id=requestId;base.trace_id=traceId;base.answer_text=chunks.join('');
     base.outcome=scenario==='malicious'?'answer':scenario;
     base.state=scenario==='partial'?'partial':'completed';

@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import {
   CONTRACT_VERSION,FIXTURE_ORIGIN,MockTransport,SCENARIOS,isRealSourceClaim,
   newRequest,safeSourceHref,terminalDisplay,
@@ -31,11 +31,30 @@ const phaseNames:Record<string,string>={
 };
 function SourceDrawer({source,claim,onClose}:{source:Source;claim:string;onClose:()=>void}){
   const closeRef=useRef<HTMLButtonElement>(null);
+  const panelRef=useRef<HTMLElement>(null);
   useEffect(()=>{closeRef.current?.focus()},[]);
+  function handleDialogKeyDown(event:ReactKeyboardEvent<HTMLElement>){
+    if(event.key==='Escape'){
+      event.preventDefault();event.stopPropagation();onClose();return;
+    }
+    if(event.key!=='Tab')return;
+    const panel=panelRef.current;
+    if(!panel)return;
+    const focusable=Array.from(panel.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href]:not([aria-disabled="true"]), [tabindex]:not([tabindex="-1"])'
+    )).filter(element=>element.getClientRects().length>0);
+    if(focusable.length===0){event.preventDefault();panel.focus();return;}
+    const first=focusable[0],last=focusable[focusable.length-1];
+    if(event.shiftKey&&(document.activeElement===first||!panel.contains(document.activeElement))){
+      event.preventDefault();last.focus();
+    }else if(!event.shiftKey&&(document.activeElement===last||!panel.contains(document.activeElement))){
+      event.preventDefault();first.focus();
+    }
+  }
   const href=safeSourceHref(source);
   return <div className="drawer-backdrop" onClick={onClose}>
-    <aside className="drawer" role="dialog" aria-modal="true" aria-label="جزئیات منبع نمونه"
-      onClick={event=>event.stopPropagation()}>
+    <aside ref={panelRef} tabIndex={-1} className="drawer" role="dialog" aria-modal="true" aria-label="جزئیات منبع نمونه"
+      onKeyDown={handleDialogKeyDown} onClick={event=>event.stopPropagation()}>
       <div className="drawer-head"><h2>جزئیات منبع</h2>
         <button ref={closeRef} className="icon-button" onClick={onClose} aria-label="بستن پنل منبع">×</button>
       </div>
@@ -68,6 +87,12 @@ export default function HomePage(){
   const [threadId,setThreadId]=useState<string|null>(null);
   const [activeKey,setActiveKey]=useState<string|null>(null);
   const [drawer,setDrawer]=useState<{source:Source;claim:string}|null>(null);
+  const drawerOpener=useRef<HTMLButtonElement|null>(null);
+  function closeSource(){
+    setDrawer(null);
+    // Return focus after the modal has left the DOM.
+    window.requestAnimationFrame(()=>drawerOpener.current?.focus());
+  }
   const suppress=useRef(new Set<string>());
   const token=useRef(0);
   const endRef=useRef<HTMLDivElement>(null);
@@ -193,7 +218,7 @@ export default function HomePage(){
                   {claim.citation_ids.map(cid=>{
                     const c=item.answer!.citations.find(x=>x.citation_id===cid);
                     return c?<button className="source-button" key={cid}
-                      onClick={()=>setDrawer({source:c.source,claim:claim.text})}>
+                      onClick={event=>{drawerOpener.current=event.currentTarget;setDrawer({source:c.source,claim:claim.text});}}>
                       مشاهدهٔ منبع آزمایشی <span aria-hidden="true">↗</span></button>:null;
                   })}
                 </div>)}
@@ -236,6 +261,6 @@ export default function HomePage(){
         </div>
       </section>
     </div>
-    {drawer&&<SourceDrawer source={drawer.source} claim={drawer.claim} onClose={()=>setDrawer(null)}/>}
+    {drawer&&<SourceDrawer source={drawer.source} claim={drawer.claim} onClose={closeSource}/>}
   </main>
 }

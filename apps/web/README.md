@@ -14,7 +14,8 @@ This is a Next.js + TypeScript **mock-only** consumer of the repository's shared
 
 Visit **http://127.0.0.1:3000**. Stop the temporary process with Ctrl+C.
 
-Exact dependency versions are pinned in `apps/web/package.json`. The assigned executor could not reach npm's registry (DNS EAI_AGAIN), and its offline cache did not include the required metadata (ENOTCACHED). Therefore **install, complete npm lockfile, Next build, full typecheck, ESLint, actual browser run and genuine screenshot are NOT VERIFIED/NOT AVAILABLE.** Do **not** fabricate a partial lockfile or claim `npm ci` works; create and commit a complete `apps/web/package-lock.json` with the npm resolver in an authorized isolated environment before a clean build/acceptance. The machine's observed Node 22.16.0 is not a mandated installation target and has not been security-cleared for production.
+Exact dependency versions are pinned in `apps/web/package.json`. The unused `vitest` dependency was removed: unit tests use Node's built-in `node:test` runner.
+For optional genuine DOM/keyboard security checks, see `tests/phase3/ui/browser_check.py` (requires a running Next UI; not a substitute for renderer tests). The assigned executor could not reach npm's registry (DNS EAI_AGAIN), and its offline cache did not include the required metadata (ENOTCACHED). Therefore **install, complete npm lockfile, Next build, full typecheck, ESLint, actual browser run and genuine screenshot are NOT VERIFIED/NOT AVAILABLE.** Do **not** fabricate a partial lockfile or claim `npm ci` works; create and commit a complete `apps/web/package-lock.json` with the npm resolver in an authorized isolated environment before a clean build/acceptance. The machine's observed Node 22.16.0 is not a mandated installation target and has not been security-cleared for production.
 
 The isolated Node mock regression command (can run without Next):
     node --experimental-strip-types --test tests/phase3/ui/*.test.mjs
