@@ -45,6 +45,15 @@
     },
     {
       "$ref": "#/$defs/error_response"
+    },
+    {
+      "$ref": "#/$defs/feedback_submit_request"
+    },
+    {
+      "$ref": "#/$defs/feedback_submit_receipt"
+    },
+    {
+      "$ref": "#/$defs/delete_status_query"
     }
   ],
   "$defs": {
@@ -774,6 +783,33 @@
               "type": "null"
             }
           ]
+        },
+        "display_title": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 320,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "display_title_origin": {
+          "oneOf": [
+            {
+              "enum": [
+                "source_record",
+                "catalog_record",
+                "SYNTHETIC"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -974,9 +1010,97 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "required": [
+              "display_title"
+            ],
+            "properties": {
+              "display_title": {
+                "type": "string"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "display_title_origin"
+            ],
+            "properties": {
+              "display_title_origin": {
+                "enum": [
+                  "source_record",
+                  "catalog_record",
+                  "SYNTHETIC"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "display_title"
+            ],
+            "properties": {
+              "display_title": {
+                "type": "null"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "display_title_origin": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "display_title_origin"
+            ],
+            "properties": {
+              "display_title_origin": {
+                "type": "string"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "display_title"
+            ],
+            "properties": {
+              "display_title": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "display_title_origin"
+            ],
+            "properties": {
+              "display_title_origin": {
+                "type": "null"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "display_title": {
+                "type": "null"
+              }
+            }
+          }
         }
       ],
-      "$comment": "source_type and known source metadata may survive an unresolved locator; attribution_status is separate from locator resolution. Verification requires independent provenance; synthetic fixtures never prove either."
+      "$comment": "Optional display title of document/program may be retained with its claimed metadata origin; it does NOT prove resolution, attribution, source authorization or openable URL. Keep stable anchors as anchors; no guessed URL."
     },
     "claim": {
       "type": "object",
@@ -1868,14 +1992,6 @@
         "contract_version": {
           "const": "product.v1"
         },
-        "request_id": {
-          "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
-        },
-        "trace_id": {
-          "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
-        },
         "deletion_scope": {
           "enum": [
             "account",
@@ -1904,8 +2020,6 @@
       "required": [
         "kind",
         "contract_version",
-        "request_id",
-        "trace_id",
         "deletion_scope",
         "conversation_id",
         "confirmed_by_user",
@@ -1945,7 +2059,8 @@
             }
           }
         }
-      ]
+      ],
+      "$comment": "Client request only: client_action_id is client-owned; request_id, trace_id, deletion_request_id and owner identity are server-owned. Confirmed user action is not server-confirmed deletion."
     },
     "delete_status": {
       "type": "object",
@@ -2025,6 +2140,10 @@
               "type": "null"
             }
           ]
+        },
+        "client_action_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
         }
       },
       "required": [
@@ -2040,7 +2159,8 @@
         "backend_confirmed",
         "requested_at",
         "completed_at",
-        "error"
+        "error",
+        "client_action_id"
       ],
       "allOf": [
         {
@@ -2147,7 +2267,8 @@
             }
           }
         }
-      ]
+      ],
+      "$comment": "Server-generated operation status. requesting/processing/succeeded/failed are server outcomes; transport unknown is strictly local client state, not server status. Operation ID is not authorization."
     },
     "stream_event": {
       "type": "object",
@@ -2553,6 +2674,252 @@
         "trace_id",
         "error"
       ]
+    },
+    "feedback_submit_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "feedback_submit_request"
+        },
+        "contract_version": {
+          "const": "product.v1"
+        },
+        "client_feedback_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "conversation_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "answer_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "rating": {
+          "enum": [
+            "positive",
+            "negative"
+          ]
+        },
+        "reason": {
+          "oneOf": [
+            {
+              "type": "string",
+              "maxLength": 500
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "kind",
+        "contract_version",
+        "client_feedback_id",
+        "conversation_id",
+        "answer_id",
+        "rating",
+        "reason",
+        "idempotency_key"
+      ],
+      "$comment": "Untrusted client request: no owner_user_id, request_id or trace_id. Identity is from server authenticated context. Retry must retain exact original payload."
+    },
+    "feedback_submit_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "feedback_submit_receipt"
+        },
+        "contract_version": {
+          "const": "product.v1"
+        },
+        "client_feedback_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "conversation_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "answer_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128
+        },
+        "idempotency_scope": {
+          "const": "trusted_user+submit_feedback+answer"
+        },
+        "owner_user_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "trace_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "payload_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "disposition": {
+          "enum": [
+            "created",
+            "replayed",
+            "conflict"
+          ]
+        },
+        "feedback_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "persisted_at": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/error"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "contract_version",
+        "client_feedback_id",
+        "conversation_id",
+        "answer_id",
+        "idempotency_key",
+        "idempotency_scope",
+        "owner_user_id",
+        "request_id",
+        "trace_id",
+        "payload_sha256",
+        "disposition",
+        "feedback_id",
+        "persisted_at",
+        "error"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "enum": [
+                  "created",
+                  "replayed"
+                ]
+              }
+            },
+            "required": [
+              "disposition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "feedback_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+              },
+              "persisted_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "error": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "const": "conflict"
+              }
+            },
+            "required": [
+              "disposition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "feedback_id": {
+                "type": "null"
+              },
+              "persisted_at": {
+                "type": "null"
+              },
+              "error": {
+                "$ref": "#/$defs/error"
+              }
+            }
+          }
+        }
+      ],
+      "$comment": "Only server-confirmed created/replayed receipts prove feedback persistence. Transport loss is locally unknown, never server-confirmed success."
+    },
+    "delete_status_query": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "delete_status_query"
+        },
+        "contract_version": {
+          "const": "product.v1"
+        },
+        "deletion_request_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "client_action_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        }
+      },
+      "required": [
+        "kind",
+        "contract_version",
+        "deletion_request_id",
+        "client_action_id"
+      ],
+      "$comment": "Client may request status by operation ID+action correlation, but this proves no ownership. Server MUST independently authenticate/authorize owner; post-account-deletion session access is unresolved and must not use anonymous bearer IDs."
     }
   }
 }

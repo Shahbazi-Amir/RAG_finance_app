@@ -35,6 +35,8 @@ def cross_checks(document):
         if document['provenance']['origin'] == 'SYNTHETIC':
             if any(c['source']['resolution_status'] == 'verified' or c['source']['attribution_status'] == 'verified' for c in citations):
                 errors.append('SYNTHETIC_SOURCE_MARKED_REAL')
+            if any(c['source'].get('display_title') is not None and c['source'].get('display_title_origin') != 'SYNTHETIC' for c in citations):
+                errors.append('SYNTHETIC_DISPLAY_TITLE_CLAIMS_EXTERNAL_ORIGIN')
         if document['outcome'] == 'error' and document['error']['category'] != 'technical':
             errors.append('ERROR_OUTCOME_MUST_BE_TECHNICAL')
         if document['outcome'] in {'no_answer', 'clarification', 'refusal'} and document['error'] is not None:
@@ -130,6 +132,111 @@ def cross_checks(document):
             errors.append('UNCONFIRMED_BACKEND_PHASE')
         if 'display_cancelled' in types and 'server_cancelled' in types:
             errors.append('DISPLAY_ONLY_MUST_NOT_CLAIM_SERVER_STOP')
+    return sorted(set(errors))
+
+
+def canonical_feedback_fingerprint(request):
+    """Stable request-only SHA-256; no auth identity, response or retry attempt fields."""
+    if request['kind'] != 'feedback_submit_request':
+        raise ValueError('NOT_FEEDBACK_SUBMIT_REQUEST')
+    stable = {k: request[k] for k in ('client_feedback_id','conversation_id','answer_id','rating','reason')}
+    raw = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8')
+    return hashlib.sha256(raw).hexdigest()
+
+
+def check_feedback_request_receipt(request, receipt, actor, feedback=None, snapshot=None):
+    """Semantic server-side reconciliation; does not authenticate the wire request."""
+    if (request.get('kind'), receipt.get('kind'), actor.get('kind')) != (
+            'feedback_submit_request','feedback_submit_receipt','trusted_actor_context'):
+        return ['WRONG_CONTRACT_KIND']
+    errors=[]
+    if (actor['principal_source'] != 'server_auth_context' or
+            receipt['owner_user_id'] != actor['owner_user_id']):
+        errors.append('UNTRUSTED_FEEDBACK_OWNER')
+    for key in ('client_feedback_id','conversation_id','answer_id','idempotency_key'):
+        if receipt[key] != request[key]:
+            errors.append('FEEDBACK_RECEIPT_MISMATCH_'+key.upper())
+    if receipt['idempotency_scope'] != 'trusted_user+submit_feedback+answer':
+        errors.append('FEEDBACK_IDEMPOTENCY_SCOPE_MISMATCH')
+    if receipt['payload_sha256'] != canonical_feedback_fingerprint(request):
+        errors.append('FEEDBACK_FINGERPRINT_MISMATCH')
+    if receipt['disposition'] in {'created','replayed'}:
+        if not receipt.get('feedback_id') or not receipt.get('persisted_at') or receipt.get('error') is not None:
+            errors.append('FEEDBACK_UNCONFIRMED_PERSISTENCE')
+    elif receipt['disposition'] == 'conflict':
+        if receipt.get('feedback_id') is not None or receipt.get('persisted_at') is not None or receipt.get('error') is None:
+            errors.append('FEEDBACK_CONFLICT_CANNOT_SUCCEED')
+    if snapshot is not None:
+        conv=snapshot.get('conversation', {})
+        if (snapshot.get('kind')!='conversation_snapshot' or
+                conv.get('owner_user_id')!=actor['owner_user_id'] or
+                conv.get('conversation_id')!=request['conversation_id'] or
+                not any(a.get('answer_id')==request['answer_id'] and
+                        a.get('conversation_id')==request['conversation_id']
+                        for a in snapshot.get('answers', []))):
+            errors.append('FEEDBACK_TARGET_NOT_OWNED_OR_MISSING')
+    if feedback is not None:
+        if receipt['disposition'] not in {'created','replayed'} or feedback.get('kind') != 'feedback':
+            errors.append('FEEDBACK_DOCUMENT_NOT_CONFIRMED')
+        else:
+            comparisons={'feedback_id':receipt['feedback_id'], 'owner_user_id':receipt['owner_user_id'],
+                         'conversation_id':request['conversation_id'],'answer_id':request['answer_id'],
+                         'rating':request['rating'],'reason':request['reason'], 'created_at':receipt['persisted_at']}
+            if any(feedback.get(k)!=v for k,v in comparisons.items()):
+                errors.append('FEEDBACK_DOCUMENT_RELATION_MISMATCH')
+    return sorted(set(errors))
+
+
+def check_feedback_receipt_history(receipts):
+    """Persist/replay consistency inside server-trusted user+answer+client id scope."""
+    errors=[];grouped={}
+    for receipt in receipts:
+        if receipt.get('kind')!='feedback_submit_receipt':
+            errors.append('NOT_A_FEEDBACK_RECEIPT');continue
+        scope=(receipt['owner_user_id'],receipt['idempotency_scope'],receipt['answer_id'],
+               receipt['client_feedback_id'],receipt['idempotency_key'])
+        previous=grouped.get(scope)
+        if previous is None:
+            if receipt['disposition']!='created':
+                errors.append('FIRST_FEEDBACK_RECEIPT_MUST_CREATE')
+            grouped[scope]=receipt;continue
+        if receipt['payload_sha256']==previous['payload_sha256']:
+            if (receipt['disposition']!='replayed' or
+                    receipt['feedback_id']!=previous['feedback_id'] or
+                    receipt['persisted_at']!=previous['persisted_at'] or
+                    receipt['conversation_id']!=previous['conversation_id']):
+                errors.append('FEEDBACK_RETRY_MUST_REPLAY_SAME_RECORD')
+        elif receipt['disposition']!='conflict' or receipt['feedback_id'] is not None or receipt['persisted_at'] is not None:
+            errors.append('FEEDBACK_IDEMPOTENCY_KEY_PAYLOAD_CONFLICT')
+    return sorted(set(errors))
+
+
+def check_delete_command_status(command, status, actor):
+    """Server receipt reconciliation: client action vs server trace and authenticated owner."""
+    if (command.get('kind'),status.get('kind'),actor.get('kind')) != (
+            'delete_command','delete_status','trusted_actor_context'):
+        return ['WRONG_CONTRACT_KIND']
+    errors=[]
+    if actor['principal_source']!='server_auth_context' or status['owner_user_id']!=actor['owner_user_id']:
+        errors.append('UNAUTHORIZED_DELETION_OWNER')
+    for field in ('client_action_id','deletion_scope','conversation_id'):
+        if command[field]!=status[field]:errors.append('DELETION_MISMATCH_'+field.upper())
+    if status['request_id']!=actor['request_id'] or status['trace_id']!=actor['trace_id']:
+        errors.append('DELETION_TRACE_NOT_SERVER_MINTED')
+    return sorted(set(errors))
+
+
+def check_delete_status_query(query, status, actor):
+    """Polling ID is merely a locator; actual access requires a new trusted actor check."""
+    if (query.get('kind'),status.get('kind'),actor.get('kind')) != (
+            'delete_status_query','delete_status','trusted_actor_context'):
+        return ['WRONG_CONTRACT_KIND']
+    errors=[]
+    if actor['principal_source']!='server_auth_context' or status['owner_user_id']!=actor['owner_user_id']:
+        errors.append('UNAUTHORIZED_DELETION_STATUS_ACCESS')
+    if query['deletion_request_id']!=status['deletion_request_id'] or query['client_action_id']!=status['client_action_id']:
+        errors.append('DELETION_STATUS_QUERY_MISMATCH')
+    # Status request_id/trace_id belong to the original server operation; polling can have a new trusted request trace.
     return sorted(set(errors))
 
 
