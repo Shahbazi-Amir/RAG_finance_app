@@ -1,0 +1,9 @@
+# AGENT-ENV-01 — Python 3.13 contract-test environment, exact observed transitive pins.
+# Input: tests/phase3/contracts/requirements.txt (jsonschema==4.26.0).
+# Sourced from installed distribution metadata in the isolated task executor.
+# NOT a verified fresh PyPI-resolved/hash-locked artifact; offline registry sync failed.
+attrs==26.1.0
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+referencing==0.37.0
+rpds-py==2026.5.1

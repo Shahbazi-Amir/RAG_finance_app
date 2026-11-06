@@ -2,7 +2,7 @@
 
 **Status: APPROVED — STACK SELECTION ONLY.** The employer approved these choices for further work on 2026-11-06 under AGENT-PLAN-01. This replaces only the earlier *unselected technology hypothesis*. It does **not** approve Module 01 scope/architecture/SLO Gate or authorize installation, service execution, migration or deployment.
 
-**Trace:** [modular Module 01 / activity 3](../../references/phase2/roadmaps/RAG_finance_phase3_modular_execution_plan.md#L175) (`P3M01-A03`) and [operational P3-01 ADR requirement](../../references/phase2/roadmaps/RAG_finance_phase3_operational_roadmap.md#L48) (`P3OP01-R05`).
+**Trace:** [modular Module 01 / activity 3](../../references/phase2/roadmaps/RAG_finance_phase3_modular_execution_plan.md#L176) (`P3M01-A03`) and [operational P3-01 ADR requirement](../../references/phase2/roadmaps/RAG_finance_phase3_operational_roadmap.md#L48) (`P3OP01-R05`).
 
 | Layer | Approved | Not approved here |
 |---|---|---|
