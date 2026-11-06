@@ -153,6 +153,12 @@ def check_feedback_request_receipt(request, receipt, actor, feedback=None, snaps
     if (actor['principal_source'] != 'server_auth_context' or
             receipt['owner_user_id'] != actor['owner_user_id']):
         errors.append('UNTRUSTED_FEEDBACK_OWNER')
+    # Receipt trace fields are minted for THIS server-handled request, also on replay.
+    # Stored feedback_id and persisted_at instead identify the ORIGINAL persistence.
+    # This applies to created, replayed and conflict acknowledgements alike.
+    for field in ('request_id', 'trace_id'):
+        if receipt[field] != actor[field]:
+            errors.append('FEEDBACK_TRACE_CONTEXT_MISMATCH_' + field.upper())
     for key in ('client_feedback_id','conversation_id','answer_id','idempotency_key'):
         if receipt[key] != request[key]:
             errors.append('FEEDBACK_RECEIPT_MISMATCH_'+key.upper())

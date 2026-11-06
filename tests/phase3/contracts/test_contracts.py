@@ -364,6 +364,56 @@ class TestMachineReadableContract(unittest.TestCase):
         self.assertTrue(errors_for(fixture('invalid_feedback_success_without_persistence_time')))
         # Disconnected browser == local pending/unknown; never claim a server-confirmed record.
 
+    def test_feedback_created_trace_is_bound_to_current_server_context(self):
+        request=fixture('valid_feedback_submit_request')
+        receipt=fixture('valid_feedback_submit_receipt')
+        actor=fixture('valid_trusted_actor_context')
+        self.assertEqual(check_feedback_request_receipt(request,receipt,actor),[])
+        forged_request_id=copy.deepcopy(receipt)
+        forged_request_id['request_id']='req_unrelated'
+        self.assertIn('FEEDBACK_TRACE_CONTEXT_MISMATCH_REQUEST_ID',
+                      check_feedback_request_receipt(request,forged_request_id,actor))
+        forged_trace_id=copy.deepcopy(receipt)
+        forged_trace_id['trace_id']='trace_unrelated'
+        self.assertIn('FEEDBACK_TRACE_CONTEXT_MISMATCH_TRACE_ID',
+                      check_feedback_request_receipt(request,forged_trace_id,actor))
+        # Either server identifier may be forged independently of authenticated owner.
+        self.assertEqual(forged_trace_id['owner_user_id'],actor['owner_user_id'])
+
+    def test_feedback_replay_trace_identifies_current_attempt_not_initial_persistence(self):
+        request=fixture('valid_feedback_submit_request')
+        created=fixture('valid_feedback_submit_receipt')
+        initial_actor=fixture('valid_trusted_actor_context')
+        replay=fixture('valid_feedback_replayed_receipt')
+        current_actor=copy.deepcopy(initial_actor)
+        current_actor['request_id']='req_feedback_retry_2'
+        current_actor['trace_id']='trace_feedback_retry_2'
+        replay['request_id']=current_actor['request_id']
+        replay['trace_id']=current_actor['trace_id']
+        self.assertEqual(check_feedback_request_receipt(request,replay,current_actor),[])
+        self.assertEqual(check_feedback_receipt_history([created,replay]),[])
+        self.assertEqual(replay['feedback_id'],created['feedback_id'])
+        self.assertEqual(replay['persisted_at'],created['persisted_at'])
+        self.assertNotEqual(replay['request_id'],created['request_id'])
+        self.assertNotEqual(replay['trace_id'],created['trace_id'])
+        self.assertIn('FEEDBACK_TRACE_CONTEXT_MISMATCH_REQUEST_ID',
+                      check_feedback_request_receipt(request,replay,initial_actor))
+        self.assertIn('FEEDBACK_TRACE_CONTEXT_MISMATCH_TRACE_ID',
+                      check_feedback_request_receipt(request,replay,initial_actor))
+        wrong_request=copy.deepcopy(replay)
+        wrong_request['request_id']=created['request_id']
+        self.assertIn('FEEDBACK_TRACE_CONTEXT_MISMATCH_REQUEST_ID',
+                      check_feedback_request_receipt(request,wrong_request,current_actor))
+        wrong_trace=copy.deepcopy(replay)
+        wrong_trace['trace_id']=created['trace_id']
+        self.assertIn('FEEDBACK_TRACE_CONTEXT_MISMATCH_TRACE_ID',
+                      check_feedback_request_receipt(request,wrong_trace,current_actor))
+        # A replay must not rewrite persisted identity/time to match its new network trace.
+        changed_persistence=copy.deepcopy(replay)
+        changed_persistence['persisted_at']='2026-01-02T00:00:00Z'
+        self.assertIn('FEEDBACK_RETRY_MUST_REPLAY_SAME_RECORD',
+                      check_feedback_receipt_history([created,changed_persistence]))
+
     def test_deletion_server_context_and_secure_status_polling(self):
         command=fixture('valid_delete_command_confirmed')
         status=fixture('valid_delete_processing')
