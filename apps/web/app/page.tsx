@@ -8,7 +8,7 @@ import {
 
 type Item={key:string;request:SendRequest;scenario:Scenario;receipt?:SendReceipt;
   text:string;answer?:Answer;phase:string;terminal?:string;isRunning:boolean;
-  displayStopped?:boolean;warning?:string};
+  cancelRequested:boolean;displayStopped?:boolean;warning?:string};
 const scenarioNames:Record<Scenario,string>={
   answer:'پاسخ نمونه با منبع',partial:'پاسخ ناقص',no_answer:'بدون پاسخ',
   clarification:'نیازمند توضیح',refusal:'امتناع',error:'خطای فنی',
@@ -79,8 +79,9 @@ function SourceDrawer({source,claim,onClose}:{source:Source;claim:string;onClose
   </div>
 }
 export default function HomePage(){
-  const transport=useRef<MockTransport|null>(null);
-  if(!transport.current)transport.current=new MockTransport();
+  // The mock transport has no render-time side effects; initialize lazily once per chat.
+  // Keep the mock instance in state so render never reads or writes a mutable ref.
+  const [transport,setTransport]=useState<MockTransport>(()=>new MockTransport());
   const [draft,setDraft]=useState('تفاوت پس‌انداز و سرمایه‌گذاری چیست؟');
   const [scenario,setScenario]=useState<Scenario>('answer');
   const [items,setItems]=useState<Item[]>([]);
@@ -105,12 +106,14 @@ export default function HomePage(){
     suppress.current.delete(key);
     setActiveKey(key);
     setItems(old=>old.some(i=>i.key===key)
-      ?old.map(i=>i.key===key?{...i,phase:'submitting',isRunning:true,terminal:undefined,
+      ?old.map(i=>i.key===key?{...i,request:req,scenario:chosen,receipt:undefined,
+        phase:'submitting',isRunning:true,cancelRequested:false,terminal:undefined,
         text:'',answer:undefined,warning:undefined,displayStopped:false}:i)
-      :[...old,{key,request:req,scenario:chosen,phase:'submitting',text:'',isRunning:true}]);
+      :[...old,{key,request:req,scenario:chosen,phase:'submitting',text:'',
+        isRunning:true,cancelRequested:false}]);
     let cumulative='';
     try{
-      for await(const u of transport.current!.send(req,chosen)){
+      for await(const u of transport.send(req,chosen)){
         if(runId!==token.current||suppress.current.has(key))return;
         if(u.kind==='receipt'){
           if(u.receipt.disposition==='conflict'){
@@ -130,7 +133,7 @@ export default function HomePage(){
           }else if((e.event_type==='retrieving'||e.event_type==='generating')&&e.data.reported_by==='backend'){
             patch(key,{phase:e.event_type});
           }else if(e.event_type==='cancel_requested'){
-            patch(key,{phase:'cancel-requested'});
+            patch(key,{phase:'cancel-requested',cancelRequested:true});
           }else if(e.event_type==='connected'){
             patch(key,{phase:'connected'});
           }
@@ -161,9 +164,10 @@ export default function HomePage(){
     setActiveKey(null);
   }
   function cancelServer(){
-    if(!active?.receipt)return;
-    transport.current!.requestServerCancellation(active.receipt.request_id);
-    patch(active.key,{phase:'cancel-requested'});
+    if(!active?.receipt||!active.isRunning||active.cancelRequested)return;
+    transport.requestServerCancellation(active.receipt.request_id);
+    // This flag is local UI state: a request is NOT proof of server cancellation.
+    patch(active.key,{phase:'cancel-requested',cancelRequested:true});
   }
   function retryLatest(conflict=false){
     if(activeKey||!items.length)return;
@@ -174,7 +178,8 @@ export default function HomePage(){
   }
   function clearChat(){
     token.current++;setItems([]);setActiveKey(null);setThreadId(null);
-    setDrawer(null);setDraft('');transport.current=new MockTransport();
+    suppress.current.clear();setDrawer(null);setDraft('');
+    setTransport(()=>new MockTransport());
   }
   return <main className="app-shell" dir="rtl">
     <header className="topbar">
@@ -235,8 +240,7 @@ export default function HomePage(){
         <div className="chat-footer">
           {active&&<div className="run-controls">
             <button className="secondary" onClick={cancelDisplay}>توقف نمایش (نه موتور)</button>
-            <button className="secondary" disabled={!active.receipt||
-              transport.current?.hasRequestedServerCancellation(active.receipt?.request_id??'')}
+            <button className="secondary" disabled={!active.receipt||!active.isRunning||active.cancelRequested}
               onClick={cancelServer}>درخواست لغو به سرور نمونه</button>
           </div>}
           {!activeKey&&items.length>0&&<div className="run-controls">

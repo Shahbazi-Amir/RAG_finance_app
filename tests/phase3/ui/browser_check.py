@@ -76,6 +76,31 @@ def main():
             expect(page.get_by_text(re.compile("replayed"), exact=False).last).to_be_visible(timeout=12000)
             page.get_by_role("button", name="آزمایش Conflict").click()
             expect(page.get_by_text("متن متفاوت با همان کلید رد شد؛ پیام جدید ثبت نشد.")).to_be_visible(timeout=12000)
+            # Regression: the renderable local "cancel requested" flag is scoped to
+            # each attempt and must reset on a fresh run, replay and clear.
+            page.get_by_role("button", name="شروع گفتگوی آزمایشی تازه").click()
+            page.locator("#scenario").select_option("answer")
+            page.locator("#question").fill("لغو سمت Mock")
+            page.get_by_role("button", name=re.compile("ارسال پرسش")).click()
+            cancel_button = page.get_by_role("button", name="درخواست لغو به سرور نمونه")
+            expect(cancel_button).to_be_enabled(timeout=5000)
+            cancel_button.click()
+            expect(page.locator(".message-set").last).to_contain_text("Mock توقف را تأیید کرد", timeout=8000)
+            # Retry the same message: cancellation request must not remain disabled.
+            page.get_by_role("button", name="ارسال مجدد با همان شناسه").click()
+            cancel_button = page.get_by_role("button", name="درخواست لغو به سرور نمونه")
+            expect(cancel_button).to_be_enabled(timeout=5000)
+            page.get_by_role("button", name="توقف نمایش (نه موتور)").click()
+            expect(page.locator(".message-set").last).to_contain_text("فقط نمایش متوقف شد", timeout=5000)
+            assert "Mock توقف را تأیید کرد" not in page.locator(".message-set").last.inner_text(), (
+                "Display-only cancellation was shown as server-confirmed stop"
+            )
+            # Clearing the chat resets the mock and its render flags.
+            page.get_by_role("button", name="شروع گفتگوی آزمایشی تازه").click()
+            expect(page.locator(".message-set")).to_have_count(0)
+            page.locator("#question").fill("تلاش تازه بعد از پاک‌کردن")
+            page.get_by_role("button", name=re.compile("ارسال پرسش")).click()
+            expect(page.get_by_role("button", name="درخواست لغو به سرور نمونه")).to_be_enabled(timeout=5000)
             mobile = browser.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=1)
             mobile.goto(base, wait_until="domcontentloaded", timeout=15000)
             expect(mobile.locator("#question")).to_be_visible()
