@@ -60,7 +60,7 @@ jobs:
         run: |
           set -euo pipefail
           psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
-          CREATE ROLE history_migrator LOGIN PASSWORD 'synthetic_mig_only';
+          CREATE ROLE history_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_mig_only';
           CREATE ROLE history_app LOGIN PASSWORD 'synthetic_app_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
           CREATE DATABASE history_ci;
           CREATE DATABASE history_legacy_ci;

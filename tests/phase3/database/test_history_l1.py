@@ -213,7 +213,7 @@ class HistoryPostgresL1(unittest.TestCase):
                 start_t2(conn,owner,None,req["client_message_id"],req["idempotency_key"],uid(),uid())
         sql=(ROOT/"infra/postgres/migrations/002_one_attempt.up.sql").read_text(encoding="utf8")
         with db("DB_LEGACY_MIG_DSN") as migrator:
-            with self.assertRaises(psycopg.Error):
+            with self.assertRaisesRegex(psycopg.Error, 'HISTORY_LEGACY_MULTI_ATTEMPT'):
                 with migrator.transaction():
                     migrator.execute(sql)
         with db("DB_LEGACY_APP_DSN") as conn:
