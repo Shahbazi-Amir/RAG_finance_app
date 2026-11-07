@@ -1,0 +1,111 @@
+name: PostgreSQL History L1 — synthetic isolated
+
+on:
+  push:
+    branches: [agent/db-history-l1]
+    paths:
+      - '.github/workflows/db-history.yml'
+      - 'src/phase3/storage/postgres/**'
+      - 'infra/postgres/**'
+      - 'tests/phase3/database/**'
+permissions:
+  contents: read
+
+jobs:
+  history-postgres:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/agent/db-history-l1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_PASSWORD: synthetic_ci_only_not_a_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: 'true'
+      PGPASSWORD: synthetic_ci_only_not_a_secret
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      DB_APP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+      DB_SEEDED_APP_DSN: host=127.0.0.1 port=5432 dbname=history_seeded_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB_SEEDED_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_seeded_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+      DB_LEGACY_APP_DSN: host=127.0.0.1 port=5432 dbname=history_legacy_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB_LEGACY_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_legacy_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+    steps:
+      - name: Checkout exact commit (read only)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install pinned CI-only Python adapters
+        run: python -m pip install --no-cache-dir --index-url https://pypi.org/simple 'psycopg[binary]==3.3.8' 'jsonschema==4.26.0'
+      - name: Verify only temporary loopback database and versions
+        run: |
+          set -euo pipefail
+          python --version
+          python -c "import psycopg,jsonschema; print('psycopg',psycopg.__version__); print('jsonschema',jsonschema.__version__)"
+          psql --version
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'SHOW server_version;'
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'SELECT inet_server_addr(),inet_server_port();'
+      - name: Bootstrap disposable DBs and separate least-privilege roles
+        run: |
+          set -euo pipefail
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE history_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_mig_only';
+          CREATE ROLE history_app LOGIN PASSWORD 'synthetic_app_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE DATABASE history_ci;
+          CREATE DATABASE history_legacy_ci;
+          CREATE DATABASE history_seeded_ci;
+          CREATE DATABASE history_rollback_ci;
+          GRANT CONNECT,CREATE ON DATABASE history_ci TO history_migrator;
+          GRANT CONNECT,CREATE ON DATABASE history_legacy_ci TO history_migrator;
+          GRANT CONNECT,CREATE ON DATABASE history_seeded_ci TO history_migrator;
+          GRANT CONNECT,CREATE ON DATABASE history_rollback_ci TO history_migrator;
+          GRANT CONNECT ON DATABASE history_ci TO history_app;
+          GRANT CONNECT ON DATABASE history_legacy_ci TO history_app;
+          GRANT CONNECT ON DATABASE history_seeded_ci TO history_app;
+          GRANT CONNECT ON DATABASE history_rollback_ci TO history_app;
+          SQL
+      - name: Apply versioned migrations and legacy predecessor
+        run: |
+          set -euo pipefail
+          export PGUSER=history_migrator PGPASSWORD=synthetic_mig_only
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          psql -d history_legacy_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          # Separate synthetic chain seed: 001 first; acceptance test applies 002.
+          psql -d history_seeded_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+      - name: Run real PostgreSQL synthetic HDB-01 through HDB-10
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/database -p 'test_*.py' -v
+      - name: Smoke seeded migration and reversible rollback in separate disposable DB
+        run: |
+          set -euo pipefail
+          PGUSER=history_app PGPASSWORD=synthetic_app_only psql -d history_rollback_ci -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          SELECT set_config('app.owner_id','synthetic_rollback_only',true);
+          INSERT INTO history_l1.conversations(owner_id,id) VALUES('synthetic_rollback_only','conv_synthetic');
+          COMMIT;
+          SQL
+          export PGUSER=history_migrator PGPASSWORD=synthetic_mig_only
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.down.sql
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          test "$(psql -d history_rollback_ci -Aqt -c "SELECT count(*) FROM history_l1.conversations WHERE id='conv_synthetic'")" = "1"
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.down.sql
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.down.sql
+          test "$(psql -d history_rollback_ci -Aqt -c "SELECT to_regclass('history_l1.conversations') IS NULL")" = "t"
+          echo 'Temporary seeded migration + rollback validated; destructive rollback is NOT a production policy'
