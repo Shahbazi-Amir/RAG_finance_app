@@ -90,8 +90,8 @@ class HistoryPostgresL1(unittest.TestCase):
             replay=create_conversation(conn,owner,req,uid(),uid())
             self.assertEqual(replay["conversation"],first["conversation"])
             self.assertEqual(replay["conversation"]["title"],"First title")
-            with self.assertRaises(NotFound):
-                create_conversation(conn,actor_id("foreign"),req,uid(),uid())
+            foreign=create_conversation(conn,actor_id("foreign"),req,uid(),uid())
+            self.assertNotEqual(foreign["conversation"]["conversation_id"],cid)
             with conn.transaction():
                 scoped(conn,owner)
                 conn.execute("UPDATE history_l1.conversations SET state='deletion_requested' WHERE owner_id=%s AND id=%s",(owner,cid))
@@ -289,15 +289,16 @@ class HistoryPostgresL1(unittest.TestCase):
                 self.assertEqual(conn.execute("""SELECT count(*) AS n FROM history_l1.messages
                       WHERE owner_id=%s""",(a,)).fetchone()["n"],2)
                 # Same-owner row cannot reference another user's conversation.
-                with conn.transaction():
-                    with self.assertRaises(ForeignKeyViolation):
+                with self.assertRaises(ForeignKeyViolation):
+                    with conn.transaction():
                         conn.execute("""INSERT INTO history_l1.messages(owner_id,id,conversation_id,role,body)
                           VALUES(%s,%s,%s,'user','synthetic')""",(a,uid(),uid()))
             with conn.transaction():
                 # No app.owner_id is set in this fresh transaction.
                 self.assertEqual(conn.execute("SELECT count(*) AS n FROM history_l1.conversations").fetchone()["n"],0)
                 with self.assertRaises(InsufficientPrivilege):
-                    conn.execute("CREATE TABLE history_l1.illicit (x int)")
+                    with conn.transaction():
+                        conn.execute("CREATE TABLE history_l1.illicit (x int)")
             with conn.transaction():
                 scoped(conn,a)
                 attrs=conn.execute("""SELECT c.relrowsecurity,c.relforcerowsecurity

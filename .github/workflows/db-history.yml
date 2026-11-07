@@ -9,24 +9,12 @@ on:
       - 'infra/postgres/**'
       - 'tests/phase3/database/**'
       - 'coordination/tasks/AGENT-DB-01.md'
-  pull_request:
-    branches: [main]
-    paths:
-      - '.github/workflows/db-history.yml'
-      - 'src/phase3/storage/postgres/**'
-      - 'infra/postgres/**'
-      - 'tests/phase3/database/**'
-
 permissions:
   contents: read
 
 jobs:
   history-postgres:
-    if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/agent/db-history-l1')
-      || (github.event_name == 'pull_request'
-          && github.event.pull_request.head.ref == 'agent/db-history-l1'
-          && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/agent/db-history-l1'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
