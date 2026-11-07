@@ -13,6 +13,61 @@ from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright, expect
 
 
+
+
+def verify_vazirmatn(page, minimum_sizes, font_requests):
+    """Proof of the real font face, effective computed font, size and same-origin WOFF2."""
+    info = page.evaluate("""async (selectors) => {
+        await document.fonts.ready;
+        const faces = [...document.fonts].map(face => ({
+            family: face.family.replace(/["']/g, ''),
+            status: face.status,
+            weight: face.weight
+        }));
+        const samples = {};
+        for (const selector of Object.keys(selectors)) {
+            const element = document.querySelector(selector);
+            if (!element) { samples[selector] = {error: 'missing element'}; continue; }
+            const css = getComputedStyle(element);
+            const primary = css.fontFamily.split(',')[0].trim();
+            samples[selector] = {
+                family: primary.replace(/["']/g, ''),
+                px: Number.parseFloat(css.fontSize),
+                weight: css.fontWeight,
+                fontCheck: document.fonts.check('400 16px ' + primary, 'سلام فارسی')
+            };
+        }
+        const resources = performance.getEntriesByType('resource')
+            .map(resource => resource.name)
+            .filter(url => /\.woff2(?:[?#]|$)/i.test(url));
+        return {
+            fontStatus: document.fonts.status,
+            faces, samples, resources,
+            zoom: window.visualViewport?.scale ?? 1
+        };
+    }""", minimum_sizes)
+    assert info["fontStatus"] == "loaded", f"Font API is not ready: {info}"
+    assert abs(info["zoom"] - 1) < 0.01, "Browser must remain at 100% zoom"
+    assert any("vazirmatn" in face["family"].lower() and face["status"] == "loaded"
+               for face in info["faces"]), f"No loaded Vazirmatn font face: {info}"
+    assert info["resources"], f"No local WOFF2 actually downloaded: {info}"
+    assert all(urlsplit(url).netloc == urlsplit(page.url).netloc
+               for url in info["resources"]), f"External WOFF2 resource: {info['resources']}"
+    assert all(urlsplit(url).netloc == urlsplit(page.url).netloc
+               for url in font_requests), f"External FONT request attempted: {font_requests}"
+    for selector, minimum_px in minimum_sizes.items():
+        sample = info["samples"][selector]
+        assert "error" not in sample, f"Missing font test element: {selector}"
+        assert "vazirmatn" in sample["family"].lower(), (
+            f"{selector} is not using the local family: {sample}"
+        )
+        assert sample["fontCheck"], f"{selector} did not actually load Vazirmatn: {sample}"
+        assert sample["px"] + 0.01 >= minimum_px, (
+            f"{selector} too small ({sample['px']} < {minimum_px} px)"
+        )
+    return info
+
+
 def main():
     base = os.environ.get("UI_L1_BASE_URL", "http://127.0.0.1:3000")
     u = urlsplit(base)
@@ -26,6 +81,9 @@ def main():
         try:
             page = browser.new_page(viewport={"width": 1280, "height": 800}, device_scale_factor=1)
             dialogs = []
+            desktop_font_requests = []
+            page.on("request", lambda request: desktop_font_requests.append(request.url)
+                    if request.resource_type == "font" else None)
             def handle_dialog(dialog):
                 dialogs.append(dialog.message)
                 dialog.dismiss()
@@ -106,6 +164,8 @@ def main():
             opener.click()
             drawer = page.get_by_role("dialog", name="جزئیات منبع نمونه")
             expect(drawer).to_be_visible()
+            verify_vazirmatn(page, {".drawer .plain-value": 14, ".drawer .source-meta": 14},
+                            desktop_font_requests)
             close = drawer.get_by_role("button", name="بستن پنل منبع")
             expect(close).to_be_focused()
             page.keyboard.press("Shift+Tab")
@@ -129,6 +189,10 @@ def main():
                 assert box and box["y"] >= -1 and box["y"] + box["height"] <= 801, (
                     f"{selector} is clipped in initial 1280x800 reading view: {box}"
                 )
+            verify_vazirmatn(page, {
+                ".user-bubble p": 16, ".answer-text": 16, ".composer textarea": 16,
+                ".nav-link": 14, ".demo-note": 13, ".source-button": 14
+            }, desktop_font_requests)
             page.screenshot(path=str(evidence / "desktop.png"), full_page=True)
             # Two separate local conversations and their drafts survive selection.
             sidebar.locator(".nav-new-chat").click()
@@ -242,6 +306,9 @@ def main():
             expect(page.locator(".message-set")).to_have_count(0)
             expect(page.locator(".sidebar-desktop .nav-thread")).to_have_count(0)
             mobile = browser.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=1)
+            mobile_font_requests = []
+            mobile.on("request", lambda request: mobile_font_requests.append(request.url)
+                      if request.resource_type == "font" else None)
             mobile.goto(base, wait_until="domcontentloaded", timeout=15000)
             expect(mobile.locator("#question")).to_be_visible()
             expect(mobile.get_by_text("نسخهٔ آزمایشی؛ پاسخ‌ها نمونه‌اند و به موتور پاسخ‌گویی متصل نیستند.")).to_be_visible()
@@ -256,6 +323,8 @@ def main():
             menu_toggle.click()
             menu = mobile.get_by_role("dialog", name="منوی ناوبری")
             expect(menu).to_be_visible()
+            verify_vazirmatn(mobile, {".mobile-nav-dialog .nav-link": 14},
+                            mobile_font_requests)
             menu_close = menu.get_by_role("button", name="بستن منوی ناوبری")
             expect(menu_close).to_be_focused()
             mobile.keyboard.press("Shift+Tab")
@@ -303,6 +372,10 @@ def main():
             assert mobile.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "Mobile horizontal overflow"
             mobile.locator("#question").focus()
             expect(mobile.locator("#question")).to_be_focused()
+            verify_vazirmatn(mobile, {
+                ".user-bubble p": 16, ".answer-text": 16, ".composer textarea": 16,
+                ".demo-note": 13
+            }, mobile_font_requests)
             mobile.screenshot(path=str(evidence / "mobile.png"), full_page=True)
             mobile.close()
             page.close()

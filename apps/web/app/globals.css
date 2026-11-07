@@ -1,7 +1,7 @@
 /* UI-CHAT-L1-COMPOSITION-06: unboxed reading column, one natural document scroll. */
 :root {
   color-scheme:light;
-  font-family:Tahoma,"Noto Sans Arabic","Segoe UI",Arial,sans-serif;
+  font-family:var(--font-vazirmatn),Tahoma,"Noto Sans Arabic","Segoe UI",Arial,sans-serif;
   font-synthesis:none;
   color:#24332b;
   background:#f7f8f6;
@@ -402,3 +402,53 @@ code{
 @media(max-width:760px){
   .mobile-nav-dialog .nav-thread-list{max-height:38dvh}
 }
+
+
+/* UI-CHAT-L1-FONT-09 — official self-hosted Vazirmatn v33.003 variable font.
+   These final rules intentionally supersede small values in earlier mobile/layout blocks.
+   The variable font has real weights 100..900; do not synthesize false bold. */
+:root{font-size:16px;font-weight:400;line-height:1.9;font-synthesis:none}
+body{font-family:inherit;font-weight:400;line-height:1.9;letter-spacing:normal}
+button,input,textarea,select{font-family:inherit;letter-spacing:normal}
+button,summary{font-weight:500}
+.user-bubble p,.answer-text,.composer textarea,.claim p{
+  font-size:16px;font-weight:400;line-height:1.9;letter-spacing:normal;
+}
+.composer textarea::placeholder{
+  font-family:inherit;font-size:inherit;font-weight:400;letter-spacing:normal;
+  color:#506454;opacity:1;
+}
+.message-label,.nav-section-title,.nav-brand-name{
+  font-size:14px;font-weight:500;line-height:1.85;color:#304d3b;
+}
+.nav-brand-name{font-size:16px;font-weight:600}
+.nav-new-chat,.nav-link,.nav-thread{
+  font-size:14px;line-height:1.8;font-weight:500;color:#253e2f;
+}
+.nav-new-chat{font-weight:600}
+.nav-thread.is-current,.nav-link.is-current{font-weight:600}
+.nav-helper,.nav-section-title,.nav-empty,.nav-local-notice{
+  font-size:13px;line-height:1.8;color:#42594b;font-weight:400;
+}
+.nav-section-title{font-weight:500}
+.mobile-brand{font-size:15px;font-weight:600}
+.demo-note,.confidence,.run-note,.under-composer,.tools-description,
+.technical-meta,.receipt-row,.placeholder-eyebrow,.placeholder-footnote{
+  font-size:13px;line-height:1.8;font-weight:400;color:#43584b;
+}
+.empty-state p,.empty-example{font-size:14px;line-height:1.9}
+.empty-state h1{font-size:24px;font-weight:600;line-height:1.65}
+.state-line{font-size:14px;font-weight:400;line-height:1.85;color:#395844}
+.source-button{font-size:14px;font-weight:500;line-height:1.8}
+.test-tools summary,.compose-tools,.compose-tools select{
+  font-size:14px;font-weight:500;line-height:1.8;color:#304d3b;
+}
+.primary,.secondary{font-size:14px;font-weight:500;line-height:1.7}
+.primary{font-weight:600}
+.placeholder-view h1,.drawer-head h2{font-weight:600}
+.placeholder-lead{font-size:16px;font-weight:400;line-height:1.9}
+.hint,.source-meta,.disabled-link,.plain-value{
+  font-size:14px;font-weight:400;line-height:1.9;
+}
+.source-meta dt{color:#43594c}
+.nav-local-notice{overflow-wrap:anywhere}
