@@ -1,0 +1,139 @@
+name: UI L1 browser — PR 7 (synthetic only)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - '.github/workflows/ui-l1-browser.yml'
+      - 'apps/web/**'
+      - 'tests/phase3/ui/**'
+
+permissions:
+  contents: read
+
+jobs:
+  ui-l1-browser:
+    name: Next L1, Python Playwright Chromium
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/agent/ui-l1-chat')
+      || (github.event_name == 'pull_request'
+          && github.event.pull_request.number == 7
+          && github.event.pull_request.head.ref == 'agent/ui-l1-chat'
+          && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CI: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Read-only checkout of the selected PR head
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: npm ci from the existing web lockfile
+        working-directory: apps/web
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        working-directory: apps/web
+        run: npm run typecheck
+
+      - name: Lint
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: All Node UI tests
+        working-directory: apps/web
+        run: npm test
+
+      - name: Build mock-only Next UI
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Install pinned official Python Playwright
+        run: python -m pip install --no-cache-dir --index-url https://pypi.org/simple 'playwright==1.64.1'
+
+      - name: Install Playwright-matched Chromium and runner OS dependencies
+        run: python -m playwright install --with-deps chromium
+
+      - name: Bind browser_check.py to the exact Playwright Chromium
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          folder = Path(os.environ["RUNNER_TEMP"]) / "ui-l1-tools"
+          folder.mkdir(parents=True, exist_ok=True)
+          with sync_playwright() as p:
+              executable = Path(p.chromium.executable_path)
+          if not executable.is_file():
+              raise SystemExit(f"Playwright Chromium executable missing: {executable}")
+          (folder / "chromium").symlink_to(executable)
+          print(f"Version-matched chromium: {executable}")
+          PY
+
+      - name: Start temporary loopback Next service and check readiness
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ui-l1-evidence/screenshots"
+          setsid npm run start > "$RUNNER_TEMP/ui-l1-evidence/next.log" 2>&1 < /dev/null &
+          echo "$!" > "$RUNNER_TEMP/ui-next.pid"
+          for i in $(seq 1 45); do
+            if curl --fail --silent --output /dev/null --max-time 2 http://127.0.0.1:3000/; then
+              echo "Loopback Next service ready on 127.0.0.1:3000"
+              exit 0
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/ui-next.pid")" 2>/dev/null; then
+              echo "Next process exited before readiness"
+              cat "$RUNNER_TEMP/ui-l1-evidence/next.log"
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "Next readiness timeout"
+          cat "$RUNNER_TEMP/ui-l1-evidence/next.log"
+          exit 1
+
+      - name: Run unchanged real-browser UI assertions (desktop/mobile)
+        env:
+          UI_L1_BASE_URL: http://127.0.0.1:3000
+          UI_L1_SCREENSHOT_DIR: ${{ runner.temp }}/ui-l1-evidence/screenshots
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/ui-l1-tools:$PATH"
+          python tests/phase3/ui/browser_check.py 2>&1 | tee "$RUNNER_TEMP/ui-l1-evidence/browser.log"
+
+      - name: Stop the temporary Next process group
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/ui-next.pid" ]; then
+            pid="$(cat "$RUNNER_TEMP/ui-next.pid")"
+            if [[ "$pid" =~ ^[0-9]+$ ]]; then
+              kill -- "-$pid" 2>/dev/null || true
+            fi
+          fi
+
+      - name: Upload short-lived logs and actual screenshots, including failures
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: ui-l1-browser-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/ui-l1-evidence/
+          if-no-files-found: warn
+          retention-days: 3
