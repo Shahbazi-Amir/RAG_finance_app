@@ -27,6 +27,8 @@ def ensure_ci():
     allowed = {"DB_APP_DSN":("history_ci","history_app"),
                "DB_MIG_DSN":("history_ci","history_migrator"),
                "DB_LEGACY_APP_DSN":("history_legacy_ci","history_app"),
+               "DB_SEEDED_APP_DSN":("history_seeded_ci","history_app"),
+               "DB_SEEDED_MIG_DSN":("history_seeded_ci","history_migrator"),
                "DB_LEGACY_MIG_DSN":("history_legacy_ci","history_migrator")}
     for key,(database,role) in allowed.items():
         v=os.getenv(key,"")

@@ -35,6 +35,8 @@ jobs:
       PGPORT: '5432'
       DB_APP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_app password=synthetic_app_only connect_timeout=5
       DB_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+      DB_SEEDED_APP_DSN: host=127.0.0.1 port=5432 dbname=history_seeded_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB_SEEDED_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_seeded_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
       DB_LEGACY_APP_DSN: host=127.0.0.1 port=5432 dbname=history_legacy_ci user=history_app password=synthetic_app_only connect_timeout=5
       DB_LEGACY_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_legacy_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
     steps:
@@ -64,12 +66,15 @@ jobs:
           CREATE ROLE history_app LOGIN PASSWORD 'synthetic_app_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
           CREATE DATABASE history_ci;
           CREATE DATABASE history_legacy_ci;
+          CREATE DATABASE history_seeded_ci;
           CREATE DATABASE history_rollback_ci;
           GRANT CONNECT,CREATE ON DATABASE history_ci TO history_migrator;
           GRANT CONNECT,CREATE ON DATABASE history_legacy_ci TO history_migrator;
+          GRANT CONNECT,CREATE ON DATABASE history_seeded_ci TO history_migrator;
           GRANT CONNECT,CREATE ON DATABASE history_rollback_ci TO history_migrator;
           GRANT CONNECT ON DATABASE history_ci TO history_app;
           GRANT CONNECT ON DATABASE history_legacy_ci TO history_app;
+          GRANT CONNECT ON DATABASE history_seeded_ci TO history_app;
           GRANT CONNECT ON DATABASE history_rollback_ci TO history_app;
           SQL
       - name: Apply versioned migrations and legacy predecessor
@@ -79,6 +84,8 @@ jobs:
           psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
           psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
           psql -d history_legacy_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          # Separate synthetic chain seed: 001 first; acceptance test applies 002.
+          psql -d history_seeded_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
           psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
           psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
       - name: Run real PostgreSQL synthetic HDB-01 through HDB-10
