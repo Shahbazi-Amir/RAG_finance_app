@@ -3,12 +3,15 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent }
 import {
   CONTRACT_VERSION,FIXTURE_ORIGIN,MockTransport,SCENARIOS,isRealSourceClaim,
   newRequest,safeSourceHref,terminalDisplay,
-  type Answer,type Scenario,type SendReceipt,type SendRequest,type Source
+  type Scenario,type SendRequest,type Source
 } from '../src/mock/transport';
+import {
+  createWorkspace,activeThread,openFreshThread,selectThread,setThreadDraft,freshLocalId,
+  setThreadScenario,startItem,patchItem,attachResolvedConversation,threadPreview,
+  type ChatItem,type LocalThread,type WorkspaceState
+} from '../src/ui/local-conversations';
 
-type Item={key:string;request:SendRequest;scenario:Scenario;receipt?:SendReceipt;
-  text:string;answer?:Answer;phase:string;terminal?:string;isRunning:boolean;
-  cancelRequested:boolean;displayStopped?:boolean;warning?:string};
+type Item=ChatItem;
 const scenarioNames:Record<Scenario,string>={
   answer:'پاسخ نمونه با منبع',partial:'پاسخ ناقص',no_answer:'بدون پاسخ',
   clarification:'نیازمند توضیح',refusal:'امتناع',error:'خطای فنی',
@@ -106,11 +109,12 @@ function SourceDrawer({source,claim,onClose}:{source:Source;claim:string;onClose
 
 type ProductView='chat'|'account'|'privacy';
 type NavProps={
-  view:ProductView;collapsed:boolean;mobile?:boolean;
-  hasConversation:boolean;conversationPreview:string;
-  onView:(view:ProductView)=>void;onNewChat:()=>void;onToggle?:()=>void;
+  view:ProductView;collapsed:boolean;mobile?:boolean;threads:LocalThread[];
+  activeLocalId:string;onView:(view:ProductView)=>void;onNewChat:()=>void;
+  onSelectThread:(localId:string)=>void;onToggle?:()=>void;
 };
-function Navigation({view,collapsed,mobile=false,hasConversation,conversationPreview,onView,onNewChat,onToggle}:NavProps){
+function Navigation({view,collapsed,mobile=false,threads,activeLocalId,onView,onNewChat,onSelectThread,onToggle}:NavProps){
+  const listVisible=threads.length>1||threads.some(t=>t.items.length>0||t.draft.trim().length>0);
   return <div className={"nav-content"+(collapsed?" nav-compact":"")}>
     <div className="nav-brand-row">
       <div className="nav-brand">
@@ -120,16 +124,19 @@ function Navigation({view,collapsed,mobile=false,hasConversation,conversationPre
       {!mobile&&<button type="button" className="nav-collapse" onClick={onToggle}
         aria-label={collapsed?'بازکردن نوار کناری':'جمع‌کردن نوار کناری'}
         aria-expanded={!collapsed} title={collapsed?'بازکردن نوار کناری':'جمع‌کردن نوار کناری'}>
-        <span aria-hidden="true">{collapsed?'‹':'›'}</span>
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="20" height="20"
+          fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d={collapsed?'M15 5 L9 12 L15 19':'M9 5 L15 12 L9 19'}/>
+        </svg>
       </button>}
     </div>
     <button type="button" className="nav-new-chat" onClick={onNewChat}
-      title="گفتگوی تازه؛ گفتگوی فعلی از حافظهٔ همین صفحه پاک می‌شود"
-      aria-label="گفتگوی تازه؛ پاک‌کردن گفتگوی موقت همین صفحه">
+      title="گفتگوی تازه؛ گفتگوهای قبلی تا نوسازی صفحه باقی می‌مانند"
+      aria-label="گفتگوی تازه؛ حفظ گفتگوهای موقت قبلی">
       <span className="nav-icon" aria-hidden="true">＋</span>
       <span className="nav-label">گفتگوی تازه</span>
     </button>
-    <p className="nav-helper nav-label">گفتگوی تازه، پیام‌های موقت همین صفحه را پاک می‌کند.</p>
+    <p className="nav-helper nav-label">گفتگوها فقط تا نوسازی صفحه باقی می‌مانند.</p>
     <nav className="nav-main-links" aria-label="صفحه‌های محصول">
       <button type="button" className={"nav-link"+(view==='chat'?' is-current':'')}
         aria-current={view==='chat'?'page':undefined} aria-label="صفحهٔ گفتگو"
@@ -140,15 +147,20 @@ function Navigation({view,collapsed,mobile=false,hasConversation,conversationPre
     </nav>
     <section className="nav-temporary" aria-label="گفتگوهای موقت این صفحه">
       <p className="nav-section-title nav-label">گفتگوهای این صفحه</p>
-      {hasConversation?
-        <button type="button" className="nav-thread" onClick={()=>onView('chat')}
-          aria-label={"بازگشت به گفتگوی موقت: "+conversationPreview}
-          title={"گفتگوی موقت: "+conversationPreview}>
-          <span className="nav-icon" aria-hidden="true">◉</span>
-          <span className="nav-label nav-thread-text">{conversationPreview}</span>
-        </button>
-        :<p className="nav-empty nav-label">هنوز گفتگویی در این صفحه ندارید.</p>}
-      <p className="nav-local-notice nav-label">فهرست تاریخی یا ذخیره‌سازی دائمی فعال نیست.</p>
+      {listVisible?<div className="nav-thread-list">
+        {threads.map(t=>{
+          const label=threadPreview(t)||'گفتگوی تازه (موقت)';
+          return <button type="button" key={t.localId}
+            className={"nav-thread"+(t.localId===activeLocalId&&view==='chat'?' is-current':'')}
+            aria-current={t.localId===activeLocalId&&view==='chat'?'page':undefined}
+            aria-label={"بازکردن گفتگوی موقت: "+label}
+            title={"گفتگوی موقت: "+label} onClick={()=>onSelectThread(t.localId)}>
+            <span className="nav-icon" aria-hidden="true">{t.items.some(i=>i.isRunning)?'◌':'◉'}</span>
+            <span className="nav-label nav-thread-text">{label}</span>
+          </button>;
+        })}
+      </div>:<p className="nav-empty nav-label">هنوز گفتگویی در این صفحه ندارید.</p>}
+      <p className="nav-local-notice nav-label">با Refresh، پیام‌ها و پیش‌نویس‌ها از دست می‌روند؛ تاریخچهٔ دائمی یا حافظهٔ موتور فعال نیست.</p>
     </section>
     <nav className="nav-bottom" aria-label="حساب و حریم خصوصی">
       <button type="button" className={"nav-link"+(view==='account'?' is-current':'')}
@@ -166,22 +178,19 @@ function Navigation({view,collapsed,mobile=false,hasConversation,conversationPre
     </nav>
   </div>;
 }
-
 export default function HomePage(){
   // The mock transport has no render-time side effects; initialize lazily once per chat.
   // Keep the mock instance in state so render never reads or writes a mutable ref.
-  const [transport,setTransport]=useState<MockTransport>(()=>new MockTransport());
+  const [transport]=useState<MockTransport>(()=>new MockTransport());
   const [view,setView]=useState<ProductView>('chat');
   const [sidebarCollapsed,setSidebarCollapsed]=useState(false);
   const [mobileMenuOpen,setMobileMenuOpen]=useState(false);
   const mobileTriggerRef=useRef<HTMLButtonElement>(null);
   const mobileCloseRef=useRef<HTMLButtonElement>(null);
   const mobileDialogRef=useRef<HTMLDivElement>(null);
-  const [draft,setDraft]=useState('تفاوت پس‌انداز و سرمایه‌گذاری چیست؟');
-  const [scenario,setScenario]=useState<Scenario>('answer');
-  const [items,setItems]=useState<Item[]>([]);
-  const [threadId,setThreadId]=useState<string|null>(null);
-  const [activeKey,setActiveKey]=useState<string|null>(null);
+  const [workspace,setWorkspace]=useState<WorkspaceState>(createWorkspace);
+  const runEpochs=useRef(new Map<string,number>());
+  const suppressed=useRef(new Set<string>());
   useEffect(()=>{
     if(!mobileMenuOpen)return;
     const previousOverflow=document.body.style.overflow;
@@ -223,109 +232,108 @@ export default function HomePage(){
     // Return focus after the modal has left the DOM.
     window.requestAnimationFrame(()=>drawerOpener.current?.focus());
   }
-  const suppress=useRef(new Set<string>());
-  const token=useRef(0);
   const endRef=useRef<HTMLDivElement>(null);
-  useEffect(()=>{if(items.length>0)endRef.current?.scrollIntoView({block:'end',behavior:'smooth'})},[items.length]);
-  function patch(key:string,part:Partial<Item>){
-    setItems(old=>old.map(i=>i.key===key?{...i,...part}:i));
+  const current=activeThread(workspace);
+  const items=current.items,draft=current.draft,scenario=current.scenario;
+  const active=items.find(i=>i.isRunning);
+  useEffect(()=>{
+    if(items.length>0)endRef.current?.scrollIntoView({block:'end',behavior:'smooth'});
+  },[workspace.activeId,items.length]);
+  function patch(localId:string,key:string,part:Partial<Item>){
+    setWorkspace(state=>patchItem(state,localId,key,part));
   }
-  async function run(req:SendRequest,chosen:Scenario){
-    const key=req.client_message_id,runId=++token.current;
-    suppress.current.delete(key);
-    setActiveKey(key);
-    setItems(old=>old.some(i=>i.key===key)
-      ?old.map(i=>i.key===key?{...i,request:req,scenario:chosen,receipt:undefined,
-        phase:'submitting',isRunning:true,cancelRequested:false,terminal:undefined,
-        text:'',answer:undefined,warning:undefined,displayStopped:false}:i)
-      :[...old,{key,request:req,scenario:chosen,phase:'submitting',text:'',
-        isRunning:true,cancelRequested:false}]);
+  async function run(localId:string,req:SendRequest,chosen:Scenario){
+    const key=req.client_message_id;
+    const epoch=(runEpochs.current.get(localId)??0)+1;
+    runEpochs.current.set(localId,epoch);
+    suppressed.current.delete(key);
+    setWorkspace(state=>startItem(state,localId,req,chosen));
     let cumulative='';
+    const live=()=>runEpochs.current.get(localId)===epoch&&!suppressed.current.has(key);
     try{
-      for await(const u of transport.send(req,chosen)){
-        if(runId!==token.current||suppress.current.has(key))return;
-        if(u.kind==='receipt'){
-          if(u.receipt.disposition==='conflict'){
-            patch(key,{receipt:u.receipt,phase:'conflict',terminal:'conflict',isRunning:false});
+      for await(const update of transport.send(req,chosen)){
+        // A stream writes ONLY to its originating local thread, even after navigation.
+        if(!live())return;
+        if(update.kind==='receipt'){
+          if(update.receipt.disposition==='conflict'){
+            patch(localId,key,{receipt:update.receipt,phase:'conflict',terminal:'conflict',isRunning:false});
             return;
           }
-          if(u.receipt.resolved_conversation_id&&!threadId)setThreadId(u.receipt.resolved_conversation_id);
-          patch(key,{receipt:u.receipt,phase:u.receipt.disposition==='replayed'?'replayed':'connected'});
-        }else if(u.kind==='event'){
-          const e=u.event,result=terminalDisplay(e);
-          if(e.event_type==='delta'&&typeof e.data.text==='string'){
-            cumulative+=e.data.text; // exact; do not trim or normalize
-            patch(key,{text:cumulative,phase:'delta'});
+          const resolved=update.receipt.resolved_conversation_id;
+          if(resolved)setWorkspace(state=>attachResolvedConversation(state,localId,resolved));
+          patch(localId,key,{receipt:update.receipt,
+            phase:update.receipt.disposition==='replayed'?'replayed':'connected'});
+        }else if(update.kind==='event'){
+          const event=update.event,result=terminalDisplay(event);
+          if(event.event_type==='delta'&&typeof event.data.text==='string'){
+            cumulative+=event.data.text;
+            patch(localId,key,{text:cumulative,phase:'delta'});
           }else if(result){
-            patch(key,{phase:result==='complete'?'completed':result,terminal:result,isRunning:false,
+            patch(localId,key,{phase:result==='complete'?'completed':result,
+              terminal:result,isRunning:false,
               warning:result==='failed'?'خطای فنی نمونه؛ جزئیات داخلی پنهان است.':undefined});
-          }else if((e.event_type==='retrieving'||e.event_type==='generating')&&e.data.reported_by==='backend'){
-            patch(key,{phase:e.event_type});
-          }else if(e.event_type==='cancel_requested'){
-            patch(key,{phase:'cancel-requested',cancelRequested:true});
-          }else if(e.event_type==='connected'){
-            patch(key,{phase:'connected'});
+          }else if((event.event_type==='retrieving'||event.event_type==='generating')&&event.data.reported_by==='backend'){
+            patch(localId,key,{phase:event.event_type});
+          }else if(event.event_type==='cancel_requested'){
+            patch(localId,key,{phase:'cancel-requested',cancelRequested:true});
+          }else if(event.event_type==='connected'){
+            patch(localId,key,{phase:'connected'});
           }
         }else{
-          patch(key,{answer:u.answer,phase:'completed',
-            terminal:u.answer.state==='partial'?'partial':'complete',isRunning:false});
+          patch(localId,key,{answer:update.answer,phase:'completed',
+            terminal:update.answer.state==='partial'?'partial':'complete',isRunning:false});
         }
       }
     }catch{
-      patch(key,{phase:'unknown',terminal:'unknown',isRunning:false,
+      if(live())patch(localId,key,{phase:'unknown',terminal:'unknown',isRunning:false,
         warning:'ارتباط آزمایشی نامعلوم است؛ نتیجه تأیید نشده.'});
-    }finally{
-      if(runId===token.current)setActiveKey(null);
     }
   }
   function submit(){
-    if(!draft.trim()||activeKey)return;
+    if(!current.draft.trim()||active)return;
     const suffix='ui_'+crypto.randomUUID().replaceAll('-','').slice(0,18);
-    const req=newRequest(draft,threadId,suffix);
-    void run(req,scenario);setDraft('');
+    // Never send localId in requested_conversation_id.
+    const request=newRequest(current.draft,current.resolvedConversationId,suffix);
+    const localId=current.localId,chosen=current.scenario;
+    setWorkspace(state=>setThreadDraft(state,localId,''));
+    void run(localId,request,chosen);
   }
-  const active=items.find(i=>i.key===activeKey);
   function cancelDisplay(){
-    if(!activeKey)return;
-    suppress.current.add(activeKey);
-    patch(activeKey,{phase:'display-stopped',terminal:'display-only',
+    if(!active)return;
+    suppressed.current.add(active.key);
+    runEpochs.current.set(current.localId,(runEpochs.current.get(current.localId)??0)+1);
+    patch(current.localId,active.key,{phase:'display-stopped',terminal:'display-only',
       isRunning:false,displayStopped:true});
-    setActiveKey(null);
   }
   function cancelServer(){
     if(!active?.receipt||!active.isRunning||active.cancelRequested)return;
     transport.requestServerCancellation(active.receipt.request_id);
-    // This flag is local UI state: a request is NOT proof of server cancellation.
-    patch(active.key,{phase:'cancel-requested',cancelRequested:true});
+    patch(current.localId,active.key,{phase:'cancel-requested',cancelRequested:true});
   }
   function retryLatest(conflict=false){
-    if(activeKey||!items.length)return;
+    if(active||!items.length)return;
     const latest=items[items.length-1];
-    const req=conflict?{...latest.request,question:latest.request.question+' (متن تغییرکردهٔ آزمون تعارض)'}
-      :latest.request;
-    void run(req,latest.scenario);
-  }
-  function clearChat(){
-    token.current++;setItems([]);setActiveKey(null);setThreadId(null);
-    suppress.current.clear();setDrawer(null);setDraft('');
-    setTransport(()=>new MockTransport());
+    const request=conflict?{...latest.request,
+      question:latest.request.question+' (متن تغییرکردهٔ آزمون تعارض)'}:latest.request;
+    void run(current.localId,request,latest.scenario);
   }
   function beginNewChat(){
-    // Clearing is real but page-local; ask before losing a nonempty in-memory thread.
-    if(items.length>0&&!window.confirm('گفتگوی آزمایشی فعلی از حافظهٔ این صفحه پاک شود؟ این کار قابل بازگشت نیست.')){
-      return;
-    }
-    clearChat();setView('chat');
+    const newId=freshLocalId(); // generated during the user action, not inside React's updater
+    setWorkspace(state=>openFreshThread(state,()=>newId));
+    setView('chat');
     if(mobileMenuOpen)closeMobileMenu();
   }
-  const conversationPreview=items[0]?.request.question??'';
-  const hasConversation=items.length>0;
+  function chooseThread(localId:string){
+    setWorkspace(state=>selectThread(state,localId));
+    setView('chat');
+    if(mobileMenuOpen)closeMobileMenu();
+  }
   return <main className="app-shell" dir="rtl">
     <aside className={"sidebar-desktop"+(sidebarCollapsed?" is-collapsed":"")}
       aria-label="ناوبری اصلی">
-      <Navigation view={view} collapsed={sidebarCollapsed} hasConversation={hasConversation}
-        conversationPreview={conversationPreview} onView={navigate} onNewChat={beginNewChat}
-        onToggle={()=>setSidebarCollapsed(value=>!value)}/>
+      <Navigation view={view} collapsed={sidebarCollapsed} threads={workspace.threads}
+        activeLocalId={workspace.activeId} onView={navigate} onNewChat={beginNewChat}
+        onSelectThread={chooseThread} onToggle={()=>setSidebarCollapsed(value=>!value)}/>
     </aside>
     <div className="app-main">
       <header className="mobile-topbar">
@@ -395,11 +403,14 @@ export default function HomePage(){
               <div className="compose-tools">
                 <label htmlFor="scenario">نوع پاسخ نمونه</label>
                 <select id="scenario" value={scenario}
-                  onChange={event=>setScenario(event.target.value as Scenario)} disabled={!!activeKey}>
+                  onChange={event=>{
+                    const localId=current.localId,value=event.currentTarget.value as Scenario;
+                    setWorkspace(state=>setThreadScenario(state,localId,value));
+                  }} disabled={!!active}>
                   {SCENARIOS.map(key=><option key={key} value={key}>{scenarioNames[key]}</option>)}
                 </select>
               </div>
-              {!activeKey&&items.length>0&&<div className="tool-actions">
+              {!active&&items.length>0&&<div className="tool-actions">
                 <button className="secondary" type="button" onClick={()=>retryLatest()}>تکرار همان درخواست (Replay)</button>
                 <button className="secondary" type="button" onClick={()=>retryLatest(true)}>آزمایش تعارض (Conflict)</button>
               </div>}
@@ -423,12 +434,15 @@ export default function HomePage(){
           <form className="composer" onSubmit={event=>{event.preventDefault();submit()}}>
             <label htmlFor="question" className="sr-only">متن پرسش فارسی</label>
             <textarea id="question" rows={Math.min(2,Math.max(1,draft.split('\n').length))}
-              value={draft} disabled={!!activeKey}
-              onChange={event=>setDraft(event.target.value)}
+              value={draft} disabled={!!active}
+              onChange={event=>{
+                const localId=current.localId,value=event.currentTarget.value;
+                setWorkspace(state=>setThreadDraft(state,localId,value));
+              }}
               onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing){
                 event.preventDefault();submit();
               }}} placeholder="سؤال خود را بنویسید…"/>
-            <button type="submit" className="primary" disabled={!draft.trim()||!!activeKey}
+            <button type="submit" className="primary" disabled={!draft.trim()||!!active}
               aria-label="ارسال پرسش">
               ارسال <span aria-hidden="true">←</span>
             </button>
@@ -455,8 +469,9 @@ export default function HomePage(){
         aria-label="منوی ناوبری" onKeyDown={onMobileKeyDown}>
         <button ref={mobileCloseRef} className="mobile-close-button" type="button"
           aria-label="بستن منوی ناوبری" onClick={closeMobileMenu}>×</button>
-        <Navigation view={view} collapsed={false} mobile hasConversation={hasConversation}
-          conversationPreview={conversationPreview} onView={navigate} onNewChat={beginNewChat}/>
+        <Navigation view={view} collapsed={false} mobile threads={workspace.threads}
+          activeLocalId={workspace.activeId} onView={navigate} onNewChat={beginNewChat}
+          onSelectThread={chooseThread}/>
       </div>
     </div>}
     {drawer&&<SourceDrawer source={drawer.source} claim={drawer.claim} onClose={closeSource}/>}

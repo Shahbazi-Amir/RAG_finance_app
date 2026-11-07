@@ -391,3 +391,14 @@ code{
   .sidebar-desktop{transition:none}
 }
 
+
+/* UI-L1 local threads + fixed visual direction in RTL (SVG, not mirrored text glyphs). */
+.nav-collapse svg{display:block;direction:ltr;transform:none;flex-shrink:0}
+.nav-thread-list{display:flex;flex-direction:column;gap:3px;max-height:40dvh;overflow-y:auto;min-height:0}
+.nav-thread.is-current{background:#dcebdd;color:#145c3e;font-weight:650}
+.nav-thread:focus-visible{position:relative;z-index:1}
+.nav-thread-text{direction:rtl;unicode-bidi:plaintext}
+.nav-local-notice{overflow-wrap:anywhere}
+@media(max-width:760px){
+  .mobile-nav-dialog .nav-thread-list{max-height:38dvh}
+}

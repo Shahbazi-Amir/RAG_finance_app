@@ -26,17 +26,9 @@ def main():
         try:
             page = browser.new_page(viewport={"width": 1280, "height": 800}, device_scale_factor=1)
             dialogs = []
-            confirm_accept = {"enabled": True}
             def handle_dialog(dialog):
-                # This is a real, documented destructive action on in-memory data.
-                if dialog.type == "confirm" and "گفتگوی آزمایشی فعلی" in dialog.message:
-                    if confirm_accept["enabled"]:
-                        dialog.accept()
-                    else:
-                        dialog.dismiss()
-                else:
-                    dialogs.append(dialog.message)
-                    dialog.dismiss()
+                dialogs.append(dialog.message)
+                dialog.dismiss()
             page.on("dialog", handle_dialog)
             page.goto(base, wait_until="domcontentloaded", timeout=15000)
             expect(page.get_by_text("نسخهٔ آزمایشی؛ پاسخ‌ها نمونه‌اند و به موتور پاسخ‌گویی متصل نیستند.")).to_be_visible()
@@ -50,9 +42,21 @@ def main():
             expect(sidebar.get_by_role("button", name="حریم خصوصی")).to_be_visible()
             expect(sidebar.get_by_text("هنوز گفتگویی در این صفحه ندارید.")).to_be_visible()
             # Collapse/expand is a real and accessible desktop interaction.
-            sidebar.get_by_role("button", name="جمع‌کردن نوار کناری").click()
+            collapse = sidebar.get_by_role("button", name="جمع‌کردن نوار کناری")
+            assert collapse.get_attribute("aria-expanded") == "true"
+            assert collapse.locator("svg path").get_attribute("d") == "M9 5 L15 12 L9 19", (
+                "Expanded RTL rail must visibly point RIGHT to collapse"
+            )
+            assert collapse.locator("svg").evaluate("(el) => getComputedStyle(el).direction") == "ltr"
+            assert collapse.locator("svg").evaluate("(el) => getComputedStyle(el).transform") == "none"
+            collapse.click()
             expect(sidebar).to_have_class(re.compile("is-collapsed"))
-            sidebar.get_by_role("button", name="بازکردن نوار کناری").click()
+            expand = sidebar.get_by_role("button", name="بازکردن نوار کناری")
+            assert expand.get_attribute("aria-expanded") == "false"
+            assert expand.locator("svg path").get_attribute("d") == "M15 5 L9 12 L15 19", (
+                "Collapsed RTL rail must visibly point LEFT to expand"
+            )
+            expand.click()
             expect(sidebar).not_to_have_class(re.compile("is-collapsed"))
             assert page.locator(".chat-panel").evaluate("(el) => getComputedStyle(el).backgroundColor") == "rgba(0, 0, 0, 0)", "The large white chat card reappeared"
             assert page.locator(".chat-panel").evaluate("(el) => getComputedStyle(el).boxShadow") == "none", "The chat card shadow reappeared"
@@ -87,11 +91,7 @@ def main():
             sidebar.locator(".nav-thread").click()
             expect(page.locator(".message-set")).to_have_count(1)
             expect(page.locator(".answer-text").last).to_contain_text("نه پاسخ موتور واقعی.")
-            # A declined local-clear confirmation must preserve all messages.
-            confirm_accept["enabled"] = False
-            sidebar.locator(".nav-new-chat").click()
-            expect(page.locator(".message-set")).to_have_count(1)
-            confirm_accept["enabled"] = True
+            # The current chat is intact until the user explicitly selects another chat.
             expect(page.locator(".claim .source-button").last).to_be_visible()
             expect(page.get_by_text("اطمینان پاسخ ارزیابی نشده است.")).to_be_visible()
             expect(page.get_by_role("heading", name="چه پرسشی دربارهٔ امور مالی دارید؟")).to_have_count(0)
@@ -130,6 +130,38 @@ def main():
                     f"{selector} is clipped in initial 1280x800 reading view: {box}"
                 )
             page.screenshot(path=str(evidence / "desktop.png"), full_page=True)
+            # Two separate local conversations and their drafts survive selection.
+            sidebar.locator(".nav-new-chat").click()
+            expect(sidebar.locator(".nav-thread")).to_have_count(2)
+            expect(page.locator(".message-set")).to_have_count(0)
+            sidebar.locator(".nav-new-chat").click()
+            expect(sidebar.locator(".nav-thread")).to_have_count(2)  # no duplicate blanks
+            page.locator("#question").fill("پیش‌نویس اختصاصی گفتگوی دوم")
+            sidebar.locator(".nav-thread").first.click()
+            expect(page.locator(".message-set")).to_have_count(1)
+            page.locator("#question").fill("پیش‌نویس اختصاصی گفتگوی اول")
+            sidebar.locator(".nav-thread").nth(1).click()
+            expect(page.locator("#question")).to_have_value("پیش‌نویس اختصاصی گفتگوی دوم")
+            sidebar.locator(".nav-thread").first.click()
+            expect(page.locator("#question")).to_have_value("پیش‌نویس اختصاصی گفتگوی اول")
+            # Start A while B is inactive; then B while A is still streaming.
+            page.locator("#question").fill("پاسخ هم‌زمان در گفتگوی اول")
+            page.get_by_role("button", name=re.compile("^ارسال")).click()
+            sidebar.locator(".nav-thread").nth(1).click()
+            page.locator("#question").fill("پاسخ هم‌زمان در گفتگوی دوم")
+            page.get_by_role("button", name=re.compile("^ارسال")).click()
+            expect(page.locator(".message-set")).to_have_count(1)
+            expect(page.locator(".answer-text").last).to_contain_text("نه پاسخ موتور واقعی.", timeout=12000)
+            assert "پاسخ هم‌زمان در گفتگوی اول" not in page.locator(".messages").inner_text()
+            sidebar.locator(".nav-thread").first.click()
+            expect(page.locator(".message-set")).to_have_count(2)
+            expect(page.locator(".answer-text").last).to_contain_text("نه پاسخ موتور واقعی.", timeout=12000)
+            assert "پاسخ هم‌زمان در گفتگوی دوم" not in page.locator(".messages").inner_text()
+            assert "توقف پردازش در شبیه‌ساز تأیید شد" not in page.locator(".messages").inner_text()
+            sidebar.locator(".nav-thread").nth(1).click()
+            expect(page.locator(".message-set")).to_have_count(1)
+            assert not dialogs, "New Chat must not open a destructive confirmation"
+
             # Real DOM injection regression: React must render malicious strings as text.
             sidebar.locator(".nav-new-chat").click()
             if page.locator(".test-tools").get_attribute("open") is None:
@@ -197,12 +229,18 @@ def main():
             assert "توقف پردازش در شبیه‌ساز تأیید شد" not in page.locator(".message-set").last.inner_text(), (
                 "Display-only cancellation was shown as server-confirmed stop"
             )
-            # Clearing the chat resets the mock and its render flags.
+            # A fresh local thread preserves older chats and has independent controls.
+            old_count = sidebar.locator(".nav-thread").count()
             sidebar.locator(".nav-new-chat").click()
+            expect(sidebar.locator(".nav-thread")).to_have_count(old_count+1)
             expect(page.locator(".message-set")).to_have_count(0)
-            page.locator("#question").fill("تلاش تازه بعد از پاک‌کردن")
+            page.locator("#question").fill("تلاش تازه بدون پاک‌کردن قبلی")
             page.get_by_role("button", name=re.compile("^ارسال")).click()
             expect(page.get_by_role("button", name="درخواست توقف پردازش")).to_be_enabled(timeout=5000)
+            # Refresh loses all local-only threads and must never be called persistence.
+            page.reload(wait_until="domcontentloaded")
+            expect(page.locator(".message-set")).to_have_count(0)
+            expect(page.locator(".sidebar-desktop .nav-thread")).to_have_count(0)
             mobile = browser.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=1)
             mobile.goto(base, wait_until="domcontentloaded", timeout=15000)
             expect(mobile.locator("#question")).to_be_visible()
@@ -250,6 +288,16 @@ def main():
             menu_toggle.click()
             menu = mobile.get_by_role("dialog", name="منوی ناوبری")
             menu.locator(".nav-thread").click()
+            expect(mobile.locator(".message-set")).to_have_count(1)
+            expect(mobile.locator(".answer-text").last).to_contain_text("نه پاسخ موتور واقعی.")
+            menu_toggle.click()
+            menu = mobile.get_by_role("dialog", name="منوی ناوبری")
+            menu.locator(".nav-new-chat").click()
+            expect(mobile.locator(".message-set")).to_have_count(0)
+            menu_toggle.click()
+            menu = mobile.get_by_role("dialog", name="منوی ناوبری")
+            expect(menu.locator(".nav-thread")).to_have_count(2)
+            menu.locator(".nav-thread").first.click()
             expect(mobile.locator(".message-set")).to_have_count(1)
             expect(mobile.locator(".answer-text").last).to_contain_text("نه پاسخ موتور واقعی.")
             assert mobile.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "Mobile horizontal overflow"
