@@ -1,12 +1,13 @@
 {
-  "fixture_set_version": "product.v1.regression.2",
+  "fixture_set_version": "product.v1.regression.3",
   "origin": "SYNTHETIC",
   "not_evidence_of": [
     "NB23 runtime",
     "real source locator",
     "actual user privacy",
     "model quality",
-    "provider cancellation"
+    "provider cancellation",
+    "real history/auth/idempotency persistence"
   ],
   "cases": [
     {
@@ -4216,6 +4217,289 @@
           "producer_reference": null,
           "source_fingerprint": null
         }
+      }
+    },
+    {
+      "case_id": "valid_history_create_request",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "history.v1 additive DTO structural schema",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "create_conversation_request",
+        "contract_version": "product.v1",
+        "client_conversation_id": "local_conv_1",
+        "idempotency_key": "key_creation_1234",
+        "title": null
+      }
+    },
+    {
+      "case_id": "valid_history_create_receipt",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "history.v1 additive DTO structural schema",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "create_conversation_receipt",
+        "contract_version": "product.v1",
+        "request_id": "req_1",
+        "trace_id": "trace_1",
+        "owner_user_id": "user_1",
+        "client_conversation_id": "local_conv_1",
+        "idempotency_key": "key_creation_1234",
+        "payload_sha256": "c27efc3608e92a831faef705b1d013bd8b757073c068bbcdbb7843b06f174a99",
+        "disposition": "created",
+        "conversation": {
+          "kind": "conversation",
+          "contract_version": "product.v1",
+          "conversation_id": "conv_1",
+          "owner_user_id": "user_1",
+          "title": "نمونه",
+          "created_at": "2026-01-01T00:00:00Z",
+          "updated_at": "2026-01-01T00:00:00Z",
+          "state": "active"
+        }
+      }
+    },
+    {
+      "case_id": "valid_history_list_query",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "history.v1 additive DTO structural schema",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "conversation_list_request",
+        "contract_version": "product.v1",
+        "limit": 20,
+        "cursor": null
+      }
+    },
+    {
+      "case_id": "valid_history_messages_query",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "history.v1 additive DTO structural schema",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "conversation_messages_request",
+        "contract_version": "product.v1",
+        "conversation_id": "conv_1",
+        "limit": 20,
+        "cursor": null
+      }
+    },
+    {
+      "case_id": "valid_history_messages_page",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "history.v1 additive DTO structural schema",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "conversation_messages_page",
+        "contract_version": "product.v1",
+        "conversation_id": "conv_1",
+        "owner_user_id": "user_1",
+        "items": [
+          {
+            "kind": "message",
+            "contract_version": "product.v1",
+            "message_id": "msg_1",
+            "conversation_id": "conv_1",
+            "owner_user_id": "user_1",
+            "role": "user",
+            "text": "پرسش نمونهٔ مصنوعی",
+            "created_at": "2026-01-01T00:00:00Z",
+            "answer_id": null
+          }
+        ],
+        "answers": [],
+        "page": {
+          "limit": 20,
+          "has_more": false,
+          "next_cursor": null
+        }
+      }
+    },
+    {
+      "case_id": "valid_history_status_query",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "history.v1 additive DTO structural schema",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "message_request_status_query",
+        "contract_version": "product.v1",
+        "requested_conversation_id": null,
+        "client_message_id": "client_msg_1",
+        "idempotency_key": "key_request_12345"
+      }
+    },
+    {
+      "case_id": "valid_history_status_not_found",
+      "origin": "SYNTHETIC",
+      "expected_valid": true,
+      "rule": "history.v1 additive DTO structural schema",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "message_request_status",
+        "contract_version": "product.v1",
+        "request_id": "req_status",
+        "trace_id": "trace_status",
+        "owner_user_id": "user_1",
+        "requested_conversation_id": null,
+        "client_message_id": "client_msg_1",
+        "idempotency_key": "key_request_12345",
+        "status": "not_found",
+        "resolved_conversation_id": null,
+        "message_id": null,
+        "attempt_id": null,
+        "attempt_request_id": null,
+        "attempt_trace_id": null,
+        "reserved_answer_id": null,
+        "answer_id": null,
+        "answer": null
+      }
+    },
+    {
+      "case_id": "invalid_history_create_owner_spoof",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "history DTO structural reject",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "create_conversation_request",
+        "contract_version": "product.v1",
+        "client_conversation_id": "local_conv_1",
+        "idempotency_key": "key_creation_1234",
+        "title": null,
+        "owner_user_id": "user_other"
+      }
+    },
+    {
+      "case_id": "invalid_history_list_limit_zero",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "history DTO structural reject",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "conversation_list_request",
+        "contract_version": "product.v1",
+        "limit": 0,
+        "cursor": null
+      }
+    },
+    {
+      "case_id": "invalid_history_messages_id",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "history DTO structural reject",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "conversation_messages_request",
+        "contract_version": "product.v1",
+        "conversation_id": "*bad",
+        "limit": 20,
+        "cursor": null
+      }
+    },
+    {
+      "case_id": "invalid_history_page_extra_keys",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "history DTO structural reject",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "conversation_messages_page",
+        "contract_version": "product.v1",
+        "conversation_id": "conv_1",
+        "owner_user_id": "user_1",
+        "items": [
+          {
+            "kind": "message",
+            "contract_version": "product.v1",
+            "message_id": "msg_1",
+            "conversation_id": "conv_1",
+            "owner_user_id": "user_1",
+            "role": "user",
+            "text": "پرسش نمونهٔ مصنوعی",
+            "created_at": "2026-01-01T00:00:00Z",
+            "answer_id": null
+          }
+        ],
+        "answers": [],
+        "page": {
+          "limit": 20,
+          "has_more": false,
+          "next_cursor": null
+        },
+        "secret": "not_allowed"
+      }
+    },
+    {
+      "case_id": "invalid_history_status_query_owner",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "history DTO structural reject",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "message_request_status_query",
+        "contract_version": "product.v1",
+        "requested_conversation_id": null,
+        "client_message_id": "client_msg_1",
+        "idempotency_key": "key_request_12345",
+        "owner_user_id": "user_1"
+      }
+    },
+    {
+      "case_id": "invalid_history_status_not_found_claims_answer",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "history DTO structural reject",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "message_request_status",
+        "contract_version": "product.v1",
+        "request_id": "req_status",
+        "trace_id": "trace_status",
+        "owner_user_id": "user_1",
+        "requested_conversation_id": null,
+        "client_message_id": "client_msg_1",
+        "idempotency_key": "key_request_12345",
+        "status": "not_found",
+        "resolved_conversation_id": null,
+        "message_id": null,
+        "attempt_id": null,
+        "attempt_request_id": null,
+        "attempt_trace_id": null,
+        "reserved_answer_id": null,
+        "answer_id": "answer_fake",
+        "answer": null
+      }
+    },
+    {
+      "case_id": "invalid_history_status_pending_without_attempt",
+      "origin": "SYNTHETIC",
+      "expected_valid": false,
+      "rule": "history DTO structural reject",
+      "validation_layer": "schema_or_semantics",
+      "document": {
+        "kind": "message_request_status",
+        "contract_version": "product.v1",
+        "request_id": "req_status",
+        "trace_id": "trace_status",
+        "owner_user_id": "user_1",
+        "requested_conversation_id": null,
+        "client_message_id": "client_msg_1",
+        "idempotency_key": "key_request_12345",
+        "status": "attempt_pending",
+        "resolved_conversation_id": null,
+        "message_id": null,
+        "attempt_id": null,
+        "attempt_request_id": null,
+        "attempt_trace_id": null,
+        "reserved_answer_id": null,
+        "answer_id": null,
+        "answer": null
       }
     }
   ]

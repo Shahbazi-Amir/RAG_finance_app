@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:ragfinance:product:v1",
   "title": "RAG_finance Phase 3 provisional product interface v1",
-  "$comment": "Product-level agreement; NOT NB23 engine transport, NOT accepted runtime compatibility",
+  "$comment": "Product-level agreement; NOT NB23 engine transport, NOT accepted runtime compatibility HISTORY-01: seven additive provisional kinds; existing original 17 payload schemas unchanged. NEEDS_API_DB_REVIEW.",
   "oneOf": [
     {
       "$ref": "#/$defs/conversation"
@@ -54,6 +54,27 @@
     },
     {
       "$ref": "#/$defs/delete_status_query"
+    },
+    {
+      "$ref": "#/$defs/create_conversation_request"
+    },
+    {
+      "$ref": "#/$defs/create_conversation_receipt"
+    },
+    {
+      "$ref": "#/$defs/conversation_list_request"
+    },
+    {
+      "$ref": "#/$defs/conversation_messages_request"
+    },
+    {
+      "$ref": "#/$defs/conversation_messages_page"
+    },
+    {
+      "$ref": "#/$defs/message_request_status_query"
+    },
+    {
+      "$ref": "#/$defs/message_request_status"
     }
   ],
   "$defs": {
@@ -2920,6 +2941,607 @@
         "client_action_id"
       ],
       "$comment": "Client may request status by operation ID+action correlation, but this proves no ownership. Server MUST independently authenticate/authorize owner; post-account-deletion session access is unresolved and must not use anonymous bearer IDs."
+    },
+    "create_conversation_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "create_conversation_request"
+        },
+        "contract_version": {
+          "const": "product.v1"
+        },
+        "client_conversation_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "title": {
+          "oneOf": [
+            {
+              "type": "string",
+              "maxLength": 180
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "contract_version",
+        "client_conversation_id",
+        "idempotency_key",
+        "title"
+      ]
+    },
+    "create_conversation_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "create_conversation_receipt"
+        },
+        "contract_version": {
+          "const": "product.v1"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "trace_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "owner_user_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "client_conversation_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "payload_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "disposition": {
+          "enum": [
+            "created",
+            "replayed"
+          ]
+        },
+        "conversation": {
+          "$ref": "#/$defs/conversation"
+        }
+      },
+      "required": [
+        "kind",
+        "contract_version",
+        "request_id",
+        "trace_id",
+        "owner_user_id",
+        "client_conversation_id",
+        "idempotency_key",
+        "payload_sha256",
+        "disposition",
+        "conversation"
+      ]
+    },
+    "conversation_list_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "conversation_list_request"
+        },
+        "contract_version": {
+          "const": "product.v1"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "cursor": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "contract_version",
+        "limit",
+        "cursor"
+      ]
+    },
+    "conversation_messages_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "conversation_messages_request"
+        },
+        "contract_version": {
+          "const": "product.v1"
+        },
+        "conversation_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "cursor": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "contract_version",
+        "conversation_id",
+        "limit",
+        "cursor"
+      ]
+    },
+    "conversation_messages_page": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "conversation_messages_page"
+        },
+        "contract_version": {
+          "const": "product.v1"
+        },
+        "conversation_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "owner_user_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/message"
+          }
+        },
+        "answers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/answer"
+          }
+        },
+        "page": {
+          "$ref": "#/$defs/pagination"
+        }
+      },
+      "required": [
+        "kind",
+        "contract_version",
+        "conversation_id",
+        "owner_user_id",
+        "items",
+        "answers",
+        "page"
+      ]
+    },
+    "message_request_status_query": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "message_request_status_query"
+        },
+        "contract_version": {
+          "const": "product.v1"
+        },
+        "requested_conversation_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "client_message_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        }
+      },
+      "required": [
+        "kind",
+        "contract_version",
+        "requested_conversation_id",
+        "client_message_id",
+        "idempotency_key"
+      ]
+    },
+    "message_request_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "message_request_status"
+        },
+        "contract_version": {
+          "const": "product.v1"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "trace_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "owner_user_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "requested_conversation_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "client_message_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "status": {
+          "enum": [
+            "not_found",
+            "persisted",
+            "attempt_pending",
+            "attempt_unknown",
+            "answer_committed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "resolved_conversation_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attempt_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attempt_request_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attempt_trace_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reserved_answer_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "answer_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "answer": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/answer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "contract_version",
+        "request_id",
+        "trace_id",
+        "owner_user_id",
+        "requested_conversation_id",
+        "client_message_id",
+        "idempotency_key",
+        "status",
+        "resolved_conversation_id",
+        "message_id",
+        "attempt_id",
+        "attempt_request_id",
+        "attempt_trace_id",
+        "reserved_answer_id",
+        "answer_id",
+        "answer"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "not_found"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "resolved_conversation_id": {
+                "type": "null"
+              },
+              "message_id": {
+                "type": "null"
+              },
+              "attempt_id": {
+                "type": "null"
+              },
+              "attempt_request_id": {
+                "type": "null"
+              },
+              "attempt_trace_id": {
+                "type": "null"
+              },
+              "reserved_answer_id": {
+                "type": "null"
+              },
+              "answer_id": {
+                "type": "null"
+              },
+              "answer": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "persisted"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "attempt_id": {
+                "type": "null"
+              },
+              "attempt_request_id": {
+                "type": "null"
+              },
+              "attempt_trace_id": {
+                "type": "null"
+              },
+              "reserved_answer_id": {
+                "type": "null"
+              },
+              "answer_id": {
+                "type": "null"
+              },
+              "answer": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "attempt_pending",
+                  "attempt_unknown",
+                  "failed",
+                  "cancelled"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "answer_id": {
+                "type": "null"
+              },
+              "answer": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "persisted",
+                  "attempt_pending",
+                  "attempt_unknown",
+                  "failed",
+                  "cancelled",
+                  "answer_committed"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "resolved_conversation_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+              },
+              "message_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "attempt_pending",
+                  "attempt_unknown",
+                  "failed",
+                  "cancelled",
+                  "answer_committed"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "attempt_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+              },
+              "attempt_request_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+              },
+              "attempt_trace_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+              },
+              "reserved_answer_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "answer_committed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "answer_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+              },
+              "answer": {
+                "$ref": "#/$defs/answer"
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

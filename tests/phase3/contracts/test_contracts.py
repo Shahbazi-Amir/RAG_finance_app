@@ -39,7 +39,7 @@ class TestMachineReadableContract(unittest.TestCase):
     def test_schema_is_valid_draft202012(self):
         Draft202012Validator.check_schema(SCHEMA)
         self.assertEqual(SCHEMA['$schema'], 'https://json-schema.org/draft/2020-12/schema')
-        self.assertEqual(len(SCHEMA['oneOf']), 17)
+        self.assertEqual(len(SCHEMA['oneOf']), 24)  # 17 historical + 7 additive history operations; old payload rules unchanged
 
     def test_all_synthetic_positive_and_negative_cases(self):
         ids = [c['case_id'] for c in FIXTURES['cases']]

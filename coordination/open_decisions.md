@@ -21,3 +21,17 @@
 - **NB23/Phase2 OPEN:** upstream Release and formal handoff BLOCKED; real Source resolver/attribution, stream/cancellation, engine integration and Module 00 unaccepted. Historical 21 synthetic Contract tests are not proof of real producer or DB.
 - **Infrastructure/Policy OPEN:** exact versions, Auth, Consent, Retention, provider/model, Hosting, budget, capacity, RPO/RTO, SLO and operating/security owners. Availability 99.5%, 500ms and 15s sample values remain NONBINDING.
 - **Persistence OPEN:** Receipt–Attempt and crash T1→T2 recovery, transaction boundary, TTL, Unique/NULL, Feedback retries, and safe deletion lookup after session invalidation; `NEEDS_API_DB_REVIEW`, no DB or migration acceptance.
+
+
+## AGENT-HISTORY-01 — Auth and history/persistence decisions (ALL OPEN)
+
+**Scope:** [PROPOSED ADR 0003](../docs/adr/0003-history-persistence-proposal.md), [existing product.v1 HISTORY-01 contract](../packages/contracts/README.md) and [HISTORY-01 checkpoint](tasks/AGENT-HISTORY-01.md). These proposals do NOT authorize API implementation, PostgreSQL migration, RLS, a selected Auth provider, a runtime model call, Retention or any Module Gate.
+
+- **H-DEC-01 (employer, Auth):** choose between (A, **recommended for evaluation**) managed standards-based OIDC Authorization Code+PKCE with server/BFF session or (B) first-party credentials + secure server sessions. Employer must approve privacy/data transfer, actual costs/vendor or engineering/MFA/recovery burden, credential handling, session revocation and post-account-deletion status access. **No fixed/anonymous Production identity.**
+- **H-DEC-02 (API+DB):** approve create-conversation idempotency separate from send_message; original requested null vs allocated resolved conversation; status/error/HTTP routes and trace per attempt, 17→24 additive kinds; existing `product.v1` remains provisional pending consumer review.
+- **H-DEC-03 (API+DB):** atomically persist T1 Receipt/Conversation/User Message, leave recoverable T1→T2 persisted gap; T2 Attempt + reserved_answer_id before permitted external call; T3 Assistant Message + Answer atomic commit. Recommend mandatory Receipt→Attempt for the send-message path, *not* generic internal attempts. No automatic model retry on Ambiguous/Unknown.
+- **H-DEC-04 (DB+API):** choose physical owner-scoped Unique/NULL strategy for requested_conversation_id null, locking/CAS, transaction isolation, Attempt leases/reconciliation, cursor HMAC key rotation and expiry, idempotency TTL, concurrency, and error/access timing; test cross-user ID enumeration and RLS with an authorized later DB mission.
+- **H-DEC-05 (employer/security):** Retention, soft/hard delete, backup, status polling after session revocation, Title/edit rules and Export scope independent of deletion remain UNDECIDED. Deletion reuses existing product.v1 commands; no new deletion service here.
+- **H-DEC-06 (upstream):** NB23/Phase2 acceptance and Module 00 remain BLOCKED; stored history must NOT be inserted automatically into Draft NB23 request (only `contract_version` and `question` confirmed). API/DB/Runtime L2 and Module 03/04/05/06/13/15/14/19 Gates unaccepted.
+
+**Compatibility evidence:** existing 21 synthetic tests preserved; new 10 contract tests with 14 fixtures passed in isolated task environment (31 total, 112 SYNTHETIC fixtures). This is task-level only, not a true DB/RLS/HTTP/Auth benchmark or supervisor Gate approval.
