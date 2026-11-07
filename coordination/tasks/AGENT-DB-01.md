@@ -353,3 +353,13 @@ erDiagram
 **Legacy HDB-07:** قبل از افزودن Unique Attempt در migration نسخهٔ دوم، شمارش Attemptهای چندگانه باید FAIL-CLOSED با خطای قابل‌تشخیص باشد؛ migration باید Abort شود و داده‌های Fixture قبلی **دست‌نخورده** بمانند. هیچ حذف/تسویهٔ خودکار رکورد قدیمی مجاز نیست.
 
 **مجوز و عدم‌قطعیت:** فایل‌های فقط `src/phase3/storage/postgres/**`، `infra/postgres/**`، `tests/phase3/database/**`، `coordination/tasks/AGENT-DB-01.md` و استثنای `.github/workflows/db-history.yml`. Root dependencyها، Shared Schema، Auth واقعی، PostgreSQL روی Mac، مدل/NB23، Retention/TTL و Migration Production ممنوع‌اند. تصمیم‌های باز: کد سخت‌گیرانهٔ Auth/owner source، واقعاً انتشار داده و Retention، Cursor signing/expiry، سیاست HTTP/error، failover/replica و crash process. `implemented=PLAN_ONLY`، `tested=SOURCE/ENV_INSPECTION_ONLY`، `accepted=NONE_NEW`؛ قدم بعد اجرای بسته و ثبت نتایج واقعی CI در همین پرونده است.
+
+## Checkpoint L1-B — versioned SQL and initial Repository source (UNTESTED)
+
+**Baseline:** `agent/db-history-l1@057eb7d3ec09247ed8056508d1d8cc28af4a1c97`, based on `main@3e7f5b4ad4993a182b9157169e3de334af68d43d`. This checkpoint closes the prior SQL-only push documentation gap without rewriting history.
+
+**Paths now implemented (NOT YET TESTED):** `infra/postgres/migrations/001_history_l1.up.sql`, `001_history_l1.down.sql`, `002_one_attempt.up.sql`, `002_one_attempt.down.sql` (from previous commit) and `src/phase3/storage/postgres/repository.py` (this batch). `DB01-03/05/07/08/10A/11`, `P3M04-A02/A06`, `P3M06-A01/A02/A03`, `P3M15-A01/A03/A10`, HDB-01…10 targets; no canonical checklist modification.
+
+**Design rationale:** T1 scope-lock + DB unique including NULL, T2 at-most-one attempt, T3 FK to reserved Answer and assistant Message; source immutable snapshot and coherent owner-bound status read. Role `history_migrator` owns tables, role `history_app` is non-owner with FORCE RLS. PostgreSQL migration 002 checks for multi-attempt legacy records and aborts without mutations. Source code never calls a provider or schedules attempts from read-only status.
+
+**Checks at this checkpoint:** remote GitHub file creation and visual source review only; no PostgreSQL/Python execution or meaningful HDB PASS yet. CI workflow and real tests are the next batch. `implemented=SOURCE_DRAFT`, `tested=NOT_RUN`, `accepted=NONE_NEW`. Open: actual CI pass/fail, RLS behavior, credential-free production Auth, TTL/Retention, exact crash semantics; next: create test and workflow and run actual PostgreSQL CI.
