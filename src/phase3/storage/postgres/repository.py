@@ -149,10 +149,10 @@ def _send_receipt(r,request_id,trace_id,disposition):
                 payload_sha256=r["payload_sha256"],disposition=disposition,
                 message_id=r["user_message_id"],error=None)
 
-def _receipt_for(conn,owner,orig,client,key,lock=False):
+def _receipt_for(conn,owner,orig,client,key):
     r=conn.execute("""SELECT * FROM history_l1.send_receipts
       WHERE owner_id=%s AND requested_conversation_id IS NOT DISTINCT FROM %s
-      AND client_message_id=%s AND idempotency_key=%s""" + (" FOR UPDATE" if lock else ""),
+      AND client_message_id=%s AND idempotency_key=%s""",
       (owner,orig,client,key)).fetchone()
     if r is None:
         raise NotFound("NOT_FOUND")
@@ -162,7 +162,10 @@ def _receipt_for(conn,owner,orig,client,key,lock=False):
 def start_t2(conn,owner,orig,client,key,attempt_request_id,attempt_trace_id,*,rollback=False):
     with conn.transaction():
         scoped(conn,owner)
-        r=_receipt_for(conn,owner,orig,client,key,lock=True)
+        # Advisory transaction lock serializes T2 without UPDATE privilege on
+        # the immutable Send Receipt. DB unique index remains the hard backstop.
+        lock_scope(conn,json.dumps([owner,"start_t2",orig,client,key],ensure_ascii=False))
+        r=_receipt_for(conn,owner,orig,client,key)
         attempts=conn.execute("""SELECT * FROM history_l1.execution_attempts
           WHERE owner_id=%s AND send_receipt_id=%s ORDER BY id""",(owner,r["id"])).fetchall()
         if len(attempts)>1:
