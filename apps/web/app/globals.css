@@ -284,3 +284,110 @@ code{
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{scroll-behavior:auto!important;transition:none!important}
 }
+
+/* UI-CHAT-L1-SHELL-07: phase-three-only product shell, no Auth/History backend. */
+.app-shell{display:flex;flex-direction:row;align-items:stretch}
+.app-main{flex:1;min-width:0;min-height:100dvh;display:flex;flex-direction:column}
+.workspace{width:min(calc(100% - 40px),776px);margin-inline:auto}
+.chat-panel{min-height:100dvh}
+
+/* Permanent, collapsible right rail on desktop (RTL first flex child). */
+.sidebar-desktop{
+  position:sticky;top:0;z-index:22;
+  width:228px;flex:0 0 228px;height:100dvh;
+  border-left:1px solid #dde7df;background:#f0f4f0;
+  transition:width .17s ease,flex-basis .17s ease;
+}
+.sidebar-desktop.is-collapsed{width:66px;flex-basis:66px}
+.nav-content{display:flex;flex-direction:column;min-height:100%;padding:17px 13px 16px;gap:7px}
+.nav-brand-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:11px}
+.nav-brand{display:flex;align-items:center;gap:9px;min-width:0}
+.nav-brand-name{font-size:15px;font-weight:700;color:#243e2f}
+.nav-collapse,.mobile-close-button{
+  display:grid;place-items:center;flex-shrink:0;
+  width:31px;height:31px;
+  border:1px solid #d3e0d6;border-radius:8px;
+  background:transparent;color:#395d45;font-size:22px;
+}
+.nav-collapse:hover,.mobile-close-button:hover{background:#dfeadf}
+.nav-new-chat,.nav-link,.nav-thread{
+  display:flex;align-items:center;gap:11px;width:100%;min-width:0;
+  border:0;border-radius:9px;padding:10px 10px;
+  text-align:right;background:transparent;color:#314b3a;
+  font-size:13px;line-height:1.6;font-weight:500;
+}
+.nav-new-chat{background:#fdfefd;border:1px solid #cfdfd2;color:#1b6040;font-weight:650}
+.nav-new-chat:hover,.nav-link:hover,.nav-thread:hover{background:#e2ece3}
+.nav-link.is-current{background:#dcebdd;color:#155b38;font-weight:650}
+.nav-icon{width:20px;min-width:20px;display:inline-grid;place-items:center;font-size:19px;line-height:1}
+.nav-helper{font-size:10px;color:#617366;line-height:1.7;margin:0 5px 9px}
+.nav-main-links{margin:0}
+.nav-temporary{margin:10px 0 0;min-width:0}
+.nav-section-title{font-size:11px;font-weight:650;color:#526557;padding:0 9px;margin:0 0 8px}
+.nav-thread{font-size:12px;font-weight:450;color:#365341;padding:9px 10px}
+.nav-thread-text{display:block;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.nav-empty,.nav-local-notice{margin:0 9px;font-size:11px;line-height:1.85;color:#65766a}
+.nav-local-notice{margin-top:8px;font-size:10px}
+.nav-bottom{margin-top:auto;padding-top:15px;border-top:1px solid #dce8df}
+.nav-compact{align-items:stretch;padding:17px 9px 14px}
+.nav-compact .nav-label{display:none}
+.nav-compact .nav-brand-row{display:flex;flex-direction:column;gap:11px;align-items:center}
+.nav-compact .nav-new-chat,.nav-compact .nav-link,.nav-compact .nav-thread{
+  justify-content:center;padding:10px 4px
+}
+.nav-compact .nav-temporary{margin-top:5px}
+.nav-compact .nav-collapse{font-size:20px}
+.nav-compact .nav-bottom{width:100%}
+.nav-compact .nav-icon{width:22px}
+.nav-compact .nav-thread{min-height:38px}
+.mobile-topbar,.mobile-nav-overlay{display:none}
+
+/* Honest placeholder pages: no credentials, consent, fake profile or destructive controls. */
+.placeholder-view{
+  flex:1;display:flex;flex-direction:column;align-items:flex-start;
+  justify-content:center;min-height:calc(100dvh - 58px);
+  max-width:630px;margin-inline:auto;padding:45px 6px;
+}
+.placeholder-eyebrow{color:#47765b;font-size:12px;line-height:1.7;margin-bottom:10px}
+.placeholder-view h1{font-size:clamp(22px,3vw,30px);font-weight:700;color:#213c2b;margin:0 0 18px}
+.placeholder-lead{font-size:16px;line-height:2;color:#294130;margin:0 0 12px}
+.placeholder-footnote{font-size:13px;line-height:2;color:#596d5e;max-width:55ch}
+
+/* Mobile uses the same navigation content in an accessible temporary dialog. */
+@media(max-width:760px){
+  .sidebar-desktop{display:none}
+  .mobile-topbar{
+    display:flex;position:sticky;top:0;z-index:21;
+    height:54px;flex:0 0 54px;align-items:center;gap:10px;
+    padding:0 16px;background:#fcfdfb;border-bottom:1px solid #e3eae4;
+  }
+  .mobile-menu-trigger{
+    display:grid;place-items:center;width:36px;height:36px;
+    border:1px solid #cadaca;border-radius:9px;
+    background:#f5f9f5;color:#275b3d;font-size:19px;
+  }
+  .mobile-brand{font-size:14px;font-weight:700;color:#25432f}
+  .mobile-nav-overlay{display:flex;position:fixed;inset:0;z-index:45;justify-content:flex-start}
+  .mobile-nav-scrim{position:absolute;inset:0;border:0;background:rgba(8,29,17,.58);border-radius:0}
+  .mobile-nav-dialog{
+    position:relative;z-index:1;flex-shrink:0;width:min(86vw,304px);
+    height:100dvh;overflow-y:auto;background:#f0f4f0;
+    box-shadow:-10px 0 30px rgba(0,0,0,.18);
+  }
+  .mobile-nav-dialog .nav-content{min-height:100%;padding:17px 14px 18px}
+  .mobile-nav-dialog .nav-brand-row{padding-left:39px}
+  .mobile-close-button{position:absolute;top:17px;left:15px;z-index:2}
+  .chat-panel{min-height:calc(100dvh - 54px)}
+  .placeholder-view{min-height:calc(100dvh - 54px)}
+}
+@media(max-width:480px){
+  .mobile-topbar{height:52px;flex-basis:52px;padding-inline:12px}
+  .chat-panel{min-height:calc(100dvh - 52px)}
+  .placeholder-view{min-height:calc(100dvh - 52px);padding:30px 2px}
+  .placeholder-lead{font-size:15px}
+  .placeholder-view h1{font-size:23px}
+}
+@media(prefers-reduced-motion:reduce){
+  .sidebar-desktop{transition:none}
+}
+

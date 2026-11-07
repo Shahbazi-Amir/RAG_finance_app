@@ -26,13 +26,34 @@ def main():
         try:
             page = browser.new_page(viewport={"width": 1280, "height": 800}, device_scale_factor=1)
             dialogs = []
+            confirm_accept = {"enabled": True}
             def handle_dialog(dialog):
-                dialogs.append(dialog.message)
-                dialog.dismiss()
+                # This is a real, documented destructive action on in-memory data.
+                if dialog.type == "confirm" and "گفتگوی آزمایشی فعلی" in dialog.message:
+                    if confirm_accept["enabled"]:
+                        dialog.accept()
+                    else:
+                        dialog.dismiss()
+                else:
+                    dialogs.append(dialog.message)
+                    dialog.dismiss()
             page.on("dialog", handle_dialog)
             page.goto(base, wait_until="domcontentloaded", timeout=15000)
             expect(page.get_by_text("نسخهٔ آزمایشی؛ پاسخ‌ها نمونه‌اند و به موتور پاسخ‌گویی متصل نیستند.")).to_be_visible()
             assert page.locator(".side-panel").count() == 0, "The large intro column reappeared"
+            sidebar = page.locator(".sidebar-desktop")
+            expect(sidebar).to_be_visible()
+            assert sidebar.bounding_box()["x"] + sidebar.bounding_box()["width"] >= 1279, (
+                "Desktop navigation is not on the right edge"
+            )
+            expect(sidebar.get_by_role("button", name="حساب کاربری")).to_be_visible()
+            expect(sidebar.get_by_role("button", name="حریم خصوصی")).to_be_visible()
+            expect(sidebar.get_by_text("هنوز گفتگویی در این صفحه ندارید.")).to_be_visible()
+            # Collapse/expand is a real and accessible desktop interaction.
+            sidebar.get_by_role("button", name="جمع‌کردن نوار کناری").click()
+            expect(sidebar).to_have_class(re.compile("is-collapsed"))
+            sidebar.get_by_role("button", name="بازکردن نوار کناری").click()
+            expect(sidebar).not_to_have_class(re.compile("is-collapsed"))
             assert page.locator(".chat-panel").evaluate("(el) => getComputedStyle(el).backgroundColor") == "rgba(0, 0, 0, 0)", "The large white chat card reappeared"
             assert page.locator(".chat-panel").evaluate("(el) => getComputedStyle(el).boxShadow") == "none", "The chat card shadow reappeared"
             width = page.locator(".chat-panel").bounding_box()["width"]
@@ -40,7 +61,7 @@ def main():
             expect(page.get_by_role("heading", name="چه پرسشی دربارهٔ امور مالی دارید؟")).to_be_visible()
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "Desktop horizontal overflow"
             assert page.locator(".messages").evaluate("(el) => getComputedStyle(el).overflowY") != "auto", "Nested messages scroll returned"
-            assert page.locator(".topbar").evaluate("(el) => getComputedStyle(el).position") == "sticky"
+            assert page.locator(".sidebar-desktop").evaluate("(el) => getComputedStyle(el).position") == "sticky"
             assert page.locator(".chat-footer").evaluate("(el) => getComputedStyle(el).position") == "sticky"
             assert page.locator(".composer").is_visible(), "Composer should be visible at the desktop viewport"
             composer_box = page.locator(".composer").bounding_box()
@@ -56,6 +77,21 @@ def main():
             page.get_by_role("button", name=re.compile("^ارسال")).click()
             expect(page.locator(".answer-text").last).to_contain_text("نه پاسخ موتور واقعی.", timeout=12000)
             expect(page.locator(".source-button").last).to_be_visible()
+            expect(sidebar.locator(".nav-thread")).to_have_count(1)
+            # Both placeholders are honest (no account, email or accepted consent).
+            sidebar.get_by_role("button", name="حساب کاربری").click()
+            expect(page.get_by_text("ورود و مدیریت حساب هنوز متصل نیست.")).to_be_visible()
+            assert page.locator(".message-set").count() == 0, "Chat should be hidden outside its view"
+            sidebar.get_by_role("button", name="حریم خصوصی").click()
+            expect(page.get_by_text("مدیریت رضایت و درخواست حذف در نسخهٔ متصل ارائه می‌شود.")).to_be_visible()
+            sidebar.locator(".nav-thread").click()
+            expect(page.locator(".message-set")).to_have_count(1)
+            expect(page.locator(".answer-text").last).to_contain_text("نه پاسخ موتور واقعی.")
+            # A declined local-clear confirmation must preserve all messages.
+            confirm_accept["enabled"] = False
+            sidebar.locator(".nav-new-chat").click()
+            expect(page.locator(".message-set")).to_have_count(1)
+            confirm_accept["enabled"] = True
             expect(page.locator(".claim .source-button").last).to_be_visible()
             expect(page.get_by_text("اطمینان پاسخ ارزیابی نشده است.")).to_be_visible()
             expect(page.get_by_role("heading", name="چه پرسشی دربارهٔ امور مالی دارید؟")).to_have_count(0)
@@ -88,14 +124,14 @@ def main():
                 page.locator(".test-tools summary").click()
             page.evaluate("window.scrollTo(0, 0)")
             # At 1280x800 the first short exchange, header and composer should be in view.
-            for selector in [".topbar", ".user-bubble", ".answer-text", ".composer"]:
+            for selector in [".sidebar-desktop .nav-brand", ".user-bubble", ".answer-text", ".composer"]:
                 box = page.locator(selector).last.bounding_box()
                 assert box and box["y"] >= -1 and box["y"] + box["height"] <= 801, (
                     f"{selector} is clipped in initial 1280x800 reading view: {box}"
                 )
             page.screenshot(path=str(evidence / "desktop.png"), full_page=True)
             # Real DOM injection regression: React must render malicious strings as text.
-            page.get_by_role("button", name="گفتگوی تازه").click()
+            sidebar.locator(".nav-new-chat").click()
             if page.locator(".test-tools").get_attribute("open") is None:
                 page.locator(".test-tools summary").click()
             page.locator("#scenario").select_option("malicious")
@@ -128,7 +164,7 @@ def main():
                 ("clarification", "برای پاسخ دقیق‌تر"),
                 ("refusal", "در این نمونه امکان پاسخ‌گویی"),
             ]:
-                page.get_by_role("button", name="گفتگوی تازه").click()
+                sidebar.locator(".nav-new-chat").click()
                 if page.locator(".test-tools").get_attribute("open") is None:
                     page.locator(".test-tools summary").click()
                 page.locator("#scenario").select_option(scenario)
@@ -142,7 +178,7 @@ def main():
                 )
             # Regression: the renderable local "cancel requested" flag is scoped to
             # each attempt and must reset on a fresh run, replay and clear.
-            page.get_by_role("button", name="گفتگوی تازه").click()
+            sidebar.locator(".nav-new-chat").click()
             if page.locator(".test-tools").get_attribute("open") is None:
                 page.locator(".test-tools summary").click()
             page.locator("#scenario").select_option("answer")
@@ -162,7 +198,7 @@ def main():
                 "Display-only cancellation was shown as server-confirmed stop"
             )
             # Clearing the chat resets the mock and its render flags.
-            page.get_by_role("button", name="گفتگوی تازه").click()
+            sidebar.locator(".nav-new-chat").click()
             expect(page.locator(".message-set")).to_have_count(0)
             page.locator("#question").fill("تلاش تازه بعد از پاک‌کردن")
             page.get_by_role("button", name=re.compile("^ارسال")).click()
@@ -176,7 +212,46 @@ def main():
             assert mobile_composer and 0 <= mobile_composer["y"] and mobile_composer["y"] + mobile_composer["height"] <= 844 + 1, (
                 "Composer was outside the 390x844 initial viewport"
             )
-            assert mobile.locator(".topbar").is_visible(), "Header is not visible at 390x844"
+            assert mobile.locator(".mobile-topbar").is_visible(), "Mobile header is not visible at 390x844"
+            expect(mobile.locator(".sidebar-desktop")).to_be_hidden()
+            menu_toggle = mobile.get_by_role("button", name="بازکردن منوی ناوبری")
+            menu_toggle.click()
+            menu = mobile.get_by_role("dialog", name="منوی ناوبری")
+            expect(menu).to_be_visible()
+            menu_close = menu.get_by_role("button", name="بستن منوی ناوبری")
+            expect(menu_close).to_be_focused()
+            mobile.keyboard.press("Shift+Tab")
+            assert menu.locator(":focus").count() == 1, "Shift+Tab escaped mobile navigation"
+            mobile.keyboard.press("Escape")
+            expect(menu).to_have_count(0)
+            expect(menu_toggle).to_be_focused()
+            menu_toggle.click()
+            menu = mobile.get_by_role("dialog", name="منوی ناوبری")
+            menu.get_by_role("button", name="حساب کاربری").click()
+            expect(mobile.get_by_text("ورود و مدیریت حساب هنوز متصل نیست.")).to_be_visible()
+            expect(menu).to_have_count(0)
+            menu_toggle.click()
+            menu = mobile.get_by_role("dialog", name="منوی ناوبری")
+            menu.get_by_role("button", name="حریم خصوصی").click()
+            expect(mobile.get_by_text("مدیریت رضایت و درخواست حذف در نسخهٔ متصل ارائه می‌شود.")).to_be_visible()
+            menu_toggle.click()
+            menu = mobile.get_by_role("dialog", name="منوی ناوبری")
+            menu.get_by_role("button", name="صفحهٔ گفتگو").click()
+            expect(mobile.locator("#question")).to_be_visible()
+            mobile.locator("#question").fill("گفتگوی موقت در موبایل")
+            mobile.get_by_role("button", name=re.compile("^ارسال")).click()
+            expect(mobile.locator(".message-set")).to_have_count(1)
+            expect(mobile.locator(".answer-text").last).to_contain_text("نه پاسخ موتور واقعی.", timeout=12000)
+            menu_toggle.click()
+            menu = mobile.get_by_role("dialog", name="منوی ناوبری")
+            expect(menu.locator(".nav-thread")).to_have_count(1)
+            menu.get_by_role("button", name="حساب کاربری").click()
+            expect(mobile.get_by_text("ورود و مدیریت حساب هنوز متصل نیست.")).to_be_visible()
+            menu_toggle.click()
+            menu = mobile.get_by_role("dialog", name="منوی ناوبری")
+            menu.locator(".nav-thread").click()
+            expect(mobile.locator(".message-set")).to_have_count(1)
+            expect(mobile.locator(".answer-text").last).to_contain_text("نه پاسخ موتور واقعی.")
             assert mobile.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "Mobile horizontal overflow"
             mobile.locator("#question").focus()
             expect(mobile.locator("#question")).to_be_focused()

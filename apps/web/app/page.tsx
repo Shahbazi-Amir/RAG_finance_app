@@ -103,15 +103,119 @@ function SourceDrawer({source,claim,onClose}:{source:Source;claim:string;onClose
     </aside>
   </div>
 }
+
+type ProductView='chat'|'account'|'privacy';
+type NavProps={
+  view:ProductView;collapsed:boolean;mobile?:boolean;
+  hasConversation:boolean;conversationPreview:string;
+  onView:(view:ProductView)=>void;onNewChat:()=>void;onToggle?:()=>void;
+};
+function Navigation({view,collapsed,mobile=false,hasConversation,conversationPreview,onView,onNewChat,onToggle}:NavProps){
+  return <div className={"nav-content"+(collapsed?" nav-compact":"")}>
+    <div className="nav-brand-row">
+      <div className="nav-brand">
+        <span className="brand-mark" aria-hidden="true">ف</span>
+        <span className="nav-label nav-brand-name">راگ مالی</span>
+      </div>
+      {!mobile&&<button type="button" className="nav-collapse" onClick={onToggle}
+        aria-label={collapsed?'بازکردن نوار کناری':'جمع‌کردن نوار کناری'}
+        aria-expanded={!collapsed} title={collapsed?'بازکردن نوار کناری':'جمع‌کردن نوار کناری'}>
+        <span aria-hidden="true">{collapsed?'‹':'›'}</span>
+      </button>}
+    </div>
+    <button type="button" className="nav-new-chat" onClick={onNewChat}
+      title="گفتگوی تازه؛ گفتگوی فعلی از حافظهٔ همین صفحه پاک می‌شود"
+      aria-label="گفتگوی تازه؛ پاک‌کردن گفتگوی موقت همین صفحه">
+      <span className="nav-icon" aria-hidden="true">＋</span>
+      <span className="nav-label">گفتگوی تازه</span>
+    </button>
+    <p className="nav-helper nav-label">گفتگوی تازه، پیام‌های موقت همین صفحه را پاک می‌کند.</p>
+    <nav className="nav-main-links" aria-label="صفحه‌های محصول">
+      <button type="button" className={"nav-link"+(view==='chat'?' is-current':'')}
+        aria-current={view==='chat'?'page':undefined} aria-label="صفحهٔ گفتگو"
+        title="صفحهٔ گفتگو" onClick={()=>onView('chat')}>
+        <span className="nav-icon" aria-hidden="true">▤</span>
+        <span className="nav-label">گفتگو</span>
+      </button>
+    </nav>
+    <section className="nav-temporary" aria-label="گفتگوهای موقت این صفحه">
+      <p className="nav-section-title nav-label">گفتگوهای این صفحه</p>
+      {hasConversation?
+        <button type="button" className="nav-thread" onClick={()=>onView('chat')}
+          aria-label={"بازگشت به گفتگوی موقت: "+conversationPreview}
+          title={"گفتگوی موقت: "+conversationPreview}>
+          <span className="nav-icon" aria-hidden="true">◉</span>
+          <span className="nav-label nav-thread-text">{conversationPreview}</span>
+        </button>
+        :<p className="nav-empty nav-label">هنوز گفتگویی در این صفحه ندارید.</p>}
+      <p className="nav-local-notice nav-label">فهرست تاریخی یا ذخیره‌سازی دائمی فعال نیست.</p>
+    </section>
+    <nav className="nav-bottom" aria-label="حساب و حریم خصوصی">
+      <button type="button" className={"nav-link"+(view==='account'?' is-current':'')}
+        aria-current={view==='account'?'page':undefined} aria-label="حساب کاربری"
+        title="حساب کاربری" onClick={()=>onView('account')}>
+        <span className="nav-icon" aria-hidden="true">◯</span>
+        <span className="nav-label">حساب کاربری</span>
+      </button>
+      <button type="button" className={"nav-link"+(view==='privacy'?' is-current':'')}
+        aria-current={view==='privacy'?'page':undefined} aria-label="حریم خصوصی"
+        title="حریم خصوصی" onClick={()=>onView('privacy')}>
+        <span className="nav-icon" aria-hidden="true">◇</span>
+        <span className="nav-label">حریم خصوصی</span>
+      </button>
+    </nav>
+  </div>;
+}
+
 export default function HomePage(){
   // The mock transport has no render-time side effects; initialize lazily once per chat.
   // Keep the mock instance in state so render never reads or writes a mutable ref.
   const [transport,setTransport]=useState<MockTransport>(()=>new MockTransport());
+  const [view,setView]=useState<ProductView>('chat');
+  const [sidebarCollapsed,setSidebarCollapsed]=useState(false);
+  const [mobileMenuOpen,setMobileMenuOpen]=useState(false);
+  const mobileTriggerRef=useRef<HTMLButtonElement>(null);
+  const mobileCloseRef=useRef<HTMLButtonElement>(null);
+  const mobileDialogRef=useRef<HTMLDivElement>(null);
   const [draft,setDraft]=useState('تفاوت پس‌انداز و سرمایه‌گذاری چیست؟');
   const [scenario,setScenario]=useState<Scenario>('answer');
   const [items,setItems]=useState<Item[]>([]);
   const [threadId,setThreadId]=useState<string|null>(null);
   const [activeKey,setActiveKey]=useState<string|null>(null);
+  useEffect(()=>{
+    if(!mobileMenuOpen)return;
+    const previousOverflow=document.body.style.overflow;
+    document.body.style.overflow='hidden';
+    mobileCloseRef.current?.focus();
+    return ()=>{document.body.style.overflow=previousOverflow};
+  },[mobileMenuOpen]);
+  function closeMobileMenu(){
+    setMobileMenuOpen(false);
+    window.requestAnimationFrame(()=>mobileTriggerRef.current?.focus());
+  }
+  function onMobileKeyDown(event:ReactKeyboardEvent<HTMLDivElement>){
+    if(event.key==='Escape'){
+      event.preventDefault();event.stopPropagation();closeMobileMenu();return;
+    }
+    if(event.key!=='Tab')return;
+    const dialog=mobileDialogRef.current;
+    if(!dialog)return;
+    const focusable=Array.from(dialog.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+    )).filter(element=>element.getClientRects().length>0);
+    if(!focusable.length){event.preventDefault();dialog.focus();return}
+    const first=focusable[0],last=focusable[focusable.length-1];
+    if(event.shiftKey&&(document.activeElement===first||!dialog.contains(document.activeElement))){
+      event.preventDefault();last.focus();
+    }else if(!event.shiftKey&&(document.activeElement===last||!dialog.contains(document.activeElement))){
+      event.preventDefault();first.focus();
+    }
+  }
+  function navigate(next:ProductView){
+    setView(next);
+    if(mobileMenuOpen)closeMobileMenu();
+  }
+
   const [drawer,setDrawer]=useState<{source:Source;claim:string}|null>(null);
   const drawerOpener=useRef<HTMLButtonElement|null>(null);
   function closeSource(){
@@ -206,20 +310,34 @@ export default function HomePage(){
     suppress.current.clear();setDrawer(null);setDraft('');
     setTransport(()=>new MockTransport());
   }
+  function beginNewChat(){
+    // Clearing is real but page-local; ask before losing a nonempty in-memory thread.
+    if(items.length>0&&!window.confirm('گفتگوی آزمایشی فعلی از حافظهٔ این صفحه پاک شود؟ این کار قابل بازگشت نیست.')){
+      return;
+    }
+    clearChat();setView('chat');
+    if(mobileMenuOpen)closeMobileMenu();
+  }
+  const conversationPreview=items[0]?.request.question??'';
+  const hasConversation=items.length>0;
   return <main className="app-shell" dir="rtl">
-    <header className="topbar">
-      <div className="topbar-inner">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true">ف</span>
-          <strong>راگ مالی</strong>
-        </div>
-        <button type="button" className="new-chat-button" onClick={clearChat}>
-          <span aria-hidden="true">＋</span> گفتگوی تازه
+    <aside className={"sidebar-desktop"+(sidebarCollapsed?" is-collapsed":"")}
+      aria-label="ناوبری اصلی">
+      <Navigation view={view} collapsed={sidebarCollapsed} hasConversation={hasConversation}
+        conversationPreview={conversationPreview} onView={navigate} onNewChat={beginNewChat}
+        onToggle={()=>setSidebarCollapsed(value=>!value)}/>
+    </aside>
+    <div className="app-main">
+      <header className="mobile-topbar">
+        <button type="button" ref={mobileTriggerRef} aria-label="بازکردن منوی ناوبری"
+          aria-haspopup="dialog" aria-controls="mobile-navigation" aria-expanded={mobileMenuOpen}
+          onClick={()=>setMobileMenuOpen(true)} className="mobile-menu-trigger">
+          <span aria-hidden="true">☰</span>
         </button>
-      </div>
-    </header>
-    <div className="workspace">
-      <section className="chat-panel" aria-label="گفتگوی فارسی">
+        <span className="mobile-brand">راگ مالی</span>
+      </header>
+      <div className="workspace">
+        {view==='chat'?<section className="chat-panel" aria-label="گفتگوی فارسی">
         <p className="demo-note" role="note">
           نسخهٔ آزمایشی؛ پاسخ‌ها نمونه‌اند و به موتور پاسخ‌گویی متصل نیستند.
         </p>
@@ -317,8 +435,30 @@ export default function HomePage(){
           </form>
           <p className="under-composer">Enter برای ارسال · Shift+Enter برای سطر جدید</p>
         </div>
-      </section>
+      </section>:<section className="placeholder-view" aria-labelledby="placeholder-heading">
+        <p className="placeholder-eyebrow">نمای معرفی آزمایشی · فاز سوم</p>
+        <h1 id="placeholder-heading">{view==='account'?'حساب کاربری':'حریم خصوصی'}</h1>
+        <p className="placeholder-lead">{view==='account'
+          ?'ورود و مدیریت حساب هنوز متصل نیست.'
+          :'مدیریت رضایت و درخواست حذف در نسخهٔ متصل ارائه می‌شود.'}</p>
+        <p className="placeholder-footnote">{view==='account'
+          ?'در این نسخه حساب، پروفایل یا نشست کاربری ایجاد نمی‌شود.'
+          :'هیچ رضایتی ثبت نشده و درخواست حذفی به سرور ارسال نمی‌شود.'}</p>
+      </section>}
+      </div>
     </div>
+    {mobileMenuOpen&&<div className="mobile-nav-overlay">
+      <button type="button" className="mobile-nav-scrim" aria-label="بستن منوی ناوبری"
+        onClick={closeMobileMenu}/>
+      <div id="mobile-navigation" ref={mobileDialogRef} tabIndex={-1}
+        className="mobile-nav-dialog" role="dialog" aria-modal="true"
+        aria-label="منوی ناوبری" onKeyDown={onMobileKeyDown}>
+        <button ref={mobileCloseRef} className="mobile-close-button" type="button"
+          aria-label="بستن منوی ناوبری" onClick={closeMobileMenu}>×</button>
+        <Navigation view={view} collapsed={false} mobile hasConversation={hasConversation}
+          conversationPreview={conversationPreview} onView={navigate} onNewChat={beginNewChat}/>
+      </div>
+    </div>}
     {drawer&&<SourceDrawer source={drawer.source} claim={drawer.claim} onClose={closeSource}/>}
   </main>
 }
