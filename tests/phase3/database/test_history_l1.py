@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import psycopg
+from psycopg.conninfo import conninfo_to_dict
 from psycopg.errors import ForeignKeyViolation, InsufficientPrivilege, UniqueViolation
 
 ROOT=Path(__file__).resolve().parents[3]
@@ -23,9 +24,22 @@ from repository import (NotFound,Conflict,IntegrityAnomaly,InjectedRollback,
 def ensure_ci():
     if os.getenv("CI")!="true":
         raise RuntimeError("CI_ONLY: no local or production DB accepted")
-    for key in ("DB_APP_DSN","DB_MIG_DSN","DB_LEGACY_APP_DSN","DB_LEGACY_MIG_DSN"):
+    allowed = {"DB_APP_DSN":("history_ci","history_app"),
+               "DB_MIG_DSN":("history_ci","history_migrator"),
+               "DB_LEGACY_APP_DSN":("history_legacy_ci","history_app"),
+               "DB_LEGACY_MIG_DSN":("history_legacy_ci","history_migrator")}
+    for key,(database,role) in allowed.items():
         v=os.getenv(key,"")
-        if "host=127.0.0.1" not in v or "localhost" in v or "dbname=history_" not in v:
+        try:
+            spec=conninfo_to_dict(v)
+            safe=(spec.get("host")=="127.0.0.1"
+                  and spec.get("port")=="5432"
+                  and spec.get("dbname")==database
+                  and spec.get("user")==role
+                  and set(spec).issubset({"host","port","dbname","user","password","connect_timeout"}))
+        except (ValueError,TypeError,psycopg.Error):
+            safe=False
+        if not safe:
             raise RuntimeError("CI_ONLY: reject DB outside designated loopback temp databases")
 
 def db(name="DB_APP_DSN"):
@@ -183,6 +197,21 @@ class HistoryPostgresL1(unittest.TestCase):
             with self.assertRaises(InjectedRollback):
                 finalize_t3(conn,owner,attempt["id"],answer,"Synthetic answer",rollback=True)
             self.assertEqual(read_status(conn,owner,status_q(req),uid(),uid())["status"],"attempt_pending")
+        # Separate real connection-drop-before-COMMIT proof (not process kill).
+        dirty=db()
+        try:
+            dirty.execute("BEGIN")
+            scoped(dirty,owner)
+            dirty.execute("""INSERT INTO history_l1.conversations(owner_id,id)
+                VALUES(%s,%s)""",(owner,"uncommitted_"+uid()))
+        finally:
+            dirty.close()  # PostgreSQL must abort the still-open transaction.
+        with db() as inspect:
+            with inspect.transaction():
+                scoped(inspect,owner)
+                n=inspect.execute("""SELECT count(*) AS n FROM history_l1.conversations
+                    WHERE owner_id=%s AND id LIKE 'uncommitted_%%'""",(owner,)).fetchone()["n"]
+                self.assertEqual(n,0)
         # Close the prior connection AFTER all commits, reconnect (not process crash).
         with db() as new_conn:
             again=send_t1(new_conn,owner,req,uid(),uid())
@@ -280,19 +309,24 @@ class HistoryPostgresL1(unittest.TestCase):
             with self.assertRaises(NotFound):
                 send_t1(conn,b,send_req(cid=cid),uid(),uid())
             self.assertEqual(list_conversations(conn,b)["items"],[])
+            other_cid=create_conversation(conn,b,create_req(),uid(),uid())["conversation"]["conversation_id"]
             with conn.transaction():
                 scoped(conn,a)
                 role=conn.execute("""SELECT r.rolsuper,r.rolbypassrls
                   FROM pg_roles r WHERE r.rolname=current_user""").fetchone()
                 self.assertFalse(role["rolsuper"])
                 self.assertFalse(role["rolbypassrls"])
+                table_owner=conn.execute("""SELECT pg_get_userbyid(c.relowner) AS name FROM pg_class c
+                    JOIN pg_namespace n ON c.relnamespace=n.oid
+                    WHERE n.nspname='history_l1' AND c.relname='messages'""").fetchone()["name"]
+                self.assertEqual(table_owner,"history_migrator")
                 self.assertEqual(conn.execute("""SELECT count(*) AS n FROM history_l1.messages
                       WHERE owner_id=%s""",(a,)).fetchone()["n"],2)
                 # Same-owner row cannot reference another user's conversation.
                 with self.assertRaises(ForeignKeyViolation):
                     with conn.transaction():
                         conn.execute("""INSERT INTO history_l1.messages(owner_id,id,conversation_id,role,body)
-                          VALUES(%s,%s,%s,'user','synthetic')""",(a,uid(),uid()))
+                          VALUES(%s,%s,%s,'user','synthetic')""",(a,uid(),other_cid))
             with conn.transaction():
                 # No app.owner_id is set in this fresh transaction.
                 self.assertEqual(conn.execute("SELECT count(*) AS n FROM history_l1.conversations").fetchone()["n"],0)
