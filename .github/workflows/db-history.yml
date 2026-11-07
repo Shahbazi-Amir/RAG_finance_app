@@ -35,6 +35,7 @@ jobs:
       PGHOST: 127.0.0.1
       PGPORT: '5432'
       DB_APP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
       DB_LEGACY_APP_DSN: host=127.0.0.1 port=5432 dbname=history_legacy_ci user=history_app password=synthetic_app_only connect_timeout=5
       DB_LEGACY_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_legacy_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
     steps:

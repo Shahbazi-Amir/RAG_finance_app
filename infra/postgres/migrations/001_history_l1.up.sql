@@ -62,7 +62,11 @@ CREATE TABLE history_l1.answers (
 );
 -- Role-based SQL boundary: owned by history_migrator, accessed by history_app.
 GRANT USAGE ON SCHEMA history_l1 TO history_app;
-GRANT SELECT,INSERT,UPDATE ON ALL TABLES IN SCHEMA history_l1 TO history_app;
+-- Immutable history receipts/messages/answers: app may INSERT and READ only.
+-- Only mutable conversation metadata and attempt terminal state are UPDATE-able.
+GRANT SELECT,INSERT ON ALL TABLES IN SCHEMA history_l1 TO history_app;
+GRANT UPDATE(title,state,updated_at) ON history_l1.conversations TO history_app;
+GRANT UPDATE(state,error_code) ON history_l1.execution_attempts TO history_app;
 DO $$
 DECLARE table_name text;
 BEGIN

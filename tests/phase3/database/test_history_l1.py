@@ -23,7 +23,7 @@ from repository import (NotFound,Conflict,IntegrityAnomaly,InjectedRollback,
 def ensure_ci():
     if os.getenv("CI")!="true":
         raise RuntimeError("CI_ONLY: no local or production DB accepted")
-    for key in ("DB_APP_DSN","DB_LEGACY_APP_DSN","DB_LEGACY_MIG_DSN"):
+    for key in ("DB_APP_DSN","DB_MIG_DSN","DB_LEGACY_APP_DSN","DB_LEGACY_MIG_DSN"):
         v=os.getenv(key,"")
         if "host=127.0.0.1" not in v or "localhost" in v or "dbname=history_" not in v:
             raise RuntimeError("CI_ONLY: reject DB outside designated loopback temp databases")
@@ -299,6 +299,14 @@ class HistoryPostgresL1(unittest.TestCase):
                 with self.assertRaises(InsufficientPrivilege):
                     with conn.transaction():
                         conn.execute("CREATE TABLE history_l1.illicit (x int)")
+            with self.assertRaises(InsufficientPrivilege):
+                with conn.transaction():
+                    scoped(conn,a)
+                    conn.execute("UPDATE history_l1.create_receipts SET created_snapshot='{}'::jsonb WHERE owner_id=%s",(a,))
+            with self.assertRaises(InsufficientPrivilege):
+                with conn.transaction():
+                    scoped(conn,a)
+                    conn.execute("UPDATE history_l1.answers SET payload='{}'::jsonb WHERE owner_id=%s",(a,))
             with conn.transaction():
                 scoped(conn,a)
                 attrs=conn.execute("""SELECT c.relrowsecurity,c.relforcerowsecurity
@@ -306,8 +314,12 @@ class HistoryPostgresL1(unittest.TestCase):
                       WHERE n.nspname='history_l1' AND c.relname='messages'""").fetchone()
                 self.assertTrue(attrs["relrowsecurity"])
                 self.assertTrue(attrs["relforcerowsecurity"])
-                conn.execute("UPDATE history_l1.messages SET created_at=%s WHERE owner_id=%s AND conversation_id=%s",
-                     ("2026-01-01T00:00:00Z",a,cid))
+            # Only test-migrator on a disposable DB can seed equal timestamps;
+            # app role has no UPDATE permission on immutable Message rows.
+            with db("DB_MIG_DSN") as migrator:
+                with migrator.transaction():
+                    migrator.execute("UPDATE history_l1.messages SET created_at=%s WHERE owner_id=%s AND conversation_id=%s",
+                         ("2026-01-01T00:00:00Z",a,cid))
             page1=list_messages(conn,a,cid,limit=1)
             page2=list_messages(conn,a,cid,limit=1,last=page1["last"])
             self.assertTrue(page1["has_more"])
