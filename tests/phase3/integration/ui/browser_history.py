@@ -367,7 +367,17 @@ async def run():
             assert receipt_count(pending_id) == 1
         await a.unroute("**/api/history/message-requests/status?**", corrupt_status)
         await a.get_by_test_id("recover-status").click()
-        await expect(a.get_by_test_id("pending-" + pending_id)).to_have_count(0)
+        # Recovery to a real T1 receipt is not equivalent to its message being
+        # present on the currently loaded cursor page. If the pending bubble
+        # stays visible, it must say *confirmed persisted*, not unknown.
+        # If the page already loaded the message, the exact question is visible.
+        pending_after_recovery = a.get_by_test_id("pending-" + pending_id)
+        if await pending_after_recovery.count():
+            await expect(pending_after_recovery).to_contain_text(
+                "پیام ثبت شد؛ پاسخ‌گویی موتور هنوز فعال نیست.")
+        else:
+            await expect(a.get_by_text("آزمون وضعیت نامعتبر و منع تأیید", exact=True)).to_be_visible()
+        await expect(a.get_by_test_id("history-error")).to_have_count(0)
         assert receipt_count(pending_id) == 1
         print("E2E: invalid Status enum/T2 evidence fails closed before real recovery PASS")
 
