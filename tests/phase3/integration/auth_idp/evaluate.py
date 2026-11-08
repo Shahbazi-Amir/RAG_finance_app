@@ -228,11 +228,20 @@ async def login(browser, cb, email, password, otp=None, expect_failure=False):
     flow, ctx, page = await begin(browser)
     await fill_login(page, email, password)
     if expect_failure:
+        global CURRENT
+        CURRENT = "invalid-password-form-visible"
         await expect(page.locator("#kc-form-login")).to_be_visible()
+        CURRENT = "invalid-password-error-visible"
         await expect(page.locator(
             "#input-error, #kc-error-message, .alert-error, [class*=alert-danger]"
         ).first).to_be_visible(timeout=10000)
-        assert cb.server.inbox.empty(), "INVALID_PASSWORD_CALLBACK"
+        CURRENT = "invalid-password-no-current-flow-callback"
+        # A previous successful reset or registration can finish its OWN
+        # earlier browser authorization. Only a code for THIS invalid login
+        # would prove a bypass. Never exchange any unexpected callback.
+        while not cb.server.inbox.empty():
+            callback = cb.server.inbox.get_nowait()
+            assert callback.get("state") != [flow["state"]], "INVALID_PASSWORD_CALLBACK"
         await ctx.close()
         return None
     if otp is not None:
