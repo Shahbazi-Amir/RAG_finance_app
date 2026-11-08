@@ -80,9 +80,12 @@ def fresh_flow():
 
 
 async def begin(browser):
+    global CURRENT
     f = fresh_flow()
     ctx, page = await new_page(browser)
+    CURRENT = "browser-authorization-document"
     await page.goto(authorization(OIDC, f["nonce"], f["state"], f["proof"]))
+    CURRENT = "browser-login-form-render"
     await expect(page.locator("#kc-form-login")).to_be_visible(timeout=12000)
     return f, ctx, page
 
@@ -108,7 +111,10 @@ async def authorized(page, cb, flow):
 async def signup(browser, cb, email, password):
     f, ctx, page = await begin(browser)
     before = mail_ids()
+    global CURRENT
+    CURRENT = "browser-registration-link"
     await page.locator('a[href*="/registrations"]').click()
+    CURRENT = "browser-registration-form"
     await expect(page.locator("#kc-register-form")).to_be_visible()
     for field, value in (("firstName", "Synthetic"), ("lastName", "Person"),
                          ("email", email), ("password", password),
@@ -117,7 +123,9 @@ async def signup(browser, cb, email, password):
         if field in ("firstName", "lastName") and await item.count() == 0:
             continue
         await item.fill(value)
+    CURRENT = "browser-registration-submit"
     await page.locator('#kc-register-form input[type="submit"], #kc-submit').first.click()
+    CURRENT = "smtp-registration-verification"
     await email_after(email, before)
     assert ADMIN.user(email).get("emailVerified") is False, "NEW_USER_PREVERIFIED"
     # Verification required action must block a normal OIDC callback.
@@ -125,7 +133,9 @@ async def signup(browser, cb, email, password):
     case("IDP-01-register-and-unverified-gate")
     mid, message = await email_after(email, before)
     link = action_url(message)
+    CURRENT = "browser-email-verification-link"
     await page.goto(link, wait_until="domcontentloaded")
+    CURRENT = "email-verification-db-effect"
     for _ in range(40):
         if ADMIN.user(email).get("emailVerified") is True:
             break
@@ -144,6 +154,7 @@ async def signup(browser, cb, email, password):
     # logins must be independently bound to their own state and nonce.
     while not cb.server.inbox.empty():
         cb.server.inbox.get_nowait()
+    CURRENT = "email-verification-finished"
 
 
 async def login(browser, cb, email, password, otp=None, expect_failure=False):
