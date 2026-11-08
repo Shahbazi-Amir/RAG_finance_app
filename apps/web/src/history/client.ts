@@ -1,9 +1,10 @@
 /**
- * History UI consumer of the existing product.v1 wire contract.
- * View projections below are NOT alternative request/response DTOs.
- * No mock fixture or source of client-selected owner is imported at runtime.
+ * History UI consumer of the ORIGINAL product.v1 contract and semantic links.
+ * Runtime validation loads ../../../../packages/contracts/product.v1.schema.json.
+ * These small view projections are not parallel wire DTOs. No browser-selected owner.
  */
-import type { SendRequest, SendReceipt, Answer } from '../mock/transport';
+import type { SendRequest, Answer } from '../mock/transport';
+import { conformsToProductV1 } from './product-validation.ts';
 
 export type ConversationView = { id:string; title:string|null; state:string };
 export type MessageView = { id:string; conversationId:string; role:'user'|'assistant'; text:string; answerId:string|null };
@@ -12,6 +13,7 @@ export type HistoryPage<T> = { items:T[]; next:string|null; more:boolean; owner:
 export type MessagePage = HistoryPage<MessageView> & { answers:AnswerView[]; conversationId:string };
 export type CreateOperation = { kind:'create_conversation_request'; contract_version:'product.v1'; client_conversation_id:string; idempotency_key:string; title:string|null };
 export type PendingSend = { request:SendRequest; phase:'sending'|'unknown'|'unconfirmed'|'persisted'|'conflict'|'unauthorized'; messageId:string|null; serverId:string|null };
+export type HistoryStatus = 'not_found'|'persisted'|'attempt_pending'|'attempt_unknown'|'answer_committed'|'failed'|'cancelled';
 type Wire = Record<string,unknown>;
 
 export class HistoryFailure extends Error {
@@ -21,28 +23,59 @@ export class HistoryFailure extends Error {
     super(reason);this.status=status;this.reason=reason;
   }
 }
-function record(v:unknown):Wire{
-  if(v===null||typeof v!=='object'||Array.isArray(v)) throw new HistoryFailure(0,'invalid');
+function invalid():never{throw new HistoryFailure(0,'invalid');}
+function doc(v:unknown,kind:string):Wire {
+  if(!conformsToProductV1(v,kind))invalid();
   return v as Wire;
 }
-function field(v:unknown):string{
-  if(typeof v!=='string'||!v) throw new HistoryFailure(0,'invalid');
+function object(v:unknown):Wire{
+  if(v===null||typeof v!=='object'||Array.isArray(v))invalid();
+  return v as Wire;
+}
+function text(v:unknown):string{
+  if(typeof v!=='string'||!v)invalid();
   return v;
 }
-function optional(v:unknown):string|null{
-  return v===null?null:field(v);
+function maybeText(v:unknown):string|null{
+  return v===null?null:text(v);
 }
-function wire(v:unknown,kind:string):Wire {
-  const o=record(v);
-  if(o.kind!==kind||o.contract_version!=='product.v1') throw new HistoryFailure(0,'invalid');
-  return o;
+function list(v:unknown):Wire[]{
+  if(!Array.isArray(v))invalid();
+  return v.map(object);
 }
-function page(o:Wire):{next:string|null;more:boolean}{
-  const p=record(o.page);
-  if(typeof p.has_more!=='boolean')throw new HistoryFailure(0,'invalid');
-  const next=optional(p.next_cursor);
-  if(p.has_more&&!next)throw new HistoryFailure(0,'invalid');
-  return {next,more:p.has_more};
+function unique(values:string[]):void{
+  if(new Set(values).size!==values.length)invalid();
+}
+function pagination(o:Wire,requestedLimit:number,numberOfItems:number):{next:string|null;more:boolean}{
+  const p=object(o.page);
+  if(p.limit!==requestedLimit||numberOfItems>requestedLimit)invalid();
+  // The actual shared JSON Schema enforces both directions of cursor/has_more.
+  return {next:maybeText(p.next_cursor),more:p.has_more as boolean};
+}
+function ensureAnswerRelations(answer:Answer):void{
+  const claims=new Map(answer.claims.map(c=>[c.claim_id,c]));
+  const citations=new Map(answer.citations.map(c=>[c.citation_id,c]));
+  if(claims.size!==answer.claims.length||citations.size!==answer.citations.length)invalid();
+  for(const claim of answer.claims){
+    for(const id of claim.citation_ids)
+      if(!citations.has(id)||!citations.get(id)!.claim_ids.includes(claim.claim_id))invalid();
+  }
+  for(const cite of answer.citations){
+    for(const id of cite.claim_ids)
+      if(!claims.has(id)||!claims.get(id)!.citation_ids.includes(cite.citation_id))invalid();
+  }
+  if(answer.provenance.origin==='SYNTHETIC'&&answer.citations.some(c=>
+    c.source.resolution_status==='verified'||c.source.attribution_status==='verified'||
+    (c.source.display_title!==null&&c.source.display_title!==undefined&&
+      c.source.display_title_origin!=='SYNTHETIC')))invalid();
+  if(answer.outcome==='error'&&answer.error?.category!=='technical')invalid();
+  if(answer.outcome==='partial'&&answer.answer_text===null)invalid();
+  if((answer.outcome==='unknown'||answer.outcome==='cancelled')&&answer.claims.length)invalid();
+}
+function validatedAnswer(raw:unknown):Answer {
+  const value=doc(raw,'answer') as unknown as Answer;
+  ensureAnswerRelations(value);
+  return value;
 }
 export function newSend(question:string,originalId:string|null):SendRequest {
   return {kind:'send_message_request',contract_version:'product.v1',requested_conversation_id:originalId,
@@ -64,16 +97,14 @@ async function api(path:string, method:'GET'|'POST'='GET',payload?:unknown):Prom
     response=await fetch('/api/history/'+path,{method,cache:'no-store',credentials:'same-origin',
       headers:payload===undefined?undefined:{'Content-Type':'application/json'},
       body:payload===undefined?undefined:JSON.stringify(payload)});
-  }catch{
-    throw new HistoryFailure(0,'unknown');
-  }
+  }catch{throw new HistoryFailure(0,'unknown');}
   if(!response.ok){
     if(response.status===401)throw new HistoryFailure(401,'unauthorized');
     if(response.status===409)throw new HistoryFailure(409,'conflict');
     if(method==='POST'&&(response.status===503||response.status>=500))throw new HistoryFailure(response.status,'unknown');
     throw new HistoryFailure(response.status,response.status>=500?'unavailable':'invalid');
   }
-  try{return await response.json();}catch{throw new HistoryFailure(0,'unknown');}
+  try{return await response.json();}catch{throw new HistoryFailure(0,'invalid');}
 }
 function params(input:Record<string,string|number|null>):string{
   const q=new URLSearchParams();
@@ -81,58 +112,80 @@ function params(input:Record<string,string|number|null>):string{
   return q.toString();
 }
 export async function conversations(limit=2,cursor:string|null=null):Promise<HistoryPage<ConversationView>>{
-  const o=wire(await api('conversations?'+params({limit,cursor})),'conversation_page');
-  const owner=field(o.scope_user_id);
-  const items=(o.items as unknown[]).map(v=>{
-    const c=wire(v,'conversation');
-    if(c.owner_user_id!==owner)throw new HistoryFailure(0,'invalid');
-    return {id:field(c.conversation_id),title:optional(c.title),state:field(c.state)};
+  const o=doc(await api('conversations?'+params({limit,cursor})),'conversation_page');
+  const owner=text(o.scope_user_id);
+  const raw=list(o.items),seen:string[]=[];
+  const items=raw.map(v=>{
+    const c=doc(v,'conversation');
+    if(c.owner_user_id!==owner||c.state!=='active')invalid();
+    seen.push(text(c.conversation_id));
+    return {id:text(c.conversation_id),title:maybeText(c.title),state:text(c.state)};
   });
-  return {...page(o),items,owner};
+  unique(seen);
+  // Cross-document pagination semantics: owner, size, newest-first ordering.
+  const order=raw.map(v=>[Date.parse(text(v.created_at)),text(v.conversation_id)] as const);
+  for(let i=1;i<order.length;i++)
+    if(order[i-1][0]<order[i][0]||
+       (order[i-1][0]===order[i][0]&&order[i-1][1]<order[i][1]))invalid();
+  return {...pagination(o,limit,items.length),items,owner};
 }
 export async function messages(conversationId:string,limit=2,cursor:string|null=null):Promise<MessagePage>{
-  const o=wire(await api('conversations/'+encodeURIComponent(conversationId)+'/messages?'+
+  const o=doc(await api('conversations/'+encodeURIComponent(conversationId)+'/messages?'+
     params({limit,cursor})),'conversation_messages_page');
-  const owner=field(o.owner_user_id);
-  if(o.conversation_id!==conversationId)throw new HistoryFailure(0,'invalid');
-  const items=(o.items as unknown[]).map(v=>{
-    const m=wire(v,'message');
-    if(m.owner_user_id!==owner||m.conversation_id!==conversationId)throw new HistoryFailure(0,'invalid');
-    if(m.role!=='user'&&m.role!=='assistant')throw new HistoryFailure(0,'invalid');
-    return {id:field(m.message_id),conversationId,role:m.role as 'user'|'assistant',text:field(m.text),answerId:optional(m.answer_id)};
+  const owner=text(o.owner_user_id);
+  if(o.conversation_id!==conversationId)invalid();
+  const raw=list(o.items);
+  const items=raw.map(v=>{
+    const m=doc(v,'message');
+    if(m.owner_user_id!==owner||m.conversation_id!==conversationId)invalid();
+    if(m.role==='user'&&m.answer_id!==null)invalid();
+    if(m.role==='assistant'&&m.answer_id===null)invalid();
+    return {id:text(m.message_id),conversationId,role:m.role as 'user'|'assistant',
+      text:text(m.text),answerId:maybeText(m.answer_id)};
   });
-  const linked=new Map(items.filter(m=>m.role==='assistant'&&m.answerId).map(m=>[m.answerId,m.id]));
-  const answers=(o.answers as unknown[]).map(v=>{
-    const a=wire(v,'answer') as unknown as Answer;
-    if(a.conversation_id!==conversationId||linked.get(a.answer_id)!==a.message_id)
-      throw new HistoryFailure(0,'invalid');
+  unique(items.map(x=>x.id));
+  const order=raw.map(v=>[Date.parse(text(v.created_at)),text(v.message_id)] as const);
+  for(let i=1;i<order.length;i++)
+    if(order[i-1][0]>order[i][0]||
+       (order[i-1][0]===order[i][0]&&order[i-1][1]>order[i][1]))invalid();
+  const assistants=items.filter(x=>x.role==='assistant');
+  unique(assistants.map(x=>x.answerId!));
+  const byAnswer=new Map(assistants.map(x=>[x.answerId!,x.id]));
+  const answers=list(o.answers).map(v=>{
+    const a=validatedAnswer(v);
+    if(a.conversation_id!==conversationId||byAnswer.get(a.answer_id)!==a.message_id)invalid();
     return {id:a.answer_id,conversationId,messageId:a.message_id,payload:a};
   });
-  return {...page(o),items,answers,conversationId,owner};
+  unique(answers.map(x=>x.id));
+  // Exact page coverage: no missing, orphaned, duplicate or unrelated Answer.
+  if(answers.length!==assistants.length)invalid();
+  return {...pagination(o,limit,items.length),items,answers,conversationId,owner};
 }
 export async function createConversation(original:CreateOperation):Promise<string>{
-  const o=wire(await api('conversations','POST',original),'create_conversation_receipt');
+  const o=doc(await api('conversations','POST',original),'create_conversation_receipt');
   if(o.client_conversation_id!==original.client_conversation_id||
-     o.idempotency_key!==original.idempotency_key||
-     !['created','replayed'].includes(String(o.disposition)))throw new HistoryFailure(0,'invalid');
-  const c=wire(o.conversation,'conversation');
-  if(c.owner_user_id!==o.owner_user_id)throw new HistoryFailure(0,'invalid');
-  return field(c.conversation_id);
+     o.idempotency_key!==original.idempotency_key)invalid();
+  const c=doc(o.conversation,'conversation');
+  if(c.owner_user_id!==o.owner_user_id||c.state!=='active'||c.title!==original.title)invalid();
+  return text(c.conversation_id);
 }
 function acceptedReceipt(payload:unknown, original:SendRequest):{id:string;messageId:string}{
-  const o=wire(payload,'send_message_receipt') as unknown as SendReceipt;
+  const o=doc(payload,'send_message_receipt');
   if(o.requested_conversation_id!==original.requested_conversation_id||
      o.client_message_id!==original.client_message_id||
-     o.idempotency_key!==original.idempotency_key)throw new HistoryFailure(0,'invalid');
+     o.idempotency_key!==original.idempotency_key)invalid();
   if(o.disposition==='conflict')throw new HistoryFailure(409,'conflict');
-  if(!['created','replayed'].includes(o.disposition)||o.error!==null||
-     !o.message_id||!o.resolved_conversation_id)throw new HistoryFailure(0,'invalid');
-  return {id:o.resolved_conversation_id,messageId:o.message_id};
+  if(o.disposition!=='created'&&o.disposition!=='replayed')invalid();
+  if(original.requested_conversation_id!==null&&
+     o.resolved_conversation_id!==original.requested_conversation_id)invalid();
+  return {id:text(o.resolved_conversation_id),messageId:text(o.message_id)};
 }
 export async function sendMessage(original:SendRequest):Promise<{id:string;messageId:string}>{
   return acceptedReceipt(await api('messages','POST',original),original);
 }
-export async function recoverStatus(original:SendRequest):Promise<{status:string;id:string|null;messageId:string|null;answer:Answer|null}>{
+export async function recoverStatus(original:SendRequest):Promise<{
+  status:HistoryStatus;id:string|null;messageId:string|null;answer:Answer|null
+}>{
   let response:unknown;
   try{response=await api('message-requests/status?'+params({
     requested_conversation_id:original.requested_conversation_id??'',
@@ -141,14 +194,28 @@ export async function recoverStatus(original:SendRequest):Promise<{status:string
     if(e instanceof HistoryFailure&&e.status===404)return {status:'not_found',id:null,messageId:null,answer:null};
     throw e;
   }
-  const o=wire(response,'message_request_status');
+  const o=doc(response,'message_request_status');
   if(o.requested_conversation_id!==original.requested_conversation_id||
      o.client_message_id!==original.client_message_id||
-     o.idempotency_key!==original.idempotency_key)throw new HistoryFailure(0,'invalid');
-  const status=field(o.status);
-  const id=optional(o.resolved_conversation_id),messageId=optional(o.message_id);
-  const answer=o.answer===null?null:wire(o.answer,'answer') as unknown as Answer;
-  if(answer&&(answer.conversation_id!==id||answer.message_id===messageId))throw new HistoryFailure(0,'invalid');
+     o.idempotency_key!==original.idempotency_key)invalid();
+  // Full enum and required/null T1/T2/T3 constraints come from product.v1.
+  const status=o.status as HistoryStatus;
+  const id=maybeText(o.resolved_conversation_id);
+  const messageId=maybeText(o.message_id);
+  if(id!==null&&original.requested_conversation_id!==null&&
+     id!==original.requested_conversation_id)invalid();
+  const answer=o.answer===null?null:validatedAnswer(o.answer);
+  if(status==='answer_committed'){
+    if(!answer||!id||!messageId||answer.answer_id!==o.answer_id||
+       answer.answer_id!==o.reserved_answer_id||
+       answer.conversation_id!==id||
+       answer.message_id===messageId|| // messageId is USER's persisted T1 message.
+       answer.request_id!==o.attempt_request_id||
+       answer.trace_id!==o.attempt_trace_id||
+       answer.state==='unknown'||answer.state==='cancelled')invalid();
+  }
+  // The current status poll's request_id/trace_id are NOT the historical T2
+  // attempt trace. Only the T2 attempt fields may link a committed Answer.
   return {status,id,messageId,answer};
 }
 export function failureLabel(err:unknown):string{

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { boundedJsonBody } from '../../../../src/history/bounded-body.ts';
 
 /**
  * CI-only same-origin boundary. A normal deployment has no Auth and fails
@@ -29,11 +30,27 @@ async function forward(request:NextRequest,context:{params:Promise<{path:string[
     if(!allowedQuery.has(k))return new NextResponse(null,{status:422});
     target.searchParams.append(k,v);
   }
-  try {
+  try{
+    let body:string|undefined;
+    if(request.method==='POST'){
+      const bounded=await boundedJsonBody(request);
+      if(!bounded.ok)return NextResponse.json({error:'Invalid request body'},
+        {status:bounded.status,headers:{'Cache-Control':'no-store'}});
+      try{
+        body=new TextDecoder('utf-8',{fatal:true}).decode(bounded.bytes);
+        const document:unknown=JSON.parse(body);
+        if(document===null||typeof document!=='object'||Array.isArray(document))
+          throw new Error('JSON object required');
+      }catch{
+        // A truncated/malformed JSON upload never reaches the upstream or DB.
+        return NextResponse.json({error:'Invalid request body'},
+          {status:422,headers:{'Cache-Control':'no-store'}});
+      }
+    }
     const upstream=await fetch(target,{
       method:request.method,
       headers:request.method==='POST'?{'content-type':'application/json'}:{},
-      body:request.method==='POST'?await request.text():undefined,
+      body,
       redirect:'manual',cache:'no-store',signal:request.signal,
     });
     if(upstream.status>=300&&upstream.status<400)throw new Error('Redirect refused');
@@ -42,7 +59,8 @@ async function forward(request:NextRequest,context:{params:Promise<{path:string[
       headers:{'content-type':'application/json; charset=utf-8','Cache-Control':'no-store'},
     });
   }catch{
-    return NextResponse.json({error:'History upstream unavailable'},{status:503,headers:{'Cache-Control':'no-store'}});
+    return NextResponse.json({error:'History upstream unavailable'},
+      {status:503,headers:{'Cache-Control':'no-store'}});
   }
 }
 export const dynamic='force-dynamic';

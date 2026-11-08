@@ -305,6 +305,53 @@ async def run():
         await a.screenshot(path=str(folder/"history-desktop.png"),full_page=True)
         print("E2E: fixture-only T2/T3, API-only Answer presentation PASS")
 
+        # Fail-closed regression: genuine persisted T1 with a discarded POST
+        # response followed by a malformed 200 status must NEVER turn confirmed.
+        drop_first = True
+        captured.clear()
+        await a.route("**/api/history/messages", drop_response)
+        await send_ui(a, "آزمون وضعیت نامعتبر و منع تأیید")
+        await expect(a.get_by_text("نتیجهٔ شبکه نامعلوم است؛ ثبت پیام تأیید نشده.")).to_be_visible()
+        assert captured and receipt_count(captured[0]["client_message_id"]) == 1
+        await a.unroute("**/api/history/messages", drop_response)
+        malformed = {"mode": "unknown_status"}
+
+        async def corrupt_status(route):
+            original = await route.fetch()
+            assert original.status == 200
+            body = await original.json()
+            if malformed["mode"] == "unknown_status":
+                body["status"] = "forged_confirmed"
+            else:
+                assert body["status"] == "persisted"
+                body["attempt_id"] = "pretend_attempt_from_browser"
+            await route.fulfill(status=200,content_type="application/json",
+                                body=json.dumps(body,ensure_ascii=False))
+
+        await a.route("**/api/history/message-requests/status?**", corrupt_status)
+        pending_id = captured[0]["client_message_id"]
+        for mode in ("unknown_status", "forged_attempt"):
+            malformed["mode"] = mode
+            await a.get_by_test_id("recover-status").click()
+            await expect(a.get_by_test_id("history-error")).to_contain_text(
+                "پاسخ سرور قابل تأیید نیست")
+            await expect(a.get_by_test_id("pending-" + pending_id)).to_contain_text(
+                "نتیجهٔ شبکه نامعلوم است")
+            assert receipt_count(pending_id) == 1
+        await a.unroute("**/api/history/message-requests/status?**", corrupt_status)
+        await a.get_by_test_id("recover-status").click()
+        await expect(a.get_by_test_id("pending-" + pending_id)).to_have_count(0)
+        assert receipt_count(pending_id) == 1
+        print("E2E: invalid Status enum/T2 evidence fails closed before real recovery PASS")
+
+        # Real Proxy bytes cap, checked against the disposable DB: 413 and no write.
+        before_receipts = receipt_count(pending_id)
+        oversized = await a.request.post("http://127.0.0.1:3000/api/history/messages",
+            data="x" * 8193,headers={"content-type":"application/json"})
+        assert oversized.status == 413
+        assert receipt_count(pending_id) == before_receipts
+        print("E2E: 8192-byte application Proxy cap rejects oversized POST PASS")
+
         # Independent fixed process actor B: its data is not actor A's.
         other = await browser.new_context(viewport={"width": 1280, "height": 800})
         b = await other.new_page()
