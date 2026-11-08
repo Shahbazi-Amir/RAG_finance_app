@@ -90,16 +90,22 @@ async def send_ui(page, question: str):
 
 
 async def load_until(page, conversation_id: str):
+    # On refresh, the React effect fetches the first page asynchronously.
+    # Absence of a 'more' button BEFORE the first page is loaded proves nothing.
+    await expect(page.locator('[data-testid^="conversation-"]').first).to_be_visible(timeout=15000)
     for _ in range(16):
         if await page.get_by_test_id("conversation-" + conversation_id).count():
             return
         more = page.get_by_test_id("more-conversations")
         if not await more.count():
-            raise AssertionError("Conversation not found in owner-scoped pagination")
+            raise AssertionError("Conversation not found after last owner-scoped page")
+        await expect(more).to_be_enabled(timeout=10000)
+        before = await page.locator('[data-testid^="conversation-"]').count()
         await more.click()
-        await page.wait_for_timeout(40)  # UI settling only, never sole ordering barrier
+        await page.wait_for_function(
+            "n => document.querySelectorAll('[data-testid^=conversation-]').length > n",
+            arg=before, timeout=10000)
     raise AssertionError("Conversation pagination exceeded fixture bound")
-
 
 async def run():
     assert_ci()
