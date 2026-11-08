@@ -1,0 +1,124 @@
+name: API History L1 — in-process HTTP and disposable PostgreSQL
+
+on:
+  push:
+    branches: [agent/api-history-l1]
+    paths:
+      - '.github/workflows/api-history.yml'
+      - 'apps/api/**'
+      - 'tests/phase3/api/**'
+      - 'tests/phase3/integration/api/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - '.github/workflows/api-history.yml'
+      - 'apps/api/**'
+      - 'tests/phase3/api/**'
+      - 'tests/phase3/integration/api/**'
+
+permissions:
+  contents: read
+
+jobs:
+  api-history-l1:
+    name: History L1 in-process HTTP + PostgreSQL 17.11
+    if: >-
+      github.event_name == 'push'
+      || (github.event_name == 'pull_request'
+          && github.event.pull_request.head.ref == 'agent/api-history-l1'
+          && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_PASSWORD: synthetic_ci_only_not_a_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PGPASSWORD: synthetic_ci_only_not_a_secret
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      API_HISTORY_DSN: host=127.0.0.1 port=5432 dbname=history_api_ci user=history_app password=synthetic_app_only connect_timeout=5
+      API_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_api_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+      API_CURSOR_KEY: ci-only-cursor-signing-not-production-2026-verified-unit-test
+      API_CURSOR_TTL_SECONDS: '300'
+    steps:
+      - name: Checkout selected commit without write credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Python 3.13 from official setup-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install only pinned direct API test dependencies from official PyPI
+        run: |
+          set -euo pipefail
+          python -m pip install --no-cache-dir --index-url https://pypi.org/simple -r apps/api/requirements-ci.txt
+
+      - name: Record actual tested tool versions, no private connection details
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/api-evidence"
+          python --version | tee "$RUNNER_TEMP/api-evidence/versions.log"
+          python - <<'PY' | tee -a "$RUNNER_TEMP/api-evidence/versions.log"
+          from importlib.metadata import version
+          for name in ('fastapi', 'starlette', 'pydantic', 'httpx', 'psycopg', 'psycopg-binary', 'jsonschema'):
+              print(name, version(name))
+          PY
+          psql --version | tee -a "$RUNNER_TEMP/api-evidence/versions.log"
+          psql -U postgres -d postgres -Aqt -c 'SHOW server_version' | tee -a "$RUNNER_TEMP/api-evidence/versions.log"
+
+      - name: Bootstrap only isolated CI database and restricted app role
+        run: |
+          set -euo pipefail
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE history_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_mig_only';
+          CREATE ROLE history_app LOGIN PASSWORD 'synthetic_app_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE DATABASE history_api_ci;
+          GRANT CONNECT,CREATE ON DATABASE history_api_ci TO history_migrator;
+          GRANT CONNECT ON DATABASE history_api_ci TO history_app;
+          SQL
+
+      - name: Apply accepted PostgreSQL migrations 001 and 002 to temporary CI DB only
+        run: |
+          set -euo pipefail
+          export PGUSER=history_migrator PGPASSWORD=synthetic_mig_only
+          psql -d history_api_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_api_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+
+      - name: Compile API and in-process integration tests
+        run: |
+          set -euo pipefail
+          python -m compileall -q apps/api tests/phase3/integration/api
+
+      - name: Re-run all unchanged provisional product.v1 contract checks
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v 2>&1 | tee "$RUNNER_TEMP/api-evidence/contracts.log"
+
+      - name: Execute real temporary PostgreSQL in-process HTTP integration
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_*.py' -v 2>&1 | tee "$RUNNER_TEMP/api-evidence/http_postgres.log"
+
+      - name: Preserve sanitized CI evidence for three days (including failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-history-l1-evidence-\${{ github.run_id }}
+          path: \${{ runner.temp }}/api-evidence/
+          if-no-files-found: warn
+          retention-days: 3

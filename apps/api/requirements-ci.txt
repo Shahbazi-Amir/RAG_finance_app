@@ -1,0 +1,6 @@
+# API History L1: CI direct pins, not a fully resolved/hash-locked transitive graph.
+# Official PyPI releases reviewed 2026-11-08; used only on disposable runner.
+fastapi==0.162.2
+httpx==0.28.1
+psycopg[binary]==3.3.8
+jsonschema==4.26.0
