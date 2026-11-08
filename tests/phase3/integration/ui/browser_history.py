@@ -151,10 +151,15 @@ async def run():
         await load_until(a, c1)
         await a.get_by_test_id("conversation-" + c1).click()
         for _ in range(8):
-            if not await a.get_by_test_id("more-messages").count():
+            more = a.get_by_test_id("more-messages")
+            if not await more.count():
                 break
-            await a.get_by_test_id("more-messages").click()
-            await expect(a.locator('[data-testid^="history-message-"]').first).to_be_visible()
+            await expect(more).to_be_enabled(timeout=10000)
+            before = await a.locator('[data-testid^="history-message-"]').count()
+            await more.click()
+            await a.wait_for_function(
+                "n => document.querySelectorAll('[data-testid^=history-message-]').length > n",
+                before, timeout=10000)
         rendered = await a.locator('[data-testid^="history-message-"]').evaluate_all(
             "(nodes) => nodes.map(n => n.getAttribute('data-testid'))")
         assert len(rendered) == len(set(rendered)) >= 5, "message pagination and dedupe"
@@ -242,10 +247,15 @@ async def run():
         for _ in range(20):
             if await a.get_by_text("پاسخ از تاریخچهٔ معتبر API دریافت شده است.").count():
                 break
-            if await a.get_by_test_id("more-messages").count():
-                await a.get_by_test_id("more-messages").click()
-            else:
+            more = a.get_by_test_id("more-messages")
+            if not await more.count():
                 break
+            await expect(more).to_be_enabled(timeout=10000)
+            before = await a.locator('[data-testid^="history-message-"]').count()
+            await more.click()
+            await a.wait_for_function(
+                "n => document.querySelectorAll('[data-testid^=history-message-]').length > n",
+                before, timeout=10000)
         await expect(a.get_by_text("پاسخ از تاریخچهٔ معتبر API دریافت شده است.")).to_be_visible()
         await expect(a.get_by_text("پاسخ‌گویی موتور هنوز فعال نیست.", exact=False).first).to_be_visible()
         await a.screenshot(path=str(folder/"history-desktop.png"),full_page=True)
