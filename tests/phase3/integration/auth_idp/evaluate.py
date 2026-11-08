@@ -276,6 +276,14 @@ async def reset_password(browser, cb, email: str, old: str, new: str):
     await rctx.close()
     await context.close()
     case("IDP-06-forgot-reset-once")
+    # Completing a valid password-reset action can finish its *original*
+    # authorization request. Consume only that flow's callback; a later
+    # bad-password login must be judged against its own fresh callback.
+    CURRENT = "reset-drain-original-callback"
+    while not cb.server.inbox.empty():
+        original_callback = cb.server.inbox.get_nowait()
+        assert original_callback.get("state") == [flow["state"]], "UNEXPECTED_RESET_CALLBACK_ORIGIN"
+    CURRENT = "reset-old-password-negative"
     await login(browser, cb, email, old, expect_failure=True)
     case("IDP-07-old-password-denied-after-reset")
     logged = await login(browser, cb, email, new)
