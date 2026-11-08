@@ -259,6 +259,9 @@ async def run():
         await a.reload()
         await load_until(a, c2)
         await a.get_by_test_id("conversation-" + c2).click()
+        # The first page is loaded asynchronously after conversation selection.
+        # This question is one of the two earliest messages in this fixture.
+        await expect(a.get_by_text(QUESTIONS["seed"], exact=True)).to_be_visible(timeout=10000)
         for _ in range(20):
             if await a.get_by_text("پاسخ از تاریخچهٔ معتبر API دریافت شده است.").count():
                 break
