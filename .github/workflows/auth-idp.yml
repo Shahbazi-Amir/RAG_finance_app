@@ -99,6 +99,7 @@ jobs:
           set -euo pipefail
           python -m compileall -q tests/phase3/integration/auth_idp
           docker run --rm --init --shm-size=1g --cap-drop=ALL --security-opt=no-new-privileges \
+            --user "$(id -u):$(id -g)" \
             --network authidpci_authisolated \
             -e CI=true -e COMPOSE_PROJECT_NAME=authidpci \
             -e RUNNER_TEMP=/run -e IDP_ENV_FILE=/run/idp.env -e IDP_REPORT=/evidence/report.json \

@@ -390,7 +390,12 @@ async def main():
         # NEVER include Playwright errors, captured links, cookies, token strings,
         # HTTP response bodies or caller URLs in stdout / artifact.
         STAGES[CURRENT] = "FAIL"
-        safe_report(False)
+        try:
+            safe_report(False)
+        except OSError:
+            # A permissions failure should never dump paths/credential context
+            # or a second exception traceback to public CI logs.
+            print("SANITIZED_REPORT_WRITE_FAILED", flush=True)
         print("ISOLATED_IDP_EVALUATION_FAIL stage=" + CURRENT +
               " category=" + type(exc).__name__, flush=True)
         sys.exit(1)
