@@ -69,7 +69,19 @@ jobs:
               && curl -fsS --max-time 2 http://127.0.0.1:8025/api/v1/info >/dev/null 2>&1; then
               break
             fi
-            if [ "$i" -eq 90 ]; then echo 'IDP_READY_FAIL (no confidential service logs)'; exit 1; fi
+            if [ "$i" -eq 90 ]; then
+              echo 'IDP_READY_FAIL (nonconfidential numeric diagnostics)'
+              for port in 8180 8025; do
+                if [ "$port" = 8180 ]; then target='http://127.0.0.1:8180/realms/master/.well-known/openid-configuration'; else target='http://127.0.0.1:8025/api/v1/info'; fi
+                code="$(curl --max-time 3 -s -o /dev/null -w '%{http_code}' "$target" || true)"
+                echo "LOOPBACK_PORT_"$port"_HTTP_"$code
+              done
+              for svc in keycloak mailpit identity-db; do
+                state="$(docker inspect "authidpci-$svc-1" --format '{{.State.Status}}' 2>/dev/null || true)"
+                echo "SERVICE_"$svc"_STATE_"$state
+              done
+              exit 1
+            fi
             sleep 3
           done
       - name: Verify Docker network is internal and all host binds are loopback
