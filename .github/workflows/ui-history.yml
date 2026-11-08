@@ -99,19 +99,24 @@ jobs:
           CREATE ROLE history_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_ui_migrator';
           CREATE ROLE history_app LOGIN PASSWORD 'synthetic_ui_app' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
           CREATE DATABASE history_ui_ci;
+          CREATE DATABASE history_api_ci;
           GRANT CONNECT,CREATE ON DATABASE history_ui_ci TO history_migrator;
           GRANT CONNECT ON DATABASE history_ui_ci TO history_app;
+          GRANT CONNECT,CREATE ON DATABASE history_api_ci TO history_migrator;
+          GRANT CONNECT ON DATABASE history_api_ci TO history_app;
           SQL
           export PGUSER=history_migrator PGPASSWORD=synthetic_ui_migrator
           psql -d history_ui_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
           psql -d history_ui_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          psql -d history_api_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_api_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
 
       - name: Original 38 contract and 20 API PostgreSQL tests
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/ui-history-evidence/screenshots"
           python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v 2>&1 | tee "$RUNNER_TEMP/ui-history-evidence/contracts.log"
-          python -m unittest discover -s tests/phase3/integration/api -p 'test_*.py' -v 2>&1 | tee "$RUNNER_TEMP/ui-history-evidence/api.log"
+          API_HISTORY_DSN='host=127.0.0.1 port=5432 dbname=history_api_ci user=history_app password=synthetic_ui_app connect_timeout=5' API_MIG_DSN='host=127.0.0.1 port=5432 dbname=history_api_ci user=history_migrator password=synthetic_ui_migrator connect_timeout=5' python -m unittest discover -s tests/phase3/integration/api -p 'test_*.py' -v 2>&1 | tee "$RUNNER_TEMP/ui-history-evidence/api.log"
 
       - name: Bind browser_check.py to the exact Playwright Chromium
         run: |
