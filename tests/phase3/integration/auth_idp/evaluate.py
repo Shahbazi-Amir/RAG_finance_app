@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import secrets
 import sys
+import time
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 import jwt
@@ -339,6 +340,7 @@ async def manager(browser, cb):
     CURRENT = "manager-mfa-seed-setup"
     await page.locator("#mode-manual").click()
     seed = (await page.locator("#kc-totp-secret-key").inner_text()).replace(" ", "")
+    enrollment_counter = int(time.time()) // 30
     code = pyotp.TOTP(seed).now()
     await page.locator("#totp").fill(code)
     name = page.locator("#userLabel")
@@ -369,7 +371,17 @@ async def manager(browser, cb):
     await fill_login(page3, MANAGER, pw)
     valid_otp_field = page3.locator('#otp, input[name="otp"]').first
     await expect(valid_otp_field).to_be_visible(timeout=12000)
+    # OATH HOTP/TOTP replay controls may reject the SAME time-step OTP
+    # already consumed during enrollment. Wait for a NEW counter, bounded.
+    CURRENT = "manager-mfa-wait-fresh-totp-counter"
+    for _ in range(70):
+        if int(time.time()) // 30 > enrollment_counter:
+            break
+        await asyncio.sleep(0.5)
+    assert int(time.time()) // 30 > enrollment_counter, "OTP_COUNTER_DID_NOT_ADVANCE"
     valid_otp = pyotp.TOTP(seed).now()
+    assert valid_otp != code, "OTP_ENROLLMENT_CODE_REUSED"
+    RESULTS["manager_otp_new_counter"] = True
     await valid_otp_field.fill(valid_otp)
     await page3.locator("#kc-login").click()
     CURRENT = "manager-mfa-valid-otp-callback"
