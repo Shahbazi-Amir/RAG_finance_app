@@ -349,7 +349,7 @@ async def run(browser, cb):
 
 def safe_report(success: bool):
     path = Path(os.environ.get("IDP_REPORT", "/nonexistent"))
-    if "RUNNER_TEMP" not in os.environ or not str(path).startswith(os.environ["RUNNER_TEMP"] + "/"):
+    if os.environ.get("CI") != "true" or str(path) != "/evidence/report.json":
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({

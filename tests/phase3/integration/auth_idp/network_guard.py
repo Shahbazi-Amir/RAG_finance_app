@@ -14,7 +14,7 @@ IMAGES = {
     "mailpit": "ghcr.io/axllent/mailpit:v1.32.0",
     "keycloak": "quay.io/keycloak/keycloak:26.8.2",
 }
-PORTS = {"identity-db": set(), "mailpit": {8025}, "keycloak": {8180}}
+PORTS = {"identity-db": set(), "mailpit": set(), "keycloak": set()}
 
 
 def docker(*args):

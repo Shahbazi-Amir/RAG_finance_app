@@ -22,8 +22,8 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlsplit
 import jwt
 import requests
 
-BASE = "http://127.0.0.1:8180"
-MAIL = "http://127.0.0.1:8025"
+BASE = "http://keycloak:8080"
+MAIL = "http://mailpit:8025"
 CALLBACK = "http://127.0.0.1:8765/callback"
 REALM = "auth-idp-ci"
 CLIENT = "isolated-oidc-callback"
@@ -45,7 +45,7 @@ def credentials() -> dict[str, str]:
 
 def request(method: str, url: str, **kwargs) -> requests.Response:
     u = urlparse(url)
-    assert u.scheme == "http" and u.hostname == "127.0.0.1" and u.port in (8180, 8025), "LOOPBACK_ONLY"
+    assert u.scheme == "http" and ((u.hostname, u.port) in {("keycloak", 8080), ("mailpit", 8025)}), "ISOLATED_DOCKER_DNS_ONLY"
     return requests.request(method, url, timeout=TIMEOUT, allow_redirects=False, **kwargs)
 
 
@@ -61,7 +61,7 @@ def discovery() -> dict:
     ).json()
     assert value["issuer"] == BASE + "/realms/" + REALM, "ISSUER_MISMATCH"
     for name in ("authorization_endpoint", "token_endpoint", "jwks_uri", "end_session_endpoint", "userinfo_endpoint"):
-        assert urlparse(value[name]).hostname == "127.0.0.1", "ENDPOINT_ESCAPED_LOOPBACK"
+        assert urlparse(value[name]).hostname == "keycloak", "ENDPOINT_ESCAPED_DOCKER_NETWORK"
     return value
 
 
@@ -182,7 +182,7 @@ def action_url(data: dict) -> str:
     for raw in urls:
         value = raw.rstrip(").,;")
         parsed = urlparse(value)
-        if parsed.hostname == "127.0.0.1" and parsed.port == 8180 and "/login-actions/action-token" in parsed.path:
+        if parsed.hostname == "keycloak" and parsed.port == 8080 and "/login-actions/action-token" in parsed.path:
             assert "key=" in parsed.query, "MISSING_ACTION_TOKEN"
             return value
     raise AssertionError("NO_ACTION_TOKEN_IN_CAPTURED_LOCAL_EMAIL")

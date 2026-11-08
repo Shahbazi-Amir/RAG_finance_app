@@ -41,12 +41,10 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-      - name: Install pinned test dependencies and Chromium on disposable runner
+      - name: Build pinned Playwright/Python runner BEFORE network isolation
         run: |
           set -euo pipefail
-          python -m pip install --disable-pip-version-check --no-cache-dir \
-            'requests==2.32.5' 'PyJWT[crypto]==2.10.1' 'pyotp==2.9.0' 'playwright==1.64.1'
-          python -m playwright install --with-deps chromium
+          docker build --pull -f infra/auth-ci/Dockerfile.test-runner -t auth-idp-runner:ci infra/auth-ci
       - name: Generate ephemeral credentials (never echo or commit)
         run: |
           set -euo pipefail
@@ -60,31 +58,28 @@ jobs:
           p.chmod(0o600)
           (Path(os.environ['RUNNER_TEMP'])/'auth-idp-evidence').mkdir(mode=0o700)
           PY
-      - name: Start pinned IdP, separate PostgreSQL and local SMTP catcher
+      - name: Start pinned identity services and probe readiness INSIDE internal network
         run: |
           set -euo pipefail
           docker compose --env-file "$RUNNER_TEMP/idp-ci.env" -f infra/auth-ci/compose.yml up -d
-          for i in $(seq 1 90); do
-            if curl -fsS --max-time 2 http://127.0.0.1:8180/realms/master/.well-known/openid-configuration >/dev/null 2>&1 \
-              && curl -fsS --max-time 2 http://127.0.0.1:8025/api/v1/info >/dev/null 2>&1; then
-              break
-            fi
-            if [ "$i" -eq 90 ]; then
-              echo 'IDP_READY_FAIL (nonconfidential numeric diagnostics)'
-              for port in 8180 8025; do
-                if [ "$port" = 8180 ]; then target='http://127.0.0.1:8180/realms/master/.well-known/openid-configuration'; else target='http://127.0.0.1:8025/api/v1/info'; fi
-                code="$(curl --max-time 3 -s -o /dev/null -w '%{http_code}' "$target" || true)"
-                echo "LOOPBACK_PORT_"$port"_HTTP_"$code
-              done
-              for svc in keycloak mailpit identity-db; do
-                state="$(docker inspect "authidpci-$svc-1" --format '{{.State.Status}}' 2>/dev/null || true)"
-                echo "SERVICE_"$svc"_STATE_"$state
-              done
-              exit 1
-            fi
-            sleep 3
-          done
-      - name: Verify Docker network is internal and all host binds are loopback
+          docker run --rm --network authidpci_authisolated --entrypoint python auth-idp-runner:ci -c '
+          import sys, time, urllib.request
+          urls=("http://keycloak:8080/realms/master/.well-known/openid-configuration",
+                "http://mailpit:8025/api/v1/info")
+          for i in range(90):
+              try:
+                  for url in urls:
+                      with urllib.request.urlopen(url, timeout=2) as response:
+                          if response.status != 200:
+                              raise RuntimeError("not ready")
+                  print("INTERNAL_IDP_AND_MAIL_READINESS_PASS")
+                  sys.exit(0)
+              except Exception:
+                  time.sleep(2)
+          print("INTERNAL_IDP_READINESS_FAILED")
+          sys.exit(1)
+          '
+      - name: Verify internal-only networking and actual outbound TCP denial
         run: |
           set -euo pipefail
           test "$(docker network inspect authidpci_authisolated --format '{{.Internal}}')" = true
@@ -92,17 +87,25 @@ jobs:
           if docker compose --env-file "$RUNNER_TEMP/idp-ci.env" \
               -f infra/auth-ci/compose.yml exec -T identity-db \
               bash -c 'timeout 5 bash -c "echo probe >/dev/tcp/1.1.1.1/443" >/dev/null 2>&1'; then
-            echo 'EGRESS_POLICY_BROKEN'; exit 1
+            echo 'DB_EGRESS_POLICY_BROKEN'; exit 1
           fi
-          echo 'NETWORK_GUARD_PASS internal=yes loopback=yes outbound_tcp=blocked'
-      - name: Real Keycloak OIDC Chromium and Mailpit integration regression
-        env:
-          IDP_ENV_FILE: ${{ runner.temp }}/idp-ci.env
-          IDP_REPORT: ${{ runner.temp }}/auth-idp-evidence/report.json
+          if docker run --rm --network authidpci_authisolated --entrypoint python auth-idp-runner:ci \
+              -c 'import socket; socket.create_connection(("1.1.1.1",443),3)' >/dev/null 2>&1; then
+            echo 'BROWSER_EGRESS_POLICY_BROKEN'; exit 1
+          fi
+          echo 'NETWORK_GUARD_PASS all_containers_internal=yes published_ports=zero outbound_tcp=blocked'
+      - name: Real OIDC Chromium/SMTP integration INSIDE same egress-denied Docker network
         run: |
           set -euo pipefail
           python -m compileall -q tests/phase3/integration/auth_idp
-          python tests/phase3/integration/auth_idp/evaluate.py
+          docker run --rm --init --shm-size=1g --cap-drop=ALL --security-opt=no-new-privileges \
+            --network authidpci_authisolated \
+            -e CI=true -e COMPOSE_PROJECT_NAME=authidpci \
+            -e RUNNER_TEMP=/run -e IDP_ENV_FILE=/run/idp.env -e IDP_REPORT=/evidence/report.json \
+            -v "$GITHUB_WORKSPACE/tests/phase3/integration/auth_idp:/suite:ro" \
+            -v "$RUNNER_TEMP/idp-ci.env:/run/idp.env:ro" \
+            -v "$RUNNER_TEMP/auth-idp-evidence:/evidence" \
+            auth-idp-runner:ci python /suite/evaluate.py
       - name: Unconditionally tear down containers, volumes and credentials
         if: always()
         run: |

@@ -1,0 +1,8 @@
+# This image is BUILT while CI can download pinned tools; at RUN TIME it is
+# attached exclusively to the egress-denied authidpci_authisolated network.
+# Trusted local Keycloak pages only; no public browsing, no product container.
+FROM mcr.microsoft.com/playwright/python:v1.64.1-noble
+RUN python -m pip install --no-cache-dir --disable-pip-version-check \
+    'requests==2.32.5' 'PyJWT[crypto]==2.10.1' 'pyotp==2.9.0' 'playwright==1.64.1'
+WORKDIR /suite
+ENV PYTHONDONTWRITEBYTECODE=1

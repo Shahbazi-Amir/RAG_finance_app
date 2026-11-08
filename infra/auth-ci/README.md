@@ -13,13 +13,13 @@ Branch: agent/auth-idp-ci. GitHub Actions ONLY. No Mac install, product API/UI/D
 - Keycloak SMTP/verify/reset/OTP/lockout: https://www.keycloak.org/docs/latest/server_admin/
 - Keycloak OIDC: https://www.keycloak.org/securing-apps/oidc-layers
 - Keycloak Admin REST provisioning: https://www.keycloak.org/docs-api/latest/rest-api/
-- Python 3.13 + requests 2.32.5, PyJWT[crypto] 2.10.1, pyotp 2.9.0, Playwright 1.64.1 Chromium.
+- GitHub host Python 3.13 for static checks; isolated browser uses official Playwright Python image v1.64.1-noble plus requests 2.32.5, PyJWT[crypto] 2.10.1, pyotp 2.9.0, Playwright 1.64.1 Chromium.
 
-Keycloak uses start-dev with localhost HTTP only because this is an isolated evaluation, never production TLS.
+Keycloak uses start-dev with HTTP on internal Docker hostname keycloak:8080 only (no published host port) because this is an isolated evaluation, never production TLS.
 
 ## Network and secret containment
 
-All three containers use a single Docker internal network (authidpci_authisolated, Internal=true), no outside-facing network. Identity DB and SMTP have no published ports. Only Keycloak localhost:8180 and Mailpit API localhost:8025 are bound to the runner. network_guard.py inspects actual containers, exact image tags, one network per container and allowed HostIp/HostPort; the workflow attempts outbound TCP 1.1.1.1:443 from inside the isolated DB container and MUST fail. Chromium aborts non-loopback URL requests; Python API harness validates all network destinations are loopback. Mailpit has no outbound relay. It is Docker internal network + actual deny probe, not the Mailpit label, that enforces server-side egress restriction.
+All three containers use a single Docker internal network (authidpci_authisolated, Internal=true), no outside-facing network. Identity DB and SMTP have no published ports. NO host ports are published; Keycloak/SMTP/DB/API and Chromium callback run solely inside the internal Docker network. network_guard.py inspects actual containers, exact image tags, one network per container and allowed HostIp/HostPort; the workflow attempts outbound TCP 1.1.1.1:443 from inside the isolated DB container and MUST fail. Chromium allows only Keycloak internal DNS and localhost callback; Python API harness allows only keycloak/mailpit internal Docker DNS. The browser runner is also containerized on the same internal-only network. Mailpit has no outbound relay. It is Docker internal network + actual deny probe, not the Mailpit label, that enforces server-side egress restriction.
 
 Synthetic one-time passwords/DB/admin credentials come from runner memory or chmod-0600 temporary file. User emails first@example.test, second@example.test and realm-operator@example.test only. No SMTP messages, action links, code, cookies, tokens, reset URLs or TOTP seeds are ever published to logs or artifacts. Test failure prints only case ID/type, not unsafe exception details. Cleanup unconditionally removes DB volume, containers, network and credential file. Artifact only sanitized report.json (test IDs/versions/revocation status), 3-day retention.
 
@@ -45,10 +45,12 @@ The OTP manager case proves this configured actor cannot bypass 2FA on tested lo
 
 ## Exact CI commands
 
+docker build -f infra/auth-ci/Dockerfile.test-runner -t auth-idp-runner:ci infra/auth-ci
+
 docker compose --env-file $RUNNER_TEMP/idp-ci.env -f infra/auth-ci/compose.yml up -d
 python tests/phase3/integration/auth_idp/network_guard.py
 python -m compileall -q tests/phase3/integration/auth_idp
-python tests/phase3/integration/auth_idp/evaluate.py
+docker run --rm --network authidpci_authisolated auth-idp-runner:ci python /suite/evaluate.py (with read-only suite/credentials mounts and a sanitized-report volume)
 docker compose --env-file $RUNNER_TEMP/idp-ci.env -f infra/auth-ci/compose.yml down --volumes --remove-orphans
 
 All command/test results MUST be taken from actual GitHub CI. No claim that a future plan passed. Next separate, authorized package: Next BFF server sessions/CSRF, trusted FastAPI Auth, (issuer,subject) stable internal owner, RLS under two authenticated actors, secure logout/reset, enforced admin MFA and policy. NO product connection here.
