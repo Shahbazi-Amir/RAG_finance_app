@@ -72,3 +72,8 @@ After supervisor review, independent future Next BFF server session/login/logout
 Implemented: CI test harness/source only.
 Tested: PENDING_GITHUB_CI at first working push.
 Accepted: NONE / SUPERVISOR_PENDING.
+
+
+## IDP-CI-01-E — initial workflow-level failure before Jobs
+
+Actual first push SHA: 5e0c72d90d8f27a489119f802cd6d68e05749f4e. GitHub Actions Run https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42521201718 completed FAILURE with ZERO jobs and ZERO check runs. Consequently there is NO actual Docker/Keycloak/Chromium/SMTP test output and no PASS claim for this revision. Likely workflow expression-scope issue: job-level PLAYWRIGHT_BROWSERS_PATH used runner.temp, which is not supported in the job-level env context. Restrict correction to dropping this optional variable and use Playwright's standard runner cache path. No test assertion, product file or scope changed. Real outcome is pending next CI. The failure is retained, not hidden.

@@ -31,7 +31,6 @@ jobs:
       CI: 'true'
       COMPOSE_PROJECT_NAME: authidpci
       PYTHONDONTWRITEBYTECODE: '1'
-      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/auth-idp-browsers
     steps:
       - name: Checkout exact revision without persisted credentials
         uses: actions/checkout@v6
