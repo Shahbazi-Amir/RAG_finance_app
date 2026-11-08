@@ -232,15 +232,23 @@ async def run():
 
         # Fixture T2/T3 ONLY inside test code: API never exposes seed routes.
         captured.clear()
+        seed_committed = asyncio.Event()
 
         async def capture_seed(route):
             captured.append(route.request.post_data_json)
-            await route.continue_()
+            # A browser-visible optimistic bubble is NOT proof of a DB commit.
+            # Fetch and deliver the real HTTP response before fixture T2 starts.
+            response = await route.fetch()
+            assert response.status == 202, "seed T1 must really commit first"
+            await route.fulfill(response=response)
+            seed_committed.set()
 
         await a.route("**/api/history/messages", capture_seed)
         await send_ui(a, QUESTIONS["seed"])
+        await asyncio.wait_for(seed_committed.wait(), timeout=10)
         await a.unroute("**/api/history/messages", capture_seed)
         assert len(captured) == 1
+        assert receipt_count(captured[0]["client_message_id"]) == 1
         seed_answer(captured[0])
         await a.reload()
         await load_until(a, c2)
