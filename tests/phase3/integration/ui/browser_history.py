@@ -179,9 +179,9 @@ async def run():
             assert "گفت‌وگوی جدید" in (await row.inner_text())
             accessible_name = await row.get_attribute("aria-label")
             assert accessible_name and conversation_id in accessible_name
-            await expect(a.get_by_test_id("conversation-marker-" + conversation_id)).to_be_visible()
-        marker_a = await a.get_by_test_id("conversation-marker-" + c1).inner_text()
-        marker_b = await a.get_by_test_id("conversation-marker-" + c2).inner_text()
+            await expect(a.get_by_test_id("history-marker-" + conversation_id)).to_be_visible()
+        marker_a = await a.get_by_test_id("history-marker-" + c1).inner_text()
+        marker_b = await a.get_by_test_id("history-marker-" + c2).inner_text()
         assert marker_a != marker_b, "Same-title navigation rows are indistinguishable"
         assert all(x.startswith(("شناسه:", "پرسش:")) for x in (marker_a, marker_b))
         print("E2E: same-title DB conversations have distinct accessible display-only markers PASS")

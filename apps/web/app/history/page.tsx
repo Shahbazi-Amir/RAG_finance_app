@@ -247,7 +247,7 @@ export default function HistoryPage(){
             aria-label={'بازکردن '+title+'؛ شناسهٔ کامل '+c.id+(preview?'؛ پرسش: '+preview:'')}
             onClick={()=>choose(c.id)}>
             <span className="nav-thread-text history-thread-title">{title}</span>
-            {marker&&<span className="history-thread-detail" data-testid={'conversation-marker-'+c.id}>
+            {marker&&<span className="history-thread-detail" data-testid={'history-marker-'+c.id}>
               {marker}
             </span>}
           </button>;
