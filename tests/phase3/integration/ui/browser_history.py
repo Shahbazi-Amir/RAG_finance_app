@@ -77,6 +77,18 @@ def receipt_count(client_id: str, owner: str = OWNER_A) -> int:
                 (owner, client_id)).fetchone()["n"]
 
 
+
+def total_receipts(owner: str = OWNER_A) -> int:
+    """Actual owner-scoped DB rows; proves a rejected proxy POST didn't write."""
+    with psycopg.connect(os.environ["API_HISTORY_DSN"],autocommit=True,
+                         row_factory=dict_row) as conn:
+        with conn.transaction():
+            scoped(conn,owner)
+            return conn.execute(
+                "SELECT count(*) AS n FROM history_l1.send_receipts WHERE owner_id=%s",
+                (owner,)).fetchone()["n"]
+
+
 def seed_answer(request: dict):
     fixtures = json.loads((ROOT / "packages/contracts/fixtures/product.v1.cases.json").read_text())["cases"]
     source = next(item["document"] for item in fixtures
@@ -345,11 +357,11 @@ async def run():
         print("E2E: invalid Status enum/T2 evidence fails closed before real recovery PASS")
 
         # Real Proxy bytes cap, checked against the disposable DB: 413 and no write.
-        before_receipts = receipt_count(pending_id)
+        before_receipts = total_receipts()
         oversized = await a.request.post("http://127.0.0.1:3000/api/history/messages",
             data="x" * 8193,headers={"content-type":"application/json"})
         assert oversized.status == 413
-        assert receipt_count(pending_id) == before_receipts
+        assert total_receipts() == before_receipts, "rejected proxy POST wrote to DB"
         print("E2E: 8192-byte application Proxy cap rejects oversized POST PASS")
 
         # Independent fixed process actor B: its data is not actor A's.

@@ -68,7 +68,7 @@ function ensureAnswerRelations(answer:Answer):void{
     c.source.resolution_status==='verified'||c.source.attribution_status==='verified'||
     (c.source.display_title!==null&&c.source.display_title!==undefined&&
       c.source.display_title_origin!=='SYNTHETIC')))invalid();
-  if(answer.outcome==='error'&&answer.error?.category!=='technical')invalid();
+  if(answer.outcome==='error'&&object((answer as unknown as Wire).error).category!=='technical')invalid();
   if(answer.outcome==='partial'&&answer.answer_text===null)invalid();
   if((answer.outcome==='unknown'||answer.outcome==='cancelled')&&answer.claims.length)invalid();
 }
