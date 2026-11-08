@@ -322,7 +322,7 @@ def _output_doc(kind, success_code="200", request_kind=None, replay_code=None):
 
 
 app = FastAPI(title="RAG Finance History L1 (Auth and engine unavailable)",
-              version="1.0.0-l1", openapi_version="3.1.0",
+              version="1.0.0-l1",
               description="Synthetic PostgreSQL History L1. No authentication provider or model.")
 
 

@@ -118,7 +118,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: api-history-l1-evidence-\${{ github.run_id }}
-          path: \${{ runner.temp }}/api-evidence/
+          name: api-history-l1-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/api-evidence/
           if-no-files-found: warn
           retention-days: 3
