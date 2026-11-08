@@ -40,6 +40,32 @@ def assert_ci():
         raise SystemExit("CI_ONLY: screenshot output required")
 
 
+def conversation_count(owner: str = OWNER_A) -> int:
+    with psycopg.connect(os.environ["API_HISTORY_DSN"], autocommit=True,
+                         row_factory=dict_row) as conn:
+        with conn.transaction():
+            scoped(conn, owner)
+            return conn.execute(
+                """SELECT count(*) AS n FROM history_l1.conversations
+                   WHERE owner_id=%s AND state='active'""",
+                (owner,)).fetchone()["n"]
+
+
+async def wait_conversation_count(expected: int):
+    # Poll only the disposable test DB until the server-confirmed Create exists.
+    # UI button text/list length before the POST response is NOT that evidence.
+    async def check():
+        for _ in range(100):
+            count = await asyncio.to_thread(conversation_count)
+            if count == expected:
+                return
+            if count > expected:
+                raise AssertionError("Unexpected duplicate conversation inserted")
+            await asyncio.sleep(0.05)
+        raise AssertionError("Missing expected committed conversation")
+    await asyncio.wait_for(check(), timeout=10)
+
+
 def receipt_count(client_id: str, owner: str = OWNER_A) -> int:
     with psycopg.connect(os.environ["API_HISTORY_DSN"], autocommit=True,
                          row_factory=dict_row) as conn:
@@ -141,12 +167,12 @@ async def run():
         await expect(a.get_by_text(QUESTIONS["one"], exact=True)).to_be_visible()
         print("E2E: two conversations, navigation and DB-backed refresh PASS")
 
-        # Cursor pagination (server uses limit 2) and no duplicated UI rows.
-        await a.get_by_test_id("create-conversation").click()
-        await wait_conversations(a, 2)
-        for _ in range(2):
+        # Server-reported DB commits, not an already-present 2-row sidebar,
+        # prove that all three extra Create operations finished before paging.
+        for expected in (3, 4, 5):
             await a.get_by_test_id("create-conversation").click()
-            await wait_conversations(a, 2)
+            await wait_conversation_count(expected)
+            await expect(a.get_by_test_id("create-conversation")).to_be_enabled(timeout=10000)
         await load_until(a, c1)
         ids_all = await a.locator('[data-testid^="conversation-"]').evaluate_all(
             "(nodes) => nodes.map(n => n.getAttribute('data-testid'))")
