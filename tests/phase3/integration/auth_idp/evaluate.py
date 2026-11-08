@@ -113,8 +113,27 @@ async def signup(browser, cb, email, password):
     before = mail_ids()
     global CURRENT
     CURRENT = "browser-registration-link"
+    statuses: list[int] = []
+    def capture_registration_response(response):
+        if "/login-actions/registration" in urlsplit(response.url).path:
+            statuses.append(response.status)  # HTTP status number only
+    page.on("response", capture_registration_response)
     await page.locator('#kc-registration a[href*="registration"]').click()
+    await page.wait_for_load_state("domcontentloaded")
     CURRENT = "browser-registration-form"
+    body_text = (await page.locator("body").inner_text()).casefold()
+    RESULTS["registration_response"] = {
+        "http_status_codes": statuses[-3:],  # no headers, query or bodies
+        "has_body": await page.locator("body").count() > 0,
+        "is_error_wording": any(t in body_text for t in (
+            "something went wrong", "invalid request", "page not found",
+            "we are sorry", "an error has occurred", "unavailable", "error")),
+        "is_registration_wording": any(t in body_text for t in (
+            "register", "registration", "sign up", "create account")),
+        "is_email_wording": "email" in body_text,
+        "is_login_wording": any(t in body_text for t in ("sign in", "login")),
+        "body_chars_bucket": min(len(body_text) // 100, 30),
+    }
     # Keycloak theme changes may use different form IDs; collect only safe
     # category booleans, NEVER the URL/query/HTML/field values/action token.
     RESULTS["registration_screen_shape"] = {
