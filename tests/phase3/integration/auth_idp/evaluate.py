@@ -154,8 +154,15 @@ async def signup(browser, cb, email, password):
                          ("email", email), ("password", password),
                          ("password-confirm", password)):
         item = page.locator('[name="' + field + '"]')
-        if field in ("firstName", "lastName") and await item.count() == 0:
-            continue
+        if await item.count() == 0:
+            if field in ("password", "password-confirm"):
+                # Keycloak 26.8 defaults to setting credentials only after
+                # email verification; do not enable deprecated early-password.
+                RESULTS["password_deferred_until_verified_email"] = True
+                continue
+            if field in ("firstName", "lastName"):
+                continue
+            raise AssertionError("REQUIRED_REGISTRATION_EMAIL_MISSING")
         await item.fill(value)
     CURRENT = "browser-registration-submit"
     await page.locator('#kc-register-form input[type="submit"], #kc-submit').first.click()
@@ -176,6 +183,16 @@ async def signup(browser, cb, email, password):
         await asyncio.sleep(0.2)
     assert ADMIN.user(email).get("emailVerified") is True, "EMAIL_VERIFICATION_NOT_COMMITTED"
     case("IDP-02-verify-email-via-local-SMTP")
+    if RESULTS.get("password_deferred_until_verified_email"):
+        CURRENT = "post-verification-set-password"
+        pw_new = page.locator('#password-new, input[name="password-new"]').first
+        await expect(pw_new).to_be_visible(timeout=15000)
+        await pw_new.fill(password)
+        await page.locator('#password-confirm, input[name="password-confirm"]').first.fill(password)
+        await page.locator(
+            '#kc-passwd-update-form input[type="submit"], #kc-form-buttons input[type="submit"]'
+        ).first.click()
+        case("IDP-02A-verified-user-sets-password-after-email")
     # Deliberately reuse the consumed action URL once: it must not reissue a
     # second independent verification/recovery privilege.
     ctx2, replay = await new_page(browser)
