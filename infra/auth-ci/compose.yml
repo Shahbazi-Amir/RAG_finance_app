@@ -1,0 +1,56 @@
+# AGENT-API-AUTH-IDP-01: ephemeral CI ONLY; all containers on one internal network.
+services:
+  identity-db:
+    image: postgres:17.11
+    environment:
+      POSTGRES_DB: identity_ci
+      POSTGRES_USER: identity_ci
+      POSTGRES_PASSWORD: ${IDP_DB_PASSWORD:?ephemeral value required}
+    networks: [authisolated]
+    volumes:
+      - identity_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identity_ci -d identity_ci"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  mailpit:
+    image: ghcr.io/axllent/mailpit:v1.32.0
+    networks: [authisolated]
+    environment:
+      MP_SMTP_BIND_ADDR: 0.0.0.0:1025
+      MP_UI_BIND_ADDR: 0.0.0.0:8025
+      MP_DATABASE: /tmp/mailpit.db
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    ports:
+      - "127.0.0.1:8025:8025"
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.2
+    command:
+      - start-dev
+      - --hostname=http://127.0.0.1:8180
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://identity-db:5432/identity_ci
+      KC_DB_USERNAME: identity_ci
+      KC_DB_PASSWORD: ${IDP_DB_PASSWORD:?ephemeral value required}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ci-bootstrap
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${IDP_ADMIN_PASSWORD:?ephemeral value required}
+      KC_HTTP_ENABLED: "true"
+      KC_LOG_LEVEL: WARN
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "false"
+    depends_on:
+      identity-db:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    networks: [authisolated]
+    ports:
+      - "127.0.0.1:8180:8080"
+networks:
+  authisolated:
+    internal: true
+volumes:
+  identity_data:

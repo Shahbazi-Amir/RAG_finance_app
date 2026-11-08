@@ -1,0 +1,112 @@
+name: Auth IDP isolated Keycloak candidate evaluation
+on:
+  push:
+    branches: [agent/auth-idp-ci]
+    paths:
+      - 'infra/auth-ci/**'
+      - 'tests/phase3/integration/auth_idp/**'
+      - '.github/workflows/auth-idp.yml'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'infra/auth-ci/**'
+      - 'tests/phase3/integration/auth_idp/**'
+      - '.github/workflows/auth-idp.yml'
+permissions:
+  contents: read
+concurrency:
+  group: auth-idp-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  isolated-idp:
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.ref == 'agent/auth-idp-ci' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: 'true'
+      COMPOSE_PROJECT_NAME: authidpci
+      PYTHONDONTWRITEBYTECODE: '1'
+      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/auth-idp-browsers
+    steps:
+      - name: Checkout exact revision without persisted credentials
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Set up pinned Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install pinned test dependencies and Chromium on disposable runner
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-cache-dir \
+            'requests==2.32.5' 'PyJWT[crypto]==2.10.1' 'pyotp==2.9.0' 'playwright==1.64.1'
+          python -m playwright install --with-deps chromium
+      - name: Generate ephemeral credentials (never echo or commit)
+        run: |
+          set -euo pipefail
+          umask 077
+          python - <<'PY'
+          from pathlib import Path
+          import os, secrets
+          p=Path(os.environ['RUNNER_TEMP'])/'idp-ci.env'
+          p.write_text('IDP_DB_PASSWORD='+secrets.token_hex(32)+'\n'+
+                       'IDP_ADMIN_PASSWORD='+secrets.token_hex(32)+'\n',encoding='ascii')
+          p.chmod(0o600)
+          (Path(os.environ['RUNNER_TEMP'])/'auth-idp-evidence').mkdir(mode=0o700)
+          PY
+      - name: Start pinned IdP, separate PostgreSQL and local SMTP catcher
+        run: |
+          set -euo pipefail
+          docker compose --env-file "$RUNNER_TEMP/idp-ci.env" -f infra/auth-ci/compose.yml up -d
+          for i in $(seq 1 90); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8180/realms/master/.well-known/openid-configuration >/dev/null 2>&1 \
+              && curl -fsS --max-time 2 http://127.0.0.1:8025/api/v1/info >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$i" -eq 90 ]; then echo 'IDP_READY_FAIL (no confidential service logs)'; exit 1; fi
+            sleep 3
+          done
+      - name: Verify Docker network is internal and all host binds are loopback
+        run: |
+          set -euo pipefail
+          test "$(docker network inspect authidpci_authisolated --format '{{.Internal}}')" = true
+          python tests/phase3/integration/auth_idp/network_guard.py
+          if docker compose --env-file "$RUNNER_TEMP/idp-ci.env" \
+              -f infra/auth-ci/compose.yml exec -T identity-db \
+              bash -c 'timeout 5 bash -c "echo probe >/dev/tcp/1.1.1.1/443" >/dev/null 2>&1'; then
+            echo 'EGRESS_POLICY_BROKEN'; exit 1
+          fi
+          echo 'NETWORK_GUARD_PASS internal=yes loopback=yes outbound_tcp=blocked'
+      - name: Real Keycloak OIDC Chromium and Mailpit integration regression
+        env:
+          IDP_ENV_FILE: ${{ runner.temp }}/idp-ci.env
+          IDP_REPORT: ${{ runner.temp }}/auth-idp-evidence/report.json
+        run: |
+          set -euo pipefail
+          python -m compileall -q tests/phase3/integration/auth_idp
+          python tests/phase3/integration/auth_idp/evaluate.py
+      - name: Unconditionally tear down containers, volumes and credentials
+        if: always()
+        run: |
+          set +e
+          docker compose --env-file "$RUNNER_TEMP/idp-ci.env" -f infra/auth-ci/compose.yml down --volumes --remove-orphans --timeout 15 >/dev/null 2>&1
+          docker network rm authidpci_authisolated >/dev/null 2>&1
+          rm -f "$RUNNER_TEMP/idp-ci.env"
+          test ! -e "$RUNNER_TEMP/idp-ci.env" || exit 1
+          if docker network inspect authidpci_authisolated >/dev/null 2>&1; then exit 1; fi
+          echo 'EPHEMERAL_IDP_TEARDOWN_CHECK_COMPLETE'
+      - name: Upload sanitized test IDs, outcomes and versions ONLY
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: auth-idp-sanitized-${{ github.run_id }}
+          path: ${{ runner.temp }}/auth-idp-evidence/report.json
+          if-no-files-found: warn
+          retention-days: 3
