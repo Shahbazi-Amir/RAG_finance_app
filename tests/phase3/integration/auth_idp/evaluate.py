@@ -190,14 +190,20 @@ async def signup(browser, cb, email, password):
             # An action-token page can end at an explicit confirmation screen.
             # Use Keycloak's documented UPDATE_PASSWORD e-mail action, not
             # privileged admin-set-password, and prove local-only delivery.
+            CURRENT = "password-action-email-request"
             prior = mail_ids()
             await asyncio.to_thread(ADMIN.action_mail, ADMIN.user(email)["id"], "UPDATE_PASSWORD")
+            CURRENT = "password-action-local-smtp-capture"
             _, action_message = await email_after(email, prior)
+            CURRENT = "password-action-browser-link"
             await page.goto(action_url(action_message), wait_until="domcontentloaded")
             RESULTS["initial_password_method"] = "separate local UPDATE_PASSWORD action email"
+        CURRENT = "password-action-form-visible"
         await expect(pw_new).to_be_visible(timeout=15000)
+        CURRENT = "password-action-form-fill"
         await pw_new.fill(password)
         await page.locator('#password-confirm, input[name="password-confirm"]').first.fill(password)
+        CURRENT = "password-action-submit"
         await page.locator(
             '#kc-passwd-update-form input[type="submit"], #kc-form-buttons input[type="submit"]'
         ).first.click()
