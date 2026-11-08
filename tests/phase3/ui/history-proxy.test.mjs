@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {boundedJsonBody,HISTORY_MAX_JSON_BYTES} from '../../../apps/web/src/history/bounded-body.ts';
-import {POST} from '../../../apps/web/app/api/history/[...path]/route.ts';
+import {forwardHistoryProxy} from '../../../apps/web/src/history/proxy.ts';
 
 const encoder=new TextEncoder();
 function streamRequest(parts,{length,contentType='application/json'}={}){
@@ -41,6 +41,7 @@ async function scopedProxy(run){
     else process.env.HISTORY_UPSTREAM_ORIGIN=oldTarget;
   }
 }
+const POST=(request,context)=>forwardHistoryProxy(request,['messages']);
 const context={params:Promise.resolve({path:['messages']})};
 
 test('boundary shares API exact 8192-byte ceiling',()=>{

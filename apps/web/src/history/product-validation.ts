@@ -16,7 +16,6 @@ const own=(o:Record<string,unknown>,k:string)=>Object.prototype.hasOwnProperty.c
 const obj=(v:unknown):v is Record<string,unknown>=>
   v!==null&&typeof v==='object'&&!Array.isArray(v);
 const node=(v:unknown):Schema=>obj(v)?v:{};
-const array=(v:unknown):unknown[]=>Array.isArray(v)?v:[];
 
 function matches(value:unknown,s:Schema,depth=0):boolean{
   if(depth>32)return false;
