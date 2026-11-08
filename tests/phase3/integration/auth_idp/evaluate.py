@@ -186,6 +186,15 @@ async def signup(browser, cb, email, password):
     if RESULTS.get("password_deferred_until_verified_email"):
         CURRENT = "post-verification-set-password"
         pw_new = page.locator('#password-new, input[name="password-new"]').first
+        if not await pw_new.is_visible():
+            # An action-token page can end at an explicit confirmation screen.
+            # Use Keycloak's documented UPDATE_PASSWORD e-mail action, not
+            # privileged admin-set-password, and prove local-only delivery.
+            prior = mail_ids()
+            await asyncio.to_thread(ADMIN.action_mail, ADMIN.user(email)["id"], "UPDATE_PASSWORD")
+            _, action_message = await email_after(email, prior)
+            await page.goto(action_url(action_message), wait_until="domcontentloaded")
+            RESULTS["initial_password_method"] = "separate local UPDATE_PASSWORD action email"
         await expect(pw_new).to_be_visible(timeout=15000)
         await pw_new.fill(password)
         await page.locator('#password-confirm, input[name="password-confirm"]').first.fill(password)
