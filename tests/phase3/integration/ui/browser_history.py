@@ -11,6 +11,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlencode
 
 import psycopg
 from psycopg.rows import dict_row
@@ -326,25 +327,39 @@ async def run():
         await expect(a.get_by_text("نتیجهٔ شبکه نامعلوم است؛ ثبت پیام تأیید نشده.")).to_be_visible()
         assert captured and receipt_count(captured[0]["client_message_id"]) == 1
         await a.unroute("**/api/history/messages", drop_response)
+        pending_id = captured[0]["client_message_id"]
+        # Fetch actual persisted T1 status via an independent APIRequestContext
+        # (NOT the page route); every forged response starts with valid server data.
+        original_status_url = (
+            "http://127.0.0.1:3000/api/history/message-requests/status?"
+            + urlencode({
+                "requested_conversation_id": captured[0]["requested_conversation_id"] or "",
+                "client_message_id": pending_id,
+                "idempotency_key": captured[0]["idempotency_key"]
+            }))
+        original_status_response = await a.request.get(original_status_url)
+        assert original_status_response.status == 200
+        valid_status_body = await original_status_response.json()
+        assert valid_status_body["status"] == "persisted"
         malformed = {"mode": "unknown_status"}
+        handled = {"event": asyncio.Event()}
 
         async def corrupt_status(route):
-            original = await route.fetch()
-            assert original.status == 200
-            body = await original.json()
+            body = copy.deepcopy(valid_status_body)
             if malformed["mode"] == "unknown_status":
                 body["status"] = "forged_confirmed"
             else:
-                assert body["status"] == "persisted"
                 body["attempt_id"] = "pretend_attempt_from_browser"
             await route.fulfill(status=200,content_type="application/json",
                                 body=json.dumps(body,ensure_ascii=False))
+            handled["event"].set()
 
         await a.route("**/api/history/message-requests/status?**", corrupt_status)
-        pending_id = captured[0]["client_message_id"]
         for mode in ("unknown_status", "forged_attempt"):
             malformed["mode"] = mode
+            handled["event"] = asyncio.Event()
             await a.get_by_test_id("recover-status").click()
+            await asyncio.wait_for(handled["event"].wait(), timeout=10)
             await expect(a.get_by_test_id("history-error")).to_contain_text(
                 "پاسخ سرور قابل تأیید نیست")
             await expect(a.get_by_test_id("pending-" + pending_id)).to_contain_text(
