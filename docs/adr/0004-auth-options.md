@@ -1,8 +1,8 @@
 # ADR 0004 — Auth واقعی محصول: مقایسهٔ دو معماری و پیشنهاد مشروط
 
-**Status: PROPOSED / READY_FOR_DECISION — NOT_APPROVED, NOT_IMPLEMENTED.**
+**Status: PROPOSED / READY_FOR_REVIEW — SELF_HOSTED_AUTH_PLAN; NOT AUTH_IMPLEMENTED, NOT PRODUCTION_READY.**
 **Date / official-source check:** 2026-11-08. **Mission:** AGENT-API-AUTH-PLAN-01; **starting main:** `9d5f2f9adc8e4522ec8cf4ffd397ba0a815e8fb7`; branch `prep/auth-decision`.
-**Decision owner:** کارفرما/ناظر؛ این ADR هیچ ارائه‌دهنده، حساب، قرارداد، منطقه، هزینه یا امنیت Production را تصویب نمی‌کند.
+**Decision owner:** کارفرما/ناظر؛ ترجیح‌های کارفرما در §8 تثبیت شده‌اند، نه انتخاب فنی/پذیرش. این ADR هیچ ارائه‌دهنده، حساب، قرارداد، منطقه، هزینه یا امنیت Production را تصویب نمی‌کند.
 
 ## 1. زمینهٔ واقعی و رابطه با ADR 0003
 
@@ -58,7 +58,7 @@ OIDC case only: BFF ↔ HTTPS OIDC issuer / discovery, auth code+PKCE, validatio
 
 اول «deletion_requested»/case ثبت‌شده با receipt قابل رهگیری و بدون محتوای خصوصی در خروجی عمومی؛ سپس revoke **همهٔ** BFF sessions و بررسی حذف/غیرفعال‌سازی در IdP، منع replay History و انطباق lifecycle DB/backup طبق Retention مصوب. بعد از revoke، یک cookie قبلی **نباید** به وضعیت خصوصی یا محتوای حذف دسترسی بدهد. پیگیری وضعیت باید با یکی از روش‌های **بعداً تصویب‌شده** (ورود مجدد با identity مجاز و کنترل حساب، یا case-token مستقل کوتاه‌عمر و کم‌دامنه/پشتیبانی با identity verification) انجام شود؛ فعلاً Endpoint، token یا استثنا ایجاد نمی‌شود. Export scope مستقل از deletion است. حل این فرایند به NB23 وابسته نیست؛ به سیاست privacy/employer وابسته است.
 
-## 4. پیشنهاد، تصمیم‌های فوری و قابل‌تعویق
+## 4. پیشنهاد اولیهٔ تاریخی (پیش از ترجیح جدید کارفرما) — با §8 تکمیل/محدود شده
 
 **پیشنهاد قابل‌تصمیم: A (provider-neutral OIDC Code+PKCE + BFF server session).** دلیل: Next.js server و FastAPI یک مرز صریح برای نگهداری توکن و session دارند؛ PostgreSQL owner/RLS موجود می‌تواند با internal mapping پایدار حفظ شود؛ کاهش سطح نگهداری مستقیم گذرواژه نسبت به ساخت Credential system از صفر. این گزینه **انتخاب Auth0 یا Keycloak، هزینه، کشور/hosting یا مسیر بازیابی را تصویب نمی‌کند**. اگر انتقال داده/دسترسی قانونی سرویس خارجی پذیرفته نشود و تیم عملیات امن واقعاً وجود داشته باشد، Keycloak یکی از دو نمونهٔ مسیر A است، نه تغییر ناگزیر به B. اگر OIDC کلاً رد شود، B به سند threat model و منابع انسانی/امنیتی جدا نیاز دارد.
 
@@ -93,13 +93,13 @@ OIDC case only: BFF ↔ HTTPS OIDC issuer / discovery, auth code+PKCE, validatio
 
 **Status of every AUTH-P01..P16: NOT_RUN / NOT_ACCEPTED.** Gate های P3M05، P3M06، P3M13، P3M14، P3M15، P3M00 و DB01-02 ناتمام‌اند.
 
-## 6. فقط سه پرسش برای تصمیم کارفرما
+## 6. مواردی که واقعاً به تصمیم کارفرما نیاز دارند (پاسخ‌های قبلی دریافت شده)
 
-1. **از نظر سیاست سازمان، ورود با سرویس هویت استاندارد بیرونی (در صورت تأیید قرارداد/محل داده) مجاز است، یا هویت باید در میزبانی تحت کنترل سازمان بماند؟**
-2. **ورود اولیه باید با چه شناسه‌ای باشد: نام کاربری، ایمیل یا شماره تلفن؟ و آیا ایمیل/شماره برای بازیابی حساب مجاز است، یا روش بدون تماس لازم است؟**
-3. **برای هزینهٔ اشتراک احتمالی IdP یا نگهداری سرویس هویت خودمیزبان، چه واحد/مسئولی باید بودجه و تعهد عملیات/امنیت را تأیید کند؟**
+**پاسخ داده‌شده در 2026-11-08:** کاربران هدف فعلی ایران؛ ترجیح نگهداری دادهٔ محصول و IdP در زیرساخت تحت کنترل سازمان؛ ورود اولیه با **ایمیل + رمز، تأیید ایمیل و بازیابی امن**؛ معماری قابل توسعه به username/phone/OTP در آینده **بدون اجرای آن‌ها اکنون**؛ و مدیر با دسترسی محدود، نه superuser. سؤال‌های قدیمی دربارهٔ نوع شناسه و اینکه «خودمیزبانی ترجیح دارد یا نه» دوباره مطرح نمی‌شوند.
 
-این سؤال‌ها دربارهٔ سیاست/منابع‌اند؛ تصمیم‌های اجرایی و فنی با تیم پیاده‌سازی پس از تصویب جداگانه است.
+**حداقل تصمیم‌های باز پیش از یک بستهٔ CI ایزوله:** پذیرش ناظر برای ارزیابی *Keycloak به‌عنوان نامزد آزمایشی و نه انتخاب نهایی* و تعیین مالک اجرای آزمون/تأمین زیرساخت آزمایشی. اگر مأموریت CI جدا با ابزار و دسترسی محدود صادر شود، انتخاب محل سرور عمومی، خرید سخت‌افزار، قرارداد ارسال ایمیل، بودجهٔ Production و تعداد کاربران **پیش‌نیاز CI محلی نیستند**. پیش از هر خدمت واقعی به کاربران ایران، مالک عملیات و امنیت، میزبان/محدودهٔ حقوقی داده، سرویس قابل‌اتکای SMTP و دسترسی/تحویل ایمیل از شبکه‌های هدف باید به تأیید برسند.
+
+**پرسش‌های ضروری باقی‌مانده:** ۱. مسئول سازمانی عملیات/امنیت و هزینهٔ زیرساخت/ایمیل چه کسی است؟ ۲. چه کسی مجوز بررسی حقوقی میزبانی و پردازش داده/ارسال ایمیل برای کاربران ایران را صادر می‌کند؟ انتخاب vendor، تنظیمات فنی، Token policy، نقش‌ها و Test Harness وظیفهٔ تیم فنی در مأموریت بعدی‌اند.
 
 ## 7. منابع رسمی بررسی‌شده در 2026-11-08
 
@@ -121,3 +121,92 @@ OIDC case only: BFF ↔ HTTPS OIDC issuer / discovery, auth code+PKCE, validatio
 | OWASP Password Storage / MFA | Argon2id, MFA and recovery risks | https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html and https://cheatsheetseries.owasp.org/cheatsheets/Multifactor_Authentication_Cheat_Sheet.html |
 
 **Final decision:** NONE. No account/tenant/secret/service, migration, workflow, code, public deployment, Auth acceptance or runtime tests performed.
+
+
+## 8. ترجیح‌های تثبیت‌شدهٔ کارفرما و مسیر خودمیزبانی — 2026-11-08 (AUTH-PLAN-01-G)
+
+این بخش **تصمیم‌های کارفرما** را از **گزینه‌های فنی پیشنهادی** جدا می‌کند و بخش‌های 3، 4 و 6 تاریخی این ADR را در صورت اختلاف محدود می‌سازد. **READY_FOR_REVIEW — SELF_HOSTED_AUTH_PLAN**، نه انتخاب نهایی Keycloak، پیاده‌سازی، خرید یا Production.
+
+### 8.1 دامنهٔ تصمیم، و غیرتصمیم‌ها
+
+| موضوع | ثبت تصمیم فعلی | چیزی که هنوز تصویب نشده |
+|---|---|---|
+| بازار نسخهٔ نخست | کاربران هدف فعلی **ایران** هستند | تضمین دسترسی اینترنتی، ایمیلی یا قانونی؛ مکان میزبانی و شرکت تأمین‌کننده |
+| کنترل داده | **ترجیح** نگهداری داده‌های محصول و IdP در زیرساخت تحت کنترل سازمان | الزام به خرید سخت‌افزار/ادارهٔ شخصی، محل سرور، قرارداد، region یا پذیرش Production |
+| ورود v1 | **ایمیل + رمز عبور**، اجبار به تأیید مالکیت ایمیل پیش از دسترسی عادی، **بازیابی امن رمز** | انتخاب موتور IdP/SMTP، TTLها، متن ایمیل، سرویس پرداختنی، دسترسی عمومی |
+| توسعهٔ آینده | حفظ قابلیت افزودن نام کاربری، شماره‌تلفن و OTP با قرارداد/owner پایدار | ثبت/ارسال SMS، فیلدهای phone، Login با username، OTP کاربران، Endpoint یا UI این قابلیت‌ها در بستهٔ اول |
+| Admin/analytics | دسترسی مدیریتی آینده **حداقلی، قابل ممیزی و scoped**؛ «admin» به معنی دسترسی نامحدود به همهٔ داده‌ها نیست | پنل مدیریت/مالی، Roleهای گسترده، دسترسی تحلیلی به PII یا bypass RLS |
+| اطلاعات مالی احتمالی | صرفاً **نیاز آینده به بررسی دامنه، سیاست داده و حریم خصوصی** | هیچ بانک/حساب/تراکنش/فیلد یا جدول مالی، اتصال بانک، مجوز تحلیل دادهٔ مالی، رمز یا OTP بانکی |
+
+**نکتهٔ مهم:** تصمیم کارفرما «ساخت سیستم نگهداری گذرواژه از صفر» نیست؛ گزینهٔ B به‌عنوان مقایسه باقی می‌ماند ولی مسیر منتخب برای *بررسی*، OIDC با IdP قابل خودمیزبانی و BFF است. ADR 0003 و H-DEC-01 در سطح انتخاب فناوری/Auth هنوز OPEN می‌مانند.
+
+### 8.2 چرا Keycloak نامزد مناسبی برای ارزیابی فنی است، نه انتخاب قطعی
+
+مستند رسمی Keycloak تأیید می‌کند که:
+- سرویس OIDC، endpointهای discovery/auth/token/logout و سیاست‌های هویت و Session دارد؛ فرم password-based با **Email as username**، **Verify Email** و جریان **Forgot Password / Reset Credentials** با سیاست زمان‌دار قابل پیکربندی است. Realm برای ارسال verification/reset email به **SMTP تنظیم‌شده** نیاز دارد. استفاده از login «email+password» لزوماً email-provider، صندوق یا DNS/SMTP رایگان/آماده ایجاد نمی‌کند.
+- سیاست password را باید عمداً تنظیم کرد؛ **Realm تازه به‌خودی‌خود Password Policy سخت‌گیرانه ندارد**. مستند جدید استفاده از Argon2 را در حالت non-FIPS بیان می‌کند. Brute force detection باید فعال/تنظیم شود؛ default امن فرض نشود. MFA با TOTP/WebAuthn و Recovery Codes پشتیبانی می‌شود؛ **MFA مدیر باید الزام و قابل بازیابی باشد**، نه صرفاً یک گزینه که در صورت نبود credential دور زده شود.
+- Keycloak می‌تواند با PostgreSQL سازگار کار کند؛ برای آینده، دیتابیس Identity با credential/Realm/Admin/Security Events باید از History محصول **از نظر role/schema/backup/access جدا** طراحی شود؛ اشتراک موتور PostgreSQL خودبه‌خود مرز دسترسی ایمن نمی‌سازد.
+- Production مستلزم hostname ثابت، TLS، reverse proxy امن، database، backup/restore آزموده، مراقبت از updateها، health/metrics بدون انتشار عمومی و برنامهٔ قطعی مالک عملیات و رخدادهاست. مستند Keycloak توصیه می‌کند مسیرهای administration از سطح login عمومی جدا باشند. **خودمیزبانی صرفاً کنترل زیرساخت را افزایش می‌دهد، نه تضمین دسترس‌پذیری یا رایگان بودن.**
+
+**منابع رسمی بررسی‌شده 2026-11-08:** [Keycloak Server Admin — Realm Email/SMTP, Verify Email, Forgot Password, Password Policy/Brute Force, MFA/Recovery Codes](https://www.keycloak.org/docs/latest/server_admin/)، [Keycloak OIDC layers](https://www.keycloak.org/securing-apps/oidc-layers)، [Keycloak production configuration](https://www.keycloak.org/server/configuration-production)، [Keycloak production database](https://www.keycloak.org/server/db)، [Keycloak reverse proxy](https://www.keycloak.org/server/reverseproxy)، [Keycloak hostname validation](https://www.keycloak.org/server/hostname). نسخهٔ دقیق موتور، حمایت از نسخهٔ PostgreSQL و تغییر رفتار Config در زمان اجرای بسته باید با مستند نسخهٔ pinشده بازسنجی شوند؛ انتخاب نسخه هنوز انجام نشده است.
+
+**پیشنهاد فنی قابل بازبینی:** برای بستهٔ تست اول Keycloak را فقط به‌عنوان **نامزد خودمیزبان مبتنی بر OIDC** ارزیابی کنید؛ با BFF نشستی Next.js + FastAPI trusted identity و owner داخلی مستقل از IdP. انتخاب نهایی Keycloak، روش استقرار، پشتیبانی و محل داده به پذیرش معماری، تست و مجوزهای جدا نیاز دارد. استاندارد بودن OIDC خروج از فروشنده را آسان‌تر می‌کند، ولی migration اعتبارنامه‌ها/MFA و هویت‌ها خودکار نیست.
+
+### 8.3 Email verification و Reset — مسیر پیشنهادی بستهٔ v1
+
+1. در جریان ثبت‌نام/دعوت (سیاست ثبت‌نام عمومی یا دعوتی هنوز تصویب نشده)، کاربر آدرس ایمیل و گذرواژهٔ آزمایشی وارد می‌کند؛ سرویس IdP سیاست رمز، hash، ضد brute force، پیام عمومی عدم افشای وجود حساب و rate limit را اعمال می‌کند. **تا قبل از تأیید ایمیل دسترسی به History فعال نمی‌شود.**
+2. IdP فقط لینک/توکن تأیید **کوتاه‌عمر، یک‌بارمصرف، audience/realm/flow محدود** با پایه URL ثابت و معتبر ایجاد می‌کند. ارسال از پیکربندی SMTP سروری انجام می‌شود؛ Mail service دریافت‌کننده باید با سیاست‌های حریم خصوصی سازگار باشد. Token در Log، URL analytics، referrer خارجی یا browser storage نگه‌داری نشود؛ replay/expiry/invalid-link مستقل آزموده شود.
+3. Forgot Password باید پاسخ عمومی و غیرقابل enumerate بدهد، درخواست را با rate limit کنترل کند و لینک Reset زمان‌دار ارسال کند؛ پس از تعویض رمز، sessionهای BFF و در صورت امکان IdP sessions/tokenهای قبلی باید طبق سیاست به‌صورت آزمودنی باطل شوند. **کیفیت revoke میان IdP و BFF نیازمند آزمون end-to-end است**؛ صرف reset کردن رمز تضمین invalidate شدن همه نشست‌ها نیست.
+4. در **CI ایزوله** به‌جای اینترنت/SMTP واقعی، یک **SMTP catcher محلیِ فاقد ارسال بیرونی** با mailbox مصنوعی و آدرس‌های دامنهٔ نمونهٔ رزروشده (مانند `first@example.test` و `second@example.test`) پیشنهاد می‌شود. Test از پیام ضبط‌شده token را استخراج و در loopback link دنبال می‌کند؛ no outside delivery/no actual mailbox/no PII. ارسال هر نوع ایمیل واقعی یا راه‌اندازی سرویس در **این مأموریت ممنوع** است.
+5. در محصول واقعی سرویس SMTP/ارسال ایمیل لازم است؛ می‌تواند در زیرساخت مورد تأیید سازمان یا از ارائه‌دهندهٔ مجاز با قرارداد باشد. مسئول deliverability، دامنه و SPF/DKIM/DMARC، مدیریت برگشتی‌ها، abuse rate و ظرفیت باید تعیین شود. هیچ شرکت، دامنه، mailbox یا قرارداد انتخاب نشده است.
+
+**محدودیت ویژهٔ کاربران هدف ایران:** مستند Keycloak به‌تنهایی نه دسترس‌پذیری سرور/دامنه/HTTPS از شبکه‌های داخل ایران را تضمین می‌کند نه رسیدن ایمیل‌های تأیید/بازیابی به صندوق‌های مخاطب. پیش از انتخاب میزبان/SMTP و انتشار باید به‌شکل مجاز دسترس‌پذیری DNS/TLS/redirect و callback، تحویل ایمیل و لینک‌های Reset برای شبکه‌ها و providerهای ایمیل مورد استفادهٔ مخاطب، شرایط حقوقی/قراردادی، سیاست انتقال داده و محدودیت سرویس‌دهنده را با تست عملی و تأیید مسئول مربوط بررسی کرد. **هیچ نتیجهٔ موفق یا ناممکن بودن برای ایران ادعا نشده است.**
+
+### 8.4 مرز هویت، مدیر، Analytics و داده
+
+- **Browser → BFF:** OIDC Authorization Code + PKCE + state/nonce؛ session opaque server-side، Cookie `HttpOnly/Secure/SameSite`، CSRF/Origin کنترل‌شده، login fixation/rotation و expiration/revoke. Tokenهای IdP به JS، localStorage یا logs ارسال نشوند؛ public API/Proxy فعلی CI-only باقی می‌ماند تا مأموریت جدا.
+- **BFF → FastAPI:** اعتماد سرور-به-سرور با احراز هویت خدماتی/شبکهٔ محدود و allowlisted identity claims، نه header `owner` دلخواه از درخواست. FastAPI هویت و وضعیت تأیید ایمیل/نشست را اعتبارسنجی و به یک `internal_owner_user_id` **پایدار** وصل کند، بر اساس `(iss,sub)`؛ email صرفاً شناسهٔ ورود/تماس قابل تغییر است، نه کلید owner یا مجوز. تبدیل سشن به Transaction Context و RLS محصول با کاربر DB فاقد BYPASSRLS انجام شود؛ endpointها/Status و Cursor نیز باید کنترل شوند.
+- **Admin:** roleهای پایهٔ `user` و `admin` فقط به حداقل مسئولیت مشخص دسترسی می‌دهند؛ admin نیازمند **MFA الزامی/step-up** برای عملیات حساس، لاگ ممیزی redacted و revocation جداست. Role `admin` نه مجوز خواندن تاریخچهٔ همهٔ کاربران است نه `BYPASSRLS`. Console Keycloak و Admin UI آینده جدا از Browser کاربر، محدود به مسئول عملیاتی مجاز؛ پنل مدیر و مالی فاز ۴ ساخته نمی‌شود.
+- **Analytics:** برای آینده فقط policy design و دسته‌بندی سطح داده در نظر گرفته شود؛ دسترسی aggregate/minimized/consent-aware و scope شده، بدون اتصال مستقیم کاربر analytics به جداول private History. هیچ API، schema، جدول، export یا score/financial field جدیدی در این مأموریت یا بستهٔ Auth اول تصویب نمی‌شود.
+- **حذف و وضعیت پس از ابطال:** درخواست حذف، revoke نشست/IdP، جلوگیری از مشاهدهٔ پیام و مسیر پیگیری حذف بعد از revoke مستقل از جلسهٔ باطل‌شده نیازمند policy و آزمون است؛ مشخصات Retention/Backup و مسیر status هنوز OPEN.
+
+### 8.5 بستهٔ اجرایی نخست پیشنهادی (FUTURE, AUTH-P01..P16 همگی NOT_RUN)
+
+**پیش‌شرط شروع کدنویسی:** مأموریت اجرایی و مرز مالکیت جدا + تأیید ناظر برای **ارزیابی** Keycloak آزمایشی، نه تصمیم نهایی/Production؛ انتخاب نسخهٔ پشتیبانی‌شده در آن زمان؛ ایزوله بودن CI؛ مالک هماهنگ‌کنندهٔ امنیت/عملیات؛ بدون رمز/ایمیل واقعی. از مسیرهای زیر **در این PR هیچ فایلی تغییر نمی‌کند**:
+
+| گام آتی و مالک/مسیر پیشنهادی | وابستگی و خروجی مورد انتظار | شاهد پذیرش پیشنهادی |
+|---|---|---|
+| 0. Boundary & contract review — Foundation: `docs/architecture/**`, `docs/adr/**`, `packages/contracts/**` فقط اگر ضرورتِ تأییدشده و با مالک | فریز محدود Trust Boundary، realm/client، callback allowlist، CSRF/role/session/recovery policy، mapping owner؛ `product.v1` و History immutable/idempotency حفظ شوند | Threat checklist و review مشترک؛ نه ساخت DTO/endpoint فرضی |
+| 1. IdP test harness — Foundation/ops با مالکیت مصوب در `tests/phase3/integration/cross_component/**` و Workflow **بعداً مجازشده** | یک Keycloak CI-only آزمایشی + دیتابیس/realm مجزا + SMTP catcher loopback با outbound=DENY، دو کاربر مصنوعی A/B و یک بازیگر مدیر تست؛ ورود با ایمیل، Verify/Reset واقعی داخل Sandbox | Realm fresh startup/shutdown، credential defaults reviewed، email delivery فقط catcher، test isolation و no real outbound |
+| 2. Product boundary — API `src/phase3/auth/**`, `apps/api/**`, `tests/phase3/api/**`; UI `apps/web/**`, `tests/phase3/ui/**` | Next.js BFF OIDC callback و session store server-side، Login/Logout/Verification/Reset UI، FastAPI trusted identity replacement در API بدون public actor selector؛ original `product.v1` request semantics ثابت | Positive/negative code/PKCE/state/nonce, 401 default, verified email enforcement, no token in browser bundle |
+| 3. Owner/RLS & integration — DB `src/phase3/storage/postgres/**`, `infra/postgres/**`, `tests/phase3/database/**`; Foundation cross-component CI | بعد از design review: `(iss,sub)`→ immutable owner mapping و role; PostgreSQL RLS مستقل، migrationهای جدید صرفاً با مجوز مجزا، session revoke/delete boundary | Two real CI users cannot read other History via API/DB/cursor, no admin superaccess, DB context cleared per transaction |
+| 4. Acceptance and handoff — assigned QA/security/ops, Foundation Gate owner | ترکیب در یک runner ایزوله، logs redacted، report exact SHAs، CI artifacts، failures; no public host | کامل‌شدن ماتریس زیر در CI جدا با ناظر؛ Production access و Gate همچنان تصمیم مستقل |
+
+**حداقل Scope بسته:** ایمیل+رمز، Verify Email و Reset با SMTP catcher، Login/Logout و session revocation/CSRF، guard verified-owner، ۲ کاربر مستقل (نه dependency override)، نقش `user`/ `admin` با MFA اجباری مدیر، جداسازی History تحت RLS. Username/Phone/OTP/SMS کاربران عادی، real SMTP، analytics، پنل مالی/مدیریتی، اتصال بانکی، RAG/NB23 و deploy **خارج** هستند. OTP مخصوص MFA مدیر در این بسته **آزمون سیاست امنیتی مدیریت** است؛ نه راه‌اندازی ورود OTP عمومی.
+
+**تست‌های پذیرش CI پیشنهادی، همه NOT_RUN:**
+
+| Test | حالت‌های مثبت و منفی، شرط رد |
+|---|---|
+| AUTH-CI-01 | Signup/login ایمیل+رمز A/B؛ بی‌تأییدایمیل، user disabled، رمز اشتباه و تکرار تلاش → 401/deny و هیچ session محصول |
+| AUTH-CI-02 | دو پیام SMTP محلی Verify/Reset با لینک scoped/یک‌بارمصرف و انقضا؛ هیچ SMTP خارجی، PII، Token log یا takeover |
+| AUTH-CI-03 | Reset معتبر و reset-replay/expired/foreign-account؛ revoke sessionهای قبلی و الزام reauthentication با رمز جدید |
+| AUTH-CI-04 | OIDC code+PKCE/state/nonce، tamper callback/redirect/issuer/audience/expiry/replay؛ login فقط از issuer مجاز |
+| AUTH-CI-05 | BFF cookie `HttpOnly/Secure/SameSite`، fixation/rotation، idle/absolute timeout، logout-all/revoke؛ session قبلی 401 |
+| AUTH-CI-06 | Forged CSRF/cross-site Origin/Fetch Metadata on POST/logout; no owner or send mutation |
+| AUTH-CI-07 | Forged owner via header/body/query/cursor و direct FastAPI/public endpoint؛ missing/foreign ID indistinguishable 404 |
+| AUTH-CI-08 | Two synthetic but **real OIDC-logged-in CI identities** (not API dependency overrides): independent History create/list/send/status, pagination/retry; no cross-user leak or duplicate |
+| AUTH-CI-09 | Role user vs admin: admin TOTP/WebAuthn mandatory as configured, recovery secure, user forbidden admin actions; admin **cannot** read unrelated History or bypass RLS |
+| AUTH-CI-10 | PostgreSQL transaction context/connection reuse and role grants non-BYPASSRLS: never carry owner between users/requests |
+| AUTH-CI-11 | Unverified/deleted/suspended/revoked identity: no Conversation, Answer, account info or delete-status bypass; post-revoke deletion receipt policy explicitly still OPEN |
+| AUTH-CI-12 | CI fixed ports/loopback, no outbound email/Internet model/payment, clean teardown; Browser desktop/mobile accessibility/login errors and no JS/localStorage token leakage |
+
+هر Test: **NOT_RUN, NOT_ACCEPTED**. آزمون‌ها طرح‌اند و لاگ/آرتیفکت واقعی ندارند. Gate P3M05، P3M06، P3M13، P3M14، P3M15 و DB01-02 با گذراندن CI به‌تنهایی خودکار پذیرفته نمی‌شوند.
+
+### 8.6 واقعاً چه پاسخ‌هایی پیش از بستهٔ CI لازم است؟
+
+- **پاسخ‌های داده‌شده، دیگر سؤال نیستند:** ایران، ترجیح کنترل زیرساخت، ایمیل/رمز+Verify/Reset، توسعهٔ آیندهٔ identifier، محدودبودن Admin.
+- **برای CI ایزوله:** مجوز مشخص ناظر برای مأموریت اجرا و استفاده از نامزد Keycloak به‌صورت **nonbinding**، مالک اجرایی آزمون و محدودهٔ دسترسی/هزینهٔ CI (بدون سرویس پرداختی/خارجی). جزئیات نسخه، realm، session TTL و ابزار SMTP catcher را تیم فنی در طرح بسته تعیین و به ناظر ارائه می‌کند، نه کارفرما.
+- **پیش از آزمون واقعی کاربران/Production، جدا و بعداً:** مسئول عملیات/امنیت/Backup و تأیید هزینه؛ محل میزبانی و ضوابط پردازش داده و دسترسی کاربران ایران؛ SMTP واقعی، دامنه، sender و deliverability، قرارداد/محدودیت و پاسخ‌گویی به رخداد؛ Retention/Deletion و panel/analytics privacy policy.
+
+**تعریف پایان این نوبت:** فقط مستندسازی تصمیم و مسیر اجرایی پیشنهادی؛ هیچ IdP/SMTP، حساب، credential، container، service، migration، role، dependency، UI، schema، Workflow، آزمون Auth واقعی، ارسال ایمیل، خرید یا استقرار ایجاد نشده است. **READY_FOR_REVIEW — SELF_HOSTED_AUTH_PLAN.**
