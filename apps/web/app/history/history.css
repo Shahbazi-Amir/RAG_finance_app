@@ -6,7 +6,11 @@
 .history-brand{display:flex;align-items:center;gap:10px;color:#243e2f;font-weight:600}
 .history-actions{display:flex;flex-direction:column;gap:9px}
 .history-list{display:flex;flex-direction:column;gap:4px;min-height:0}
-.history-list .nav-thread{text-align:right}
+.history-list .nav-thread{text-align:right;flex-direction:column;align-items:stretch;gap:2px}
+.history-thread-detail{display:block;min-width:0;max-width:100%;font-size:12px;line-height:1.7;
+  font-weight:400;color:#486551;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  direction:rtl;unicode-bidi:plaintext}
+.history-mobile-topbar,.history-mobile-close,.history-mobile-scrim{display:none}
 .history-list .nav-thread.is-current{background:#dcebdd;color:#145c3e}
 .history-state{font-size:13px;line-height:1.8;color:#526557;min-height:2px}
 .history-sidebar-bottom{margin-top:auto;padding-top:18px;border-top:1px solid #dce8df}
@@ -30,18 +34,40 @@
 .history-compose{position:sticky;bottom:0;padding:12px 0 18px;background:#f7f8f6}
 .history-compose .composer textarea{font-size:16px;line-height:1.9;max-height:140px;min-height:56px}
 .history-compose .under-composer{text-align:center}
+/* Mobile History reuses the Mock overlay/dialog keyboard pattern. */
 @media(max-width:760px){
   .history-shell{flex-direction:column}
-  .history-sidebar{width:100%;min-height:auto;flex:0 0 auto;border-left:0;border-bottom:1px solid #dde7df;
-    padding:11px 14px;gap:8px}
-  .history-brand{font-size:14px}
-  .history-actions{flex-direction:row;flex-wrap:wrap}
-  .history-actions>*{width:auto}
-  .history-list{flex-direction:row;gap:6px;overflow-x:auto;max-width:100%;padding:3px 0}
-  .history-list .nav-thread{width:auto;max-width:200px;min-width:115px;border:1px solid #d2dfd4}
-  .history-sidebar-bottom{margin-top:0;padding-top:9px}
-  .history-sidebar-bottom p{display:none}
-  .history-main{min-height:50dvh;padding:18px 15px}
+  .history-sidebar{display:none}
+  .history-sidebar.is-mobile-open{
+    display:flex;position:fixed;top:0;bottom:0;right:0;left:auto;z-index:47;
+    width:min(86vw,304px);height:100dvh;min-height:0;max-height:100dvh;
+    overflow-y:auto;overscroll-behavior:contain;flex:0 0 auto;
+    padding:17px 14px 18px;gap:12px;border-left:1px solid #dde7df;
+    box-shadow:-10px 0 30px rgba(0,0,0,.18);
+  }
+  .history-mobile-scrim{
+    display:block;position:fixed;inset:0;z-index:46;
+    border:0;border-radius:0;background:rgba(8,29,17,.58);
+  }
+  .history-mobile-close{
+    display:grid;place-items:center;position:absolute;top:17px;left:15px;
+    width:31px;height:31px;border:1px solid #d3e0d6;border-radius:8px;
+    background:transparent;color:#395d45;font-size:22px;
+  }
+  .history-sidebar .history-brand{padding-left:39px;min-height:33px}
+  .history-mobile-topbar{
+    display:flex;position:sticky;top:0;z-index:21;flex:0 0 52px;
+    min-height:52px;align-items:center;gap:11px;
+    background:#fcfdfb;border-bottom:1px solid #e3eae4;
+  }
+  .history-mobile-caption{margin-inline-start:auto;font-size:13px;color:#526557}
+  .history-list{flex-direction:column;overflow-x:visible;gap:4px}
+  .history-list .nav-thread{width:100%;max-width:100%;min-width:0}
+  .history-sidebar-bottom{margin-top:auto;padding-top:12px}
+  .history-sidebar-bottom p{display:block}
+  .history-main{width:100%;min-height:100dvh;padding:0 15px 18px}
+  .history-heading{padding:15px 0 12px}
   .history-heading h1{font-size:21px}
   .history-messages{padding:18px 0}
+  .history-compose{padding-bottom:10px}
 }

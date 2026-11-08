@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import Link from 'next/link';
 import {
   conversations,messages,createConversation,newCreate,newSend,sendMessage,recoverStatus,
@@ -27,7 +27,41 @@ export default function HistoryPage(){
   const [busy,setBusy]=useState<Record<string,boolean>>({});
   const [creating,setCreating]=useState<PendingCreate|null>(null);
   const [error,setError]=useState('');
+  const [mobileMenuOpen,setMobileMenuOpen]=useState(false);
+  const mobileTriggerRef=useRef<HTMLButtonElement>(null);
+  const mobileCloseRef=useRef<HTMLButtonElement>(null);
+  const mobileDialogRef=useRef<HTMLElement>(null);
   const epochs=useRef<Record<string,number>>({});
+  useEffect(()=>{
+    if(!mobileMenuOpen)return;
+    const previousOverflow=document.body.style.overflow;
+    document.body.style.overflow='hidden';
+    mobileCloseRef.current?.focus();
+    return ()=>{document.body.style.overflow=previousOverflow;};
+  },[mobileMenuOpen]);
+  function closeMobileMenu(){
+    setMobileMenuOpen(false);
+    window.requestAnimationFrame(()=>mobileTriggerRef.current?.focus());
+  }
+  function onMobileKeyDown(event:ReactKeyboardEvent<HTMLElement>){
+    if(!mobileMenuOpen)return;
+    if(event.key==='Escape'){
+      event.preventDefault();event.stopPropagation();closeMobileMenu();return;
+    }
+    if(event.key!=='Tab')return;
+    const dialog=mobileDialogRef.current;
+    if(!dialog)return;
+    const focusable=Array.from(dialog.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+    )).filter(element=>element.getClientRects().length>0);
+    if(!focusable.length){event.preventDefault();dialog.focus();return;}
+    const first=focusable[0],last=focusable[focusable.length-1];
+    if(event.shiftKey&&(document.activeElement===first||!dialog.contains(document.activeElement))){
+      event.preventDefault();last.focus();
+    }else if(!event.shiftKey&&(document.activeElement===last||!dialog.contains(document.activeElement))){
+      event.preventDefault();first.focus();
+    }
+  }
 
   const loadList=useCallback(async (next=false,cursor:string|null=null)=>{
     setListBusy(true);
@@ -76,6 +110,7 @@ export default function HistoryPage(){
   function choose(id:string){
     setSelected(id);setError('');
     if(!id.startsWith('draft:'))void loadThread(id);
+    if(mobileMenuOpen)closeMobileMenu();
   }
   function newDraft(){const id='draft:'+crypto.randomUUID();setDrafts(all=>({...all,[id]:''}));choose(id);}
   function mark(origin:string,key:string,patch:Partial<PendingSend>){
@@ -157,6 +192,7 @@ export default function HistoryPage(){
     }
   }
   function beginCreate(){
+    if(mobileMenuOpen)closeMobileMenu();
     const origin=selected?.startsWith('draft:')?selected:'draft:'+crypto.randomUUID();
     const operation={origin,request:newCreate('گفت‌وگوی جدید'),phase:'submitting' as const};
     if(selected!==origin)setSelected(origin);
@@ -170,7 +206,16 @@ export default function HistoryPage(){
   const pendingVisible=localItems.filter(x=>!x.messageId||!renderedIds.has(x.messageId));
   const answersByMessage=new Map((data?.answers??[]).map(a=>[a.messageId,a.payload]));
   return <main className="history-shell" dir="rtl">
-    <aside className="history-sidebar" aria-label="فهرست تاریخچه">
+    {mobileMenuOpen&&<button type="button" className="history-mobile-scrim"
+      aria-label="بستن منوی تاریخچه" onClick={closeMobileMenu}/>}
+    <aside id="history-navigation" className={'history-sidebar'+(mobileMenuOpen?' is-mobile-open':'')}
+      ref={mobileDialogRef} tabIndex={mobileMenuOpen?-1:undefined}
+      role={mobileMenuOpen?'dialog':undefined}
+      aria-modal={mobileMenuOpen?'true':undefined}
+      aria-label={mobileMenuOpen?'منوی تاریخچه':'فهرست تاریخچه'}
+      onKeyDown={onMobileKeyDown}>
+      <button type="button" ref={mobileCloseRef} className="history-mobile-close"
+        aria-label="بستن منوی تاریخچه" onClick={closeMobileMenu}>×</button>
       <div className="history-brand"><span className="brand-mark" aria-hidden="true">ف</span>
         <strong>راگ مالی</strong></div>
       <div className="history-actions">
@@ -188,12 +233,25 @@ export default function HistoryPage(){
           :listState==='unauthorized'?'ورود معتبر لازم است؛ ورود هنوز فراهم نیست.':''}
       </div>
       <nav aria-label="مکالمات ثبت‌شده" className="history-list">
-        {list.map(c=><button key={c.id} type="button" data-testid={'conversation-'+c.id}
-          className={'nav-thread'+(selected===c.id?' is-current':'')}
-          aria-current={selected===c.id?'page':undefined}
-          onClick={()=>choose(c.id)}>
-          <span className="nav-thread-text">{c.title??'گفت‌وگوی بدون عنوان'}</span>
-        </button>)}
+        {list.map(c=>{
+          const title=c.title??'گفت‌وگوی بدون عنوان';
+          // Only validated, already loaded message pages may supply a preview.
+          // Do not fetch each conversation to populate navigation labels.
+          const preview=threads[c.id]?.items.find(m=>m.role==='user')?.text;
+          const marker=c.title==='گفت‌وگوی جدید'
+            ?preview?'پرسش: '+preview.slice(0,46):'شناسه: '+c.id.slice(-8)
+            :null;
+          return <button key={c.id} type="button" data-testid={'conversation-'+c.id}
+            className={'nav-thread'+(selected===c.id?' is-current':'')}
+            aria-current={selected===c.id?'page':undefined}
+            aria-label={'بازکردن '+title+'؛ شناسهٔ کامل '+c.id+(preview?'؛ پرسش: '+preview:'')}
+            onClick={()=>choose(c.id)}>
+            <span className="nav-thread-text history-thread-title">{title}</span>
+            {marker&&<span className="history-thread-detail" data-testid={'conversation-marker-'+c.id}>
+              {marker}
+            </span>}
+          </button>;
+        })}
       </nav>
       {listMore&&<button type="button" className="secondary" data-testid="more-conversations"
         disabled={listBusy} onClick={()=>void loadList(true,listCursor)}>
@@ -207,6 +265,16 @@ export default function HistoryPage(){
       </div>
     </aside>
     <section className="history-main" aria-label="گفت‌وگوی تاریخچه">
+      <header className="history-mobile-topbar">
+        <button type="button" ref={mobileTriggerRef} className="mobile-menu-trigger"
+          aria-label="بازکردن منوی تاریخچه" aria-haspopup="dialog"
+          aria-controls="history-navigation" aria-expanded={mobileMenuOpen}
+          onClick={()=>setMobileMenuOpen(true)}>
+          <span aria-hidden="true">☰</span>
+        </button>
+        <span className="mobile-brand">راگ مالی</span>
+        <span className="history-mobile-caption">تاریخچه</span>
+      </header>
       <header className="history-heading">
         <h1>تاریخچهٔ گفتگو</h1><p>فقط ثبت و بازیابی پیام؛ پاسخ‌گویی موتور هنوز فعال نیست.</p>
       </header>

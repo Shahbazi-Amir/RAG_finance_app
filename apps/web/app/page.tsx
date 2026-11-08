@@ -347,10 +347,14 @@ export default function HomePage(){
       </header>
       <div className="workspace">
         {view==='chat'?<section className="chat-panel" aria-label="گفتگوی فارسی">
-        <p className="demo-note" role="note">
-          نسخهٔ آزمایشی؛ پاسخ‌ها نمونه‌اند و به موتور پاسخ‌گویی متصل نیستند.
-          {' '}<Link href="/history" data-testid="history-link" className="secondary">مسیر مستقل تاریخچهٔ API</Link>
-        </p>
+        <div className="demo-intro">
+          <p className="demo-note" role="note">
+            نسخهٔ آزمایشی؛ پاسخ‌ها نمونه‌اند و به موتور پاسخ‌گویی متصل نیستند.
+          </p>
+          <Link href="/history" data-testid="history-link" className="secondary demo-history-link">
+            مسیر مستقل تاریخچهٔ API
+          </Link>
+        </div>
         <div className="messages" aria-live="polite" aria-relevant="additions text">
           {items.length===0&&<div className="empty-state">
             <div className="empty-icon" aria-hidden="true">✦</div>

@@ -171,6 +171,20 @@ async def run():
                    "(nodes) => nodes.map(n => n.getAttribute('data-testid'))")]
         c2 = next(id for id in ids if id != c1)
         await send_ui(a, QUESTIONS["two"])
+        # Two database conversations with the same stored title need distinct
+        # visible navigation markers and full accessible IDs. Never change DB titles.
+        first_row = a.get_by_test_id("conversation-" + c1)
+        second_row = a.get_by_test_id("conversation-" + c2)
+        for conversation_id, row in ((c1, first_row), (c2, second_row)):
+            assert "گفت‌وگوی جدید" in (await row.inner_text())
+            accessible_name = await row.get_attribute("aria-label")
+            assert accessible_name and conversation_id in accessible_name
+            await expect(a.get_by_test_id("conversation-marker-" + conversation_id)).to_be_visible()
+        marker_a = await a.get_by_test_id("conversation-marker-" + c1).inner_text()
+        marker_b = await a.get_by_test_id("conversation-marker-" + c2).inner_text()
+        assert marker_a != marker_b, "Same-title navigation rows are indistinguishable"
+        assert all(x.startswith(("شناسه:", "پرسش:")) for x in (marker_a, marker_b))
+        print("E2E: same-title DB conversations have distinct accessible display-only markers PASS")
         await a.get_by_test_id("conversation-" + c1).click()
         await expect(a.get_by_text(QUESTIONS["one"], exact=True)).to_be_visible()
         await a.reload()
@@ -414,19 +428,53 @@ async def run():
                                             device_scale_factor=1)
         screen = await mobile.new_page()
         await screen.goto("http://127.0.0.1:3000/history")
-        await expect(screen.locator('[data-testid^="conversation-"]').first).to_be_visible()
+        menu_button = screen.get_by_role("button", name="بازکردن منوی تاریخچه")
+        await expect(menu_button).to_be_visible()
+        await expect(menu_button).to_have_attribute("aria-expanded", "false")
+        await expect(screen.locator(".history-sidebar")).to_be_hidden()
+        await expect(screen.get_by_test_id("history-question")).to_be_visible()
+        assert await screen.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), (
+            "Mobile History has horizontal overflow")
+        compose_box = await screen.locator(".history-compose .composer").bounding_box()
+        assert compose_box and compose_box["y"] + compose_box["height"] <= 845, (
+            "History composer unavailable in initial mobile viewport")
+        await menu_button.click()
+        await expect(menu_button).to_have_attribute("aria-expanded", "true")
+        dialog = screen.get_by_role("dialog", name="منوی تاریخچه")
+        await expect(dialog).to_be_visible()
+        mobile_close = dialog.get_by_role("button", name="بستن منوی تاریخچه")
+        await expect(mobile_close).to_be_focused()
+        await screen.keyboard.press("Shift+Tab")
+        await expect(dialog.locator("a").last).to_be_focused()
+        await screen.keyboard.press("Tab")
+        await expect(mobile_close).to_be_focused()
+        await screen.keyboard.press("Escape")
+        await expect(dialog).to_have_count(0)
+        await expect(menu_button).to_be_focused()
+        await expect(menu_button).to_have_attribute("aria-expanded", "false")
+        await menu_button.click()
+        dialog = screen.get_by_role("dialog", name="منوی تاریخچه")
         await load_until(screen, c2)
-        await screen.get_by_test_id("conversation-" + c2).click()
+        await screen.screenshot(path=str(folder/"history-mobile-menu.png"),full_page=True)
+        await dialog.get_by_test_id("conversation-" + c2).click()
+        await expect(dialog).to_have_count(0)
+        await expect(menu_button).to_be_focused()
         await expect(screen.get_by_text(QUESTIONS["two"], exact=True).first).to_be_visible()
+        await expect(screen.get_by_test_id("history-question")).to_be_visible()
         await screen.screenshot(path=str(folder/"history-mobile.png"),full_page=True)
+        print("E2E: mobile drawer Escape/Tab/focus/selection and visible composer PASS")
         # Explicit API failure: no fallback to synthetic Mock scenario.
         async def force_api_failure(route):
             await route.fulfill(status=503,content_type="application/json",
                                 body='{"error":"unavailable"}')
         await screen.route("**/api/history/conversations?**",force_api_failure)
-        await screen.get_by_test_id("refresh-history").click()
-        await expect(screen.get_by_test_id("history-state")).to_contain_text("خطای دریافت")
+        await menu_button.click()
+        dialog = screen.get_by_role("dialog", name="منوی تاریخچه")
+        await dialog.get_by_test_id("refresh-history").click()
+        await expect(dialog.get_by_test_id("history-state")).to_contain_text("خطای دریافت")
         assert await screen.get_by_text("پاسخ نمونه").count() == 0
+        await dialog.get_by_role("button", name="بستن منوی تاریخچه").click()
+        await expect(menu_button).to_be_focused()
         print("E2E: mobile screenshot, HTTP 503 without Mock fallback PASS")
 
         await mobile.close()
