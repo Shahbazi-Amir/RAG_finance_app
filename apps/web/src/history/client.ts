@@ -99,7 +99,7 @@ export async function messages(conversationId:string,limit=2,cursor:string|null=
     const m=wire(v,'message');
     if(m.owner_user_id!==owner||m.conversation_id!==conversationId)throw new HistoryFailure(0,'invalid');
     if(m.role!=='user'&&m.role!=='assistant')throw new HistoryFailure(0,'invalid');
-    return {id:field(m.message_id),conversationId,role:m.role,text:field(m.text),answerId:optional(m.answer_id)};
+    return {id:field(m.message_id),conversationId,role:m.role as 'user'|'assistant',text:field(m.text),answerId:optional(m.answer_id)};
   });
   const linked=new Map(items.filter(m=>m.role==='assistant'&&m.answerId).map(m=>[m.answerId,m.id]));
   const answers=(o.answers as unknown[]).map(v=>{

@@ -174,7 +174,7 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$RUNNER_TEMP/ui-l1-tools:$PATH"
-          python tests/phase3/ui/browser_check.py 2>&1 | tee "$RUNNER_TEMP/ui-history-evidence/browser.log"
+          python tests/phase3/ui/browser_check.py 2>&1 | tee "$RUNNER_TEMP/ui-history-evidence/original-mock-browser.log"
 
       - name: Stop six temporary loopback processes
         if: always()
@@ -183,6 +183,7 @@ jobs:
             while read -r pid; do
               if [[ "$pid" =~ ^[0-9]+$ ]]; then kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true; fi
             done < "$RUNNER_TEMP/ui-history-pids"
+          fi
 
       - name: Upload short-lived logs and actual screenshots, including failures
         if: always()
