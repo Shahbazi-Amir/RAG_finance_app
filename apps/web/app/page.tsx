@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import Link from 'next/link';
 import {
   CONTRACT_VERSION,FIXTURE_ORIGIN,MockTransport,SCENARIOS,isRealSourceClaim,
   newRequest,safeSourceHref,terminalDisplay,
@@ -348,6 +349,7 @@ export default function HomePage(){
         {view==='chat'?<section className="chat-panel" aria-label="گفتگوی فارسی">
         <p className="demo-note" role="note">
           نسخهٔ آزمایشی؛ پاسخ‌ها نمونه‌اند و به موتور پاسخ‌گویی متصل نیستند.
+          {' '}<Link href="/history" data-testid="history-link" className="secondary">مسیر مستقل تاریخچهٔ API</Link>
         </p>
         <div className="messages" aria-live="polite" aria-relevant="additions text">
           {items.length===0&&<div className="empty-state">
