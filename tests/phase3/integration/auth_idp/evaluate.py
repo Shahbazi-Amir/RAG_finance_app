@@ -254,7 +254,7 @@ async def reset_password(browser, cb, email: str, old: str, new: str):
     await expect(page.locator("#kc-reset-password-form")).to_be_visible(timeout=10000)
     await page.locator('#kc-reset-password-form input[name="username"]').fill(email)
     CURRENT = "reset-request-submit"
-    await page.locator('#kc-reset-password-form input[type="submit"], #kc-submit').first.click()
+    await page.locator('#kc-reset-password-form #kc-form-buttons, #kc-reset-password-form button[type="submit"], #kc-reset-password-form input[type="submit"]').first.click()
     CURRENT = "reset-smtp-email"
     _, message = await email_after(email, old_messages)
     link = action_url(message)
