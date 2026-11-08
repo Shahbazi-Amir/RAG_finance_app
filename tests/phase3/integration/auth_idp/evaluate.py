@@ -390,7 +390,18 @@ async def manager(browser, cb):
     await ctx3.close()
     # This intentionally uses a minimal realm-management role, not realm-admin.
     url = BASE + "/admin/realms/" + REALM + "/users"
+    CURRENT = "manager-minimal-admin-rest"
     granted = request("GET", url, headers={"Authorization": "Bearer " + manager_tokens["access_token"]})
+    safe_claims = jwt.decode(manager_tokens["access_token"], options={"verify_signature": False})
+    RESULTS["manager_role_diagnostic"] = {
+        "admin_get_status": granted.status_code,
+        "has_view_users_client_role": "view-users" in
+          safe_claims.get("resource_access", {}).get("realm-management", {}).get("roles", []),
+        "has_query_users_client_role": "query-users" in
+          safe_claims.get("resource_access", {}).get("realm-management", {}).get("roles", []),
+        "audience_has_realm_management": "realm-management" in
+          ([safe_claims.get("aud")] if isinstance(safe_claims.get("aud"), str) else safe_claims.get("aud", [])),
+    }
     assert granted.status_code == 200, "MANAGER_LIMITED_ROLE_DENIED"
     case("IDP-12-manager-minimal-role")
     return uid, manager_tokens
