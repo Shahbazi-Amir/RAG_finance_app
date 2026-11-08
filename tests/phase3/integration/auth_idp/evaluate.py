@@ -144,7 +144,12 @@ async def signup(browser, cb, email, password):
         "registration_form_action_count": await page.locator('form[action*="registration"]').count(),
         "page_error_box_count": await page.locator("#kc-error-message, .alert-error").count(),
     }
-    await expect(page.locator('#kc-register-form, form[action*="registration"]').first).to_be_visible()
+    RESULTS["registration_input_visibility"] = {
+        "form_visible": await page.locator("#kc-register-form").is_visible(),
+        "email_visible": await page.locator('input[name="email"]').first.is_visible(),
+        "password_visible": await page.locator('input[name="password"]').first.is_visible(),
+    }
+    await expect(page.locator('input[name="email"]').first).to_be_visible()
     for field, value in (("firstName", "Synthetic"), ("lastName", "Person"),
                          ("email", email), ("password", password),
                          ("password-confirm", password)):
