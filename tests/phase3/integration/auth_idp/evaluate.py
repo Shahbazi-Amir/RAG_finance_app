@@ -361,12 +361,21 @@ async def manager(browser, cb):
     await page2.locator("#kc-login").click()
     await expect(page2.locator('#otp, input[name="otp"]').first).to_be_visible()
     assert cb.server.inbox.empty(), "MANAGER_BAD_OTP_ACCEPTED"
-    await page2.locator('#otp, input[name="otp"]').first.fill(pyotp.TOTP(seed).now())
-    await page2.locator("#kc-login").click()
-    CURRENT = "manager-mfa-valid-otp-callback"
-    manager_tokens, _, _ = await authorized(page2, cb, flow2)
-    case("IDP-11-manager-mfa-no-password-only-bypass")
+    # A rejected OTP can alter/terminate that authentication session. A
+    # fresh Code+PKCE/state context must prove positive valid MFA independently.
     await ctx2.close()
+    flow3, ctx3, page3 = await begin(browser)
+    CURRENT = "manager-mfa-fresh-valid-login"
+    await fill_login(page3, MANAGER, pw)
+    valid_otp_field = page3.locator('#otp, input[name="otp"]').first
+    await expect(valid_otp_field).to_be_visible(timeout=12000)
+    valid_otp = pyotp.TOTP(seed).now()
+    await valid_otp_field.fill(valid_otp)
+    await page3.locator("#kc-login").click()
+    CURRENT = "manager-mfa-valid-otp-callback"
+    manager_tokens, _, _ = await authorized(page3, cb, flow3)
+    case("IDP-11-manager-mfa-no-password-only-bypass")
+    await ctx3.close()
     # This intentionally uses a minimal realm-management role, not realm-admin.
     url = BASE + "/admin/realms/" + REALM + "/users"
     granted = request("GET", url, headers={"Authorization": "Bearer " + manager_tokens["access_token"]})
