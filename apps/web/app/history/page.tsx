@@ -68,6 +68,11 @@ export default function HistoryPage(){
     }
   },[]);
   useEffect(()=>{void loadList();},[loadList]);
+  // Refresh selects the first server thread after the list arrives. Load its
+  // messages even when the user has not clicked a list row yet.
+  useEffect(()=>{
+    if(selected&&!selected.startsWith('draft:')&&!threads[selected])void loadThread(selected);
+  },[selected,threads,loadThread]);
   function choose(id:string){
     setSelected(id);setError('');
     if(!id.startsWith('draft:'))void loadThread(id);
