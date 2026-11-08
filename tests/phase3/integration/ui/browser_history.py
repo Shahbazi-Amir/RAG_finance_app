@@ -159,7 +159,7 @@ async def run():
             await more.click()
             await a.wait_for_function(
                 "n => document.querySelectorAll('[data-testid^=history-message-]').length > n",
-                before, timeout=10000)
+                arg=before, timeout=10000)
         rendered = await a.locator('[data-testid^="history-message-"]').evaluate_all(
             "(nodes) => nodes.map(n => n.getAttribute('data-testid'))")
         assert len(rendered) == len(set(rendered)) >= 5, "message pagination and dedupe"
@@ -255,7 +255,7 @@ async def run():
             await more.click()
             await a.wait_for_function(
                 "n => document.querySelectorAll('[data-testid^=history-message-]').length > n",
-                before, timeout=10000)
+                arg=before, timeout=10000)
         await expect(a.get_by_text("پاسخ از تاریخچهٔ معتبر API دریافت شده است.")).to_be_visible()
         await expect(a.get_by_text("پاسخ‌گویی موتور هنوز فعال نیست.", exact=False).first).to_be_visible()
         await a.screenshot(path=str(folder/"history-desktop.png"),full_page=True)
