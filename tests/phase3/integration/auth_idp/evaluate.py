@@ -113,7 +113,7 @@ async def signup(browser, cb, email, password):
     before = mail_ids()
     global CURRENT
     CURRENT = "browser-registration-link"
-    await page.locator('a[href*="/registrations"]').click()
+    await page.locator('#kc-registration a[href*="registration"]').click()
     CURRENT = "browser-registration-form"
     await expect(page.locator("#kc-register-form")).to_be_visible()
     for field, value in (("firstName", "Synthetic"), ("lastName", "Person"),
