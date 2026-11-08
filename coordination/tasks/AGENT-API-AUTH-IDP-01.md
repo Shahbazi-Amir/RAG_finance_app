@@ -122,3 +122,10 @@ Real failed PUSH Run https://github.com/Shahbazi-Amir/RAG_finance_app/actions/ru
 Official sources checked at 2026-11-09: https://www.keycloak.org/2026/11/keycloak-2682-released (26.8.2 released 2026-11-05); https://www.keycloak.org/server/db (PostgreSQL 17.x supported); https://www.keycloak.org/docs/latest/server_admin/ (self-registration, verification and reset); https://github.com/axllent/mailpit/releases (v1.32.0); test runner Playwright 1.64.1 remains pinned. No external SMTP, product Auth, model, production claim or public host.
 
 Implemented=TEST_LOCATOR_CORRECTION; Tested=CI_PENDING_FOR_NEW_SHA; Accepted=SUPERVISOR_PENDING. GitHub Actions CI runs on the same branch, keep PR Draft and do not merge.
+
+
+## IDP-CI-01-K — registration link fixed, actual registration form remains unverified
+
+On source SHA 96bb3e2ef4d2f09b90b8a53fdbc0903b52bbecd1, real push Run https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42525431121 and PR Run https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42525435637 completed FAILURE at CI-only browser stage=browser-registration-form category=TimeoutError. Internal-only topology/egress guard and IDP-00 realm/policy/OIDC discovery remained PASS; unlike prior SHA the registration link did trigger navigation. This is progress in test navigation, but registration/signup, email, code, MFA and revocation are NOT_PASS.
+
+Narrow evidence-gathering correction: inspect only booleans/counts of Keycloak registration action path, known form IDs/actions and generic error container and place them in sanitized report.json; no exact URL/query, HTML, form values, email, passwords, cookies or token. Broaden the registration form selector to an actual form with registration action. Any further diagnosis must be based on next observed GitHub Run; do not invent expected form state. Same strict internal network, pinned candidate versions and cleanup. Implemented=DIAGNOSTIC_ONLY; Tested=NEW_RUN_PENDING; Accepted=SUPERVISOR_PENDING.

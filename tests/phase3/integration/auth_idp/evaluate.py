@@ -115,7 +115,17 @@ async def signup(browser, cb, email, password):
     CURRENT = "browser-registration-link"
     await page.locator('#kc-registration a[href*="registration"]').click()
     CURRENT = "browser-registration-form"
-    await expect(page.locator("#kc-register-form")).to_be_visible()
+    # Keycloak theme changes may use different form IDs; collect only safe
+    # category booleans, NEVER the URL/query/HTML/field values/action token.
+    RESULTS["registration_screen_shape"] = {
+        "on_registration_action_path": "/registration" in urlsplit(page.url).path,
+        "kc_register_form_count": await page.locator("#kc-register-form").count(),
+        "any_form_count": await page.locator("form").count(),
+        "login_form_count": await page.locator("#kc-form-login").count(),
+        "registration_form_action_count": await page.locator('form[action*="registration"]').count(),
+        "page_error_box_count": await page.locator("#kc-error-message, .alert-error").count(),
+    }
+    await expect(page.locator('#kc-register-form, form[action*="registration"]').first).to_be_visible()
     for field, value in (("firstName", "Synthetic"), ("lastName", "Person"),
                          ("email", email), ("password", password),
                          ("password-confirm", password)):
