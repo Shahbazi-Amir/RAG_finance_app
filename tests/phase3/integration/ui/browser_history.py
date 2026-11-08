@@ -205,6 +205,7 @@ async def run():
         # A delayed request is assigned to its origin, never to currently
         # selected conversation B. Controlled asyncio Events, not a sleep race.
         await load_until(a, c2)
+        await load_until(a, c1)  # older cursor page must exist before selecting A
         entered = asyncio.Event()
         released = asyncio.Event()
         hold_once = True
@@ -287,10 +288,15 @@ async def run():
         screen = await mobile.new_page()
         await screen.goto("http://127.0.0.1:3000/history")
         await expect(screen.locator('[data-testid^="conversation-"]').first).to_be_visible()
+        await load_until(screen, c2)
+        await screen.get_by_test_id("conversation-" + c2).click()
+        await expect(screen.get_by_text(QUESTIONS["two"], exact=True).first).to_be_visible()
         await screen.screenshot(path=str(folder/"history-mobile.png"),full_page=True)
         # Explicit API failure: no fallback to synthetic Mock scenario.
-        await screen.route("**/api/history/conversations?**",lambda route: route.fulfill(
-            status=503,content_type="application/json",body='{"error":"unavailable"}'))
+        async def force_api_failure(route):
+            await route.fulfill(status=503,content_type="application/json",
+                                body='{"error":"unavailable"}')
+        await screen.route("**/api/history/conversations?**",force_api_failure)
         await screen.get_by_test_id("refresh-history").click()
         await expect(screen.get_by_test_id("history-state")).to_contain_text("خطای دریافت")
         assert await screen.get_by_text("پاسخ نمونه").count() == 0

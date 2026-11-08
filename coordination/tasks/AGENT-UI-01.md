@@ -512,3 +512,8 @@ history و فیلترها ورودی تأییدشدهٔ موتور نیستند�
 ### UI-HISTORY-01-F — pre-execution Playwright signature correction
 
 - **Source-only review before the new E2E result:** the Playwright Python async Page.wait_for_function API takes its parameter as the keyword-only argument named arg. The previous test-only synchronization patch passed the count positionally in two calls. Corrected both to arg=before while retaining all unique-record assertions and request barriers. This correction was made before claiming any successful run for the preceding revision. Previous actual CI failures remain recorded separately. Implemented=SIGNATURE_FIX; Tested=NEW_CI_PENDING; Accepted=SUPERVISOR_PENDING.
+
+
+### UI-HISTORY-01-G — source review hardening of browser case order
+
+- **Proactive browser test hardening, no invented result:** Before the late-response case, explicitly paginate until BOTH the older conversation A and conversation B are present in the sidebar. With page size two and five fixtures, B appears earlier than the oldest A; selecting A after stopping at B could otherwise fail for an absent UI button. The mobile screenshot now deliberately selects an existing API-backed conversation and waits for an actual persisted question before capture, rather than photographing an empty default tab. A test-only simulated 503 route uses an explicit async callback. None of these changes weaken the final result assertions or alter UI/API/DB behavior. Previous green low-level checks are tied to older SHAs; E2E full success is still NOT VERIFIED. Implemented=TEST_HARDENING; Tested=PENDING_NEW_CI; Accepted=SUPERVISOR_PENDING.
