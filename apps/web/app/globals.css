@@ -452,3 +452,21 @@ button,summary{font-weight:500}
 }
 .source-meta dt{color:#43594c}
 .nav-local-notice{overflow-wrap:anywhere}
+
+/* UI-HISTORY-01 visual follow-up: the notice and History link are separate
+   normal-flow items. A mobile link cannot cover a line of explanatory text. */
+.demo-intro{
+  display:flex;align-items:center;justify-content:center;flex-wrap:wrap;
+  gap:8px 14px;margin:14px 0 4px;padding:0 8px;min-width:0;
+}
+.demo-intro .demo-note{margin:0;padding:0;min-width:0}
+.demo-history-link{
+  display:inline-flex;position:static;align-items:center;justify-content:center;
+  max-width:100%;min-height:36px;text-align:center;text-decoration:none;
+  overflow-wrap:anywhere;line-height:1.8;
+}
+@media(max-width:760px){
+  .demo-intro{flex-direction:column;gap:9px;margin:10px 0 4px;padding:0 2px}
+  .demo-intro .demo-note{width:100%}
+  .demo-history-link{align-self:center}
+}

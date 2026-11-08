@@ -1,0 +1,200 @@
+name: UI History L1 — Next/Chromium/FastAPI/PostgreSQL
+
+on:
+  push:
+    branches: [agent/ui-history-l1]
+    paths:
+      - '.github/workflows/ui-history.yml'
+      - 'apps/web/**'
+      - 'tests/phase3/ui/**'
+      - 'tests/phase3/integration/ui/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - '.github/workflows/ui-history.yml'
+      - 'apps/web/**'
+      - 'tests/phase3/ui/**'
+      - 'tests/phase3/integration/ui/**'
+
+permissions:
+  contents: read
+
+jobs:
+  ui-history:
+    name: Next/PostgreSQL UI History L1 browser
+    if: >-
+      github.event_name == 'push'
+      || (github.event_name == 'pull_request'
+          && github.event.pull_request.head.ref == 'agent/ui-history-l1'
+          && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_PASSWORD: synthetic_ui_ci_only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      CI: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: synthetic_ui_ci_only
+      API_HISTORY_DSN: host=127.0.0.1 port=5432 dbname=history_ui_ci user=history_app password=synthetic_ui_app connect_timeout=5
+      API_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ui_ci user=history_migrator password=synthetic_ui_migrator connect_timeout=5
+      API_CURSOR_KEY: synthetic-ui-ci-cursor-hmac-key-not-production-2026
+      API_CURSOR_TTL_SECONDS: '300'
+    steps:
+      - name: Read-only checkout of the selected PR head
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: npm ci from the existing web lockfile
+        working-directory: apps/web
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        working-directory: apps/web
+        run: npm run typecheck
+
+      - name: Lint
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: All Node UI tests
+        working-directory: apps/web
+        run: npm test
+
+      - name: Build Next with original self-hosted font
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Install pinned official Python Playwright
+        run: python -m pip install --no-cache-dir --index-url https://pypi.org/simple -r apps/api/requirements-ci.txt 'uvicorn==0.34.3' 'playwright==1.64.1'
+
+      - name: Install Playwright-matched Chromium and runner OS dependencies
+        run: python -m playwright install --with-deps chromium
+
+      - name: Create disposable PostgreSQL, restricted roles, unchanged migrations
+        run: |
+          set -euo pipefail
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE history_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_ui_migrator';
+          CREATE ROLE history_app LOGIN PASSWORD 'synthetic_ui_app' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE DATABASE history_ui_ci;
+          CREATE DATABASE history_api_ci;
+          GRANT CONNECT,CREATE ON DATABASE history_ui_ci TO history_migrator;
+          GRANT CONNECT ON DATABASE history_ui_ci TO history_app;
+          GRANT CONNECT,CREATE ON DATABASE history_api_ci TO history_migrator;
+          GRANT CONNECT ON DATABASE history_api_ci TO history_app;
+          SQL
+          export PGUSER=history_migrator PGPASSWORD=synthetic_ui_migrator
+          psql -d history_ui_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_ui_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          psql -d history_api_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_api_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+
+      - name: Original 38 contract and 20 API PostgreSQL tests
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ui-history-evidence/screenshots"
+          python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v 2>&1 | tee "$RUNNER_TEMP/ui-history-evidence/contracts.log"
+          API_HISTORY_DSN='host=127.0.0.1 port=5432 dbname=history_api_ci user=history_app password=synthetic_ui_app connect_timeout=5' API_MIG_DSN='host=127.0.0.1 port=5432 dbname=history_api_ci user=history_migrator password=synthetic_ui_migrator connect_timeout=5' python -m unittest discover -s tests/phase3/integration/api -p 'test_*.py' -v 2>&1 | tee "$RUNNER_TEMP/ui-history-evidence/api.log"
+
+      - name: Bind browser_check.py to the exact Playwright Chromium
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          folder = Path(os.environ["RUNNER_TEMP"]) / "ui-l1-tools"
+          folder.mkdir(parents=True, exist_ok=True)
+          with sync_playwright() as p:
+              executable = Path(p.chromium.executable_path)
+          if not executable.is_file():
+              raise SystemExit(f"Playwright Chromium executable missing: {executable}")
+          (folder / "chromium").symlink_to(executable)
+          print(f"Version-matched chromium: {executable}")
+          PY
+
+      - name: Start separate actor A B no-Auth loopback harness and Next servers
+        run: |
+          set -euo pipefail
+          for slot in A B NONE; do
+            UI_HISTORY_ACTOR_SLOT="$slot" setsid python tests/phase3/integration/ui/harness.py > "$RUNNER_TEMP/ui-history-evidence/api-$slot.log" 2>&1 < /dev/null &
+            echo "$!" >> "$RUNNER_TEMP/ui-history-pids"
+          done
+          for pair in '3000 8111 A' '3001 8112 B' '3002 8113 NONE'; do
+            read -r webport upstream actor <<< "$pair"
+            (
+              cd apps/web
+              export HISTORY_UPSTREAM_ORIGIN="http://127.0.0.1:$upstream"
+              exec setsid ./node_modules/.bin/next start -H 127.0.0.1 -p "$webport"
+            ) > "$RUNNER_TEMP/ui-history-evidence/next-$actor.log" 2>&1 < /dev/null &
+            echo "$!" >> "$RUNNER_TEMP/ui-history-pids"
+          done
+          for port in 8111 8112 8113; do
+            for i in $(seq 1 45); do
+              if curl -sf --max-time 2 "http://127.0.0.1:$port/openapi.json" >/dev/null; then break; fi
+              if [ "$i" -eq 45 ]; then echo "API $port unavailable"; exit 1; fi
+              sleep 2
+            done
+          done
+          for port in 3000 3001 3002; do
+            for i in $(seq 1 45); do
+              if curl -sf --max-time 2 "http://127.0.0.1:$port/history" >/dev/null; then break; fi
+              if [ "$i" -eq 45 ]; then echo "Next $port unavailable"; exit 1; fi
+              sleep 2
+            done
+          done
+
+      - name: Connected History desktop/mobile Chromium checks
+        run: |
+          set -euo pipefail
+          export UI_HISTORY_SCREENSHOTS="$RUNNER_TEMP/ui-history-evidence/screenshots"
+          python tests/phase3/integration/ui/browser_history.py 2>&1 | tee "$RUNNER_TEMP/ui-history-evidence/browser.log"
+
+      - name: Run unchanged real-browser UI assertions (desktop/mobile)
+        env:
+          UI_L1_BASE_URL: http://127.0.0.1:3000
+          UI_L1_SCREENSHOT_DIR: ${{ runner.temp }}/ui-history-evidence/screenshots
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/ui-l1-tools:$PATH"
+          python tests/phase3/ui/browser_check.py 2>&1 | tee "$RUNNER_TEMP/ui-history-evidence/original-mock-browser.log"
+
+      - name: Stop six temporary loopback processes
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/ui-history-pids" ]; then
+            while read -r pid; do
+              if [[ "$pid" =~ ^[0-9]+$ ]]; then kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true; fi
+            done < "$RUNNER_TEMP/ui-history-pids"
+          fi
+
+      - name: Upload short-lived logs and actual screenshots, including failures
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: ui-history-l1-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/ui-history-evidence/
+          if-no-files-found: warn
+          retention-days: 3

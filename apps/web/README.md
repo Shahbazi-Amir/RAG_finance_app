@@ -28,3 +28,12 @@ The isolated Node mock regression command (can run without Next):
 - Synthetic claim-citation drawer shows actual fixture metadata with separate source resolution and attribution; optional title/origin does not prove provenance. No made-up locator, page, timestamp, or link. Unknown source anchors are not openable.
 - React escapes text and metadata, no `dangerouslySetInnerHTML`, no unsafe raw Markdown parser, explicit HTTPS URL gate, generic technical errors and no prompt, stack trace, secrets or telemetry.
 - Only local in-memory conversations. L1 mock checks cannot be used as real engine, source provenance, safety, DB, Auth, L2 or Module 14 Gate evidence.
+
+
+## UI-HISTORY-01 — CI-only History alongside independent Mock
+
+The original / route is the local-only Mock and never writes to PostgreSQL. The /history page reads/writes only merged product.v1 History API records and NEVER falls back to Mock on API errors. T1 persists a user message only; an Answer is not generated or a model invoked. Auth is unavailable outside a fixture. Page- and conversation-scoped deduplication, immutable retry payloads, single read-only status recovery, 401, loading/empty/error states and refresh-based DB retrieval are implemented. Unknown in-flight requests are volatile; they do not survive browser refresh because private requests are not stored locally.
+
+The same-origin server route at app/api/history/[...path]/route.ts is strictly CI-only and fails 503 without CI=true and a fixed loopback origin from a narrow port allowlist. The browser may not choose an upstream, user, DSN, signing key or secret. No Cookie/Auth header is forwarded and there is no general-purpose proxy. Real product Auth, trusted proxy and security acceptance require future approval.
+
+Tests/phase3/integration/ui/harness.py imports the existing FastAPI app in two separate loopback processes (one fixed synthetic test actor each) and a third with default deny-401. Separate test-only Repository T2/T3 calls seed an artificial Answer directly into disposable PostgreSQL; NO public seed route exists. Browser E2E tests with real Chromium cover desktop/mobile; screenshots and logs belong to short-lived GitHub Actions artifacts, not to the repo. Original Mock browser/Node checks also run. This is neither production Auth nor model readiness.

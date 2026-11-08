@@ -312,6 +312,21 @@ def main():
             mobile.goto(base, wait_until="domcontentloaded", timeout=15000)
             expect(mobile.locator("#question")).to_be_visible()
             expect(mobile.get_by_text("نسخهٔ آزمایشی؛ پاسخ‌ها نمونه‌اند و به موتور پاسخ‌گویی متصل نیستند.")).to_be_visible()
+            # Real 390px layout geometry: the History navigation link must be
+            # a normal-flow block BELOW the note, never covering its text.
+            notice = mobile.locator(".demo-intro .demo-note")
+            history_link = mobile.get_by_test_id("history-link")
+            expect(notice).to_be_visible()
+            expect(history_link).to_be_visible()
+            note_box = notice.bounding_box()
+            link_box = history_link.bounding_box()
+            assert note_box and link_box, "Missing note/link geometry"
+            assert link_box["y"] >= note_box["y"] + note_box["height"] + 6, (
+                f"Mock mobile link overlaps experimental note: note={note_box}, link={link_box}"
+            )
+            assert link_box["x"] >= 0 and link_box["x"] + link_box["width"] <= 391, (
+                f"Mock mobile History link clipped: {link_box}"
+            )
             assert mobile.locator(".composer").is_visible(), "Composer is not visible at 390x844"
             mobile_composer = mobile.locator(".composer").bounding_box()
             assert mobile_composer and 0 <= mobile_composer["y"] and mobile_composer["y"] + mobile_composer["height"] <= 844 + 1, (
