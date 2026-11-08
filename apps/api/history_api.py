@@ -22,6 +22,8 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
+from starlette.requests import ClientDisconnect
 from jsonschema import ValidationError
 from psycopg.rows import dict_row
 
@@ -119,9 +121,23 @@ async def _read_body(request: Request, kind: str):
         raise ApiFailure(413, "REQUEST_TOO_LARGE", "validation")
     if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
         raise ApiFailure(415, "UNSUPPORTED_MEDIA_TYPE", "validation")
-    raw = await request.body()
-    if len(raw) > MAX_JSON_BYTES:
-        raise ApiFailure(413, "REQUEST_TOO_LARGE", "validation")
+    # Count actual ASGI-delivered bytes, not only the advisory Content-Length.
+    # Never request another chunk after the first that exceeds the limit.
+    received = 0
+    pieces = []
+    try:
+        async for piece in request.stream():
+            received += len(piece)
+            if received > MAX_JSON_BYTES:
+                raise ApiFailure(413, "REQUEST_TOO_LARGE", "validation")
+            pieces.append(piece)
+    except ClientDisconnect:
+        # Connection ended before the final ASGI request frame. No write ran.
+        raise ApiFailure(422, "INVALID_REQUEST", "validation") from None
+    if length is not None and received != int(length):
+        # A caller can understate length while remaining below the size cap.
+        raise ApiFailure(422, "INVALID_REQUEST", "validation")
+    raw = b"".join(pieces)
 
     def no_duplicate_keys(items):
         out = {}
@@ -354,8 +370,10 @@ for _error_type in (ApiFailure, NotFound, Conflict, IntegrityAnomaly, Validation
           openapi_extra=_output_doc("create_conversation_receipt", "201", "create_conversation_request", "200"))
 async def create(request: Request, ctx=Depends(_session)):
     payload = await _read_body(request, "create_conversation_request")
-    result = create_conversation(ctx["conn"], ctx["owner"], payload,
-                                 ctx["request_id"], ctx["trace_id"])
+    # _session owns a distinct connection and closes it on request teardown.
+    result = await run_in_threadpool(
+        create_conversation, ctx["conn"], ctx["owner"], payload,
+        ctx["request_id"], ctx["trace_id"])
     return _send_success(result, 201 if result["disposition"] == "created" else 200)
 
 
@@ -364,8 +382,10 @@ async def create(request: Request, ctx=Depends(_session)):
 async def send(request: Request, ctx=Depends(_session)):
     payload = await _read_body(request, "send_message_request")
     # T1 ONLY. No start_t2(), mark_attempt(), finalize_t3() or model calls.
-    result = send_t1(ctx["conn"], ctx["owner"], payload,
-                     ctx["request_id"], ctx["trace_id"])
+    # T1 only; synchronous psycopg work must not block the ASGI event loop.
+    result = await run_in_threadpool(
+        send_t1, ctx["conn"], ctx["owner"], payload,
+        ctx["request_id"], ctx["trace_id"])
     return _send_success(result, 202 if result["disposition"] == "created" else 200)
 
 

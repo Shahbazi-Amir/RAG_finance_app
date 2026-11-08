@@ -6,7 +6,10 @@ it is NOT a network outage, process kill, or externally verified delivery loss.
 """
 from __future__ import annotations
 
+import asyncio
 import copy
+import threading
+import httpx
 import json
 import os
 import sys
@@ -27,6 +30,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src/phase3/storage/postgres"))
 sys.path.insert(0, str(ROOT / "tests/phase3/contracts"))
 
+from apps.api import history_api
 from apps.api.history_api import app, get_trusted_actor
 from repository import (VALIDATOR, check_wire, uid, start_t2, mark_attempt,
                         finalize_t3, scoped)
@@ -120,6 +124,58 @@ class HttpPostgreSQLHistoryL1(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         app.dependency_overrides.clear()
+
+    async def controlled_receive(self, frames, *, content_length=None):
+        """Drive the real app through explicitly counted ASGI receive frames.
+
+        This checks application reads, not server or proxy buffering.
+        """
+        headers = [(b"content-type", b"application/json")]
+        if content_length is not None:
+            headers.append((b"content-length", str(content_length).encode("ascii")))
+        scope = {
+            "type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "http_version": "1.1", "method": "POST", "scheme": "http",
+            "path": "/v1/messages", "raw_path": b"/v1/messages",
+            "root_path": "", "query_string": b"", "headers": headers,
+            "client": ("127.0.0.1", 1234), "server": ("testserver", 80),
+            "state": {},
+        }
+        received = 0
+        sent = []
+
+        async def receive():
+            nonlocal received
+            if received >= len(frames):
+                raise AssertionError("Unexpected ASGI receive beyond provided frames")
+            frame = frames[received]
+            received += 1
+            return frame
+
+        async def send(event):
+            sent.append(event)
+
+        await app(scope, receive, send)
+        status = next(event["status"] for event in sent
+                      if event["type"] == "http.response.start")
+        data = b"".join(event.get("body", b"") for event in sent
+                        if event["type"] == "http.response.body")
+        return status, json.loads(data), received
+
+    @staticmethod
+    def request_frames(*pieces):
+        return [{"type": "http.request", "body": value,
+                 "more_body": position < len(pieces) - 1}
+                for position, value in enumerate(pieces)]
+
+    def send_receipt_count(self, request):
+        with real_conn() as conn:
+            with conn.transaction():
+                scoped(conn, self.owner)
+                return conn.execute(
+                    """SELECT count(*) AS n FROM history_l1.send_receipts
+                       WHERE owner_id=%s AND client_message_id=%s""",
+                    (self.owner, request["client_message_id"])).fetchone()["n"]
 
     def check_response(self, response, kind, status=None):
         if status is not None:
@@ -552,6 +608,143 @@ class HttpPostgreSQLHistoryL1(unittest.TestCase):
             self.assertEqual(info["rolname"], "history_app")
             self.assertFalse(info["rolsuper"])
             self.assertFalse(info["rolbypassrls"])
+
+    def test_13_asgi_multiframe_without_content_length_persists_once(self):
+        req = request_send()
+        payload = json.dumps(req).encode("utf-8")
+        frames = self.request_frames(payload[:13], payload[13:60], payload[60:])
+        status, doc, received = asyncio.run(self.controlled_receive(frames))
+        self.assertEqual(status, 202, doc)
+        VALIDATOR.validate(doc)
+        self.assertEqual(doc["kind"], "send_message_receipt")
+        self.assertEqual(received, 3)
+        self.assertEqual(self.send_receipt_count(req), 1)
+
+    def test_14_asgi_multiframe_oversize_no_length_rejected_without_write(self):
+        req = request_send()
+        raw = json.dumps(req).encode() + b" " * 8500
+        frames = self.request_frames(raw[:1000], raw[1000:5000], raw[5000:])
+        status, doc, received = asyncio.run(self.controlled_receive(frames))
+        self.assertEqual(status, 413, doc)
+        self.assertEqual(doc["error"]["code"], "REQUEST_TOO_LARGE")
+        self.assertEqual(received, 3)
+        self.assertEqual(self.send_receipt_count(req), 0)
+
+    def test_15_asgi_lying_short_content_length_does_not_bypass_413(self):
+        req = request_send()
+        raw = json.dumps(req).encode() + b" " * 8500
+        frames = self.request_frames(raw[:100], raw[100:])
+        status, doc, received = asyncio.run(
+            self.controlled_receive(frames, content_length=100))
+        self.assertEqual(status, 413, doc)
+        self.assertEqual(received, 2)
+        self.assertEqual(self.send_receipt_count(req), 0)
+
+    def test_16_asgi_early_rejection_from_content_length_no_reads(self):
+        req = request_send()
+        frames = self.request_frames(json.dumps(req).encode())
+        status, doc, received = asyncio.run(
+            self.controlled_receive(frames, content_length=8193))
+        self.assertEqual(status, 413, doc)
+        self.assertEqual(doc["error"]["code"], "REQUEST_TOO_LARGE")
+        self.assertEqual(received, 0)
+        self.assertEqual(self.send_receipt_count(req), 0)
+
+    def test_17_asgi_stops_requesting_frames_after_crossing_limit(self):
+        req = request_send()
+        raw = json.dumps(req).encode() + b" " * 8500
+        frames = [
+            {"type": "http.request", "body": raw[:3000], "more_body": True},
+            {"type": "http.request", "body": raw[3000:8300], "more_body": True},
+            {"type": "http.request", "body": b"never consume me", "more_body": False},
+        ]
+        status, doc, received = asyncio.run(self.controlled_receive(frames))
+        self.assertEqual(status, 413, doc)
+        self.assertEqual(received, 2)
+        self.assertEqual(self.send_receipt_count(req), 0)
+
+    def test_18_asgi_disconnect_and_truncated_json_have_no_db_effect(self):
+        req = request_send()
+        payload = json.dumps(req).encode()
+        disconnected = [
+            {"type": "http.request", "body": payload, "more_body": True},
+            {"type": "http.disconnect"},
+        ]
+        status, doc, consumed = asyncio.run(self.controlled_receive(disconnected))
+        self.assertEqual(status, 422, doc)
+        self.assertEqual(consumed, 2)
+        self.assertEqual(self.send_receipt_count(req), 0)
+
+        incomplete = self.request_frames(payload[:30])
+        status, doc, consumed = asyncio.run(self.controlled_receive(incomplete))
+        self.assertEqual(status, 422, doc)
+        self.assertEqual(consumed, 1)
+        self.assertEqual(self.send_receipt_count(req), 0)
+
+    def test_19_asgi_short_declared_length_within_limit_is_not_persisted(self):
+        req = request_send()
+        payload = json.dumps(req).encode()
+        frames = self.request_frames(payload[:10], payload[10:])
+        status, doc, consumed = asyncio.run(
+            self.controlled_receive(frames, content_length=10))
+        self.assertEqual(status, 422, doc)
+        self.assertEqual(consumed, 2)
+        self.assertEqual(self.send_receipt_count(req), 0)
+
+    def test_20_same_event_loop_db_blocked_send_does_not_block_other_http(self):
+        """One AsyncClient + one event loop + deterministic DB-thread Event barrier."""
+        req = request_send()
+        entered = threading.Event()
+        release = threading.Event()
+        blocker_timed_out = threading.Event()
+        distinct_connection_seen = threading.Event()
+        real_send = history_api.send_t1
+        real_list = history_api.list_conversations
+        blocked_connection = []
+
+        def delayed_t1(conn, *args):
+            blocked_connection.append(conn)
+            entered.set()
+            if not release.wait(timeout=8):
+                blocker_timed_out.set()
+                raise RuntimeError("blocked DB callback never released")
+            return real_send(conn, *args)
+
+        def independently_list(conn, *args, **kwargs):
+            self.assertTrue(blocked_connection)
+            self.assertIsNot(conn, blocked_connection[0])
+            distinct_connection_seen.set()
+            return real_list(conn, *args, **kwargs)
+
+        async def same_loop():
+            loop = asyncio.get_running_loop()
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport,
+                                        base_url="http://testserver") as client:
+                with patch("apps.api.history_api.send_t1", side_effect=delayed_t1), \
+                     patch("apps.api.history_api.list_conversations",
+                           side_effect=independently_list):
+                    slow = asyncio.create_task(client.post("/v1/messages", json=req))
+                    try:
+                        started = await asyncio.wait_for(
+                            asyncio.to_thread(entered.wait, 4), timeout=5)
+                        self.assertTrue(started, "blocking operation did not start")
+                        quick = await asyncio.wait_for(
+                            client.get("/v1/conversations"), timeout=3)
+                        self.assertIs(asyncio.get_running_loop(), loop)
+                        self.assertEqual(quick.status_code, 200, quick.text)
+                        self.assertFalse(release.is_set())
+                        self.assertFalse(blocker_timed_out.is_set())
+                        self.assertFalse(slow.done())
+                        self.assertTrue(distinct_connection_seen.is_set())
+                    finally:
+                        release.set()
+                    result = await asyncio.wait_for(slow, timeout=5)
+                    self.assertEqual(result.status_code, 202, result.text)
+
+        asyncio.run(same_loop())
+        self.assertFalse(blocker_timed_out.is_set())
+        self.assertEqual(self.send_receipt_count(req), 1)
 
 
 if __name__ == "__main__":
