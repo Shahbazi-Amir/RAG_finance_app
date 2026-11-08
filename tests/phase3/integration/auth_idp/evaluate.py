@@ -205,7 +205,8 @@ async def signup(browser, cb, email, password):
         await page.locator('#password-confirm, input[name="password-confirm"]').first.fill(password)
         CURRENT = "password-action-submit"
         await page.locator(
-            '#kc-passwd-update-form input[type="submit"], #kc-form-buttons input[type="submit"]'
+            '#kc-submit, #kc-passwd-update-form button[type="submit"], '
+            '#kc-passwd-update-form input[type="submit"]'
         ).first.click()
         case("IDP-02A-verified-user-sets-password-after-email")
     # Deliberately reuse the consumed action URL once: it must not reissue a
