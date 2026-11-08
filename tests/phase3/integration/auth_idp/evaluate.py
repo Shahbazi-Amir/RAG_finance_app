@@ -379,7 +379,11 @@ async def run(browser, cb):
     case("IDP-14-redirect-allowlist")
     user_url = BASE + "/admin/realms/" + REALM + "/users"
     forbidden = request("GET", user_url, headers={"Authorization": "Bearer " + first[2]["access_token"]})
-    assert forbidden.status_code == 403, "ORDINARY_USER_ADMIN_PRIVILEGE"
+    # Keycloak Admin REST can reject a user token with 401 (not an admin
+    # audience) or 403 (authenticated without realm-management role).
+    # Both are denial; 2xx is NEVER accepted.
+    assert forbidden.status_code in (401, 403), "ORDINARY_USER_ADMIN_PRIVILEGE"
+    RESULTS["ordinary_user_admin_http"] = forbidden.status_code
     case("IDP-15-ordinary-user-cannot-administer-realm")
 
     # Force IdP logout of the real first user session. A signed JWT is not a
