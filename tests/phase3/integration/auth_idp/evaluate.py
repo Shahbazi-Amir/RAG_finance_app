@@ -245,22 +245,31 @@ async def login(browser, cb, email, password, otp=None, expect_failure=False):
 
 
 async def reset_password(browser, cb, email: str, old: str, new: str):
+    global CURRENT
     flow, context, page = await begin(browser)
     old_messages = mail_ids()
+    CURRENT = "reset-forgot-password-link"
     await page.locator('a[href*="reset-credentials"]').first.click()
+    CURRENT = "reset-request-form"
     await expect(page.locator("#kc-reset-password-form")).to_be_visible(timeout=10000)
     await page.locator('#kc-reset-password-form input[name="username"]').fill(email)
-    await page.locator('#kc-reset-password-form input[type="submit"]').click()
+    CURRENT = "reset-request-submit"
+    await page.locator('#kc-reset-password-form input[type="submit"], #kc-submit').first.click()
+    CURRENT = "reset-smtp-email"
     _, message = await email_after(email, old_messages)
     link = action_url(message)
+    CURRENT = "reset-browser-action-link"
     await page.goto(link)
+    CURRENT = "reset-password-form"
     pw = page.locator('#password-new, input[name="password-new"]').first
     await expect(pw).to_be_visible(timeout=15000)
     await pw.fill(new)
     await page.locator('#password-confirm, input[name="password-confirm"]').first.fill(new)
-    await page.locator('#kc-passwd-update-form input[type="submit"], #kc-form-buttons input[type="submit"]').first.click()
+    CURRENT = "reset-password-submit"
+    await page.locator('#kc-submit, #kc-passwd-update-form button[type="submit"], #kc-passwd-update-form input[type="submit"]').first.click()
     await page.wait_for_load_state("domcontentloaded")
     # The one-time reset URL cannot be used to perform the same operation again.
+    CURRENT = "reset-consumed-link-denial"
     rctx, again = await new_page(browser)
     await again.goto(link, wait_until="domcontentloaded")
     assert not await again.locator("#password-new").count(), "CONSUMED_RESET_TOKEN_REUSED"
@@ -276,13 +285,17 @@ async def reset_password(browser, cb, email: str, old: str, new: str):
 
 
 async def expired_action(browser, email):
+    global CURRENT
+    CURRENT = "expired-action-email-request"
     seen = mail_ids()
     uid = ADMIN.user(email)["id"]
     await asyncio.to_thread(ADMIN.action_mail, uid, "UPDATE_PASSWORD", 1)
+    CURRENT = "expired-action-email-capture"
     _, msg = await email_after(email, seen)
     link = action_url(msg)
     await asyncio.sleep(2.2)  # expiry tested by real link rejection, not just time alone
     ctx, page = await new_page(browser)
+    CURRENT = "expired-action-browser-denial"
     await page.goto(link, wait_until="domcontentloaded")
     assert not await page.locator("#password-new").count(), "EXPIRED_RESET_ALLOWED"
     await ctx.close()
@@ -290,13 +303,17 @@ async def expired_action(browser, email):
 
 
 async def manager(browser, cb):
+    global CURRENT
+    CURRENT = "manager-provision-minimal-role"
     pw = PASSWORDS[MANAGER]
     uid = ADMIN.create_manager(MANAGER, pw)
     flow, ctx, page = await begin(browser)
     await fill_login(page, MANAGER, pw)
     # Required action CONFIGURE_TOTP must block the callback.
+    CURRENT = "manager-mfa-required-action"
     await expect(page.locator("#kc-totp-settings-form")).to_be_visible(timeout=12000)
     assert cb.server.inbox.empty(), "MANAGER_MFA_NOT_REQUIRED"
+    CURRENT = "manager-mfa-seed-setup"
     await page.locator("#mode-manual").click()
     seed = (await page.locator("#kc-totp-secret-key").inner_text()).replace(" ", "")
     code = pyotp.TOTP(seed).now()
@@ -305,12 +322,14 @@ async def manager(browser, cb):
     if await name.count():
         await name.fill("ci-only-manager")
     await page.locator("#saveTOTPBtn").click()
+    CURRENT = "manager-mfa-enrollment-submit"
     tokens, claims, _ = await authorized(page, cb, flow)
     assert claims["email"] == MANAGER
     case("IDP-10-manager-mfa-enrollment-required")
     await ctx.close()
     # Password alone must never get an OIDC callback after enrollment.
     flow2, ctx2, page2 = await begin(browser)
+    CURRENT = "manager-mfa-relogin"
     await fill_login(page2, MANAGER, pw)
     otp_input = page2.locator('#otp, input[name="otp"]').first
     await expect(otp_input).to_be_visible(timeout=12000)
@@ -321,6 +340,7 @@ async def manager(browser, cb):
     assert cb.server.inbox.empty(), "MANAGER_BAD_OTP_ACCEPTED"
     await page2.locator('#otp, input[name="otp"]').first.fill(pyotp.TOTP(seed).now())
     await page2.locator("#kc-login").click()
+    CURRENT = "manager-mfa-valid-otp-callback"
     manager_tokens, _, _ = await authorized(page2, cb, flow2)
     case("IDP-11-manager-mfa-no-password-only-bypass")
     await ctx2.close()
