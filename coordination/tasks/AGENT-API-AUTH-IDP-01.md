@@ -330,3 +330,16 @@ Runs 42611617511, 42611629862, 42612169707 on their actual prior SHAs.
 Implemented=SOURCE_A_B_C_PREPARED; Tested=NEW_CI_PENDING; Accepted=NONE.
 No Auth product, UI, History, PostgreSQL product, root, shared schema,
 checklist, bank, model, Mac installation, real email or deployment.
+
+
+## IDP-CI-01-AD — real A/B pass, C action-email stage failure, narrowed retest (2026-11-09)
+
+Exact SOURCE SHA 3554a72e92cb27ed006e91025294838853f8fa54:
+both new CI events failed (Push https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42614945923 and PR https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42614953978).
+PR sanitized artifact 13672252037 was downloaded and READ. Internal Keycloak/DB/Mailpit startup, actual denied egress and no published ports, and teardown PASS. All existing IDP cases through B and all new A01..A06 PASS. Specifically actual wrong/missing State rejected before Code exchange with the original valid Code still exchangeable; wrong nonce/issuer/audience rejected by actual JWT validator, separate fresh PKCE Code wrong verifier returned HTTP 400, and old Code replay was denied. A tested and PASS on this failed CI SHA (not full-suite acceptance).
+
+B real pre-reset SSO proved through OIDC prompt=none. After actual reset of same synthetic user in another browser context, old ORIGINAL session's prompt=none OIDC authorization/code exchange succeeded without entering new password, old refresh returned HTTP 200, old UserInfo returned HTTP 200, locally verified JWT signature remained valid before configured 180-second expiry. These real observations show Keycloak configured reset did NOT revoke the preexisting SSO session or old access/refresh; this is a material next-package security requirement, not an AUTH_PRODUCT_ACCEPTED claim. Existing separate admin-initiated logout userinfo denial now ASSERTED HTTP 401/403 and real Run PASS; do not conflate with Reset. These B results were in the actual sanitized report with after_password_reset and revocation nonsecret fields. No credentials/tokens/cookies printed or uploaded.
+
+C NOT_PASS: first live suite failed with sanitized stage policy-local-update-password-email, AssertionError, after IDP-09. That broad stage encompassed email retrieval, action-link extraction and first browser navigation, so exact root cause NOT_VERIFIED; do not falsely label missing message. Narrow fix: use existing already verified second synthetic user and already proven Mailpit UPDATE_PASSWORD action for actual weak vs strong form policy; independent third account with valid bootstrap synthetic password only for login-failure/temporary-lockout/natural-release tests. Add safe constant stage names around Mailpit retrieval, action-link extraction, password form (never log body or link). No sensitive data/real SMTP, product edit, user admin logout, admin lockout clear or disabled tests. Four original allowed task paths affected; same branch same PR, no new CI claim before running.
+
+Exact method remains .github/workflows/auth-idp.yml, unchanged, with python compileall and actual Chromium/Mailpit/IdP Docker isolated integration; checkpoint cumulative. Implemented=C_ACTION_SOURCE_DIAGNOSTIC_NARROWED; Tested=A_B_PASS_ON_FIRST_SHA_C_FAILED; Accepted=NONE. Next: inspect rerun outcome on the NEW source SHA. Keep Draft, do NOT merge.

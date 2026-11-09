@@ -158,12 +158,14 @@ class Admin:
                   json=[role], expected=204)
         return uid
 
-    def create_policy_probe(self, email: str) -> str:
-        # Ephemeral third account only for C: no seeded password, no real user.
+    def create_policy_probe(self, email: str, password: str) -> str:
+        # Third disposable synthetic account only for behavioral lockout.
+        # Password-policy form testing uses an already proven mail recipient.
         self.call("POST", "/users", json={
             "username": email, "email": email, "enabled": True,
             "emailVerified": True, "firstName": "Synthetic",
-            "lastName": "Policy", "requiredActions": []
+            "lastName": "Policy", "requiredActions": [],
+            "credentials": [{"type": "password", "temporary": False, "value": password}]
         }, expected=201)
         return self.user(email)["id"]
 

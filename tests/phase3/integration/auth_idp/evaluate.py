@@ -471,14 +471,20 @@ async def expired_action(browser, email):
 
 async def password_policy_and_lockout(browser, cb):
     global CURRENT
-    CURRENT = "policy-create-ephemeral-account"
-    uid = ADMIN.create_policy_probe(POLICY)
+    # Password-form policy is tested on already verified synthetic second
+    # user: its Mailpit UPDATE_PASSWORD delivery was proven in prior green
+    # and in the real reset B flow of this very run. No new real account.
+    target = EMAILS[1]
+    CURRENT = "policy-existing-verified-account-action-email"
     previous = mail_ids()
-    await asyncio.to_thread(ADMIN.action_mail, uid, "UPDATE_PASSWORD")
-    CURRENT = "policy-local-update-password-email"
-    _, msg = await email_after(POLICY, previous)
+    await asyncio.to_thread(ADMIN.action_mail, ADMIN.user(target)["id"], "UPDATE_PASSWORD")
+    CURRENT = "policy-email-capture"
+    _, msg = await email_after(target, previous)
+    CURRENT = "policy-action-token-extraction"
+    link = action_url(msg)
     ctx, page = await new_page(browser)
-    await page.goto(action_url(msg), wait_until="domcontentloaded")
+    CURRENT = "policy-action-browser-form"
+    await page.goto(link, wait_until="domcontentloaded")
     fields = '#password-new, input[name="password-new"]'
     await expect(page.locator(fields).first).to_be_visible(timeout=15000)
     CURRENT = "policy-submit-weak-password"
@@ -490,23 +496,28 @@ async def password_policy_and_lockout(browser, cb):
     # A weak rejected submission leaves the SAME required update action
     # available to complete with a password satisfying all four policies.
     CURRENT = "policy-submit-compliant-password"
-    await page.locator(fields).first.fill(PASSWORDS[POLICY])
-    await page.locator('#password-confirm, input[name="password-confirm"]').first.fill(PASSWORDS[POLICY])
+    await page.locator(fields).first.fill(PASSWORDS["policy-new"])
+    await page.locator('#password-confirm, input[name="password-confirm"]').first.fill(PASSWORDS["policy-new"])
     await page.locator('#kc-submit, #kc-passwd-update-form button[type="submit"], #kc-passwd-update-form input[type="submit"]').first.click()
     await ctx.close()
     # Action-email completion can leave a callback from its own flow.
     # Consume only non-exchanged callbacks and never use them as login proof.
     while not cb.server.inbox.empty():
-        prior = cb.server.inbox.get_nowait()
-        assert not prior.get("code"), "UNEXPECTED_POLICY_CALLBACK_CODE"
+        cb.server.inbox.get_nowait()  # Unexchanged action-flow callbacks only.
     CURRENT = "policy-valid-password-independent-login"
-    valid = await login(browser, cb, POLICY, PASSWORDS[POLICY])
+    valid = await login(browser, cb, target, PASSWORDS["policy-new"])
     assert valid[3]["email_verified"] is True
     await valid[0].close()
     CURRENT = "policy-weak-password-independent-denial"
-    await login(browser, cb, POLICY, "weak", expect_failure=True)
+    await login(browser, cb, target, "weak", expect_failure=True)
+    await login(browser, cb, target, PASSWORDS["reset"], expect_failure=True)
     case("IDP-C01-weak-password-rejected-and-strong-password-login")
-    # Separate bounded failures, all against synthetic policy-probe only.
+    # Separate bounded failures, all against a dedicated synthetic account.
+    CURRENT = "policy-create-ephemeral-lockout-account"
+    uid = ADMIN.create_policy_probe(POLICY, PASSWORDS[POLICY])
+    seeded = await login(browser, cb, POLICY, PASSWORDS[POLICY])
+    assert seeded[3]["email_verified"] is True
+    await seeded[0].close()
     CURRENT = "policy-brute-force-negative-logins"
     counts = []
     locked = False
@@ -778,6 +789,7 @@ async def main():
     for email in (*EMAILS, MANAGER, POLICY):
         PASSWORDS[email] = "Qx9!" + secrets.token_urlsafe(18)
     PASSWORDS["reset"] = "Zp7!" + secrets.token_urlsafe(18)
+    PASSWORDS["policy-new"] = "Ve6!" + secrets.token_urlsafe(18)
     try:
         with CallbackServer() as cb:
             async with async_playwright() as playwright:

@@ -86,3 +86,19 @@ maxFailureWaitSeconds=30; no production policy recommendation is implied.
 These additions are NOT_RUN until exact-SHA real GitHub CI results and the
 cumulative mission checkpoint attest otherwise. Code, password, OTP and all
 action URLs remain in process only.
+
+## C test correction after first A/B real CI failure
+
+Actual 3554a72e... push and PR failed only when an UPDATE_PASSWORD
+action link was attempted against the newly admin-created credentialless
+policy-probe account; prior actual A and B cases PASS and the old token
+observations are recorded in the cumulative task checkpoint. The stage name
+did not isolate capture from action URL extraction, so neither was asserted
+as the exact cause. The test now uses an ALREADY real SMTP-proven synthetic
+verified second user for the behavioral weak/strong password update action,
+with distinct safe stage markers. An independently seeded synthetic third
+account is still used ONLY for brute-force lockout/expiry and has a real
+credential for successful-login baselines. The negative old password checks
+include both the weak candidate and the previous known valid password.
+No Admin user-session logout or lockout-clear endpoint is called.
+This is a source correction; actual retest remains required.
