@@ -1,18 +1,18 @@
-"""Transaction-scoped API admission for a verified synthetic BFF service proof.
+"""Transaction-scoped API admission with the accepted DB-owned durable replay.
 
-The only supported SQL replay table here is a disposable CI harness object,
-NOT a product migration. Unconfigured store => deny. Real deployments MUST
-provision an approved durable replay store and restricted DB role first.
+The only replay backend accepted here is Migration 005's DB adapter, not
+the former auth_trust_ci.replay_jti fixture. No fallback on bad config.
+This is still isolated synthetic SQL, never product Auth/History wiring.
 """
 from __future__ import annotations
 
-from hashlib import sha256
 from typing import Callable, Protocol, TypeVar
 
 import psycopg
 from psycopg.pq import TransactionStatus
 
 from src.phase3.storage.postgres import auth_session
+from src.phase3.storage.postgres.service_replay import PostgresDurableReplayStore
 from .service_proof import BFFServiceVerifier, TrustRejected, VerifiedServiceProof
 
 T = TypeVar("T")
@@ -23,33 +23,6 @@ class ReplayStore(Protocol):
 
     def consume(self, conn: psycopg.Connection, assertion: VerifiedServiceProof) -> bool:
         ...
-
-
-class PostgresCiReplayStore:
-    """ONLY disposable auth_trust_ci.replay_jti, never an app migration.
-
-    No SELECT privilege, no raw JTI storage. A plain INSERT and UNIQUE
-    constraint deny replay without granting SELECT/UPDATE on the JTI table.
-    Unique digest prevents two
-    workers/threads from both committing a use, including after restart while
-    this database survives. No in-memory fallback.
-    """
-
-    def consume(self, conn: psycopg.Connection, assertion: VerifiedServiceProof) -> bool:
-        if conn.info.transaction_status != TransactionStatus.INTRANS:
-            raise TrustRejected() from None
-        digest = sha256((assertion.issuer + "\x00" + assertion.jti).encode("utf-8")).hexdigest()
-        try:
-            cur = conn.execute(
-                """INSERT INTO auth_trust_ci.replay_jti(jti_sha256,expires_at)
-                   VALUES (%s,to_timestamp(%s))""",
-                (digest, assertion.expires_at),
-            )
-        except psycopg.errors.UniqueViolation:
-            # The outer coordinator MUST now throw TrustRejected and ROLLBACK
-            # the aborted transaction. Never continue protected SQL.
-            return False
-        return cur.rowcount == 1
 
 
 def protected_operation(
@@ -83,7 +56,10 @@ def protected_operation(
     with durable DB. Operation idempotency is DISTINCT; a newly signed JTI
     never changes the product operation's idempotency key or Receipt semantics.
     """
-    if replay_store is None or verifier is None or action is None or conn is None:
+    # No old CI replay table, memory backend, duck-typed replacement or
+    # absent configured durable DB adapter is allowed to grant an actor.
+    if (not isinstance(replay_store, PostgresDurableReplayStore)
+            or verifier is None or action is None or conn is None):
         raise TrustRejected() from None
     # On validation error the connection is never even asked to write.
     assertion = verifier.verify(compact_assertion, method=method,
@@ -127,6 +103,8 @@ def protected_operation(
                 # One outer rollback removes the pending JTI INSERT as well.
                 raise TrustRejected() from None
             return action(conn, assertion.owner_id)
-    except psycopg.Error:
-        # No DB error/SQL detail may be leaked into API HTTP response/logs.
+    except (psycopg.Error, ValueError, RuntimeError, TypeError):
+        # DB-owned adapter can raise ValueError/RuntimeError for rejected
+        # inputs or bad TX, plus psycopg.Error for UNIQUE/SQL/connection.
+        # None of these details may leak to HTTP response or logs.
         raise TrustRejected() from None

@@ -7,7 +7,7 @@ No dependency override bypasses signature or DB admission.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from hashlib import sha256
+from types import SimpleNamespace
 import os
 from pathlib import Path
 import secrets
@@ -32,10 +32,12 @@ from proof_fixture import FakeBFFSigner, ISSUER, AUDIENCE, KID
 from src.phase3.auth.service_proof import (
     BFFServiceVerifier, TrustRejected, assertion_from_asgi_headers, wire_request,
 )
-from src.phase3.auth.transactional_admission import (
-    PostgresCiReplayStore, protected_operation,
-)
+from src.phase3.auth.transactional_admission import protected_operation
 from src.phase3.storage.postgres import auth_session as auth
+from src.phase3.storage.postgres import service_replay as replay_db
+from src.phase3.storage.postgres.service_replay import (
+    PostgresDurableReplayStore, cleanup_expired,
+)
 
 
 ROLES = {
@@ -45,11 +47,14 @@ ROLES = {
     "REVOKER": "auth_revoker",
     "REAUTH": "auth_reauth",
     "MIG": "auth_migrator",
+    "CLEANER": "auth_replay_cleaner",
+    "DENIED": "auth_trust_denied",
+    "NO005": "auth_trust_api",
 }
 SIGNER = FakeBFFSigner()
 VERIFIER = BFFServiceVerifier(issuer=ISSUER, audience=AUDIENCE,
                               public_keys={KID: SIGNER.public_pem})
-STORE = PostgresCiReplayStore()
+STORE = PostgresDurableReplayStore()
 
 
 def db(role="API"):
@@ -57,8 +62,9 @@ def db(role="API"):
         raise RuntimeError("CI_ONLY")
     dsn = os.environ["AUTH_TRUST_" + role + "_DSN"]
     opts = conninfo_to_dict(dsn)
+    expected_database = "history_no005_ci" if role == "NO005" else "history_ci"
     if (opts.get("host") != "127.0.0.1" or opts.get("port") != "5432"
-            or opts.get("dbname") != "history_ci"
+            or opts.get("dbname") != expected_database
             or opts.get("user") != ROLES[role]
             or not set(opts).issubset({
                 "host", "port", "dbname", "user", "password", "connect_timeout",
@@ -168,14 +174,15 @@ class BFFTrustPostgres(unittest.TestCase):
             ).fetchone()["observed"].timestamp()
 
     def proof_consumptions(self, assertion):
-        # The migrator is a disposable CI observer. auth_trust_api cannot
-        # SELECT this table. Only a SHA-256 of the JTI is persisted in DB.
-        d = sha256(ISSUER.encode("utf-8") + bytes([0]) +
-                   assertion["jti"].encode("utf-8")).hexdigest()
+        # Test-only observer calls the DB-owned digest helper; no API-owned
+        # digest algorithm or replay SQL implementation is copied.
+        verified = SimpleNamespace(issuer=ISSUER, jti=assertion["jti"],
+                                   expires_at=assertion["exp"])
+        digest, _ = replay_db._digest_and_exp(verified)
         with db("MIG") as observer:
             return observer.execute(
-                "SELECT count(*) AS n FROM auth_trust_ci.replay_jti "
-                "WHERE jti_sha256=%s", (d,),
+                "SELECT count(*) AS n FROM auth_l1.service_assertion_replays "
+                "WHERE issuer_jti_sha256=%s", (digest,),
             ).fetchone()["n"]
 
     def wait_for_sql_lock(self, label, fragment, *, deadline=8):
@@ -257,7 +264,7 @@ class BFFTrustPostgres(unittest.TestCase):
         # New verifier/store instance backed by SAME durable table still denies.
         with self.assertRaises(TrustRejected):
             execute(proof, self.marker(), body=marker.encode(),
-                    store=PostgresCiReplayStore())
+                    store=PostgresDurableReplayStore())
         self.assertEqual(inserted(marker), 1)
 
     def test_TRI04_concurrent_replay_exactly_one_commit(self):
@@ -449,18 +456,20 @@ class BFFTrustPostgres(unittest.TestCase):
         with self.assertRaises(TrustRejected):
             execute(token, marker, body=marker.encode(), store=None)
         self.assertEqual(inserted(marker), 0)
-        class MissingReplayTable:
+        # An arbitrary alternate/in-memory replay implementation must not
+        # silently become an authentication fallback.
+        class UnapprovedReplayStore:
             def consume(self, conn, proof):
-                conn.execute("INSERT INTO auth_trust_ci.not_installed VALUES (1)")
-                return True
+                raise AssertionError("UNAPPROVED_STORE_MUST_NOT_RUN")
         with self.assertRaises(TrustRejected):
-            execute(token, marker, body=marker.encode(), store=MissingReplayTable())
+            execute(token, marker, body=marker.encode(),
+                    store=UnapprovedReplayStore())
         self.assertEqual(inserted(marker), 0)
         with db() as api:
             for q in (
                 "SELECT * FROM auth_l1.sessions",
                 "SELECT * FROM history_l1.conversations",
-                "SELECT * FROM auth_trust_ci.replay_jti",
+                "SELECT * FROM auth_l1.service_assertion_replays",
                 "SELECT auth_l1.revoke_all('fake',0)",
                 "SELECT auth_l1.issue_session('fake',0,repeat('a',64),40,400)",
                 "SELECT auth_l1.finish_simulated_reauth('fake',0)",
@@ -596,7 +605,7 @@ class BFFTrustPostgres(unittest.TestCase):
                                 "first action must start before expiry")
                 p2 = pool.submit(replay)
                 observed_at = self.wait_for_sql_lock(
-                    wait_label, "auth_trust_ci.replay_jti")
+                    wait_label, "consume_service_assertion")
                 self.assertLess(observed_at, claims["exp"],
                                 "concurrent replay did not enter wait pre-exp")
                 self.assertFalse(p2.done())
@@ -638,6 +647,104 @@ class BFFTrustPostgres(unittest.TestCase):
                         "positive request must finish before exp")
         self.assertEqual(inserted(marker), 1)
         self.assertEqual(self.proof_consumptions(claims), 1)
+
+
+    def test_TRI18_real_005_without_legacy_replay_table(self):
+        """Real signed API proof uses only Migration 005; old table absent."""
+        with db("MIG") as observer:
+            rows = observer.execute(
+                """SELECT to_regclass('auth_trust_ci.replay_jti') IS NULL AS legacy_gone,
+                          to_regclass('auth_l1.service_assertion_replays')
+                              IS NOT NULL AS durable_installed""",
+            ).fetchone()
+            self.assertIs(rows["legacy_gone"], True)
+            self.assertIs(rows["durable_installed"], True)
+        _, session = new_fixture()
+        marker = self.marker()
+        claims = SIGNER.claims(owner_id=session.owner_id,
+                               session_ref=session.opaque, body=marker.encode())
+        self.assertEqual(self.http(SIGNER.sign(claims), marker).status_code, 200)
+        self.assertEqual(inserted(marker), 1)
+        self.assertEqual(self.proof_consumptions(claims), 1)
+
+    def test_TRI19_no_005_no_execute_privilege_denied(self):
+        """Separate disposable 001–004 DB has NO Migration 005."""
+        _, session = new_fixture()
+        marker = self.marker()
+        token = synthetic_proof(session, body=marker.encode())
+        with db("NO005") as missing:
+            self.assertIsNone(missing.execute(
+                "SELECT to_regprocedure('auth_l1.consume_service_assertion(text,bigint)') "
+                "AS procedure").fetchone()["procedure"])
+            with self.assertRaises(TrustRejected):
+                protected_operation(
+                    missing, verifier=VERIFIER, replay_store=STORE,
+                    compact_assertion=token, method="POST",
+                    raw_path=b"/fixture", raw_query=b"", body=marker.encode(),
+                    action=action(marker),
+                )
+        with db("DENIED") as no_privilege:
+            with self.assertRaises(TrustRejected):
+                protected_operation(
+                    no_privilege, verifier=VERIFIER, replay_store=STORE,
+                    compact_assertion=token, method="POST",
+                    raw_path=b"/fixture", raw_query=b"", body=marker.encode(),
+                    action=action(marker),
+                )
+        self.assertEqual(inserted(marker), 0)
+        # Both denials did not consume the signed JTI on the real store.
+        self.assertTrue(execute(token, marker, body=marker.encode()))
+        self.assertEqual(inserted(marker), 1)
+
+    def test_TRI20_cleanup_expired_does_not_reenable_stale_proof(self):
+        """Manual DB-owned cleanup may purge expired replay; proof still denies."""
+        _, session = new_fixture()
+        marker = self.marker()
+        claims = SIGNER.claims(owner_id=session.owner_id,
+                               session_ref=session.opaque, body=marker.encode(),
+                               duration=3)
+        token = SIGNER.sign(claims)
+        self.assertTrue(execute(token, marker, body=marker.encode()))
+        self.assertEqual(self.proof_consumptions(claims), 1)
+        self.wait_for_db_expiry(claims["exp"])
+        with db("CLEANER") as cleaner:
+            with cleaner.transaction():
+                self.assertGreaterEqual(cleanup_expired(cleaner, 1000), 1)
+        self.assertEqual(self.proof_consumptions(claims), 0)
+        next_marker = self.marker()
+        # Different body would fail signature binding; identical body ensures
+        # denial here is from proof expiry, even AFTER replay row has gone.
+        with self.assertRaises(TrustRejected):
+            execute(token, next_marker, body=marker.encode())
+        self.assertEqual(inserted(next_marker), 0)
+        self.assertTrue(execute(
+            synthetic_proof(session, body=next_marker.encode()),
+            next_marker, body=next_marker.encode()))
+        self.assertEqual(inserted(next_marker), 1)
+
+    def test_TRI21_adapter_value_and_runtime_errors_generic_and_no_write(self):
+        _, session = new_fixture()
+        marker = self.marker()
+        token = synthetic_proof(session, body=marker.encode())
+        class InvalidProofAdapter(PostgresDurableReplayStore):
+            def consume(self, conn, assertion):
+                raise ValueError("synthetic_adapter_validation_only")
+        class BrokenAdapter(PostgresDurableReplayStore):
+            def consume(self, conn, assertion):
+                raise RuntimeError("synthetic_adapter_failed_only")
+        class DecliningAdapter(PostgresDurableReplayStore):
+            def consume(self, conn, assertion):
+                return False
+        for store in (InvalidProofAdapter(), BrokenAdapter(), DecliningAdapter()):
+            with self.subTest(store=type(store).__name__):
+                with self.assertRaises(TrustRejected) as captured:
+                    execute(token, marker, body=marker.encode(), store=store)
+                self.assertEqual(str(captured.exception),
+                                 "BFF_SERVICE_PROOF_DENIED")
+                self.assertEqual(inserted(marker), 0)
+        # No alternate adapter has consumed anything in durable DB.
+        self.assertTrue(execute(token, marker, body=marker.encode()))
+        self.assertEqual(inserted(marker), 1)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
