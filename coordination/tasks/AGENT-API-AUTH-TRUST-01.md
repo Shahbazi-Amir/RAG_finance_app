@@ -191,3 +191,10 @@ regressions preserved; final count 74.
 **Limits and next handoff:** no real BFF signer/IdP/OIDC login/mTLS/private transport, Fresh Reauthentication, external Reset, Product History Auth wiring, live DB migration, real user, production cleanup/retention, Module 03/05/06/13 Gate or `AUTH_PRODUCT_ACCEPTED`. No local Mac install, real email/model/public service/cost/deploy. `main` and parent/main RAG_finance stay read-only. If first CI fails, record actual stage/cause, narrow fix, and re-run on new commit with THIS ledger updated per Push.
 
 **Status on first Push:** IMPLEMENTED=API_DURABLE_REPLAY_SOURCE_PREPARED; TESTED=NEW_INTEGRATION_NOT_RUN; ACCEPTED=NONE / SUPERVISOR_PENDING.
+
+
+## TRUST-01-N — first real CI bootstrap failure, exact fix (2026-11-09)
+
+**SOURCE SHA:** `91ba89a684d3a6c6a841d74e214e213ed945d1b2`, [GitHub Push Run 42693852913](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42693852913) completed **FAILURE** before test execution. PostgreSQL 17.11 runner service, Python dependencies and unmodified migrations 001-005 applied successfully; the new CI-only restricted roles/schema and legacy-table-free `auth_trust_ci.protected_actions` were created successfully. Failure stage: **Apply UNCHANGED migrations 001 through 005 to ephemeral PostgreSQL**, Bash syntax error near `(` at shell line 44. The script carried literal escaped double-quote characters `\\\"` around SQL passed to `psql -c`, causing Bash to parse `to_regclass(` outside an actual quote. This is a workflow-only shell quoting bug; NO tests were run and there is no PASS claim.
+
+**Fix (same restricted path, same cumulative checkpoint):** remove the three unintended backslashes so `-c "SELECT to_regclass(...)"` and `-c "SELECT to_regprocedure(...)"` remain valid Bash command-substitution arguments in the post-migration assertions. **No** SQL migrations, role privileges, assertion validation, code adapter or tests changed. Re-run full CI and retain failed Run as audit history. No live database touched; `main` unchanged.

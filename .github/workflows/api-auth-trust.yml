@@ -154,9 +154,9 @@ jobs:
           GRANT USAGE ON SCHEMA auth_fence_ci TO auth_sessions;
           GRANT INSERT ON auth_fence_ci.protected_actions TO auth_sessions;
           SQL
-          test "$(psql -d history_ci -Aqt -c \"SELECT to_regclass('auth_trust_ci.replay_jti') IS NULL\")" = "t"
-          test "$(psql -d history_ci -Aqt -c \"SELECT to_regprocedure('auth_l1.consume_service_assertion(text,bigint)') IS NOT NULL\")" = "t"
-          test "$(psql -d history_no005_ci -Aqt -c \"SELECT to_regprocedure('auth_l1.consume_service_assertion(text,bigint)') IS NULL\")" = "t"
+          test "$(psql -d history_ci -Aqt -c "SELECT to_regclass('auth_trust_ci.replay_jti') IS NULL")" = "t"
+          test "$(psql -d history_ci -Aqt -c "SELECT to_regprocedure('auth_l1.consume_service_assertion(text,bigint)') IS NOT NULL")" = "t"
+          test "$(psql -d history_no005_ci -Aqt -c "SELECT to_regprocedure('auth_l1.consume_service_assertion(text,bigint)') IS NULL")" = "t"
       - name: Static compile and pure service-proof tests
         run: |
           set -euo pipefail
