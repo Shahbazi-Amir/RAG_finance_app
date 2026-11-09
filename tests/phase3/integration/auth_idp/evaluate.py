@@ -689,14 +689,17 @@ def configure_02a_flow():
     reset_executions = ADMIN.call(
         "GET", "/authentication/flows/" +
         quote(reset[0]["alias"], safe="") + "/executions").json()
-    RESULTS["RA_flow_discovery"]["reset_execution_authenticators"] = sorted(
-        str(v.get("authenticator", "")) for v in reset_executions)
-    print("RA_RESET_EXEC_AUTHENTICATORS=" +
-          repr(RESULTS["RA_flow_discovery"]["reset_execution_authenticators"]),
+    # Keycloak 26.8.2 GET /authentication/flows/{alias}/executions
+    # returns AuthenticationExecutionInfoRepresentation with providerId,
+    # NOT the AuthenticationExecutionRepresentation's authenticator field.
+    RESULTS["RA_flow_discovery"]["reset_execution_provider_ids"] = sorted(
+        str(v.get("providerId", "")) for v in reset_executions)
+    print("RA_RESET_EXEC_PROVIDER_IDS=" +
+          repr(RESULTS["RA_flow_discovery"]["reset_execution_provider_ids"]),
           flush=True)
     CURRENT = "RA-config-reset-email-execution-match"
     email_steps = [v for v in reset_executions
-                   if v.get("authenticator") == "reset-credential-email"]
+                   if v.get("providerId") == "reset-credential-email"]
     assert len(email_steps) == 1, "RESET_EMAIL_EXECUTION_MISSING"
     RESULTS["RA_standard_config"] = {
         "browser_cookie_present": any(
