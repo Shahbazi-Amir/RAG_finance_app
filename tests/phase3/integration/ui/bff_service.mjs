@@ -8,7 +8,7 @@ import {readFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {request as httpsRequest} from 'node:https';
 import {randomBytes} from 'node:crypto';
-import {createServiceSender,signForTrustedAttempt} from '../../../apps/web/src/auth/server/service-sender.ts';
+import {createServiceSender,signForTrustedAttempt} from '../../../../apps/web/src/auth/server/service-sender.ts';
 
 if(process.env.CI!=='true'||process.env.GITHUB_ACTIONS!=='true')throw Error('CI_ONLY');
 const folder=process.env.BFF_TLS_DIR;
