@@ -162,14 +162,20 @@ jobs:
           set -euo pipefail
           python -m compileall -q src/phase3/auth tests/phase3/api tests/phase3/integration/api
           python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
+      - name: Existing DB Owner Session 004 fence and 005 Replay regressions (unchanged)
+        run: |
+          set -euo pipefail
+          # Run DB-owned isolated replay cleanup tests FIRST on fresh PG.
+          # The unrelated History DB suite needs its own separate databases;
+          # the existing History HTTP/contract suites are still run below.
+          python -m unittest discover -s tests/phase3/database -p 'test_auth_session.py' -v
+          python -m unittest discover -s tests/phase3/database -p 'test_auth_null_fence.py' -v
+          python -m unittest discover -s tests/phase3/database -p 'test_auth_session_fence.py' -v
+          python -m unittest discover -s tests/phase3/database -p 'test_service_replay.py' -v
       - name: Real transactional service-proof HTTP and PostgreSQL negative tests
         run: |
           set -euo pipefail
           python -m unittest discover -s tests/phase3/integration/api -p 'test_auth_trust_postgres.py' -v
-      - name: Existing DB service replay and Owner/Session/fence regressions (unchanged)
-        run: |
-          set -euo pipefail
-          python -m unittest discover -s tests/phase3/database -p 'test_*.py' -v
       - name: Existing History contract and API/PostgreSQL regressions (unchanged)
         run: |
           set -euo pipefail
