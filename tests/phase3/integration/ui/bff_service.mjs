@@ -6,7 +6,9 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
-import {request as httpsRequest} from 'node:https';
+import {request as httpsRequest,createServer as createHttpsServer} from 'node:https';
+import {createServer as createTcpServer} from 'node:net';
+import {performance} from 'node:perf_hooks';
 import {randomBytes} from 'node:crypto';
 import {createServiceSender,signForTrustedAttempt} from '../../../../apps/web/src/auth/server/service-sender.ts';
 
@@ -138,5 +140,142 @@ await check('no redirect follow, timeout, malformed 200, truncated stream',async
     assert.equal(count(id),0);
   }
 });
+
+/** Local CI-only TLS transport fixtures; no API verifier or product action. */
+function within(promise,limitMs,label){
+  let timer;
+  const guard=new Promise((_,reject)=>{
+    timer=setTimeout(()=>reject(new Error('CI_DEADLINE_TEST_STALLED_'+label)),limitMs);
+  });
+  return Promise.race([promise,guard]).finally(()=>clearTimeout(timer));
+}
+function listen(server){
+  return new Promise((resolve,reject)=>{
+    server.once('error',reject);
+    server.listen(0,'127.0.0.1',()=>{
+      server.off('error',reject);
+      const addr=server.address();
+      if(!addr||typeof addr==='string')return reject(new Error('CI_INVALID_LISTENER'));
+      resolve(addr.port);
+    });
+  });
+}
+function closeServer(server){
+  return within(new Promise((resolve,reject)=>server.close(err=>err?reject(err):resolve())),
+    3500,'SERVER_CLOSE');
+}
+let tlsServer;
+let responseFirst;
+let responseClosed;
+let startResponse;
+let finishResponse;
+let dripWrites=0;
+let dripTimer;
+const tlsSockets=new Set();
+try{
+  responseFirst=new Promise(resolve=>{startResponse=resolve;});
+  responseClosed=new Promise(resolve=>{finishResponse=resolve;});
+  tlsServer=createHttpsServer({
+    key:load('api.key'),cert:load('api.crt'),ca:load('ca.crt'),
+    requestCert:true,rejectUnauthorized:true,
+  },(request,response)=>{
+    request.resume();
+    if(request.url==='/deadline-drip'){
+      response.on('close',()=>{
+        if(dripTimer)clearInterval(dripTimer);
+        finishResponse({destroyed:response.destroyed,finished:response.writableFinished});
+      });
+      response.setHeader('Content-Type','application/json');
+      response.write('{"ok":'); // Headers and first response bytes observed by the client.
+      startResponse();
+      // Every interval is far below the deadline, while overall time >2x.
+      // The old socket-inactivity req.setTimeout would not abort this stream.
+      dripTimer=setInterval(()=>{
+        if(response.destroyed){clearInterval(dripTimer);return;}
+        dripWrites++;
+        response.write(' ');
+        if(dripWrites===20){clearInterval(dripTimer);response.end('true}');}
+      },110);
+    }else if(request.url==='/deadline-fast'){
+      response.setHeader('Content-Type','application/json');
+      response.end('{"ok":true}');
+    }else{
+      response.statusCode=404;
+      response.end('not-found');
+    }
+  });
+  tlsServer.on('connection',socket=>{
+    tlsSockets.add(socket);
+    socket.once('close',()=>tlsSockets.delete(socket));
+  });
+  const port=await listen(tlsServer);
+  const localOrigin='https://127.0.0.1:'+port;
+  const local={...c,upstreamOrigin:localOrigin,allowedOrigins:[localOrigin],timeoutMs:900};
+  await check('complete HTTPS response before absolute deadline remains OK',async()=>{
+    const started=performance.now();
+    const result=await within(safe(local,fixture.active,make(marker(),{path:'/deadline-fast'})),
+      3000,'FAST_RESPONSE');
+    assert.deepEqual(result,{ok:true,code:'OK'});
+    assert.ok(performance.now()-started<local.timeoutMs,
+      'normal response must finish before its own configured deadline');
+  });
+  await check('HTTPS drip cannot extend total deadline; response and socket closed',async()=>{
+    const started=performance.now();
+    const sending=safe(local,fixture.active,make(marker(),{path:'/deadline-drip'}));
+    await within(responseFirst,3000,'DRIP_FIRST_CHUNK');
+    const result=await within(sending,3000,'DRIP_RESULT');
+    const duration=performance.now()-started;
+    assert.deepEqual(result,{ok:false,code:'TIMEOUT'});
+    assert.ok(duration>=local.timeoutMs-160,'deadline was not merely a premature idle timeout');
+    assert.ok(duration<3000,'deadline was not postponed until the streaming body completed');
+    const closed=await within(responseClosed,3000,'DRIP_RESPONSE_CLOSE');
+    assert.equal(closed.destroyed,true);
+    assert.equal(closed.finished,false,'server had not finished the body when client aborted');
+    assert.ok(dripWrites>=2,'server emitted progressive chunks before abort');
+  });
+}finally{
+  if(dripTimer)clearInterval(dripTimer);
+  if(tlsServer){
+    await closeServer(tlsServer);
+    assert.equal(tlsSockets.size,0,'no HTTPS transport sockets left open');
+  }
+}
+
+await check('accepted TCP with stalled TLS handshake hits absolute deadline and closes socket',async()=>{
+  let tcpServer;
+  let clientSocket;
+  let accepted;
+  let didAccept;
+  let closed;
+  let didClose;
+  try{
+    accepted=new Promise(resolve=>{didAccept=resolve;});
+    closed=new Promise(resolve=>{didClose=resolve;});
+    tcpServer=createTcpServer(socket=>{
+      clientSocket=socket;
+      // Intentionally accept TCP but NEVER respond to the TLS ClientHello.
+      socket.on('error',()=>{});
+      socket.once('close',()=>didClose());
+      didAccept();
+    });
+    const port=await listen(tcpServer);
+    const origin='https://127.0.0.1:'+port;
+    const config={...c,upstreamOrigin:origin,allowedOrigins:[origin],timeoutMs:750};
+    const started=performance.now();
+    const sending=safe(config,fixture.active,make(marker()));
+    await within(accepted,3000,'TCP_CONNECTED_BEFORE_TLS');
+    const result=await within(sending,3000,'STALL_TLS_RESULT');
+    const duration=performance.now()-started;
+    assert.deepEqual(result,{ok:false,code:'TIMEOUT'});
+    assert.ok(duration>=config.timeoutMs-160,'TLS failed before the actual deadline');
+    assert.ok(duration<3000,'handshake was not allowed to stall beyond the budget');
+    await within(closed,3000,'STALL_TLS_SOCKET_CLOSE');
+    assert.equal(clientSocket.destroyed,true,'TCP socket must be destroyed at the deadline');
+  }finally{
+    if(clientSocket&&!clientSocket.destroyed)clientSocket.destroy();
+    if(tcpServer)await closeServer(tcpServer);
+  }
+});
+
 execFileSync('python',['tests/phase3/integration/ui/audit_bff_trust.py','role'],{stdio:'pipe'});
 console.log('BFF_HTTPS_MTLS_INTEGRATION_PASS checks='+checks);

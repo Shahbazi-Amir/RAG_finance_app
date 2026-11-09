@@ -5,6 +5,8 @@
  */
 import {constants,createHash,createPrivateKey,randomBytes,sign,type KeyObject} from 'node:crypto';
 import {request as httpsRequest} from 'node:https';
+import type {ClientRequest,IncomingMessage} from 'node:http';
+import {performance} from 'node:perf_hooks';
 
 export type TrustedSession=Readonly<{ownerId:string;sessionRef:string;epoch:number;generation:number}>;
 export type WireOperation=Readonly<{
@@ -90,30 +92,59 @@ export function createServiceSender(c:ServerTrustConfig,resolveSession:()=>Promi
     const path=op.rawPath.toString('latin1')+
       (op.rawQuery.length?'?'+op.rawQuery.toString('latin1'):'');
     return new Promise<TransportResult>(resolve=>{
-      let finished=false,timedOut=false;
-      const done=(value:TransportResult)=>{if(!finished){finished=true;resolve(value);}};
+      // One monotonic wall-duration budget for TCP connect + TLS + the WHOLE
+      // response stream. Socket inactivity timers can be reset by data.
+      const deadline=performance.now()+c.timeoutMs;
+      let finished=false;
+      let req:ClientRequest|undefined;
+      let response:IncomingMessage|undefined;
+      let timer:ReturnType<typeof setTimeout>|undefined;
+      const timeout:TransportResult={ok:false,code:'TIMEOUT'};
+      const finish=(result:TransportResult)=>{
+        if(finished)return;
+        finished=true;
+        if(timer!==undefined)clearTimeout(timer);
+        // Stop both sides of the HTTP exchange (including a live response).
+        // No transport timeout can undo a server-side DB COMMIT.
+        response?.destroy();
+        req?.destroy();
+        resolve(result);
+      };
+      // Even if the event loop delays the timer callback, a late success,
+      // redirect or error cannot beat the fixed monotonic deadline.
+      const done=(result:TransportResult)=>
+        finish(performance.now()>=deadline?timeout:result);
+      timer=setTimeout(()=>finish(timeout),c.timeoutMs);
       try{
-        const req=httpsRequest({
+        req=httpsRequest({
           hostname:target.hostname,port:target.port||443,path,method:op.method,
           ca:c.caPem,cert:c.clientCertPem,key:c.clientKeyPem,
           rejectUnauthorized:true,minVersion:'TLSv1.2',agent:false,
           headers:{Authorization:'BFF-Assertion '+token,'Content-Type':'application/json',
             'Content-Length':String(op.body.length)},
         },res=>{
-          const status=res.statusCode??0;
-          if(status>=300&&status<400){
-            res.resume();done({ok:false,code:'REDIRECT_REJECTED'});return;
-          }
-          if(status===401||status===403){res.resume();done({ok:false,code:'DENIED'});return;}
-          if(status!==200){res.resume();done({ok:false,code:'UNAVAILABLE'});return;}
-          const parts:Buffer[]=[];let size=0;
-          res.on('data',(part:Buffer)=>{
-            size+=part.length;
-            if(size>4096){req.destroy();done({ok:false,code:'INVALID_RESPONSE'});}
-            else parts.push(part);
-          });
+          response=res;
+          // The timer may have won before the response callback started.
+          if(finished){res.destroy();return;}
           res.on('error',()=>done({ok:false,code:'INVALID_RESPONSE'}));
           res.on('aborted',()=>done({ok:false,code:'INVALID_RESPONSE'}));
+          res.on('close',()=>{
+            if(!res.complete)done({ok:false,code:'INVALID_RESPONSE'});
+          });
+          const status=res.statusCode??0;
+          if(status>=300&&status<400){
+            done({ok:false,code:'REDIRECT_REJECTED'});return;
+          }
+          if(status===401||status===403){done({ok:false,code:'DENIED'});return;}
+          if(status!==200){done({ok:false,code:'UNAVAILABLE'});return;}
+          const parts:Buffer[]=[];let size=0;
+          res.on('data',(part:Buffer)=>{
+            if(finished)return;
+            if(performance.now()>=deadline){finish(timeout);return;}
+            size+=part.length;
+            if(size>4096)done({ok:false,code:'INVALID_RESPONSE'});
+            else parts.push(part);
+          });
           res.on('end',()=>{
             if(finished)return;
             try{
@@ -123,8 +154,8 @@ export function createServiceSender(c:ServerTrustConfig,resolveSession:()=>Promi
             }catch{done({ok:false,code:'INVALID_RESPONSE'});}
           });
         });
-        req.setTimeout(c.timeoutMs,()=>{timedOut=true;req.destroy();});
-        req.on('error',()=>done({ok:false,code:timedOut?'TIMEOUT':'TRANSPORT_FAILURE'}));
+        req.on('error',()=>done({ok:false,code:'TRANSPORT_FAILURE'}));
+        if(performance.now()>=deadline){finish(timeout);return;}
         req.end(op.body);
       }catch{done({ok:false,code:'TRANSPORT_FAILURE'});}
     });
