@@ -170,7 +170,8 @@ class BFFTrustPostgres(unittest.TestCase):
     def proof_consumptions(self, assertion):
         # The migrator is a disposable CI observer. auth_trust_api cannot
         # SELECT this table. Only a SHA-256 of the JTI is persisted in DB.
-        d = sha256((ISSUER + "\\x00" + assertion["jti"]).encode("utf-8")).hexdigest()
+        d = sha256(ISSUER.encode("utf-8") + bytes([0]) +
+                   assertion["jti"].encode("utf-8")).hexdigest()
         with db("MIG") as observer:
             return observer.execute(
                 "SELECT count(*) AS n FROM auth_trust_ci.replay_jti "
@@ -518,13 +519,15 @@ class BFFTrustPostgres(unittest.TestCase):
                 return "accepted"
             except TrustRejected:
                 return "denied"
-        with db("MIG") as holder:
-            with holder.transaction():
-                holder.execute(
-                    "SELECT owner_id FROM auth_l1.owners "
-                    "WHERE owner_id=%s FOR UPDATE", (owner,),
-                )
-                with ThreadPoolExecutor(max_workers=1) as pool:
+        # Executor lifetime encloses the lock holder: do NOT wait for its
+        # worker in ThreadPoolExecutor.__exit__ while our FOR UPDATE is held.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            with db("MIG") as holder:
+                with holder.transaction():
+                    holder.execute(
+                        "SELECT owner_id FROM auth_l1.owners "
+                        "WHERE owner_id=%s FOR UPDATE", (owner,),
+                    )
                     pending = pool.submit(worker)
                     observed_at = self.wait_for_sql_lock(
                         label, "admit_session_fenced")
@@ -617,13 +620,13 @@ class BFFTrustPostgres(unittest.TestCase):
                                body=marker.encode(), duration=12)
         token = SIGNER.sign(claims)
         label = "trust_valid_owner_" + secrets.token_hex(4)
-        with db("MIG") as holder:
-            with holder.transaction():
-                holder.execute(
-                    "SELECT owner_id FROM auth_l1.owners "
-                    "WHERE owner_id=%s FOR UPDATE", (owner,),
-                )
-                with ThreadPoolExecutor(max_workers=1) as pool:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            with db("MIG") as holder:
+                with holder.transaction():
+                    holder.execute(
+                        "SELECT owner_id FROM auth_l1.owners "
+                        "WHERE owner_id=%s FOR UPDATE", (owner,),
+                    )
                     pending = pool.submit(execute, token, marker,
                         body=marker.encode(), application_name=label)
                     observed_at = self.wait_for_sql_lock(

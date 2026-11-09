@@ -111,3 +111,26 @@ The `auth_trust_api` role in disposable CI had only USAGE on auth_l1, EXECUTE on
 All former 71 test cases retained and not weakened; expected count **74**. Tests and CI results NOT_RUN on this new source revision yet, to be updated from actual Actions logs. No workflow, DB repository/migrations, apps/web or apps/api/history_api, root/shared schema or checklist edits. Synthetic PostgreSQL 17.11, no Mac install/email/model/deploy, no raw token/secret in logs. With each Push this same cumulative ledger is updated atomically.
 
 **Proof of correctness intentionally limited:** PostgreSQL primary trusted clock is the final local admission time; not global synchronized clock guarantee or external side-effect cancelation. Existing Production BFF, durable replay migration and reset/reauth are still unimplemented; Accepted=NONE/SUPERVISOR_PENDING.
+
+
+## TRUST-01-J — static harness review correction, no security-policy loosening
+
+Immediate post-Push read-back of added PostgreSQL contention tests identified
+two mistakes in NEW test helper only: TRI15/TRI17 accidentally nested
+`ThreadPoolExecutor` inside a `FOR UPDATE` holding transaction, so
+Executor.__exit__ could join a blocked worker while the same test still
+held the lock (deadlock until timeout); change nesting so the real holder
+commits/releases before joining the worker. The JTI observer helper used a
+literal backslash-x00 separator instead of the database store's actual
+NUL byte; compute digest with `bytes([0])` explicitly. This tightens
+the evidence: a committed JTI can no longer be missed due to wrong observer
+digest, and a test scheduler cannot pretend to be a genuine SQL lock
+timeout. No production code, tests asserted outcomes, migration, CI setup,
+role grants or checkout/main files are changed.
+
+First test-bearing SHA bd04a0e22ab5df0a471f335e996abd76dfa7bfed
+started GitHub Push Run 42681098826; review discovered the harness error
+while that Run was still in progress. Actual eventual result remains
+separately verifiable and is NOT claimed PASS. New corrected SHA CI
+will be authoritative for TRI15–TRI17. Expected all historical 71
+regressions preserved; final count 74.
