@@ -670,13 +670,31 @@ def configure_02a_flow():
     global CURRENT
     CURRENT = "RA-config-inspect-standard-flows"
     flows = ADMIN.call("GET", "/authentication/flows").json()
-    reset = [f for f in flows if f.get("alias", "").casefold() == "reset credentials"]
+    # Diagnostic data includes ONLY static Keycloak flow alias strings, never
+    # user, token, session, cookie or HTTP URL. The short fixed stage markers
+    # discriminate GET errors from missing built-in flow/execution.
+    reset_aliases = sorted(str(f.get("alias", "")) for f in flows
+                           if "reset" in str(f.get("alias", "")).casefold())
+    RESULTS["RA_flow_discovery"] = {
+        "flow_count": len(flows), "reset_aliases": reset_aliases,
+    }
+    print("RA_FLOW_CANDIDATES=" + repr(reset_aliases), flush=True)
+    CURRENT = "RA-config-reset-alias-match"
+    reset = [f for f in flows if str(f.get("alias", "")).casefold() == "reset credentials"]
     assert len(reset) == 1, "RESET_STANDARD_FLOW_NOT_FOUND"
+    CURRENT = "RA-config-browser-executions"
     browser_executions = ADMIN.call(
         "GET", "/authentication/flows/browser/executions").json()
+    CURRENT = "RA-config-reset-executions"
     reset_executions = ADMIN.call(
         "GET", "/authentication/flows/" +
         quote(reset[0]["alias"], safe="") + "/executions").json()
+    RESULTS["RA_flow_discovery"]["reset_execution_authenticators"] = sorted(
+        str(v.get("authenticator", "")) for v in reset_executions)
+    print("RA_RESET_EXEC_AUTHENTICATORS=" +
+          repr(RESULTS["RA_flow_discovery"]["reset_execution_authenticators"]),
+          flush=True)
+    CURRENT = "RA-config-reset-email-execution-match"
     email_steps = [v for v in reset_executions
                    if v.get("authenticator") == "reset-credential-email"]
     assert len(email_steps) == 1, "RESET_EMAIL_EXECUTION_MISSING"
