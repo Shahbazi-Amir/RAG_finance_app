@@ -7,6 +7,7 @@ No dependency override bypasses signature or DB admission.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from hashlib import sha256
 import os
 from pathlib import Path
 import secrets
@@ -111,8 +112,12 @@ def action(marker):
 
 
 def execute(token, marker, *, store=STORE, method="POST",
-            path=b"/fixture", query=b"", body=b"marker", action_fn=None):
+            path=b"/fixture", query=b"", body=b"marker", action_fn=None,
+            application_name=None):
     with db() as c:
+        if application_name is not None:
+            c.execute("SELECT set_config('application_name',%s,false)",
+                      (application_name,))
         return protected_operation(
             c, verifier=VERIFIER, replay_store=store, compact_assertion=token,
             method=method, raw_path=path, raw_query=query, body=body,
@@ -155,6 +160,57 @@ class BFFTrustPostgres(unittest.TestCase):
 
     def marker(self):
         return "trust_" + secrets.token_hex(10)
+
+    def db_time(self):
+        with db("MIG") as observer:
+            return observer.execute(
+                "SELECT clock_timestamp() AS observed"
+            ).fetchone()["observed"].timestamp()
+
+    def proof_consumptions(self, assertion):
+        # The migrator is a disposable CI observer. auth_trust_api cannot
+        # SELECT this table. Only a SHA-256 of the JTI is persisted in DB.
+        d = sha256((ISSUER + "\\x00" + assertion["jti"]).encode("utf-8")).hexdigest()
+        with db("MIG") as observer:
+            return observer.execute(
+                "SELECT count(*) AS n FROM auth_trust_ci.replay_jti "
+                "WHERE jti_sha256=%s", (d,),
+            ).fetchone()["n"]
+
+    def wait_for_sql_lock(self, label, fragment, *, deadline=8):
+        # Must observe a *real* PostgreSQL Lock wait in pg_stat_activity
+        # on the named SQL statement, not merely sleep or task scheduling.
+        with db("MIG") as observer:
+            end = time.monotonic() + deadline
+            while time.monotonic() < end:
+                row = observer.execute(
+                    """SELECT wait_event_type, query
+                       FROM pg_stat_activity
+                       WHERE application_name=%s AND state='active'""",
+                    (label,),
+                ).fetchone()
+                if (row and row["wait_event_type"] == "Lock"
+                        and fragment in row["query"]):
+                    return observer.execute(
+                        "SELECT clock_timestamp() AS observed"
+                    ).fetchone()["observed"].timestamp()
+                observer.execute("SELECT pg_sleep(0.025)")
+        raise AssertionError("PostgreSQL expected lock wait not observed")
+
+    def wait_for_db_expiry(self, expires_at):
+        with db("MIG") as observer:
+            deadline = time.monotonic() + 9
+            while time.monotonic() < deadline:
+                row = observer.execute(
+                    """SELECT clock_timestamp() >= to_timestamp(%s) AS expired,
+                              clock_timestamp() AS observed""",
+                    (expires_at,),
+                ).fetchone()
+                if row["expired"]:
+                    self.assertGreaterEqual(row["observed"].timestamp(), expires_at)
+                    return
+                observer.execute("SELECT pg_sleep(0.025)")
+        self.fail("PostgreSQL clock did not cross assertion expiration")
 
     def http(self, token, marker, *, path="/fixture", method="POST",
              headers=None):
@@ -441,6 +497,144 @@ class BFFTrustPostgres(unittest.TestCase):
                 action=action(marker),
             )
         self.assertEqual(inserted(marker), 0)
+
+
+    def test_TRI15_valid_before_wait_expired_after_owner_lock_denied(self):
+        # Only a pure FOR UPDATE lock is held; Owner epoch/status and Session
+        # remain untouched. A signed proof is valid at initial verification.
+        owner, session = new_fixture()
+        marker = self.marker()
+        claim = SIGNER.claims(owner_id=owner, session_ref=session.opaque,
+                              body=marker.encode(), duration=5)
+        token = SIGNER.sign(claim)
+        self.assertLess(self.db_time(), claim["exp"])
+        VERIFIER.verify(token, method="POST", raw_path=b"/fixture",
+                        raw_query=b"", raw_body=marker.encode())
+        label = "trust_expiry_owner_" + secrets.token_hex(4)
+        def worker():
+            try:
+                execute(token, marker, body=marker.encode(),
+                        application_name=label)
+                return "accepted"
+            except TrustRejected:
+                return "denied"
+        with db("MIG") as holder:
+            with holder.transaction():
+                holder.execute(
+                    "SELECT owner_id FROM auth_l1.owners "
+                    "WHERE owner_id=%s FOR UPDATE", (owner,),
+                )
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    pending = pool.submit(worker)
+                    observed_at = self.wait_for_sql_lock(
+                        label, "admit_session_fenced")
+                    self.assertLess(observed_at, claim["exp"],
+                                    "proof was not initially valid while blocked")
+                    self.assertFalse(pending.done())
+                    self.wait_for_db_expiry(claim["exp"])
+                    self.assertFalse(pending.done())
+            self.assertEqual(pending.result(timeout=10), "denied")
+        with db("MIG") as admin:
+            state = admin.execute(
+                "SELECT session_epoch,reset_gate FROM auth_l1.owners "
+                "WHERE owner_id=%s", (owner,),
+            ).fetchone()
+            self.assertEqual((state["session_epoch"], state["reset_gate"]),
+                             (session.epoch, "open"))
+        self.assertEqual(inserted(marker), 0)
+        self.assertEqual(self.proof_consumptions(claim), 0,
+                         "expired proof's JTI must roll back")
+        fresh = synthetic_proof(session, body=marker.encode())
+        self.assertTrue(execute(fresh, marker, body=marker.encode()))
+        self.assertEqual(inserted(marker), 1)
+
+    def test_TRI16_same_jti_wait_rollback_after_expiry_stays_denied(self):
+        # First transaction has consumed JTI, obtained both 004 locks, and
+        # STARTED its action before exp. It will intentionally ROLLBACK after
+        # exp; the second request must not take over after the unique-key
+        # wait, even though rollback removes the first JTI row.
+        owner, session = new_fixture()
+        marker = self.marker()
+        claims = SIGNER.claims(owner_id=owner, session_ref=session.opaque,
+                               body=marker.encode(), duration=5)
+        token = SIGNER.sign(claims)
+        self.assertLess(self.db_time(), claims["exp"])
+        admitted = threading.Event()
+        release = threading.Event()
+        class AbortOriginal(Exception):
+            pass
+        def first():
+            def already_started(conn, accepted_owner):
+                self.assertEqual(accepted_owner, owner)
+                admitted.set()
+                if not release.wait(10):
+                    raise AssertionError("original operation wait timeout")
+                # The already-started operation is not auto-cancelled by exp.
+                # This fixture deliberately rolls back instead of committing.
+                raise AbortOriginal()
+            with self.assertRaises(AbortOriginal):
+                execute(token, marker, body=marker.encode(),
+                        action_fn=already_started,
+                        application_name="trust_original_" + secrets.token_hex(4))
+            return "rolled_back"
+        wait_label = "trust_jti_wait_" + secrets.token_hex(4)
+        def replay():
+            try:
+                execute(token, marker, body=marker.encode(),
+                        application_name=wait_label)
+                return "accepted"
+            except TrustRejected:
+                return "denied"
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            p1 = pool.submit(first)
+            try:
+                self.assertTrue(admitted.wait(7), "first SQL action not admitted")
+                self.assertLess(self.db_time(), claims["exp"],
+                                "first action must start before expiry")
+                p2 = pool.submit(replay)
+                observed_at = self.wait_for_sql_lock(
+                    wait_label, "auth_trust_ci.replay_jti")
+                self.assertLess(observed_at, claims["exp"],
+                                "concurrent replay did not enter wait pre-exp")
+                self.assertFalse(p2.done())
+                self.wait_for_db_expiry(claims["exp"])
+                self.assertFalse(p2.done())
+            finally:
+                release.set()
+            self.assertEqual(p1.result(timeout=10), "rolled_back")
+            self.assertEqual(p2.result(timeout=10), "denied")
+        self.assertEqual(inserted(marker), 0)
+        self.assertEqual(self.proof_consumptions(claims), 0)
+        self.assertTrue(execute(
+            synthetic_proof(session, body=marker.encode()),
+            marker, body=marker.encode()))
+        self.assertEqual(inserted(marker), 1)
+
+    def test_TRI17_owner_lock_released_before_expiry_still_allows(self):
+        owner, session = new_fixture()
+        marker = self.marker()
+        claims = SIGNER.claims(owner_id=owner, session_ref=session.opaque,
+                               body=marker.encode(), duration=12)
+        token = SIGNER.sign(claims)
+        label = "trust_valid_owner_" + secrets.token_hex(4)
+        with db("MIG") as holder:
+            with holder.transaction():
+                holder.execute(
+                    "SELECT owner_id FROM auth_l1.owners "
+                    "WHERE owner_id=%s FOR UPDATE", (owner,),
+                )
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    pending = pool.submit(execute, token, marker,
+                        body=marker.encode(), application_name=label)
+                    observed_at = self.wait_for_sql_lock(
+                        label, "admit_session_fenced")
+                    self.assertLess(observed_at, claims["exp"])
+                    self.assertFalse(pending.done())
+            self.assertTrue(pending.result(timeout=10))
+        self.assertLess(self.db_time(), claims["exp"],
+                        "positive request must finish before exp")
+        self.assertEqual(inserted(marker), 1)
+        self.assertEqual(self.proof_consumptions(claims), 1)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

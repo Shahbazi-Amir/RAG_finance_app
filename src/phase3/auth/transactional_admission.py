@@ -71,8 +71,14 @@ def protected_operation(
     writes; only EXACT `True` from the accepted DB wrapper is authorization.
     No other DB session validation is reimplemented in Python.
 
+    Final time admission: after the JTI INSERT and Migration 004 Owner/Session
+    row locks, take a FRESH PostgreSQL primary clock_timestamp() sample and
+    require iat<=sample, nbf<=sample<exp (and age<=30s) before action. The
+    pre-lock verifier time is NOT authority after a PostgreSQL lock wait.
+    Once action begins before expiration, expiry does NOT cancel it mid-flight.
+
     JTI policy: consumed only on COMMIT. An attempted use rolled back due to
-    action error leaves JTI unused; the SAME still-unexpired assertion may
+    action error/expired-after-wait leaves JTI unused; a still-unexpired assertion may
     retry. On successful commit, replay is rejected, even after process restart
     with durable DB. Operation idempotency is DISTINCT; a newly signed JTI
     never changes the product operation's idempotency key or Receipt semantics.
@@ -97,6 +103,28 @@ def protected_operation(
                 assertion.epoch, assertion.generation,
             )
             if permitted is not True:
+                raise TrustRejected() from None
+            # Critical TOCTOU boundary: replay insert OR the SQL admission
+            # may have waited behind PostgreSQL row/unique locks. Do not
+            # authorize a NEW protected action with the verifier's earlier time.
+            # A MATERIALIZED CTE samples the primary DB wall clock ONCE,
+            # strictly after Migration 004 admission locks are held.
+            temporal = conn.execute(
+                """WITH decision_clock AS MATERIALIZED
+                         (SELECT clock_timestamp() AS checked_at)
+                   SELECT (checked_at >= to_timestamp(%s)
+                       AND checked_at >= to_timestamp(%s)
+                       AND checked_at < to_timestamp(%s)
+                       AND checked_at - to_timestamp(%s)
+                           <= interval '30 seconds') AS time_valid
+                   FROM decision_clock""",
+                (assertion.issued_at, assertion.not_before,
+                 assertion.expires_at, assertion.issued_at),
+            ).fetchone()
+            valid = (temporal.get("time_valid") if isinstance(temporal, dict)
+                     else temporal[0] if temporal is not None else None)
+            if valid is not True:
+                # One outer rollback removes the pending JTI INSERT as well.
                 raise TrustRejected() from None
             return action(conn, assertion.owner_id)
     except psycopg.Error:

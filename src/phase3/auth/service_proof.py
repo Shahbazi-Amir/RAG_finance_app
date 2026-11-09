@@ -45,6 +45,8 @@ class VerifiedServiceProof:
 
     issuer: str
     jti: str
+    issued_at: int
+    not_before: int
     expires_at: int
     session_ref: str
     owner_id: str
@@ -143,8 +145,8 @@ class BFFServiceVerifier:
                 if digest != sha256(original).hexdigest():
                     raise TrustRejected()
             return VerifiedServiceProof(
-                self._issuer, payload["jti"], payload["exp"],
-                payload["session_ref"], payload["owner_id"],
+                self._issuer, payload["jti"], payload["iat"], payload["nbf"],
+                payload["exp"], payload["session_ref"], payload["owner_id"],
                 payload["epoch"], payload["generation"],
             )
         except (jwt.PyJWTError, ValueError, TypeError, KeyError, TrustRejected):

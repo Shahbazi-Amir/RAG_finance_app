@@ -48,3 +48,49 @@ guard as transaction setup: a genuinely closed/failed primary DB connection
 cannot generate an actor or run protected SQL. CI TRI14 closes a real
 PostgreSQL connection and asserts TrustRejected + zero synthetic writes.
 This does not simulate every multi-node partial outage or Production HA mode.
+
+
+## TRUST-01-I — final temporal admission after lock wait (limited correction)
+
+**Mandatory second time decision (API/DB slice):** The initial PyJWT
+signature + issuer/audience/request binding + `iat/nbf/exp` check occurs
+BEFORE the transaction. **This initial check is NOT the final time
+authorization.** The replay UNIQUE INSERT and Migration 004
+`auth_session.admit_session_fenced()` may block for PostgreSQL locks.
+
+**Precise final point:** in the SAME outer PostgreSQL transaction and
+primary Connection, AFTER successful replay INSERT and the exact-True
+Migration 004 Session admission (Owner and Session `FOR SHARE` locks
+acquired), BEFORE invoking `action`, the API samples exactly ONE
+`clock_timestamp()` from that PostgreSQL primary (MATERIALIZED CTE). It
+requires `iat <= sampled_at`, `nbf <= sampled_at`, `sampled_at < exp`
+(strictly; equality at expiry is denied), and
+`sampled_at - iat <= 30 seconds`. All signed numeric claims were
+cryptographically verified and validated as nonnegative integers in the
+preflight; the final comparison uses the same verified values, not
+untrusted clock or an earlier request receipt timestamp.
+`TrustRejected` rolls back the entire transaction, including any
+inserted JTI; no protected action runs.
+
+**Ordering guarantee only:** an action **first admitted and started before**
+`exp` is not auto-cancelled as the clock advances; the product
+operation may finish after expiration unless it separately aborts.
+This boundary rejects only an operation that tries to **start after**
+the post-lock final time check fails. Migration 004 separately enforces
+DB Session idle/absolute expiry at its own admission instant; the
+checks do not replace one another, nor certify remote/HTTP rollback
+or global wall-clock synchronization.
+
+**Real CI adversarial requirement:** TRI15 a valid initial assertion
+waits on a real held Owner row lock with unchanged epoch; 
+`pg_stat_activity.wait_event_type=Lock` and live PostgreSQL
+`clock_timestamp() >= exp` must be independently observed; after
+release, reject with zero committed JTI or protected write, then
+fresh assertion succeeds. TRI16 a duplicate JTI waits on the first
+transaction's real UNIQUE-key SQL lock; the original operation
+began before expiry and is intentionally rolled back after the
+DB clock crosses expiry; the waiting replay must fail the final
+post-lock time gate rather than inherit the removed JTI. Fresh
+assertion then succeeds. TRI17 a corresponding Owner lock wait
+released BEFORE `exp` must permit action, with actual lock observation
+and DB-time evidence. All cases are bounded synthetic CI only.
