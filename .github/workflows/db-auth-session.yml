@@ -115,7 +115,9 @@ jobs:
           export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
           psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
           psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
-          test "$(psql -d history_ci -Aqt -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'")" = "1"
+          # Verify History persistence using its OWN migrator; auth_migrator has zero History grants.
+          PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -d history_ci -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'"
+          test "$(PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -d history_ci -Aqt -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'")" = "1"
       - name: Run real PostgreSQL synthetic History HDB and Auth BND tests
         run: |
           set -euo pipefail
