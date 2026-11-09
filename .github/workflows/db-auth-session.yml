@@ -1,8 +1,8 @@
-name: BND-DB-01 — isolated PostgreSQL Owner/Session foundation
+name: BND-DB-02 — session-aware PostgreSQL admission fencing
 
 on:
   push:
-    branches: [agent/db-auth-session]
+    branches: [agent/db-session-fence]
     paths:
       - '.github/workflows/db-auth-session.yml'
       - 'src/phase3/storage/postgres/**'
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   history-postgres:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/agent/db-auth-session'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/agent/db-session-fence'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
@@ -115,6 +115,30 @@ jobs:
           export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
           psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
           psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          # Data-bearing product DB before 004: synthetic session chain, never a real user.
+          psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO auth_l1.owners(owner_id) VALUES('synthetic_fence_preexisting');
+          INSERT INTO auth_l1.identity_links(issuer,subject,owner_id)
+            VALUES('https://synthetic.invalid/bnd02','synthetic_fence_subject','synthetic_fence_preexisting');
+          INSERT INTO auth_l1.sessions(digest_sha256,owner_id,session_epoch,generation,status,
+              created_at,last_activity_at,idle_expires_at,absolute_expires_at,idle_seconds)
+            VALUES(repeat('b',64),'synthetic_fence_preexisting',0,0,'active',
+              clock_timestamp(),clock_timestamp(),
+              clock_timestamp()+interval '15 minutes',
+              clock_timestamp()+interval '1 hour',900);
+          SQL
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
+          test "$(psql -d history_ci -Aqt -c "SELECT count(*) FROM auth_l1.sessions WHERE owner_id='synthetic_fence_preexisting'")" = "1"
+          # Only disposable CI Harness role may insert synthetic protected markers.
+          # NO History or Auth table grants to auth_sessions are added.
+          psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA auth_fence_ci;
+          REVOKE ALL ON SCHEMA auth_fence_ci FROM PUBLIC;
+          CREATE TABLE auth_fence_ci.protected_actions(
+            owner_id text NOT NULL,marker text PRIMARY KEY);
+          GRANT USAGE ON SCHEMA auth_fence_ci TO auth_sessions;
+          GRANT INSERT ON auth_fence_ci.protected_actions TO auth_sessions;
+          SQL
           # Verify History persistence using its OWN migrator; auth_migrator has zero History grants.
           PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -d history_ci -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'"
           test "$(PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -d history_ci -Aqt -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'")" = "1"
@@ -147,6 +171,28 @@ jobs:
             VALUES('https://synthetic.invalid/rollback','synthetic_sub','synthetic_auth_rollback_owner');
           SQL
           test "$(psql -d auth_rollback_ci -Aqt -c "SELECT count(*) FROM auth_l1.identity_links")" = "1"
+          # A complete synthetic Owner+Session chain in 003 before 004 up.
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO auth_l1.sessions(digest_sha256,owner_id,session_epoch,generation,status,
+             created_at,last_activity_at,idle_expires_at,absolute_expires_at,idle_seconds)
+           VALUES(repeat('a',64),'synthetic_auth_rollback_owner',0,0,'active',
+              clock_timestamp(),clock_timestamp(),
+              clock_timestamp()+interval '20 minutes',
+              clock_timestamp()+interval '1 hour',1200);
+          SQL
+          before="$(psql -d auth_rollback_ci -Aqt -c "SELECT md5(row_to_json(s)::text) FROM auth_l1.sessions s WHERE digest_sha256=repeat('a',64)")"
+          test -n "$before"
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT to_regprocedure('auth_l1.admit_session_fenced(text,text,bigint,integer)') IS NOT NULL")" = "t"
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT md5(row_to_json(s)::text) FROM auth_l1.sessions s WHERE digest_sha256=repeat('a',64)")" = "$before"
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.down.sql
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT to_regprocedure('auth_l1.admit_session_fenced(text,text,bigint,integer)') IS NULL")" = "t"
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT md5(row_to_json(s)::text) FROM auth_l1.sessions s WHERE digest_sha256=repeat('a',64)")" = "$before"
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT md5(row_to_json(s)::text) FROM auth_l1.sessions s WHERE digest_sha256=repeat('a',64)")" = "$before"
+          echo '004 data-bearing up/down/up retains synthetic Owner+Session bytes; 004 down is non-destructive'
+          # Only now perform deliberately DESTRUCTIVE 003 down on disposable DB.
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.down.sql
           psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.down.sql
           test "$(psql -d auth_rollback_ci -Aqt -c "SELECT to_regclass('auth_l1.owners') IS NULL")" = "t"
           psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
