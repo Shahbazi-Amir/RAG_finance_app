@@ -84,9 +84,11 @@ def protected_operation(
                                 raw_path=raw_path, raw_query=raw_query,
                                 raw_body=body)
     # This caller never opens product API History's repository/transaction.
-    if not conn.autocommit or conn.info.transaction_status != TransactionStatus.IDLE:
-        raise TrustRejected() from None
+    # Even inspecting a *closed or failed* PG connection may itself raise a
+    # psycopg error; that too must fail closed, before any protected callback.
     try:
+        if not conn.autocommit or conn.info.transaction_status != TransactionStatus.IDLE:
+            raise TrustRejected() from None
         with conn.transaction():
             if replay_store.consume(conn, assertion) is not True:
                 raise TrustRejected() from None

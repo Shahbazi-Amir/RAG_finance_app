@@ -425,5 +425,22 @@ class BFFTrustPostgres(unittest.TestCase):
         self.assertEqual(self.http(proof, marker).status_code, 200)
 
 
+
+    def test_TRI14_closed_postgresql_session_store_fails_closed(self):
+        _, session = new_fixture()
+        marker = self.marker()
+        proof = synthetic_proof(session, body=marker.encode())
+        closed = db()
+        closed.close()
+        # Real dead connection, not a mocked in-memory replay cache.
+        with self.assertRaises(TrustRejected):
+            protected_operation(
+                closed, verifier=VERIFIER, replay_store=STORE,
+                compact_assertion=proof, method="POST",
+                raw_path=b"/fixture", raw_query=b"", body=marker.encode(),
+                action=action(marker),
+            )
+        self.assertEqual(inserted(marker), 0)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

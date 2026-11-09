@@ -59,3 +59,19 @@ Exact source SHA 9129782b89d12adc0719ccd67477919b025bcc08, [Push CI Run 42678454
 - **Existing History HTTP/PostgreSQL:** 18/20 PASS, *two failures only*: test_09 Conversation Cursor and test_10 Message pagination returned **503 CURSOR_CONFIGURATION** because the new Workflow's separate history_api_ci fixture omitted existing `API_CURSOR_KEY` (and TTL) from the already accepted `.github/workflows/api-history.yml`. No product code changed; no evidence of Auth/DB 004 regression.
 
 **Narrow correction, WORKFLOW ONLY:** set exact CI synthetic `API_CURSOR_KEY=ci-only-cursor-signing-not-production-2026-verified-unit-test` and `API_CURSOR_TTL_SECONDS=300`, as in existing accepted API History CI. These are nonsecret synthetic configuration, NOT product keys; CI environment only, no production credential. This checkpoint updated atomically in same Push; no tests softened or migrated. Expected next Run exact new SHA must prove all six real commands green. Version evidence from actual CI: Python 3.13.18, psycopg 3.3.8, PyJWT 2.15.1, cryptography 50.0.2, FastAPI 0.162.2, httpx 0.28.1, PostgreSQL 17.11. Last source remains unaccepted until overall green; acceptance stays NONE.
+
+
+## TRUST-01-G — first full GREEN CI and follow-up DB-down hardening (2026-11-09)
+
+SOURCE SHA 932bedd026a8bd94551299a10266494b27a0a9ed,
+[actual GitHub Push Run 42678700135](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42678700135) **COMPLETED SUCCESS**. All CI steps successful. Real counts:
+- TRU01..TRU10 pure static RSA/byte-bound service proof **10/10 PASS**;
+- TRI01..TRI13 real PostgreSQL 17.11 synthetic FastAPI/JTI/session SQL **13/13 PASS**;
+- unchanged BND16..BND25 004 DB admission fence **10/10 PASS**;
+- unchanged History contracts **17/17 PASS**;
+- unchanged API History/PostgreSQL HTTP suite **20/20 PASS**.
+**Total 70/70 tests**, with real PostgreSQL, true concurrent replay/revoke lock waits, rollback and denied privileges, not static claim. Versions from Run: Python 3.13.18, PostgreSQL 17.11, PyJWT 2.15.1, cryptography 50.0.2, psycopg 3.3.8, FastAPI 0.162.2, httpx 0.28.1. No product file or migration changes. Earlier failures recorded above remain part of audit.
+
+**Extra fail-closed audit discovery:** preflight `conn.autocommit` and `conn.info.transaction_status` was outside the psycopg.Error handling. Under a closed/disconnected session store connection an exception could bypass the generic TrustRejected boundary, even though no protected SQL would run. Narrow correction: include the connection preflight inside existing psycopg.Error catch; new **TRI14** uses genuinely closed PostgreSQL connection to require TrustRejected and no protected writes. Existing positives, roles and assertions stay intact. Extra updated source SHA is NOT_TESTED until its own GitHub Actions run. This is not a mock proof of every partial infrastructure outage or reconnect behavior.
+
+Implemented=SOURCE_PLUS_DB_DOWN_GUARD; tested=70_GREEN_PREVIOUS_SHA, NEW_TRI14_PENDING; accepted=NONE / SUPERVISOR_PENDING. Any new working Push includes this same ledger. Do not merge, do not enable Product Auth.

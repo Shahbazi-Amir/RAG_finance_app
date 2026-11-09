@@ -39,3 +39,12 @@ Only `ubuntu-24.04` free GitHub runner and `postgres:17.11` service; ephemeral s
 **Remaining requirements:** Production durable replay table/retention and approved grants/migration from DB owner; BFF signer/private key and issuer/audience provisioning by UI/ops; transport mTLS, key rotation and clock sync; proof/session-ref exchange protection; verified fresh reauth/Reset outside product; live Auth→History permission/RLS and CSRF; two-user integration and security Gate. None accepted by this slice.
 
 **Traceability:** P3M03-A01/A03/A08; P3M05-A03/A07/A08/A09/A10; P3M06-A03/A05/A07; P3M13-A03/A07/A08/A09/A10; operational overlay P3OP03-R01/R02/R05, not counted as new Gate.
+
+
+### Closed PostgreSQL connection fail-closed negative
+
+The coordinator's connection preflight runs inside the same psycopg exception
+guard as transaction setup: a genuinely closed/failed primary DB connection
+cannot generate an actor or run protected SQL. CI TRI14 closes a real
+PostgreSQL connection and asserts TrustRejected + zero synthetic writes.
+This does not simulate every multi-node partial outage or Production HA mode.
