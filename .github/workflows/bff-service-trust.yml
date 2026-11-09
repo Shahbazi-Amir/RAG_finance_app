@@ -1,0 +1,146 @@
+name: BFF Service Trust - Node to Python mTLS and durable replay
+on:
+  push:
+    branches: [agent/bff-service-trust]
+    paths:
+      - 'apps/web/src/auth/server/**'
+      - 'tests/phase3/ui/**'
+      - 'tests/phase3/integration/ui/**'
+      - '.github/workflows/bff-service-trust.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/web/src/auth/server/**'
+      - 'tests/phase3/ui/**'
+      - 'tests/phase3/integration/ui/**'
+      - '.github/workflows/bff-service-trust.yml'
+permissions:
+  contents: read
+jobs:
+  bff-trust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_PASSWORD: synthetic_ci_only_not_a_secret
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 3s --health-timeout 3s --health-retries 30
+    env:
+      CI: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: synthetic_ci_only_not_a_secret
+      API_CURSOR_KEY: synthetic-bff-ci-only-cursor-key-not-production-2026
+      API_CURSOR_TTL_SECONDS: '300'
+      AUTH_TRUST_API_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_trust_api password=synthetic_trust_only connect_timeout=5
+      AUTH_TRUST_MAP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_mapper password=synthetic_mapper_only connect_timeout=5
+      AUTH_TRUST_SESSION_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_sessions password=synthetic_session_only connect_timeout=5
+      AUTH_TRUST_REVOKER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_revoker password=synthetic_revoker_only connect_timeout=5
+      AUTH_TRUST_REAUTH_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reauth password=synthetic_reauth_only connect_timeout=5
+      AUTH_TRUST_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_migrator password=synthetic_auth_migrator_only connect_timeout=5
+      AUTH_TRUST_CLEANER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_replay_cleaner password=synthetic_cleaner_only connect_timeout=5
+      AUTH_TRUST_DENIED_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_trust_denied password=synthetic_denied_only connect_timeout=5
+      AUTH_TRUST_NO005_DSN: host=127.0.0.1 port=5432 dbname=history_no005_ci user=auth_trust_api password=synthetic_trust_only connect_timeout=5
+      REPLAY_API_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_trust_api password=synthetic_trust_only connect_timeout=5
+      REPLAY_CLEANER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_replay_cleaner password=synthetic_cleaner_only connect_timeout=5
+      AUTH_MAP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_mapper password=synthetic_mapper_only connect_timeout=5
+      AUTH_SESSION_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_sessions password=synthetic_session_only connect_timeout=5
+      AUTH_REVOKER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_revoker password=synthetic_revoker_only connect_timeout=5
+      AUTH_REAUTH_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reauth password=synthetic_reauth_only connect_timeout=5
+      AUTH_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_migrator password=synthetic_auth_migrator_only connect_timeout=5
+      DB_APP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_app password=synthetic_app_only connect_timeout=5
+      API_HISTORY_DSN: host=127.0.0.1 port=5432 dbname=history_api_ci user=history_app password=synthetic_app_only connect_timeout=5
+      API_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_api_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+      BFF_API_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_trust_api password=synthetic_trust_only connect_timeout=5
+      BFF_MAP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_mapper password=synthetic_mapper_only connect_timeout=5
+      BFF_SESSION_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_sessions password=synthetic_session_only connect_timeout=5
+      BFF_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_migrator password=synthetic_auth_migrator_only connect_timeout=5
+      BFF_TLS_DIR: ${{ runner.temp }}/bff-tls
+      BFF_TRUST_PUBKEY_FILE: ${{ runner.temp }}/bff-signer.pub
+      BFF_TRUST_SESSION_FILE: ${{ runner.temp }}/bff-session.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Existing web lockfile and pinned Python CI libraries
+        run: |
+          set -euo pipefail
+          (cd apps/web && npm ci --no-audit --no-fund)
+          python -m pip install --no-cache-dir --index-url https://pypi.org/simple \
+            -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.34.3'
+      - name: All Node UI tests and Typecheck Lint Build
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          npm run typecheck
+          npm run lint
+          npm test
+          npm run build
+      - name: Negative real Next Client Component server-only import build
+        run: |
+          set -euo pipefail
+          mkdir -p apps/web/app/__bff_forbidden_import
+          cat > apps/web/app/__bff_forbidden_import/page.tsx <<'TSX'
+          'use client';
+          import {createServiceSender} from '../../src/auth/server/index';
+          export default function Forbidden(){return <p>{typeof createServiceSender}</p>;}
+          TSX
+          if (cd apps/web && npm run build) > "$RUNNER_TEMP/bff-negative-build.log" 2>&1; then
+            rm -rf apps/web/app/__bff_forbidden_import
+            echo 'NEGATIVE_BROWSER_BUNDLE_UNEXPECTED_SUCCESS';exit 1
+          fi
+          if ! grep -Eiq 'server-only|cannot be imported from a Client Component|Client Component.*server' "$RUNNER_TEMP/bff-negative-build.log"; then
+            echo 'NEGATIVE_BROWSER_BUNDLE_UNEXPECTED_FAILURE';exit 1
+          fi
+          rm -rf apps/web/app/__bff_forbidden_import
+          echo 'NEXT_CLIENT_IMPORT_DENIED_PASS'
+      - name: Unchanged PostgreSQL migrations and ephemeral mTLS/RSA credentials
+        run: bash tests/phase3/integration/ui/setup_bff_ci.sh
+      - name: Accepted API Session Replay History and DB regressions
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
+          python -m unittest discover -s tests/phase3/database -p 'test_auth_session.py' -v
+          python -m unittest discover -s tests/phase3/database -p 'test_auth_null_fence.py' -v
+          python -m unittest discover -s tests/phase3/database -p 'test_auth_session_fence.py' -v
+          python -m unittest discover -s tests/phase3/database -p 'test_service_replay.py' -v
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_auth_trust_postgres.py' -v
+          python -m unittest discover -s tests/phase3/contracts -p 'test_history.py' -v
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_http_postgres.py' -v
+      - name: Trusted CLI-only synthetic Session fixtures and independent Python verifier HTTPS
+        run: |
+          set -euo pipefail
+          python tests/phase3/integration/ui/prepare_bff_trust.py
+          python tests/phase3/integration/ui/bff_trust_harness.py > "$RUNNER_TEMP/bff-server.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/bff-server.pid"
+          for i in $(seq 1 50); do
+            if curl -fsS --max-time 2 --cacert "$BFF_TLS_DIR/ca.crt" \
+              --cert "$BFF_TLS_DIR/client.crt" --key "$BFF_TLS_DIR/client.key" \
+              'https://127.0.0.1:8443/fixture-invalid' > /dev/null 2>&1; then break; fi
+            if [ "$i" -eq 50 ]; then echo 'MTLS_FIXTURE_NOT_READY';exit 1; fi
+            sleep 1
+          done
+          echo 'REAL_LOOPBACK_MTLS_READY'
+      - name: Real Node signer to HTTPS mTLS FastAPI PostgreSQL Replay E2E
+        env:
+          NODE_OPTIONS: --dns-result-order=ipv4first
+        run: node --experimental-strip-types tests/phase3/integration/ui/bff_service.mjs
+      - name: Stop CI-only service without publishing sensitive artifacts
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/bff-server.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/bff-server.pid")" 2>/dev/null || true
+          fi
+          echo 'NO_PRIVATE_KEY_CERT_ASSERTION_OR_SESSION_ARTIFACT_UPLOADED'
