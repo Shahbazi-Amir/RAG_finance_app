@@ -47,3 +47,15 @@ SOURCE SHA 423f360fab95f7765737e3bf3bcbaa5526709874; [GitHub Push Run 4267813216
 **Narrow correction:** replace targeted ON CONFLICT with ordinary INSERT into the existing unique indexed fixture table; catch `psycopg.errors.UniqueViolation` and return False, forcing the outer coordinator to raise TrustRejected and roll back the aborted TX. Every other SQL error still fails closed. Keep **INSERT-only** auth_trust_api and **NO SELECT/UPDATE/DELETE** on replay table; no schema or role broadening and no DB migration. The test's direct SELECT-denial remains mandatory. Changed code only src/phase3/auth/transactional_admission.py, linked service-proof interface doc and this cumulative checkpoint. No test relaxation. Test after fix **PENDING actual new SHA CI**.
 
 Additional precision: JTI is NOT persisted on failed/rolled-back protected operation, but remains consumed on a committed operation; unique constraint is real PostgreSQL across all connections, unlike process-only memory. Assertion signing secrets never in report. If second run fails, record error and follow-up in next atomic push.
+
+
+## TRUST-01-F — real new-slice ALL PASS, unchanged History regression harness config correction
+
+Exact source SHA 9129782b89d12adc0719ccd67477919b025bcc08, [Push CI Run 42678454139](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42678454139): **COMPLETED FAILURE overall**, but ALL new and prior DB trust cases passed:
+- **TRU01–TRU10:** 10/10 PASS on real pinned PyJWT 2.15.1 RSA signature/config/time/path/query/body/owner negatives.
+- **TRI01–TRI13:** 13/13 PASS on actual PostgreSQL 17.11 with dedicated INSERT-only auth_trust_api, synthetic in-process FastAPI HTTP, real same-session 004 transaction fencing, concurrent JTI unique conflict, revoke race/lock wait, expiry, rotation, revoke all, suspension, missing replay store, rollback/no partial effect.
+- **BND16–BND25 existing DB Session-aware fence:** 10/10 PASS, unchanged test/source.
+- **Existing History product contract:** 17/17 PASS unchanged.
+- **Existing History HTTP/PostgreSQL:** 18/20 PASS, *two failures only*: test_09 Conversation Cursor and test_10 Message pagination returned **503 CURSOR_CONFIGURATION** because the new Workflow's separate history_api_ci fixture omitted existing `API_CURSOR_KEY` (and TTL) from the already accepted `.github/workflows/api-history.yml`. No product code changed; no evidence of Auth/DB 004 regression.
+
+**Narrow correction, WORKFLOW ONLY:** set exact CI synthetic `API_CURSOR_KEY=ci-only-cursor-signing-not-production-2026-verified-unit-test` and `API_CURSOR_TTL_SECONDS=300`, as in existing accepted API History CI. These are nonsecret synthetic configuration, NOT product keys; CI environment only, no production credential. This checkpoint updated atomically in same Push; no tests softened or migrated. Expected next Run exact new SHA must prove all six real commands green. Version evidence from actual CI: Python 3.13.18, psycopg 3.3.8, PyJWT 2.15.1, cryptography 50.0.2, FastAPI 0.162.2, httpx 0.28.1, PostgreSQL 17.11. Last source remains unaccepted until overall green; acceptance stays NONE.

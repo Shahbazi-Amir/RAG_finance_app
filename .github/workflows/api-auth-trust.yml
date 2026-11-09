@@ -55,6 +55,8 @@ jobs:
       DB_APP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_app password=synthetic_app_only connect_timeout=5
       API_HISTORY_DSN: host=127.0.0.1 port=5432 dbname=history_api_ci user=history_app password=synthetic_app_only connect_timeout=5
       API_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_api_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+      API_CURSOR_KEY: ci-only-cursor-signing-not-production-2026-verified-unit-test
+      API_CURSOR_TTL_SECONDS: '300'
     steps:
       - name: Checkout exact code without persisted credential
         uses: actions/checkout@v4
