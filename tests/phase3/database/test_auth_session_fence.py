@@ -247,3 +247,28 @@ class SessionAwareFence(unittest.TestCase):
         with db() as c:
             with self.assertRaises(InsufficientPrivilege):
                 c.execute("SELECT * FROM history_l1.messages LIMIT 1")
+
+    def test_BND25_specific_session_row_lock_held_through_commit(self):
+        actor=owner()["owner_id"]; session=issue(actor)
+        name="bnd25_session_specific_lock"
+        def privileged_observer():
+            # Disposable CI migrator bypasses Owner lock to prove Session row lock.
+            with db("MIG") as c:
+                c.execute("SELECT set_config('application_name',%s,false)",(name,))
+                c.execute("SET statement_timeout='9000ms'")
+                return c.execute("""UPDATE auth_l1.sessions
+                    SET last_activity_at=last_activity_at
+                    WHERE digest_sha256=%s""",(digest(session.opaque),)).rowcount
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            with db() as conn:
+                with conn.transaction():
+                    self.assertTrue(admit(conn,session))
+                    pending=ex.submit(privileged_observer)
+                    observed_wait([name])
+                    self.assertFalse(pending.done())
+                    protected(conn,actor,"bnd25_session_lock")
+            self.assertEqual(pending.result(timeout=12),1)
+        self.assertEqual(written("bnd25_session_lock"),1)
+        with db() as conn:
+            with conn.transaction():
+                self.assertTrue(admit(conn,session))
