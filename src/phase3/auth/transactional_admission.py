@@ -28,7 +28,9 @@ class ReplayStore(Protocol):
 class PostgresCiReplayStore:
     """ONLY disposable auth_trust_ci.replay_jti, never an app migration.
 
-    No SELECT privilege, no raw JTI storage. Unique digest prevents two
+    No SELECT privilege, no raw JTI storage. A plain INSERT and UNIQUE
+    constraint deny replay without granting SELECT/UPDATE on the JTI table.
+    Unique digest prevents two
     workers/threads from both committing a use, including after restart while
     this database survives. No in-memory fallback.
     """
@@ -37,12 +39,16 @@ class PostgresCiReplayStore:
         if conn.info.transaction_status != TransactionStatus.INTRANS:
             raise TrustRejected() from None
         digest = sha256((assertion.issuer + "\x00" + assertion.jti).encode("utf-8")).hexdigest()
-        cur = conn.execute(
-            """INSERT INTO auth_trust_ci.replay_jti(jti_sha256,expires_at)
-               VALUES (%s,to_timestamp(%s))
-               ON CONFLICT (jti_sha256) DO NOTHING""",
-            (digest, assertion.expires_at),
-        )
+        try:
+            cur = conn.execute(
+                """INSERT INTO auth_trust_ci.replay_jti(jti_sha256,expires_at)
+                   VALUES (%s,to_timestamp(%s))""",
+                (digest, assertion.expires_at),
+            )
+        except psycopg.errors.UniqueViolation:
+            # The outer coordinator MUST now throw TrustRejected and ROLLBACK
+            # the aborted transaction. Never continue protected SQL.
+            return False
         return cur.rowcount == 1
 
 

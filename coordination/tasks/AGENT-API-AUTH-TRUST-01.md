@@ -38,3 +38,12 @@ Expected checks (ALL new NOT_RUN at first Push): TRU01..10 static RSA/keys/issue
 ## TRUST-01-D — review handoff policy
 
 For every meaningful Push update THIS SAME file in the same atomic commit, keep branch and Draft PR unmerged; report source tested SHA and documentary final SHA separately. New code and tests do not authorize real Auth, History, reset/reauth or Module Gate acceptance. Proposed final label **READY_FOR_REVIEW — API_SERVICE_TRUST_SLICE** is conditional on observed green real CI.
+
+
+## TRUST-01-E — first REAL CI failure and least-privilege SQL fix (2026-11-09)
+
+SOURCE SHA 423f360fab95f7765737e3bf3bcbaa5526709874; [GitHub Push Run 42678132169](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42678132169) **COMPLETED FAILURE**. PostgreSQL 17.11 service started and migrations 001-004 applied; pinned Python 3.13.18, PyJWT 2.15.1, cryptography 50.0.2, psycopg 3.3.8 installed successfully. Compileall and **10/10 pure Trust Unit tests PASS**. Initial 13 integration tests: 3 PASS, 9 FAIL, 1 ERROR. Failed real SQL stage had actual server diagnostic `permission denied for table replay_jti` on positive admission. Cause: `INSERT ... ON CONFLICT (jti_sha256) DO NOTHING` under deliberately INSERT-only role requires more table privileges in PostgreSQL 17.11. This is NOT an assertion/DB 004 failure; initial positive proof never entered protected SQL. No positive concurrency/revoke claims from that run.
+
+**Narrow correction:** replace targeted ON CONFLICT with ordinary INSERT into the existing unique indexed fixture table; catch `psycopg.errors.UniqueViolation` and return False, forcing the outer coordinator to raise TrustRejected and roll back the aborted TX. Every other SQL error still fails closed. Keep **INSERT-only** auth_trust_api and **NO SELECT/UPDATE/DELETE** on replay table; no schema or role broadening and no DB migration. The test's direct SELECT-denial remains mandatory. Changed code only src/phase3/auth/transactional_admission.py, linked service-proof interface doc and this cumulative checkpoint. No test relaxation. Test after fix **PENDING actual new SHA CI**.
+
+Additional precision: JTI is NOT persisted on failed/rolled-back protected operation, but remains consumed on a committed operation; unique constraint is real PostgreSQL across all connections, unlike process-only memory. Assertion signing secrets never in report. If second run fails, record error and follow-up in next atomic push.
