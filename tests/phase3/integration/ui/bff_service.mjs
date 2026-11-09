@@ -172,6 +172,7 @@ let finishResponse;
 let dripWrites=0;
 let dripTimer;
 const tlsSockets=new Set();
+const tlsClosed=[];
 try{
   responseFirst=new Promise(resolve=>{startResponse=resolve;});
   responseClosed=new Promise(resolve=>{finishResponse=resolve;});
@@ -180,7 +181,8 @@ try{
     requestCert:true,rejectUnauthorized:true,
   },(request,response)=>{
     request.resume();
-    if(request.url==='/deadline-drip'){
+    const requestPath=request.url?.split('?')[0];
+    if(requestPath==='/deadline-drip'){
       response.on('close',()=>{
         if(dripTimer)clearInterval(dripTimer);
         finishResponse({destroyed:response.destroyed,finished:response.writableFinished});
@@ -196,7 +198,7 @@ try{
         response.write(' ');
         if(dripWrites===20){clearInterval(dripTimer);response.end('true}');}
       },110);
-    }else if(request.url==='/deadline-fast'){
+    }else if(requestPath==='/deadline-fast'){
       response.setHeader('Content-Type','application/json');
       response.end('{"ok":true}');
     }else{
@@ -206,7 +208,9 @@ try{
   });
   tlsServer.on('connection',socket=>{
     tlsSockets.add(socket);
-    socket.once('close',()=>tlsSockets.delete(socket));
+    tlsClosed.push(new Promise(resolve=>socket.once('close',()=>{
+      tlsSockets.delete(socket);resolve();
+    })));
   });
   const port=await listen(tlsServer);
   const localOrigin='https://127.0.0.1:'+port;
@@ -237,9 +241,12 @@ try{
   if(dripTimer)clearInterval(dripTimer);
   if(tlsServer){
     await closeServer(tlsServer);
-    assert.equal(tlsSockets.size,0,'no HTTPS transport sockets left open');
+    // Server.close callback may precede the last socket's close event;
+    // explicitly wait on every observed socket, not a timing-only sleep.
+    await within(Promise.all(tlsClosed),3000,'HTTPS_SOCKET_CLOSE_EVENTS');
   }
 }
+assert.equal(tlsSockets.size,0,'no HTTPS transport sockets left open');
 
 await check('accepted TCP with stalled TLS handshake hits absolute deadline and closes socket',async()=>{
   let tcpServer;
