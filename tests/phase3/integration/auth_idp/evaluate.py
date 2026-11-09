@@ -834,7 +834,13 @@ async def password_challenge_02a(ctx, cb, email, old_pw, new_pw, original):
 
 
 async def bnd_idp_02a(browser, cb):
-    global CURRENT
+    global CURRENT, ADMIN
+    # The original IDP-01 browser/OTP suite may consume most of the short
+    # bootstrap Admin REST access token's lifetime. Reauthenticate the
+    # disposable CI-only Admin through the EXISTING local master token API.
+    # Never extend its TTL, persist it or bypass Keycloak authorization.
+    CURRENT = "RA-bootstrap-admin-refresh-after-original-suite"
+    ADMIN = Admin()
     CURRENT = "RA-provision-isolated-verified-test-user"
     ADMIN.create_policy_probe(FRESH, PASSWORDS[FRESH])
     configure_02a_flow()
