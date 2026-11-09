@@ -54,7 +54,7 @@ function prepare(c:ServerTrustConfig):{key:KeyObject;target:URL}{
     const key=createPrivateKey(c.privateKeyPem);
     if(key.asymmetricKeyType!=='rsa'||(key.asymmetricKeyDetails?.modulusLength??0)<2048)deny();
     return {key,target};
-  }catch{deny();}
+  }catch{return deny();}
 }
 /** Called with an actual trusted server-store result, NEVER browser identity. */
 export function signForTrustedAttempt(c:ServerTrustConfig,s:TrustedSession,op:WireOperation):string{
@@ -75,7 +75,7 @@ export function signForTrustedAttempt(c:ServerTrustConfig,s:TrustedSession,op:Wi
     const jwt=input+'.'+encode(sig);
     if(jwt.length>4096)deny();
     return jwt;
-  }catch{deny();}
+  }catch{return deny();}
 }
 /** No automatic retry: caller retains immutable operation/idempotency payload. */
 export function createServiceSender(c:ServerTrustConfig,resolveSession:()=>Promise<TrustedSession>):
