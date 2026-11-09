@@ -102,3 +102,19 @@ credential for successful-login baselines. The negative old password checks
 include both the weak candidate and the previous known valid password.
 No Admin user-session logout or lockout-clear endpoint is called.
 This is a source correction; actual retest remains required.
+
+## Second C failure; browser-session reset correction
+
+Exact  aeebdf8c1f6876d32057fb10ce5b73a3552e912d push
+Run 42615811964 reached A/B PASS again, then failed with AssertionError
+at policy-action-browser-form after actual local message capture and URL
+parsing; the standalone admin-created UPDATE_PASSWORD action opened
+in a new browser context did not expose the expected password form.
+Do not claim the realm rejected password policy: no C policy assertion
+was reached. C now uses the exact real browser-initiated Forgot Password
+form and locally captured Reset action in the SAME original browser
+authentication context that had already passed IDP-06 in this run.
+It tests weak then strong password in that real Reset form and verifies
+them via independent logins. The separate synthetic policy-probe still
+covers read-only brute-force status and natural timeout. No change to
+network, workflow, public API or realm authorization.

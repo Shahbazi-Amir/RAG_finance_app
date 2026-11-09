@@ -343,3 +343,35 @@ B real pre-reset SSO proved through OIDC prompt=none. After actual reset of same
 C NOT_PASS: first live suite failed with sanitized stage policy-local-update-password-email, AssertionError, after IDP-09. That broad stage encompassed email retrieval, action-link extraction and first browser navigation, so exact root cause NOT_VERIFIED; do not falsely label missing message. Narrow fix: use existing already verified second synthetic user and already proven Mailpit UPDATE_PASSWORD action for actual weak vs strong form policy; independent third account with valid bootstrap synthetic password only for login-failure/temporary-lockout/natural-release tests. Add safe constant stage names around Mailpit retrieval, action-link extraction, password form (never log body or link). No sensitive data/real SMTP, product edit, user admin logout, admin lockout clear or disabled tests. Four original allowed task paths affected; same branch same PR, no new CI claim before running.
 
 Exact method remains .github/workflows/auth-idp.yml, unchanged, with python compileall and actual Chromium/Mailpit/IdP Docker isolated integration; checkpoint cumulative. Implemented=C_ACTION_SOURCE_DIAGNOSTIC_NARROWED; Tested=A_B_PASS_ON_FIRST_SHA_C_FAILED; Accepted=NONE. Next: inspect rerun outcome on the NEW source SHA. Keep Draft, do NOT merge.
+
+
+## IDP-CI-01-AE — C standalone action opened no form; use proven user-initiated Forgot/Reset
+
+Two actual real CI Runs on source aeebdf8c1f6876d32057fb10ce5b73a3552e912d:
+Push https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42615811964
+and PR https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42615822049
+completed FAILURE. Actual push sanitized runtime reached IDP-A01..A06, B00,
+B01 and all prior base cases through IDP-09 PASS. Failing stage
+policy-action-browser-form AssertionError: local mail was captured and the
+action token link parsed, but the standalone UPDATE_PASSWORD action landing
+did not show a password input in a FRESH browser context. Exact DOM
+reason unverified; no weak-password or Brute Force PASS claim. Isolation
+and teardown PASS, sanitized logs contain no URLs/credentials.
+
+Narrow workaround based on actual prior positive IDP-06 behavior, not bypass:
+the SAME already verified synthetic second user initiates a normal browser
+Forgot Password action, and follows its locally SMTP-captured reset link in
+the SAME original browser authentication context (not the standalone
+admin-created action). Weak and policy-compliant password are submitted on
+that same real reset form, with explicit rejection then acceptance and
+fresh browser login proofs. Separate synthetic third account still tests
+bounded Brute Force. No Admin logout, admin lockout release, real SMTP,
+other repository, product BFF/API/UI/History, root/schema/checklist or workflow
+changes. Only evaluate.py, infra/auth-ci/README.md and this same cumulative
+mission ledger updated. Tested on new revision=PENDING until real CI.
+
+Run reproducible: unchanged automatic .github/workflows/auth-idp.yml with
+docker build, docker compose, docker network inspection/egress denial,
+python compileall, actual Chromium /suite/evaluate.py, always teardown,
+sanitized artifact. Keep Draft PR #13, no merge. Implemented=C_BROWSER_RESET_SESSION_FIX;
+Tested=A_B_PASS_PREVIOUS_SHA_C_PENDING; Accepted=NONE.

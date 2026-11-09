@@ -475,14 +475,21 @@ async def password_policy_and_lockout(browser, cb):
     # user: its Mailpit UPDATE_PASSWORD delivery was proven in prior green
     # and in the real reset B flow of this very run. No new real account.
     target = EMAILS[1]
-    CURRENT = "policy-existing-verified-account-action-email"
+    # Keycloak's proven browser-initiated Forgot/Reset flow retains its
+    # authentication-session context while visiting the captured action link.
+    flow, ctx, page = await begin(browser)
     previous = mail_ids()
-    await asyncio.to_thread(ADMIN.action_mail, ADMIN.user(target)["id"], "UPDATE_PASSWORD")
+    CURRENT = "policy-browser-forgot-link"
+    await page.locator('a[href*="reset-credentials"]').first.click()
+    CURRENT = "policy-browser-reset-request"
+    await expect(page.locator("#kc-reset-password-form")).to_be_visible(timeout=10000)
+    await page.locator('#kc-reset-password-form input[name="username"]').fill(target)
+    CURRENT = "policy-browser-reset-submit"
+    await page.locator('#kc-reset-password-form #kc-form-buttons, #kc-reset-password-form button[type="submit"], #kc-reset-password-form input[type="submit"]').first.click()
     CURRENT = "policy-email-capture"
     _, msg = await email_after(target, previous)
     CURRENT = "policy-action-token-extraction"
     link = action_url(msg)
-    ctx, page = await new_page(browser)
     CURRENT = "policy-action-browser-form"
     await page.goto(link, wait_until="domcontentloaded")
     fields = '#password-new, input[name="password-new"]'
@@ -503,7 +510,8 @@ async def password_policy_and_lockout(browser, cb):
     # Action-email completion can leave a callback from its own flow.
     # Consume only non-exchanged callbacks and never use them as login proof.
     while not cb.server.inbox.empty():
-        cb.server.inbox.get_nowait()  # Unexchanged action-flow callbacks only.
+        prior = cb.server.inbox.get_nowait()
+        assert prior.get("state") == [flow["state"]], "UNEXPECTED_POLICY_RESET_CALLBACK"
     CURRENT = "policy-valid-password-independent-login"
     valid = await login(browser, cb, target, PASSWORDS["policy-new"])
     assert valid[3]["email_verified"] is True
