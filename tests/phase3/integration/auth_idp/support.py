@@ -123,6 +123,16 @@ class Admin:
             "attributes": {"pkce.code.challenge.method": "S256"},
         }
         self.call("POST", "/clients", json=client, expected=201)
+        # Keycloak 26.8.2 Admin REST requires BOTH kc-admin-api scope
+        # and the Admin REST URL audience. Keep this OPTIONAL, never default:
+        # ordinary OIDC logins must not request Admin REST access.
+        scopes = [scope for scope in self.call("GET", "/client-scopes").json()
+                  if scope.get("name") == "kc-admin-api"]
+        assert len(scopes) == 1, "KC_ADMIN_API_SCOPE_MISSING"
+        clients = self.call("GET", "/clients", params={"clientId": CLIENT}).json()
+        assert len(clients) == 1, "OIDC_TEST_CLIENT_MISSING"
+        self.call("PUT", "/clients/" + clients[0]["id"] +
+                  "/optional-client-scopes/" + scopes[0]["id"], expected=204)
 
     def users(self, email: str) -> list:
         return self.call("GET", "/users", params={"email": email, "exact": "true"}).json()
@@ -196,10 +206,12 @@ def challenge(value: str) -> str:
     return base64.urlsafe_b64encode(hashlib.sha256(value.encode()).digest()).decode().rstrip("=")
 
 
-def authorization(config: dict, nonce: str, state: str, proof: str) -> str:
+def authorization(config: dict, nonce: str, state: str, proof: str,
+                  *, admin_api: bool = False) -> str:
     data = {
         "client_id": CLIENT, "redirect_uri": CALLBACK, "response_type": "code",
-        "scope": "openid email profile", "state": state, "nonce": nonce,
+        "scope": ("openid email profile kc-admin-api" if admin_api
+                  else "openid email profile"), "state": state, "nonce": nonce,
         "code_challenge": challenge(proof), "code_challenge_method": "S256",
         "prompt": "login",
     }

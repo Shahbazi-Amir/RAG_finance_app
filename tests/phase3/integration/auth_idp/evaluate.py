@@ -80,12 +80,13 @@ def fresh_flow():
             "proof": verifier()}
 
 
-async def begin(browser):
+async def begin(browser, *, admin_api=False):
     global CURRENT
     f = fresh_flow()
     ctx, page = await new_page(browser)
     CURRENT = "browser-authorization-document"
-    await page.goto(authorization(OIDC, f["nonce"], f["state"], f["proof"]))
+    await page.goto(authorization(OIDC, f["nonce"], f["state"], f["proof"],
+                                  admin_api=admin_api))
     CURRENT = "browser-login-form-render"
     await expect(page.locator("#kc-form-login")).to_be_visible(timeout=12000)
     return f, ctx, page
@@ -366,7 +367,8 @@ async def manager(browser, cb):
     # A rejected OTP can alter/terminate that authentication session. A
     # fresh Code+PKCE/state context must prove positive valid MFA independently.
     await ctx2.close()
-    flow3, ctx3, page3 = await begin(browser)
+    # Only this real manager OIDC login requests the optional Admin REST scope.
+    flow3, ctx3, page3 = await begin(browser, admin_api=True)
     CURRENT = "manager-mfa-fresh-valid-login"
     await fill_login(page3, MANAGER, pw)
     valid_otp_field = page3.locator('#otp, input[name="otp"]').first
@@ -401,7 +403,12 @@ async def manager(browser, cb):
           safe_claims.get("resource_access", {}).get("realm-management", {}).get("roles", []),
         "audience_has_realm_management": "realm-management" in
           ([safe_claims.get("aud")] if isinstance(safe_claims.get("aud"), str) else safe_claims.get("aud", [])),
+        "scope_has_kc_admin_api": "kc-admin-api" in safe_claims.get("scope", "").split(),
+        "audience_has_admin_rest_url": (BASE + "/admin/realms/" + REALM) in
+          ([safe_claims.get("aud")] if isinstance(safe_claims.get("aud"), str) else safe_claims.get("aud", [])),
     }
+    assert RESULTS["manager_role_diagnostic"]["scope_has_kc_admin_api"], "ADMIN_API_SCOPE_MISSING_IN_TOKEN"
+    assert RESULTS["manager_role_diagnostic"]["audience_has_admin_rest_url"], "ADMIN_REST_AUDIENCE_MISSING"
     assert granted.status_code == 200, "MANAGER_LIMITED_ROLE_DENIED"
     case("IDP-12-manager-minimal-role")
     return uid, manager_tokens
@@ -459,6 +466,11 @@ async def run(browser, cb):
     # Both are denial; 2xx is NEVER accepted.
     assert forbidden.status_code in (401, 403), "ORDINARY_USER_ADMIN_PRIVILEGE"
     RESULTS["ordinary_user_admin_http"] = forbidden.status_code
+    ordinary_claims = jwt.decode(first[2]["access_token"],
+                                 options={"verify_signature": False})
+    RESULTS["ordinary_user_requested_admin_api_scope"] = (
+        "kc-admin-api" in ordinary_claims.get("scope", "").split())
+    assert not RESULTS["ordinary_user_requested_admin_api_scope"], "ORDINARY_ADMIN_SCOPE_LEAK"
     case("IDP-15-ordinary-user-cannot-administer-realm")
 
     # Force IdP logout of the real first user session. A signed JWT is not a
