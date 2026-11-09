@@ -81,6 +81,7 @@ jobs:
           CREATE DATABASE history_seeded_ci;
           CREATE DATABASE history_rollback_ci;
           CREATE DATABASE auth_rollback_ci;
+          CREATE DATABASE auth_empty_ci;
           GRANT CONNECT,CREATE ON DATABASE history_ci TO history_migrator;
           GRANT CONNECT,CREATE ON DATABASE history_legacy_ci TO history_migrator;
           GRANT CONNECT,CREATE ON DATABASE history_seeded_ci TO history_migrator;
@@ -91,6 +92,7 @@ jobs:
           GRANT CONNECT ON DATABASE history_rollback_ci TO history_app;
           GRANT CONNECT,CREATE ON DATABASE history_ci TO auth_migrator;
           GRANT CONNECT,CREATE ON DATABASE auth_rollback_ci TO auth_migrator;
+          GRANT CONNECT,CREATE ON DATABASE auth_empty_ci TO auth_migrator;
           GRANT CONNECT ON DATABASE history_ci TO auth_mapper,auth_sessions,auth_revoker,auth_reauth;
           SQL
       - name: Apply versioned History base, and 003 on data-bearing product DB
@@ -115,6 +117,7 @@ jobs:
           export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
           psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
           psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          psql -d auth_empty_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
           # Data-bearing product DB before 004: synthetic session chain, never a real user.
           psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
           INSERT INTO auth_l1.owners(owner_id) VALUES('synthetic_fence_preexisting');
@@ -171,6 +174,15 @@ jobs:
             VALUES('https://synthetic.invalid/rollback','synthetic_sub','synthetic_auth_rollback_owner');
           SQL
           test "$(psql -d auth_rollback_ci -Aqt -c "SELECT count(*) FROM auth_l1.identity_links")" = "1"
+          # Independent empty Auth 003 base, with zero Owner/Session data.
+          test "$(psql -d auth_empty_ci -Aqt -c "SELECT count(*) FROM auth_l1.owners")" = "0"
+          test "$(psql -d auth_empty_ci -Aqt -c "SELECT count(*) FROM auth_l1.sessions")" = "0"
+          psql -d auth_empty_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
+          test "$(psql -d auth_empty_ci -Aqt -c "SELECT to_regprocedure('auth_l1.admit_session_fenced(text,text,bigint,integer)') IS NOT NULL")" = "t"
+          psql -d auth_empty_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.down.sql
+          test "$(psql -d auth_empty_ci -Aqt -c "SELECT to_regprocedure('auth_l1.admit_session_fenced(text,text,bigint,integer)') IS NULL")" = "t"
+          test "$(psql -d auth_empty_ci -Aqt -c "SELECT count(*) FROM auth_l1.owners")" = "0"
+          echo '004 empty Auth database UP/DOWN PASS'
           # A complete synthetic Owner+Session chain in 003 before 004 up.
           psql -d auth_rollback_ci -v ON_ERROR_STOP=1 <<'SQL'
           INSERT INTO auth_l1.sessions(digest_sha256,owner_id,session_epoch,generation,status,
