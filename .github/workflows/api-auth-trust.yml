@@ -1,0 +1,163 @@
+name: API BFF service proof + session-fenced PostgreSQL CI
+
+on:
+  push:
+    branches: [agent/api-auth-trust]
+    paths:
+      - 'src/phase3/auth/**'
+      - 'tests/phase3/api/**'
+      - 'tests/phase3/integration/api/**'
+      - 'coordination/tasks/AGENT-API-AUTH-TRUST-01.md'
+      - '.github/workflows/api-auth-trust.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/phase3/auth/**'
+      - 'tests/phase3/api/**'
+      - 'tests/phase3/integration/api/**'
+      - 'coordination/tasks/AGENT-API-AUTH-TRUST-01.md'
+      - '.github/workflows/api-auth-trust.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  api-trust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_PASSWORD: synthetic_ci_only_not_a_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 3s --health-timeout 3s --health-retries 30
+    env:
+      CI: 'true'
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: synthetic_ci_only_not_a_secret
+      AUTH_TRUST_API_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_trust_api password=synthetic_trust_only connect_timeout=5
+      AUTH_TRUST_MAP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_mapper password=synthetic_mapper_only connect_timeout=5
+      AUTH_TRUST_SESSION_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_sessions password=synthetic_session_only connect_timeout=5
+      AUTH_TRUST_REVOKER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_revoker password=synthetic_revoker_only connect_timeout=5
+      AUTH_TRUST_REAUTH_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reauth password=synthetic_reauth_only connect_timeout=5
+      AUTH_TRUST_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_migrator password=synthetic_auth_migrator_only connect_timeout=5
+      AUTH_MAP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_mapper password=synthetic_mapper_only connect_timeout=5
+      AUTH_SESSION_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_sessions password=synthetic_session_only connect_timeout=5
+      AUTH_REVOKER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_revoker password=synthetic_revoker_only connect_timeout=5
+      AUTH_REAUTH_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reauth password=synthetic_reauth_only connect_timeout=5
+      AUTH_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_migrator password=synthetic_auth_migrator_only connect_timeout=5
+      DB_APP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_app password=synthetic_app_only connect_timeout=5
+      API_HISTORY_DSN: host=127.0.0.1 port=5432 dbname=history_api_ci user=history_app password=synthetic_app_only connect_timeout=5
+      API_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_api_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+      API_CURSOR_KEY: ci-only-cursor-signing-not-production-2026-verified-unit-test
+      API_CURSOR_TTL_SECONDS: '300'
+    steps:
+      - name: Checkout exact code without persisted credential
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up pinned Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install CI-only pinned libraries
+        run: |
+          set -euo pipefail
+          python -m pip install --no-cache-dir --index-url https://pypi.org/simple \
+            -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1'
+          python - <<'PY'
+          from importlib.metadata import version
+          for package in ('PyJWT','cryptography','fastapi','httpx','psycopg','jsonschema'):
+              print(package + '=' + version(package))
+          PY
+          python --version
+          psql --version
+          psql -U postgres -d postgres -Aqt -c 'SHOW server_version'
+      - name: Provision disposable restricted roles and DBs
+        run: |
+          set -euo pipefail
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE history_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_mig_only';
+          CREATE ROLE history_app LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_app_only';
+          CREATE ROLE auth_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_auth_migrator_only';
+          GRANT pg_read_all_stats TO auth_migrator;
+          CREATE ROLE auth_mapper LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_mapper_only';
+          CREATE ROLE auth_sessions LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_session_only';
+          CREATE ROLE auth_revoker LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_revoker_only';
+          CREATE ROLE auth_reauth LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_reauth_only';
+          CREATE ROLE auth_trust_api LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_trust_only';
+          CREATE DATABASE history_ci;
+          CREATE DATABASE history_api_ci;
+          GRANT CONNECT,CREATE ON DATABASE history_ci TO history_migrator,auth_migrator;
+          GRANT CONNECT,CREATE ON DATABASE history_api_ci TO history_migrator;
+          GRANT CONNECT ON DATABASE history_ci TO history_app,auth_mapper,auth_sessions,auth_revoker,auth_reauth,auth_trust_api;
+          GRANT CONNECT ON DATABASE history_api_ci TO history_app;
+          SQL
+      - name: Apply UNCHANGED migrations 001 through 004 to ephemeral PostgreSQL
+        run: |
+          set -euo pipefail
+          export PGUSER=history_migrator PGPASSWORD=synthetic_mig_only
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          psql -d history_api_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_api_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
+          psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          -- CI-ONLY: product migrations are unchanged. The API role can only
+          -- admit a previously issued session and INSERT synthetic markers.
+          GRANT USAGE ON SCHEMA auth_l1 TO auth_trust_api;
+          GRANT EXECUTE ON FUNCTION auth_l1.admit_session_fenced(text,text,bigint,integer)
+            TO auth_trust_api;
+          CREATE SCHEMA auth_trust_ci;
+          REVOKE ALL ON SCHEMA auth_trust_ci FROM PUBLIC;
+          CREATE TABLE auth_trust_ci.replay_jti(
+            jti_sha256 text PRIMARY KEY CHECK(jti_sha256 ~ '^[0-9a-f]{64}$'),
+            expires_at timestamptz NOT NULL
+          );
+          CREATE TABLE auth_trust_ci.protected_actions(
+            marker text PRIMARY KEY, owner_id text NOT NULL
+          );
+          GRANT USAGE ON SCHEMA auth_trust_ci TO auth_trust_api;
+          GRANT INSERT ON auth_trust_ci.replay_jti,auth_trust_ci.protected_actions
+            TO auth_trust_api;
+          -- Preexisting BND-DB-02 test fixture for unchanged regression.
+          CREATE SCHEMA auth_fence_ci;
+          REVOKE ALL ON SCHEMA auth_fence_ci FROM PUBLIC;
+          CREATE TABLE auth_fence_ci.protected_actions(
+            owner_id text NOT NULL, marker text PRIMARY KEY
+          );
+          GRANT USAGE ON SCHEMA auth_fence_ci TO auth_sessions;
+          GRANT INSERT ON auth_fence_ci.protected_actions TO auth_sessions;
+          SQL
+      - name: Static compile and pure service-proof tests
+        run: |
+          set -euo pipefail
+          python -m compileall -q src/phase3/auth tests/phase3/api tests/phase3/integration/api
+          python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
+      - name: Real transactional service-proof HTTP and PostgreSQL negative tests
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_auth_trust_postgres.py' -v
+      - name: Existing DB session-fence regression (unchanged source)
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/database -p 'test_auth_session_fence.py' -v
+      - name: Existing History contract and API/PostgreSQL regressions (unchanged)
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/contracts -p 'test_history.py' -v
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_http_postgres.py' -v
+      - name: Security role and table isolation status
+        if: always()
+        run: |
+          set +e
+          echo 'AUTH_TRUST_CI_HARNESS_ONLY no-product-db-roles-or-migrations-changed'
+          echo 'GITHUB_RUN_RESULT_IS_AUTH_TRUST_SLICE_ONLY'
