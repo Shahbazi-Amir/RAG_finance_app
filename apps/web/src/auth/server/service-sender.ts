@@ -98,12 +98,11 @@ export function createServiceSender(c:ServerTrustConfig,resolveSession:()=>Promi
       let finished=false;
       let req:ClientRequest|undefined;
       let response:IncomingMessage|undefined;
-      let timer:ReturnType<typeof setTimeout>|undefined;
       const timeout:TransportResult={ok:false,code:'TIMEOUT'};
       const finish=(result:TransportResult)=>{
         if(finished)return;
         finished=true;
-        if(timer!==undefined)clearTimeout(timer);
+        clearTimeout(timer);
         // Stop both sides of the HTTP exchange (including a live response).
         // No transport timeout can undo a server-side DB COMMIT.
         response?.destroy();
@@ -114,7 +113,7 @@ export function createServiceSender(c:ServerTrustConfig,resolveSession:()=>Promi
       // redirect or error cannot beat the fixed monotonic deadline.
       const done=(result:TransportResult)=>
         finish(performance.now()>=deadline?timeout:result);
-      timer=setTimeout(()=>finish(timeout),c.timeoutMs);
+      const timer=setTimeout(()=>finish(timeout),c.timeoutMs);
       try{
         req=httpsRequest({
           hostname:target.hostname,port:target.port||443,path,method:op.method,
