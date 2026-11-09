@@ -118,3 +118,114 @@ It tests weak then strong password in that real Reset form and verifies
 them via independent logins. The separate synthetic policy-probe still
 covers read-only brute-force status and natural timeout. No change to
 network, workflow, public API or realm authorization.
+
+
+## BND-IDP-02A — Standard fresh-credential reauthentication boundary (2026-11-10)
+
+**Status:** source prepared for an *independent Draft PR* on
+`agent/idp-reauth-proof`; **NOT_RUN until actual GitHub Actions evidence**.
+This continues the SAME cumulative
+`coordination/tasks/AGENT-API-AUTH-IDP-01.md`. Previous isolated
+IDP-00..17 / IDP-A/B/C baseline cases remain part of every run.
+No Keycloak version upgrade, SPI/extension, custom outbox, DB schema,
+new product API endpoint, browser product login, BFF session, email relay
+or real production credentials are used.
+
+**Pinned topology:** exactly the existing Keycloak `26.8.2`,
+identity-only PostgreSQL `17.11`, Mailpit `v1.32.0`, Playwright
+Chromium `1.64.1` and its existing in-network callback. Docker
+`Internal=true`, zero published ports, actual egress-denial probe,
+only `.test` synthetic mail addresses, transient secrets in memory,
+sanitized report.json only, complete volume teardown. Two extra synthetic
+verified users `fresh-reauth@example.test` and
+`required-reauth@example.test` are provisioned by the existing CI-only
+Admin fixture, never in product DB.
+
+### Standard Keycloak candidate options, not an acceptance decision
+
+- Built-in Browser flow **Cookie** can complete ordinary OIDC authorization
+  with old SSO without another password. This is NOT proof of credential
+  freshness, no matter whether the returned ID Token has a valid signature.
+- OIDC `prompt=login` with `max_age=0` is a standard client-initiated
+  interactive reauthentication request. CI requires a *real password form*
+  on the existing pre-Reset cookie context, **old password denied**, actual
+  newly changed password **entered and accepted**, distinct Code+S256 PKCE
+  and strict callback state/nonce/issuer/audience/one-time exchange.
+  A fresh, signed ID Token `auth_time` in the real challenge window is
+  additional evidence **but never suffices alone**. `acr`/ `amr`
+  are recorded only as presence/type/limited LoA hints: they cannot prove
+  exactly which password was entered, what user interaction happened,
+  or that an external product Session was revoked.
+- Keycloak built-in **Send Reset Email** execution has configurable
+  `force-login` `true` / `false` / `only-federated` (default). The
+  experiment sets `true` via the standard Keycloak Admin REST
+  `/authentication/executions/{id}/config` endpoint, then RE-READS the
+  stored config. It changes only the isolated test realm. Even `true`
+  is **not** an authenticated event to the separate product Session DB,
+  does NOT revoke all pre-existing independent browser SSO/refresh/access
+  credentials, and cannot be used to promise bounded reset propagation.
+- For `prompt=none`, Keycloak may issue ordinary Code while an old SSO
+  remains valid. The test observes that separately, and requires
+  `prompt=none&max_age=0` to return an interactive-login-required
+  error, never treating a silent Code as fresh. If real Keycloak issues
+  a Code despite the `max_age=0` negative, the test **fails** and the
+  configuration is considered BLOCKED for this assertion.
+- **Forgot/Reset:** real browser-initiated reset + captured local-only mail
+  with old/new password tests. Force-login option is tested only in this
+  disposable realm.
+- **Required Action UPDATE_PASSWORD:** separate synthetic user has the
+  built-in required action, actual password form and independent old/new
+  login; this alone is not accountwide logout or proof of later fresh reauth.
+- **Admin Reset:** dedicated synthetic Admin REST credential-reset request,
+  independent old/new browser password checks; **no forced user logout**
+  or read-only event acknowledgement converted to a product Session reset.
+- **Account Console password change:** standard Keycloak feature, but this
+  fixture does not currently exercise its separate Account Console
+  authenticated credential-editing UI/API or all federated/required-action
+  branches; **NOT_TESTED / NOT_COVERED** until a separately authorized
+  browser harness exists. External Admin Reset/Account Console/Required
+  Action events are NOT proven durably or promptly delivered into a product
+  DB. No fake `finish_simulated_reauth` substitute is used.
+
+### Planned real-browser adversarial matrix
+
+`RA-00` standard flow inspection and `force-login=true` readback;
+`RA-01/02` initial real password OIDC login and ordinary old-browser
+SSO; `RA-03` real Forgot/Reset old/new credential;
+`RA-04/05/06` same original SSO cookie cannot obtain *fresh*
+authentication without real new password form, old password fails and
+new succeeds with signed `auth_time`;
+`RA-07` wrong/missing state, wrong issuer/audience/nonce and code replay
+denials (also preserve prior A01–A06 independent PKCE tests);
+`RA-08` old normal SSO/refresh/access after Reset independently observed;
+`RA-09` no `prompt=none&max_age=0` silent Code;
+`RA-10` Admin Reset; `RA-11` Required Action;
+`RA-12` bounded evidence verdict. No criterion may be silently waived.
+The actual `PARTIALLY_PROVEN` verdict is permitted only after all
+mandatory cases execute successfully; if a new negative fails, report
+the actual blocker and **BLOCKED**, never a fabricated PASS.
+
+**External Reset limitation:** No standard OIDC `auth_time`, `acr`,
+`amr`, `max_age` or `force-login` setting by itself guarantees
+durable cross-database delivery of every credential event, bounded
+all-product-session invalidation, or invalidation of already-issued
+locally verified JWTs. Evidence must not say `PROVEN` globally.
+Refer to ADR 0005 and the existing IDP-01 observations; production
+Auth, Keycloak configuration changes, OTP/passkeys/federated MFA and
+full product Gates remain out of scope.
+
+Official references:
+- https://www.keycloak.org/docs/26.8.0/server_admin/ (built-in
+  authentication flow, Forgot Password, AIA, max_age and OIDC prompt);
+- https://www.keycloak.org/docs-api/26.8.2/rest-api/index.html
+  (standard Admin REST configuration and password credential actions);
+- https://www.keycloak.org/securing-apps/oidc-layers
+  (OIDC flows/verification);
+- https://www.keycloak.org/docs/26.8.2/server_development/
+  (SPI explicitly *not* used).
+
+CI runs the same pre-existing `.github/workflows/auth-idp.yml` commands
+with the push/PR branch guard extended to
+`agent/idp-reauth-proof`. No service is published. All case results and
+version/status values must be verified from the actual sanitized CI
+artifact or GitHub job log before supervisor review.

@@ -15,7 +15,7 @@ from pathlib import Path
 import secrets
 import sys
 import time
-from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qs, quote, urlencode, urlsplit, urlunsplit
 
 import jwt
 import pyotp
@@ -35,6 +35,8 @@ RESULTS = {}
 EMAILS = ("first@example.test", "second@example.test")
 MANAGER = "realm-operator@example.test"
 POLICY = "policy-probe@example.test"
+FRESH = "fresh-reauth@example.test"
+REQUIRED = "required-reauth@example.test"
 PASSWORDS = {}
 ADMIN = None
 OIDC = None
@@ -658,6 +660,258 @@ async def manager(browser, cb):
     return uid, manager_tokens
 
 
+
+# BND-IDP-02A. All operations stay on the EXISTING isolated Keycloak
+# realm, local Mailpit and synthetic Chromium callback. No product Auth.
+
+
+def configure_02a_flow():
+    """Keycloak standard Reset Credentials 'Send Reset Email' config only."""
+    global CURRENT
+    CURRENT = "RA-config-inspect-standard-flows"
+    flows = ADMIN.call("GET", "/authentication/flows").json()
+    reset = [f for f in flows if f.get("alias", "").casefold() == "reset credentials"]
+    assert len(reset) == 1, "RESET_STANDARD_FLOW_NOT_FOUND"
+    browser_executions = ADMIN.call(
+        "GET", "/authentication/flows/browser/executions").json()
+    reset_executions = ADMIN.call(
+        "GET", "/authentication/flows/" +
+        quote(reset[0]["alias"], safe="") + "/executions").json()
+    email_steps = [v for v in reset_executions
+                   if v.get("authenticator") == "reset-credential-email"]
+    assert len(email_steps) == 1, "RESET_EMAIL_EXECUTION_MISSING"
+    RESULTS["RA_standard_config"] = {
+        "browser_cookie_present": any(
+            x.get("authenticator") == "auth-cookie" for x in browser_executions),
+        "browser_password_present": any(
+            x.get("authenticator") == "auth-username-password-form"
+            for x in browser_executions),
+        "built_in_reset_email_present": True,
+        "reset_force_login_requested": True,
+        "extension_or_SPI": False,
+    }
+    CURRENT = "RA-config-force-login-after-reset"
+    reply = ADMIN.call(
+        "POST", "/authentication/executions/" + email_steps[0]["id"] + "/config",
+        json={"alias": "ci-force-credential-relogin",
+              "config": {"force-login": "true"}}, expected=201)
+    path = urlsplit(reply.headers.get("Location", "")).path
+    prefix = "/admin/realms/" + REALM + "/authentication/"
+    assert path.startswith(prefix), "CONFIG_LOCATION_MISSING"
+    readback = ADMIN.call("GET", "/authentication/" + path[len(prefix):]).json()
+    assert readback.get("config", {}).get("force-login") == "true"
+    RESULTS["RA_standard_config"]["force_login_persisted"] = True
+    case("RA-00-standard-reset-config-readback")
+
+
+async def prompt_none_max_age_zero(context, cb):
+    """Observed code/error is NOT automatically a credential-fresh proof."""
+    global CURRENT
+    f = fresh_flow()
+    page = await context.new_page()
+    try:
+        CURRENT = "RA-silent-max-age-zero"
+        await page.goto(authorization(
+            OIDC, f["nonce"], f["state"], f["proof"],
+            prompt_login=False) + "&max_age=0")
+        await page.wait_for_url(CALLBACK + "*", timeout=15000)
+        params = cb.next()
+        assert params.get("state") == [f["state"]]
+        if "error" in params:
+            assert params["error"] in (
+                ["login_required"], ["interaction_required"])
+            assert not params.get("code")
+            return False
+        # Even a valid ID token here is NOT fresh. Test explicitly rejects
+        # this potentially dangerous standard-flow interpretation.
+        tokens, _ = await checked_callback_exchange(params, f)
+        await asyncio.to_thread(verify_id, OIDC, tokens["id_token"], f["nonce"])
+        return True
+    finally:
+        await page.close()
+
+
+async def password_challenge_02a(ctx, cb, email, old_pw, new_pw, original):
+    """Old SSO cookie must NOT bypass prompt=login+max_age=0 password UI."""
+    global CURRENT
+    f = fresh_flow()
+    page = await ctx.new_page()
+    try:
+        CURRENT = "RA-fresh-challenge-with-old-SSO-context"
+        challenge_start = int(time.time())
+        await page.goto(authorization(
+            OIDC, f["nonce"], f["state"], f["proof"]) + "&max_age=0")
+        await expect(page.locator("#kc-form-login")).to_be_visible(timeout=15000)
+        assert cb.server.inbox.empty(), "OLD_SSO_BYPASSED_CREDENTIAL_CHALLENGE"
+        case("RA-04-sso-requires-real-password-form")
+        CURRENT = "RA-old-credential-denied"
+        await fill_login(page, email, old_pw)
+        await expect(page.locator("#kc-form-login")).to_be_visible(timeout=12000)
+        assert "/callback" not in urlsplit(page.url).path
+        assert cb.server.inbox.empty(), "OLD_PASSWORD_FRESH_CALLBACK"
+        case("RA-05-old-password-cannot-complete-fresh-flow")
+        CURRENT = "RA-new-credential-in-old-SSO-context"
+        await fill_login(page, email, new_pw)
+        await page.wait_for_url(CALLBACK + "*", timeout=20000)
+        params = cb.next()
+        # Reuse the original IDP-01 function: validate state before exchange.
+        for corrupted in (
+            {k:v for k,v in params.items() if k != "state"},
+            {**params, "state": [secrets.token_urlsafe(24)]},
+        ):
+            CURRENT = "RA-negative-callback-state"
+            try:
+                checked_callback_code(corrupted, f)
+            except AssertionError as exc:
+                assert str(exc) == "STATE_MISMATCH"
+            else:
+                raise AssertionError("CORRUPT_FRESH_STATE_ACCEPTED")
+        code = checked_callback_code(params, f)
+        tokens = await asyncio.to_thread(exchange, OIDC, code, f["proof"])
+        claims = await asyncio.to_thread(
+            verify_id, OIDC, tokens["id_token"], f["nonce"])
+        assert claims["sub"] == original["sub"] and claims["email"] == email
+        assert await asyncio.to_thread(
+            exchange, OIDC, code, f["proof"], 400) is None
+        for key, kwargs, error in (
+            ("nonce", {"nonce": secrets.token_urlsafe(24)}, AssertionError),
+            ("issuer", {"expected_issuer": OIDC["issuer"] + "/bad"}, jwt.InvalidIssuerError),
+            ("audience", {"expected_audience": "other-client"}, jwt.InvalidAudienceError),
+        ):
+            CURRENT = "RA-negative-" + key
+            nonce = kwargs.pop("nonce", f["nonce"])
+            try:
+                await asyncio.to_thread(
+                    verify_id, OIDC, tokens["id_token"], nonce, **kwargs)
+            except error:
+                pass
+            else:
+                raise AssertionError("FRESH_ID_TOKEN_MISMATCH_ACCEPTED")
+        auth_time = claims.get("auth_time")
+        prev_time = original.get("auth_time")
+        shape = {
+            "auth_time_present": type(auth_time) is int,
+            "auth_time_within_credential_challenge": (
+                type(auth_time) is int and
+                challenge_start - 2 <= auth_time <= int(time.time()) + 1),
+            "old_auth_time_present": type(prev_time) is int,
+            "auth_time_not_older": (
+                type(prev_time) is int and type(auth_time) is int
+                and auth_time >= prev_time),
+            "acr_present": isinstance(claims.get("acr"), str),
+            "acr_is_0_or_1": (
+                claims.get("acr") if claims.get("acr") in ("0","1")
+                else "other-or-absent"),
+            "amr_present": isinstance(claims.get("amr"), list),
+            "acr_amr_or_auth_time_ALONE_proves_password": False,
+        }
+        RESULTS["RA_signed_claim_interpretation"] = shape
+        assert shape["auth_time_within_credential_challenge"], "NO_FRESH_AUTH_TIME"
+        assert type(prev_time) is not int or auth_time >= prev_time, "STALE_AUTH_TIME"
+        case("RA-06-new-password-and-signed-credential-auth-time")
+        case("RA-07-state-nonce-issuer-aud-code-replay")
+        return tokens
+    finally:
+        await page.close()
+
+
+async def bnd_idp_02a(browser, cb):
+    global CURRENT
+    CURRENT = "RA-provision-isolated-verified-test-user"
+    ADMIN.create_policy_probe(FRESH, PASSWORDS[FRESH])
+    configure_02a_flow()
+    prior = await login(browser, cb, FRESH, PASSWORDS[FRESH])
+    assert prior is not None and prior[3]["email_verified"] is True
+    old_ctx, old_tokens, old_claims = prior[0], prior[2], prior[3]
+    case("RA-01-real-initial-password-and-pkce")
+    CURRENT = "RA-old-browser-pre-reset-sso"
+    assert await old_browser_sso(old_ctx, cb)
+    case("RA-02-original-browser-sso-established")
+    CURRENT = "RA-local-forgot-reset"
+    await reset_password(browser, cb, FRESH, PASSWORDS[FRESH], PASSWORDS["fresh-new"])
+    case("RA-03-forgot-old-password-denied-new-accepted")
+    CURRENT = "RA-observe-old-browser-before-refresh"
+    survived_sso = await old_browser_sso(old_ctx, cb)
+    old_refresh = await asyncio.to_thread(refresh, OIDC, old_tokens["refresh_token"])
+    old_userinfo = (await asyncio.to_thread(
+        request, "GET", OIDC["userinfo_endpoint"],
+        headers={"Authorization": "Bearer " + old_tokens["access_token"]})).status_code
+    assert old_refresh in (200,400,401) and old_userinfo in (200,401,403)
+    RESULTS["RA_old_sso_and_token_survival"] = {
+        "old_browser_prompt_none_succeeded": survived_sso,
+        "old_refresh_http": old_refresh, "old_userinfo_http": old_userinfo,
+        "admin_logout_called": False, "cross_db_revocation": "NOT_PROVEN",
+    }
+    case("RA-08-observed-reset-does-not-imply-global-revocation")
+    # max_age=0 MUST deny unattended SSO even after normal prompt=none
+    # can issue a normal login code. Actual IdP callback is inspected.
+    silent_code = await prompt_none_max_age_zero(old_ctx, cb)
+    RESULTS["RA_prompt_none_max_age_zero_issued_code"] = silent_code
+    assert not silent_code, "PROMPT_NONE_MAX_AGE_ZERO_SILENT_CODE_BLOCKED"
+    case("RA-09-prompt-none-max-age-zero-cannot-issue-code")
+    await password_challenge_02a(
+        old_ctx, cb, FRESH, PASSWORDS[FRESH], PASSWORDS["fresh-new"], old_claims)
+    await old_ctx.close()
+
+    # Admin Reset is separately measured; no admin-forced logout is used.
+    CURRENT = "RA-admin-reset-credential"
+    ADMIN.call("PUT", "/users/" + ADMIN.user(FRESH)["id"] + "/reset-password",
+               json={"type":"password", "temporary":False,
+                     "value":PASSWORDS["admin-new"]}, expected=204)
+    await login(browser, cb, FRESH, PASSWORDS["fresh-new"], expect_failure=True)
+    good = await login(browser, cb, FRESH, PASSWORDS["admin-new"])
+    assert good is not None and good[3]["email_verified"] is True
+    await good[0].close()
+    RESULTS["RA_admin_reset"] = {
+        "old_password_denied":True, "new_password_accepted":True,
+        "other_browsers_session_revocation":"NOT_PROVEN",
+        "product_session_revocation":"NOT_TESTED",
+        "bounded_credential_change_event_delivery":"NOT_PROVEN",
+    }
+    case("RA-10-admin-reset-password-replaced")
+
+    # Required Action UPDATE_PASSWORD in normal browser flow, independent user.
+    CURRENT = "RA-required-action-user"
+    uid = ADMIN.create_policy_probe(REQUIRED, PASSWORDS[REQUIRED])
+    ADMIN.call("PUT", "/users/" + uid,
+               json={"requiredActions":["UPDATE_PASSWORD"]}, expected=204)
+    flow, ctx, page = await begin(browser)
+    try:
+        CURRENT = "RA-required-action-password-auth"
+        await fill_login(page, REQUIRED, PASSWORDS[REQUIRED])
+        CURRENT = "RA-required-action-challenge"
+        await expect(page.locator("#password-new")).to_be_visible(timeout=15000)
+        assert cb.server.inbox.empty(), "REQUIRED_ACTION_BYPASSED"
+        await page.locator("#password-new").fill(PASSWORDS["required-new"])
+        await page.locator("#password-confirm").fill(PASSWORDS["required-new"])
+        CURRENT = "RA-required-action-submit"
+        await page.locator('#kc-submit, #kc-passwd-update-form input[type="submit"]').first.click()
+        await page.wait_for_url(CALLBACK + "*", timeout=20000)
+        tokens, _ = await checked_callback_exchange(cb.next(), flow)
+        claims = await asyncio.to_thread(
+            verify_id, OIDC, tokens["id_token"], flow["nonce"])
+        assert claims["email"] == REQUIRED
+    finally:
+        await ctx.close()
+    await login(browser, cb, REQUIRED, PASSWORDS[REQUIRED], expect_failure=True)
+    newer = await login(browser, cb, REQUIRED, PASSWORDS["required-new"])
+    assert newer is not None
+    await newer[0].close()
+    case("RA-11-required-action-password-changed")
+
+    RESULTS["RA_assurance_verdict"] = {
+        "result":"PARTIALLY_PROVEN",
+        "fresh_password_interactive_step":True,
+        "forgot_reset_tested":True, "admin_reset_tested":True,
+        "required_action_tested":True,
+        "account_console":"NOT_TESTED_IN_EXISTING_HARNESS",
+        "reset_event_delivery":"NOT_PROVEN",
+        "independent_old_SSO_and_access_revocation":"NOT_PROVEN",
+        "real_BFF_or_product_session":False,
+    }
+    case("RA-12-partially-proven-no-product-reset-guarantee")
+
+
 async def run(browser, cb):
     global ADMIN, OIDC
     ADMIN = Admin()
@@ -762,6 +1016,8 @@ async def run(browser, cb):
     await expired_action(browser, EMAILS[1])
     await password_policy_and_lockout(browser, cb)
     uid, manager_tokens = await manager(browser, cb)
+    # All IDP-01 baselines still execute; reauth case runs after them.
+    await bnd_idp_02a(browser, cb)
     case("IDP-17-admin-actor-is-not-unbounded-superuser",
          "realm-management view-users only; no admin panel or product scope")
 
@@ -794,10 +1050,13 @@ async def main():
     global CURRENT
     require_ci()
     # All test credentials are synthetic and ephemeral; never print or save.
-    for email in (*EMAILS, MANAGER, POLICY):
+    for email in (*EMAILS, MANAGER, POLICY, FRESH, REQUIRED):
         PASSWORDS[email] = "Qx9!" + secrets.token_urlsafe(18)
     PASSWORDS["reset"] = "Zp7!" + secrets.token_urlsafe(18)
     PASSWORDS["policy-new"] = "Ve6!" + secrets.token_urlsafe(18)
+    PASSWORDS["fresh-new"] = "Fn8!" + secrets.token_urlsafe(18)
+    PASSWORDS["admin-new"] = "Ad4!" + secrets.token_urlsafe(18)
+    PASSWORDS["required-new"] = "Rp5!" + secrets.token_urlsafe(18)
     try:
         with CallbackServer() as cb:
             async with async_playwright() as playwright:
