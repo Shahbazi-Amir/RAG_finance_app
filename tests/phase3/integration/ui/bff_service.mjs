@@ -255,6 +255,7 @@ await check('accepted TCP with stalled TLS handshake hits absolute deadline and 
   let didAccept;
   let closed;
   let didClose;
+  let clientHelloBytes=0;
   try{
     accepted=new Promise(resolve=>{didAccept=resolve;});
     closed=new Promise(resolve=>{didClose=resolve;});
@@ -262,6 +263,10 @@ await check('accepted TCP with stalled TLS handshake hits absolute deadline and 
       clientSocket=socket;
       // Intentionally accept TCP but NEVER respond to the TLS ClientHello.
       socket.on('error',()=>{});
+      // Drain the TLS ClientHello. A permanently paused raw TCP receiver
+      // can hide its peer FIN and make close-observation falsely time out.
+      socket.on('data',part=>{clientHelloBytes+=part.length;});
+      socket.resume();
       socket.once('close',()=>didClose());
       didAccept();
     });
@@ -277,6 +282,7 @@ await check('accepted TCP with stalled TLS handshake hits absolute deadline and 
     assert.ok(duration>=config.timeoutMs-160,'TLS failed before the actual deadline');
     assert.ok(duration<3000,'handshake was not allowed to stall beyond the budget');
     await within(closed,3000,'STALL_TLS_SOCKET_CLOSE');
+    assert.ok(clientHelloBytes>0,'a real TLS ClientHello was sent before the deadline');
     assert.equal(clientSocket.destroyed,true,'TCP socket must be destroyed at the deadline');
   }finally{
     if(clientSocket&&!clientSocket.destroyed)clientSocket.destroy();
