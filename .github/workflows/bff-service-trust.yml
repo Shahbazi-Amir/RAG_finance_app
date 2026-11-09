@@ -61,9 +61,6 @@ jobs:
       BFF_MAP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_mapper password=synthetic_mapper_only connect_timeout=5
       BFF_SESSION_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_sessions password=synthetic_session_only connect_timeout=5
       BFF_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_migrator password=synthetic_auth_migrator_only connect_timeout=5
-      BFF_TLS_DIR: ${{ runner.temp }}/bff-tls
-      BFF_TRUST_PUBKEY_FILE: ${{ runner.temp }}/bff-signer.pub
-      BFF_TRUST_SESSION_FILE: ${{ runner.temp }}/bff-session.json
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,6 +71,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Resolve runner-local TLS and Session fixture paths
+        run: |
+          echo "BFF_TLS_DIR=$RUNNER_TEMP/bff-tls" >> "$GITHUB_ENV"
+          echo "BFF_TRUST_PUBKEY_FILE=$RUNNER_TEMP/bff-signer.pub" >> "$GITHUB_ENV"
+          echo "BFF_TRUST_SESSION_FILE=$RUNNER_TEMP/bff-session.json" >> "$GITHUB_ENV"
       - name: Existing web lockfile and pinned Python CI libraries
         run: |
           set -euo pipefail
