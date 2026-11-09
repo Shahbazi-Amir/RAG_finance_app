@@ -1,8 +1,8 @@
-name: BND-DB-02 — session-aware PostgreSQL admission fencing
+name: BND-DB-03 — durable PostgreSQL service assertion replay
 
 on:
   push:
-    branches: [agent/db-session-fence]
+    branches: [agent/db-service-replay]
     paths:
       - '.github/workflows/db-auth-session.yml'
       - 'src/phase3/storage/postgres/**'
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   history-postgres:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/agent/db-session-fence'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/agent/db-service-replay'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
@@ -39,6 +39,8 @@ jobs:
       AUTH_REVOKER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_revoker password=synthetic_revoker_only connect_timeout=5
       AUTH_REAUTH_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reauth password=synthetic_reauth_only connect_timeout=5
       AUTH_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_migrator password=synthetic_auth_migrator_only connect_timeout=5
+      REPLAY_API_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_trust_api password=synthetic_replay_api_only connect_timeout=5
+      REPLAY_CLEANER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_replay_cleaner password=synthetic_replay_clean_only connect_timeout=5
       DB_APP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_app password=synthetic_app_only connect_timeout=5
       DB_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
       DB_SEEDED_APP_DSN: host=127.0.0.1 port=5432 dbname=history_seeded_ci user=history_app password=synthetic_app_only connect_timeout=5
@@ -76,6 +78,8 @@ jobs:
           CREATE ROLE auth_sessions LOGIN PASSWORD 'synthetic_session_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
           CREATE ROLE auth_revoker LOGIN PASSWORD 'synthetic_revoker_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
           CREATE ROLE auth_reauth LOGIN PASSWORD 'synthetic_reauth_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_trust_api LOGIN PASSWORD 'synthetic_replay_api_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_replay_cleaner LOGIN PASSWORD 'synthetic_replay_clean_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
           CREATE DATABASE history_ci;
           CREATE DATABASE history_legacy_ci;
           CREATE DATABASE history_seeded_ci;
@@ -94,6 +98,7 @@ jobs:
           GRANT CONNECT,CREATE ON DATABASE auth_rollback_ci TO auth_migrator;
           GRANT CONNECT,CREATE ON DATABASE auth_empty_ci TO auth_migrator;
           GRANT CONNECT ON DATABASE history_ci TO auth_mapper,auth_sessions,auth_revoker,auth_reauth;
+          GRANT CONNECT ON DATABASE history_ci TO auth_trust_api,auth_replay_cleaner;
           SQL
       - name: Apply versioned History base, and 003 on data-bearing product DB
         run: |
@@ -131,6 +136,15 @@ jobs:
               clock_timestamp()+interval '1 hour',900);
           SQL
           psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.up.sql
+          # Separate synthetic protected SQL table: CI ONLY, INSERT role, no History grants.
+          psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA service_replay_ci;
+          REVOKE ALL ON SCHEMA service_replay_ci FROM PUBLIC;
+          CREATE TABLE service_replay_ci.protected_actions(marker text PRIMARY KEY);
+          GRANT USAGE ON SCHEMA service_replay_ci TO auth_trust_api;
+          GRANT INSERT ON service_replay_ci.protected_actions TO auth_trust_api;
+          SQL
           test "$(psql -d history_ci -Aqt -c "SELECT count(*) FROM auth_l1.sessions WHERE owner_id='synthetic_fence_preexisting'")" = "1"
           # Only disposable CI Harness role may insert synthetic protected markers.
           # NO History or Auth table grants to auth_sessions are added.
@@ -183,6 +197,14 @@ jobs:
           test "$(psql -d auth_empty_ci -Aqt -c "SELECT to_regprocedure('auth_l1.admit_session_fenced(text,text,bigint,integer)') IS NULL")" = "t"
           test "$(psql -d auth_empty_ci -Aqt -c "SELECT count(*) FROM auth_l1.owners")" = "0"
           echo '004 empty Auth database UP/DOWN PASS'
+          # On a truly empty Auth baseline (003 + 004, zero Session/Owner rows):
+          psql -d auth_empty_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
+          psql -d auth_empty_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.up.sql
+          test "$(psql -d auth_empty_ci -Aqt -c "SELECT count(*) FROM auth_l1.service_assertion_replays")" = "0"
+          psql -d auth_empty_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.down.sql
+          test "$(psql -d auth_empty_ci -Aqt -c "SELECT to_regclass('auth_l1.service_assertion_replays') IS NULL")" = "t"
+          test "$(psql -d auth_empty_ci -Aqt -c "SELECT count(*) FROM auth_l1.owners")" = "0"
+          echo '005 empty Auth UP/DOWN PASS, 003-004 preserved'
           # A complete synthetic Owner+Session chain in 003 before 004 up.
           psql -d auth_rollback_ci -v ON_ERROR_STOP=1 <<'SQL'
           INSERT INTO auth_l1.sessions(digest_sha256,owner_id,session_epoch,generation,status,
@@ -203,6 +225,23 @@ jobs:
           psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
           test "$(psql -d auth_rollback_ci -Aqt -c "SELECT md5(row_to_json(s)::text) FROM auth_l1.sessions s WHERE digest_sha256=repeat('a',64)")" = "$before"
           echo '004 data-bearing up/down/up retains synthetic Owner+Session bytes; 004 down is non-destructive'
+          # Populated Auth baseline: 005 must preserve pre-existing Owner+Session,
+          # and 005 rollback deletes replay markers only (not baseline data).
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.up.sql
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO auth_l1.service_assertion_replays(issuer_jti_sha256,expires_at)
+            VALUES(repeat('c',64),clock_timestamp()+interval '5 minutes');
+          SQL
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT count(*) FROM auth_l1.service_assertion_replays")" = "1"
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.down.sql
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT to_regclass('auth_l1.service_assertion_replays') IS NULL")" = "t"
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT md5(row_to_json(s)::text) FROM auth_l1.sessions s WHERE digest_sha256=repeat('a',64)")" = "$before"
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT count(*) FROM auth_l1.owners WHERE owner_id='synthetic_auth_rollback_owner'")" = "1"
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.up.sql
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT count(*) FROM auth_l1.service_assertion_replays")" = "0"
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT md5(row_to_json(s)::text) FROM auth_l1.sessions s WHERE digest_sha256=repeat('a',64)")" = "$before"
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.down.sql
+          echo '005 seeded UP/DOWN/UP PASS: 003-004 Owner+Session retained; replay row removed'
           # Only now perform deliberately DESTRUCTIVE 003 down on disposable DB.
           psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.down.sql
           psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.down.sql
