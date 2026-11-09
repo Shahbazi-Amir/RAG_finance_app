@@ -2,7 +2,7 @@ name: API BFF service proof + session-fenced PostgreSQL CI
 
 on:
   push:
-    branches: [agent/api-auth-trust]
+    branches: [agent/api-durable-replay]
     paths:
       - 'src/phase3/auth/**'
       - 'tests/phase3/api/**'
@@ -47,6 +47,11 @@ jobs:
       AUTH_TRUST_REVOKER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_revoker password=synthetic_revoker_only connect_timeout=5
       AUTH_TRUST_REAUTH_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reauth password=synthetic_reauth_only connect_timeout=5
       AUTH_TRUST_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_migrator password=synthetic_auth_migrator_only connect_timeout=5
+      AUTH_TRUST_CLEANER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_replay_cleaner password=synthetic_cleaner_only connect_timeout=5
+      AUTH_TRUST_DENIED_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_trust_denied password=synthetic_denied_only connect_timeout=5
+      AUTH_TRUST_NO005_DSN: host=127.0.0.1 port=5432 dbname=history_no005_ci user=auth_trust_api password=synthetic_trust_only connect_timeout=5
+      REPLAY_API_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_trust_api password=synthetic_trust_only connect_timeout=5
+      REPLAY_CLEANER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_replay_cleaner password=synthetic_cleaner_only connect_timeout=5
       AUTH_MAP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_mapper password=synthetic_mapper_only connect_timeout=5
       AUTH_SESSION_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_sessions password=synthetic_session_only connect_timeout=5
       AUTH_REVOKER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_revoker password=synthetic_revoker_only connect_timeout=5
@@ -92,14 +97,19 @@ jobs:
           CREATE ROLE auth_revoker LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_revoker_only';
           CREATE ROLE auth_reauth LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_reauth_only';
           CREATE ROLE auth_trust_api LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_trust_only';
+          CREATE ROLE auth_replay_cleaner LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_cleaner_only';
+          CREATE ROLE auth_trust_denied LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_denied_only';
           CREATE DATABASE history_ci;
           CREATE DATABASE history_api_ci;
+          CREATE DATABASE history_no005_ci;
           GRANT CONNECT,CREATE ON DATABASE history_ci TO history_migrator,auth_migrator;
+          GRANT CONNECT,CREATE ON DATABASE history_no005_ci TO auth_migrator;
           GRANT CONNECT,CREATE ON DATABASE history_api_ci TO history_migrator;
-          GRANT CONNECT ON DATABASE history_ci TO history_app,auth_mapper,auth_sessions,auth_revoker,auth_reauth,auth_trust_api;
+          GRANT CONNECT ON DATABASE history_ci TO history_app,auth_mapper,auth_sessions,auth_revoker,auth_reauth,auth_trust_api,auth_replay_cleaner,auth_trust_denied;
+          GRANT CONNECT ON DATABASE history_no005_ci TO auth_trust_api;
           GRANT CONNECT ON DATABASE history_api_ci TO history_app;
           SQL
-      - name: Apply UNCHANGED migrations 001 through 004 to ephemeral PostgreSQL
+      - name: Apply UNCHANGED migrations 001 through 005 to ephemeral PostgreSQL
         run: |
           set -euo pipefail
           export PGUSER=history_migrator PGPASSWORD=synthetic_mig_only
@@ -110,24 +120,31 @@ jobs:
           export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
           psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
           psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
-          psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
-          -- CI-ONLY: product migrations are unchanged. The API role can only
-          -- admit a previously issued session and INSERT synthetic markers.
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.up.sql
+          # Separate ephemeral DB WITHOUT 005: missing-migration regression only.
+          psql -d history_no005_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          psql -d history_no005_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
+          psql -d history_no005_ci -v ON_ERROR_STOP=1 <<'SQL'
           GRANT USAGE ON SCHEMA auth_l1 TO auth_trust_api;
-          GRANT EXECUTE ON FUNCTION auth_l1.admit_session_fenced(text,text,bigint,integer)
-            TO auth_trust_api;
+          SQL
+          psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          -- Migration 005 ALONE provisions restricted real replay EXECUTE.
+          -- Separate negative role may see schema, but cannot invoke replay.
+          GRANT USAGE ON SCHEMA auth_l1 TO auth_trust_denied;
+          -- NO auth_trust_ci.replay_jti table: regression explicitly asserts absence.
           CREATE SCHEMA auth_trust_ci;
           REVOKE ALL ON SCHEMA auth_trust_ci FROM PUBLIC;
-          CREATE TABLE auth_trust_ci.replay_jti(
-            jti_sha256 text PRIMARY KEY CHECK(jti_sha256 ~ '^[0-9a-f]{64}$'),
-            expires_at timestamptz NOT NULL
-          );
           CREATE TABLE auth_trust_ci.protected_actions(
             marker text PRIMARY KEY, owner_id text NOT NULL
           );
           GRANT USAGE ON SCHEMA auth_trust_ci TO auth_trust_api;
-          GRANT INSERT ON auth_trust_ci.replay_jti,auth_trust_ci.protected_actions
-            TO auth_trust_api;
+          GRANT INSERT ON auth_trust_ci.protected_actions TO auth_trust_api;
+          -- Reuse unchanged BND-DB-03 synthetic protected action fixture.
+          CREATE SCHEMA service_replay_ci;
+          REVOKE ALL ON SCHEMA service_replay_ci FROM PUBLIC;
+          CREATE TABLE service_replay_ci.protected_actions(marker text PRIMARY KEY);
+          GRANT USAGE ON SCHEMA service_replay_ci TO auth_trust_api;
+          GRANT INSERT ON service_replay_ci.protected_actions TO auth_trust_api;
           -- Preexisting BND-DB-02 test fixture for unchanged regression.
           CREATE SCHEMA auth_fence_ci;
           REVOKE ALL ON SCHEMA auth_fence_ci FROM PUBLIC;
@@ -137,6 +154,9 @@ jobs:
           GRANT USAGE ON SCHEMA auth_fence_ci TO auth_sessions;
           GRANT INSERT ON auth_fence_ci.protected_actions TO auth_sessions;
           SQL
+          test "$(psql -d history_ci -Aqt -c \"SELECT to_regclass('auth_trust_ci.replay_jti') IS NULL\")" = "t"
+          test "$(psql -d history_ci -Aqt -c \"SELECT to_regprocedure('auth_l1.consume_service_assertion(text,bigint)') IS NOT NULL\")" = "t"
+          test "$(psql -d history_no005_ci -Aqt -c \"SELECT to_regprocedure('auth_l1.consume_service_assertion(text,bigint)') IS NULL\")" = "t"
       - name: Static compile and pure service-proof tests
         run: |
           set -euo pipefail
@@ -146,10 +166,10 @@ jobs:
         run: |
           set -euo pipefail
           python -m unittest discover -s tests/phase3/integration/api -p 'test_auth_trust_postgres.py' -v
-      - name: Existing DB session-fence regression (unchanged source)
+      - name: Existing DB service replay and Owner/Session/fence regressions (unchanged)
         run: |
           set -euo pipefail
-          python -m unittest discover -s tests/phase3/database -p 'test_auth_session_fence.py' -v
+          python -m unittest discover -s tests/phase3/database -p 'test_*.py' -v
       - name: Existing History contract and API/PostgreSQL regressions (unchanged)
         run: |
           set -euo pipefail
@@ -159,5 +179,5 @@ jobs:
         if: always()
         run: |
           set +e
-          echo 'AUTH_TRUST_CI_HARNESS_ONLY no-product-db-roles-or-migrations-changed'
-          echo 'GITHUB_RUN_RESULT_IS_AUTH_TRUST_SLICE_ONLY'
+          echo 'API_DURABLE_REPLAY_005_CI_ONLY no-product-db-migrations-or-history-changed'
+          echo 'GITHUB_RUN_RESULT_IS_DURABLE_API_TRUST_SLICE_ONLY'
