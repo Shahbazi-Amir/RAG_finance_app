@@ -1,0 +1,152 @@
+name: BND-DB-01 — isolated PostgreSQL Owner/Session foundation
+
+on:
+  push:
+    branches: [agent/db-auth-session]
+    paths:
+      - '.github/workflows/db-auth-session.yml'
+      - 'src/phase3/storage/postgres/**'
+      - 'infra/postgres/**'
+      - 'tests/phase3/database/**'
+      - 'tests/phase3/integration/database/**'
+permissions:
+  contents: read
+
+jobs:
+  history-postgres:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/agent/db-auth-session'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_PASSWORD: synthetic_ci_only_not_a_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: 'true'
+      PGPASSWORD: synthetic_ci_only_not_a_secret
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      AUTH_MAP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_mapper password=synthetic_mapper_only connect_timeout=5
+      AUTH_SESSION_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_sessions password=synthetic_session_only connect_timeout=5
+      AUTH_REVOKER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_revoker password=synthetic_revoker_only connect_timeout=5
+      AUTH_REAUTH_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reauth password=synthetic_reauth_only connect_timeout=5
+      AUTH_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_migrator password=synthetic_auth_migrator_only connect_timeout=5
+      DB_APP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+      DB_SEEDED_APP_DSN: host=127.0.0.1 port=5432 dbname=history_seeded_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB_SEEDED_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_seeded_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+      DB_LEGACY_APP_DSN: host=127.0.0.1 port=5432 dbname=history_legacy_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB_LEGACY_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_legacy_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+    steps:
+      - name: Checkout exact commit (read only)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install pinned CI-only Python adapters
+        run: python -m pip install --no-cache-dir --index-url https://pypi.org/simple 'psycopg[binary]==3.3.8' 'jsonschema==4.26.0'
+      - name: Verify only temporary loopback database and versions
+        run: |
+          set -euo pipefail
+          python --version
+          python -c "import psycopg,jsonschema; print('psycopg',psycopg.__version__); print('jsonschema',jsonschema.__version__)"
+          psql --version
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'SHOW server_version;'
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'SELECT inet_server_addr(),inet_server_port();'
+      - name: Bootstrap disposable DBs and separate least-privilege roles
+        run: |
+          set -euo pipefail
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE history_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_mig_only';
+          CREATE ROLE history_app LOGIN PASSWORD 'synthetic_app_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_auth_migrator_only' NOSUPERUSER;
+          GRANT pg_read_all_stats TO auth_migrator;
+          CREATE ROLE auth_mapper LOGIN PASSWORD 'synthetic_mapper_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_sessions LOGIN PASSWORD 'synthetic_session_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_revoker LOGIN PASSWORD 'synthetic_revoker_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reauth LOGIN PASSWORD 'synthetic_reauth_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE DATABASE history_ci;
+          CREATE DATABASE history_legacy_ci;
+          CREATE DATABASE history_seeded_ci;
+          CREATE DATABASE history_rollback_ci;
+          CREATE DATABASE auth_rollback_ci;
+          GRANT CONNECT,CREATE ON DATABASE history_ci TO history_migrator;
+          GRANT CONNECT,CREATE ON DATABASE history_legacy_ci TO history_migrator;
+          GRANT CONNECT,CREATE ON DATABASE history_seeded_ci TO history_migrator;
+          GRANT CONNECT,CREATE ON DATABASE history_rollback_ci TO history_migrator;
+          GRANT CONNECT ON DATABASE history_ci TO history_app;
+          GRANT CONNECT ON DATABASE history_legacy_ci TO history_app;
+          GRANT CONNECT ON DATABASE history_seeded_ci TO history_app;
+          GRANT CONNECT ON DATABASE history_rollback_ci TO history_app;
+          GRANT CONNECT,CREATE ON DATABASE history_ci TO auth_migrator;
+          GRANT CONNECT,CREATE ON DATABASE auth_rollback_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE history_ci TO auth_mapper,auth_sessions,auth_revoker,auth_reauth;
+          SQL
+      - name: Apply versioned History base, and 003 on data-bearing product DB
+        run: |
+          set -euo pipefail
+          export PGUSER=history_migrator PGPASSWORD=synthetic_mig_only
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          psql -d history_legacy_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          # Separate synthetic chain seed: 001 first; acceptance test applies 002.
+          psql -d history_seeded_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          # Pre-existing synthetic History rows before new product auth migration 003.
+          PGUSER=history_app PGPASSWORD=synthetic_app_only psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          SELECT set_config('app.owner_id','synthetic_auth_migration',true);
+          INSERT INTO history_l1.conversations(owner_id,id)
+            VALUES('synthetic_auth_migration','synthetic_auth_preexisting_history');
+          COMMIT;
+          SQL
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          test "$(psql -d history_ci -Aqt -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'")" = "1"
+      - name: Run real PostgreSQL synthetic History HDB and Auth BND tests
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/database -p 'test_*.py' -v
+      - name: Smoke existing History rollback and auth 003 rollback on disposable databases
+        run: |
+          set -euo pipefail
+          PGUSER=history_app PGPASSWORD=synthetic_app_only psql -d history_rollback_ci -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          SELECT set_config('app.owner_id','synthetic_rollback_only',true);
+          INSERT INTO history_l1.conversations(owner_id,id) VALUES('synthetic_rollback_only','conv_synthetic');
+          COMMIT;
+          SQL
+          export PGUSER=history_migrator PGPASSWORD=synthetic_mig_only
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.down.sql
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          test "$(psql -d history_rollback_ci -Aqt -c "SELECT count(*) FROM history_l1.conversations WHERE id='conv_synthetic'")" = "1"
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.down.sql
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.down.sql
+          test "$(psql -d history_rollback_ci -Aqt -c "SELECT to_regclass('history_l1.conversations') IS NULL")" = "t"
+          echo 'History temporary rollback smoke PASS; destructive 001 is NOT backup or data recovery'
+          # The 003 rollback is destructive ONLY in another disposable CI database.
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO auth_l1.owners(owner_id) VALUES('synthetic_auth_rollback_owner');
+          INSERT INTO auth_l1.identity_links(issuer,subject,owner_id)
+            VALUES('https://synthetic.invalid/rollback','synthetic_sub','synthetic_auth_rollback_owner');
+          SQL
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT count(*) FROM auth_l1.identity_links")" = "1"
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.down.sql
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT to_regclass('auth_l1.owners') IS NULL")" = "t"
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT count(*) FROM auth_l1.owners")" = "0"
+          echo 'Auth 003 up/down/up isolated CI smoke PASS; down DESTROYS auth data and is NOT restoration'
