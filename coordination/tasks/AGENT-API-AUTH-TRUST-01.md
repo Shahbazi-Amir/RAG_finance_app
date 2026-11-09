@@ -209,3 +209,35 @@ regressions preserved; final count 74.
 **Minimal workflow-only fix:** Execute exact **four existing and unchanged DB-owned suites** `test_auth_session.py` (12), `test_auth_null_fence.py` (3), `test_auth_session_fence.py` (10) and `test_service_replay.py` (11), in separate `unittest discover -p 'exact_file.py'` commands and **before** new API integration. These are 36 distinct DB methods, no extra HDB tests (their dedicated fixture bootstraps not invented in this scope). Explicit API History contract (17) and real HTTP/PostgreSQL History (20) still follow, unchanged. No test suppression, code edit, DB repository/migration, legacy table fallback or widened privilege. The DB cleanup assumption now runs against fresh DB before API replay writes. Expected 10+36+21+17+20=104 unique tests, pending real run.
 
 **Outcome:** TESTED_PARTIAL (TRU 10 + TRI 21 observed PASS); overall CI FAILURE. Preserve that accurate status until a full green Run.
+
+
+## TRUST-01-P — FINAL actual green CI at exact tested source SHA (2026-11-09)
+
+**TESTED SOURCE SHA:** `78ce9d1c24161c703abee2a3c2c117752dc467e6`; [official GitHub Actions Push Run 42694695505](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42694695505): **COMPLETED / SUCCESS** on exactly this source SHA, including all commands below and ephemeral `postgres:17.11` with unchanged migrations 001–005. No skipped or failed tests counted PASS; total counts are independent method invocations, not duplicated across suites.
+
+**Exact real CI matrix:**
+1. `python -m compileall -q src/phase3/auth tests/phase3/api tests/phase3/integration/api` — PASS.
+2. `python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v` — **10/10 PASS** (existing RSA/key/header/request-byte/time suite).
+3. `python -m unittest discover -s tests/phase3/database -p 'test_auth_session.py' -v` — **12/12 PASS**, unchanged 003 owner/session tests.
+4. `python -m unittest discover -s tests/phase3/database -p 'test_auth_null_fence.py' -v` — **3/3 PASS**, unchanged NULL/Owner fence tests.
+5. `python -m unittest discover -s tests/phase3/database -p 'test_auth_session_fence.py' -v` — **10/10 PASS**, unchanged 004 same-session fencing and revoke/expiry regression.
+6. `python -m unittest discover -s tests/phase3/database -p 'test_service_replay.py' -v` — **11/11 PASS**, unchanged 005 DB durability, unique/rollback/connection, restricted grants, expired cleanup and locked-wait cases.
+7. `python -m unittest discover -s tests/phase3/integration/api -p 'test_auth_trust_postgres.py' -v` — **21/21 PASS**, including old TRI01–TRI17, actual 005-only TRI18, no migration/permission TRI19, manual expired-record purge/stale proof TRI20, and adapter error/no fallback TRI21. TRI15–TRI17 lock/expiry races still PASS on the new DB adapter.
+8. `python -m unittest discover -s tests/phase3/contracts -p 'test_history.py' -v` — **17/17 PASS**, unchanged History shared contract.
+9. `python -m unittest discover -s tests/phase3/integration/api -p 'test_http_postgres.py' -v` — **20/20 PASS**, unchanged History API HTTP/PostgreSQL.
+**Unique total = 10 RSA + 21 API integration + 25 DB owner/session/fence + 11 DB durable replay + 17 History contracts + 20 History HTTP = 104/104 PASS.** Exactly **74 historical API Trust methods retained**, 4 new API integration methods, 26 additional unchanged DB regression methods. DB `test_service_replay.py` counted ONCE; no duplicate score.
+
+**Observed actual version evidence from Run log:** Ubuntu 24.04 free runner, PostgreSQL `17.11`, Python `3.13.18`, `PyJWT[crypto]==2.15.1`, `cryptography==50.0.2`, `psycopg==3.3.8`, `FastAPI==0.162.2`, `httpx==0.28.1`. All commands executed on disposable CI PostgreSQL, not a real product or local Mac.
+
+**Verified boundary:** signed BFF assertion verified/byte-bound; `PostgresDurableReplayStore` **only** (DB-owned digest+SQL), exactly one outer PostgreSQL transaction spanning 005 consume, 004 session-aware locks, final signed time recheck after all waits, and synthetic protected action. Commit-only JTI consumption; duplicate commit and multi-connection racing denied, rollback discards JTI and protected SQL together. Fresh DB adapter/connection cannot forget durable JTI, but this is NOT server-process restart or multi-datacenter evidence. Missing 005, missing EXECUTE, invalid store, expired proof after row/unique lock, revoked/rotated/expired session, closed connection and adapter errors fail closed. `auth_trust_ci.replay_jti` **never created in CI**; TRI18 explicitly checks absence while doing successful signed API protected work. Manual expiration cleanup cannot revive old signed proof; cleaner remains separate dedicated role, no automatic schedule.
+
+**Least-privilege reality:** the application `auth_trust_api` role receives only standard Migration 005 `auth_l1` schema usage and `EXECUTE` on replay 005 and session 004; non-superuser/no BYPASSRLS/no Auth or History direct table access, no issue/revoke/reauth/mapping. It has INSERT on TWO separate disposable protected-marker tables ONLY to support the unchanged DB Replay and new API fixture tests, not product SQL; no production fixture or role grant changed.
+
+**Failure history preserved above:**
+- [Run 42693852913](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42693852913) FAIL before tests: escaped Bash SQL quotes, fixed only in workflow.
+- [Run 42694151226](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42694151226) FAIL overall despite pure 10/10 + API 21/21 PASS: broad DB History tests unexpectedly loaded without their separate HDB fixtures; cleanup RPL09 saw six expired records from prior API tests. Fixed workflow order to run exactly four named DB-owner suites (36 methods) before API integration. No tests or security rules weakened.
+- [Run 42694695505](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42694695505) SUCCESS full 104/104 under final tested source.
+
+**Handoff acceptance boundary:** READY_FOR_REVIEW — API_DURABLE_REPLAY_INTEGRATION, **implemented API-only limited durable adapter wiring and synthetic CI**; **tested 104/104 real GitHub CI**; **accepted=NONE/SUPERVISOR_PENDING**. PR remains Draft/unmerged, no Gate P3M03/M05/M06/M13 newly PASS. BFF producer, mTLS/service transport, real OIDC users, Fresh Reauthentication, external Reset, Production roles/retention/scheduled cleaner, Auth-wired History and product authorization remain NOT_IMPLEMENTED/NOT_RUN. Parent `RAG_finance` and `AI-Agent-projects` unchanged/read-only. No actual email, model, purchase, deploy, local installation or real DB migration. If a documentation-only final commit is appended, **Final HEAD will differ from this exact tested source SHA**, and its own CI must be checked independently.
+
+**Versioned inputs preserved:** starting main `cee65c5af00f43556fba6b588338bc2273793653`, DB PR #18 and API PR #17 as described in section M; existing validated migrations 001–005, accepted `service_replay.py`, `auth_session.py` and source roadmap IDs as recorded under TRUST-01-M. Same task file only, per working Push.
