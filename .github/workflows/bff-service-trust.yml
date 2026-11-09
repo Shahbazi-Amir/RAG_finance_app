@@ -93,20 +93,21 @@ jobs:
       - name: Negative real Next Client Component server-only import build
         run: |
           set -euo pipefail
-          mkdir -p apps/web/app/__bff_forbidden_import
-          cat > apps/web/app/__bff_forbidden_import/page.tsx <<'TSX'
+          mkdir -p apps/web/app/bff-client-forbidden
+          cat > apps/web/app/bff-client-forbidden/page.tsx <<'TSX'
           'use client';
           import {createServiceSender} from '../../src/auth/server/index';
           export default function Forbidden(){return <p>{typeof createServiceSender}</p>;}
           TSX
+          rm -rf apps/web/.next
           if (cd apps/web && npm run build) > "$RUNNER_TEMP/bff-negative-build.log" 2>&1; then
-            rm -rf apps/web/app/__bff_forbidden_import
+            rm -rf apps/web/app/bff-client-forbidden
             echo 'NEGATIVE_BROWSER_BUNDLE_UNEXPECTED_SUCCESS';exit 1
           fi
           if ! grep -Eiq 'server-only|cannot be imported from a Client Component|Client Component.*server' "$RUNNER_TEMP/bff-negative-build.log"; then
             echo 'NEGATIVE_BROWSER_BUNDLE_UNEXPECTED_FAILURE';exit 1
           fi
-          rm -rf apps/web/app/__bff_forbidden_import
+          rm -rf apps/web/app/bff-client-forbidden
           echo 'NEXT_CLIENT_IMPORT_DENIED_PASS'
       - name: Unchanged PostgreSQL migrations and ephemeral mTLS/RSA credentials
         run: bash tests/phase3/integration/ui/setup_bff_ci.sh
