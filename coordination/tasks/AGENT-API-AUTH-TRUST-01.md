@@ -75,3 +75,24 @@ SOURCE SHA 932bedd026a8bd94551299a10266494b27a0a9ed,
 **Extra fail-closed audit discovery:** preflight `conn.autocommit` and `conn.info.transaction_status` was outside the psycopg.Error handling. Under a closed/disconnected session store connection an exception could bypass the generic TrustRejected boundary, even though no protected SQL would run. Narrow correction: include the connection preflight inside existing psycopg.Error catch; new **TRI14** uses genuinely closed PostgreSQL connection to require TrustRejected and no protected writes. Existing positives, roles and assertions stay intact. Extra updated source SHA is NOT_TESTED until its own GitHub Actions run. This is not a mock proof of every partial infrastructure outage or reconnect behavior.
 
 Implemented=SOURCE_PLUS_DB_DOWN_GUARD; tested=70_GREEN_PREVIOUS_SHA, NEW_TRI14_PENDING; accepted=NONE / SUPERVISOR_PENDING. Any new working Push includes this same ledger. Do not merge, do not enable Product Auth.
+
+
+## TRUST-01-H — FINAL exact-source real CI evidence and review handoff (2026-11-09)
+
+**TESTED SOURCE SHA:** `57415cee5f80f5bfc3251f7745780a65ccc6e2bd`.
+[GitHub Actions Push Run 42679069622](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42679069622): **COMPLETED SUCCESS on this exact SHA**, all job steps PASS, PostgreSQL temporary 17.11, Python 3.13.18, PyJWT[crypto] 2.15.1 + cryptography 50.0.2, FastAPI 0.162.2, psycopg 3.3.8, httpx 0.28.1.
+
+Exact real verification matrix from unmodified `.github/workflows/api-auth-trust.yml` and GitHub logs:
+- `python -m compileall -q src/phase3/auth tests/phase3/api tests/phase3/integration/api` → PASS;
+- `python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v` → **10/10 PASS**, RSA signature and header/key allowlist, forbidden algorithm/remote key, issuer/audience, exp/iat/nbf 0s skew + ≤30s lifetime, missing/bad jti, encoding/path/query/body/method/owner tamper, duplicate/forwarded headers and bounds;
+- `python -m unittest discover -s tests/phase3/integration/api -p 'test_auth_trust_postgres.py' -v` → **14/14 PASS**, including TRI14 genuine closed connection rejected and zero protected write; real in-process HTTP, correct signature+session, altered signed CAS claims, missing/wrong Direct API/IdP service header, rotated/expired/revoked/all/suspended, exactly one concurrent committed JTI, rollback retry/no incomplete protected side-effect, actual PostgreSQL Lock wait against revoke;
+- `python -m unittest discover -s tests/phase3/database -p 'test_auth_session_fence.py' -v` → **10/10 PASS** unchanged 004 DB regression;
+- `python -m unittest discover -s tests/phase3/contracts -p 'test_history.py' -v` → **17/17 PASS** unchanged synthetic contracts;
+- `python -m unittest discover -s tests/phase3/integration/api -p 'test_http_postgres.py' -v` → **20/20 PASS** unchanged History product HTTP/PostgreSQL suite.
+**Total: 71/71 PASS on real CI source SHA.** No failures or skipped test claimed PASS. Earlier original failures and their minimal CI corrections remain recorded in E/F; previous Run 42678700135 was 70/70 green on earlier code SHA before TRI14.
+
+The `auth_trust_api` role in disposable CI had only USAGE on auth_l1, EXECUTE on function 004 and INSERT on `auth_trust_ci.replay_jti` plus `auth_trust_ci.protected_actions`; it had NO direct session/owner/history read, mapping, issue, reauth, revoke or BYPASSRLS grants. Test fixture roles create owners/sessions, not the API role. JTI is stored SHA256 only, not a raw signed JWT; sensitive verifier/session material is never logged, returned to JS or stored in Artifact. No CI artifact was uploaded; official GitHub job output includes IDs/status and sanitized test names only. Service proof is NOT an IdP authentication of the human actor, and signed server-only session_ref itself remains a privileged secret for the future BFF transport design.
+
+**Delivery label:** READY_FOR_REVIEW — API_SERVICE_TRUST_SLICE, with supervisor acceptance pending. This task is an API service assertion + same-transaction synthetic protected SQL proof ONLY. Product FastAPI History/Next.js BFF integration, durable production replay schema and role/migrations, real IdP OIDC, fresh reauth after Reset, outside-product Reset coverage, CSRF/Cookie, TLS/mTLS and production deployment remain NOT_IMPLEMENTED/NOT_RUN/NOT_ACCEPTED.
+
+**Source tested SHA differs from eventual final HEAD if this checkpoint is a documentation-only last commit.** Report Final SHA separately; any auto-triggered CI on documentary head must be checked before claiming it succeeded. Keep PR Draft/Unmerged, main at Starting SHA unless independently advanced. Do not merge.
