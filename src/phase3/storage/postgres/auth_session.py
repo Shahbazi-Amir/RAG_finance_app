@@ -105,3 +105,32 @@ def fence_owner(conn,owner_id,expected_epoch):
     """
     return _exec(conn,"SELECT auth_l1.fence_owner(%s,%s) AS data",
                  (owner_id,expected_epoch))
+
+
+def admit_session_fenced(conn, opaque, trusted_owner_id, expected_epoch, expected_generation):
+    """BND-DB-02: transaction-scoped session-aware admission.
+
+    TRUSTED BFF/API may pass ONLY an already verified owner plus this specific
+    opaque session/generation. Opaque never crosses SQL boundary: only its SHA256
+    digest is sent. Caller MUST open conn.transaction() BEFORE calling and keep
+    the same transaction/connection open for its authorized SQL side effects.
+
+    Valid session: True and Owner + Session FOR SHARE row locks remain held to
+    outer COMMIT/ROLLBACK. Invalid/revoked/stale/expired session: False (no
+    protected action authorized); malformed/NULL inputs: PostgreSQL error.
+    No idle renewal; expiry tested at admission via PostgreSQL clock.
+    A standalone autocommit call is intentionally rejected by this wrapper,
+    because its row locks would be released before protected work.
+
+    This does NOT authenticate a browser, grant an HTTP capability, cancel an
+    already running operation at expiry, or fence another database/stream.
+    """
+    # Psycopg connection.info.transaction_status reports the real PG state:
+    # explicit outer "with conn.transaction()" on the CI autocommit connection
+    # is INTRANS; a standalone autocommit connection is IDLE.
+    from psycopg.pq import TransactionStatus
+    if conn.info.transaction_status != TransactionStatus.INTRANS:
+        raise RuntimeError("SESSION_ADMISSION_REQUIRES_OUTER_TRANSACTION")
+    return _exec(conn,
+        "SELECT auth_l1.admit_session_fenced(%s,%s,%s,%s) AS data",
+        (trusted_owner_id, _digest(opaque), expected_epoch, expected_generation))
