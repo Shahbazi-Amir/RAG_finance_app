@@ -752,6 +752,38 @@ async def prompt_none_max_age_zero(context, cb):
         await page.close()
 
 
+async def submit_02a_password_form(page, email, password, label):
+    """Real credential entry even if Keycloak locks username on SSO reauth."""
+    global CURRENT
+    username = page.locator("#username")
+    secret = page.locator("#password")
+    submit = page.locator("#kc-login")
+    username_present = await username.count() == 1
+    edit = await username.is_editable() if username_present else False
+    visible = await username.is_visible() if username_present else False
+    layout = {
+        "username_present": username_present,
+        "username_editable": edit,
+        "username_visible": visible,
+        "password_visible": await secret.is_visible(),
+        "submit_visible": await submit.is_visible(),
+    }
+    # All booleans only; NEVER log input value/password/session/cookie or URL.
+    RESULTS["RA_" + label + "_form_shape"] = layout
+    print("RA_" + label + "_FORM_SHAPE=" + repr(layout), flush=True)
+    assert layout["password_visible"] and layout["submit_visible"], "REAUTH_PASSWORD_FORM_NOT_READY"
+    if username_present:
+        if edit:
+            await username.fill(email)
+        else:
+            assert await username.input_value() == email, "WRONG_SSO_IDENTITY_ON_REAUTH"
+    # If Keycloak renders password-only form, subsequent signed subject and
+    # stored old/new credential probes still bind which user authenticated.
+    CURRENT = "RA-" + label + "-submit-password"
+    await secret.fill(password)
+    await submit.click(timeout=12000)
+
+
 async def password_challenge_02a(ctx, cb, email, old_pw, new_pw, original):
     """Old SSO cookie must NOT bypass prompt=login+max_age=0 password UI."""
     global CURRENT
@@ -766,13 +798,25 @@ async def password_challenge_02a(ctx, cb, email, old_pw, new_pw, original):
         assert cb.server.inbox.empty(), "OLD_SSO_BYPASSED_CREDENTIAL_CHALLENGE"
         case("RA-04-sso-requires-real-password-form")
         CURRENT = "RA-old-credential-denied"
-        await fill_login(page, email, old_pw)
+        await submit_02a_password_form(page, email, old_pw, "old")
         await expect(page.locator("#kc-form-login")).to_be_visible(timeout=12000)
         assert "/callback" not in urlsplit(page.url).path
         assert cb.server.inbox.empty(), "OLD_PASSWORD_FRESH_CALLBACK"
         case("RA-05-old-password-cannot-complete-fresh-flow")
-        CURRENT = "RA-new-credential-in-old-SSO-context"
-        await fill_login(page, email, new_pw)
+        # A failed credential attempt may terminate/restart the authentication
+        # sub-session. Do not reuse its Code/PKCE/state or assume an editable
+        # form in the same tab. Run another FRESH OIDC challenge against the
+        # SAME original SSO cookie context.
+        await page.close()
+        f = fresh_flow()
+        page = await ctx.new_page()
+        challenge_start = int(time.time())
+        CURRENT = "RA-new-credential-second-real-challenge"
+        await page.goto(authorization(
+            OIDC, f["nonce"], f["state"], f["proof"]) + "&max_age=0")
+        await expect(page.locator("#kc-form-login")).to_be_visible(timeout=15000)
+        assert cb.server.inbox.empty(), "SECOND_PROMPT_LOGIN_SILENT_BYPASS"
+        await submit_02a_password_form(page, email, new_pw, "new")
         await page.wait_for_url(CALLBACK + "*", timeout=20000)
         params = cb.next()
         # Reuse the original IDP-01 function: validate state before exchange.
