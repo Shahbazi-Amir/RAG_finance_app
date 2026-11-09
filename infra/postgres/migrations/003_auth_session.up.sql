@@ -45,8 +45,9 @@ FOR EACH ROW EXECUTE FUNCTION auth_l1.identity_immutable();
 CREATE FUNCTION auth_l1.owner_epoch_guard() RETURNS trigger LANGUAGE plpgsql
 SET search_path=pg_catalog AS $$
 BEGIN
- IF NEW.owner_id <> OLD.owner_id OR NEW.session_epoch < OLD.session_epoch
-    OR (OLD.state='suspended' AND NEW.state <> 'suspended') THEN
+ IF NEW.owner_id IS DISTINCT FROM OLD.owner_id OR NEW.session_epoch IS NULL
+    OR NEW.session_epoch < OLD.session_epoch
+    OR (OLD.state='suspended' AND NEW.state IS DISTINCT FROM 'suspended') THEN
   RAISE EXCEPTION 'OWNER_IMMUTABILITY_OR_EPOCH_REGRESSION' USING ERRCODE='P0001';
  END IF;
  RETURN NEW;
@@ -98,6 +99,9 @@ CREATE FUNCTION auth_l1.issue_session(p_owner text,p_epoch bigint,p_digest text,
 RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE o record; now_db timestamptz; absolute_deadline timestamptz; idle_deadline timestamptz;
 BEGIN
+ IF p_owner IS NULL OR length(btrim(p_owner))=0 OR p_epoch IS NULL OR p_epoch<0 THEN
+  RAISE EXCEPTION 'INVALID_ISSUE_OWNER_EPOCH' USING ERRCODE='P0001';
+ END IF;
  IF p_digest IS NULL OR p_digest !~ '^[0-9a-f]{64}$'
     OR p_idle_seconds IS NULL OR p_absolute_seconds IS NULL
     OR p_idle_seconds<=0 OR p_absolute_seconds < p_idle_seconds
@@ -106,7 +110,7 @@ BEGIN
  END IF;
  SELECT * INTO o FROM auth_l1.owners x WHERE x.owner_id=p_owner FOR UPDATE;
  IF NOT FOUND OR o.state <> 'active' OR o.reset_gate <> 'open'
-    OR o.session_epoch <> p_epoch THEN
+    OR o.session_epoch IS DISTINCT FROM p_epoch THEN
   RAISE EXCEPTION 'SESSION_ISSUE_DENIED' USING ERRCODE='P0001';
  END IF;
  now_db:=clock_timestamp();
@@ -141,6 +145,9 @@ CREATE FUNCTION auth_l1.fence_owner(p_owner text,p_epoch bigint) RETURNS boolean
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE o record;
 BEGIN
+ IF p_owner IS NULL OR length(btrim(p_owner))=0 OR p_epoch IS NULL OR p_epoch<0 THEN
+  RAISE EXCEPTION 'INVALID_FENCE_OWNER_EPOCH' USING ERRCODE='P0001';
+ END IF;
  SELECT * INTO o FROM auth_l1.owners x WHERE x.owner_id=p_owner FOR SHARE;
  RETURN FOUND AND o.state='active' AND o.reset_gate='open' AND o.session_epoch=p_epoch;
 END $$;
@@ -149,13 +156,17 @@ CREATE FUNCTION auth_l1.touch_session(p_digest text,p_expected_epoch bigint)
 RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE old_owner text; o record; s record; now_db timestamptz; deadline timestamptz;
 BEGIN
+ IF p_digest IS NULL OR p_digest !~ '^[0-9a-f]{64}$'
+    OR p_expected_epoch IS NULL OR p_expected_epoch<0 THEN
+  RAISE EXCEPTION 'INVALID_TOUCH_CAS' USING ERRCODE='P0001';
+ END IF;
  SELECT x.owner_id INTO old_owner FROM auth_l1.sessions x WHERE x.digest_sha256=p_digest;
  IF old_owner IS NULL THEN RAISE EXCEPTION 'SESSION_DENIED' USING ERRCODE='P0001'; END IF;
  SELECT * INTO o FROM auth_l1.owners x WHERE x.owner_id=old_owner FOR UPDATE;
  SELECT * INTO s FROM auth_l1.sessions x WHERE x.digest_sha256=p_digest FOR UPDATE;
  now_db:=clock_timestamp();
- IF o.state<>'active' OR o.reset_gate<>'open' OR o.session_epoch<>p_expected_epoch
-  OR s.status<>'active' OR s.session_epoch<>p_expected_epoch
+ IF o.state<>'active' OR o.reset_gate<>'open' OR o.session_epoch IS DISTINCT FROM p_expected_epoch
+  OR s.status<>'active' OR s.session_epoch IS DISTINCT FROM p_expected_epoch
   OR now_db>=s.idle_expires_at OR now_db>=s.absolute_expires_at THEN
   RAISE EXCEPTION 'SESSION_DENIED' USING ERRCODE='P0001';
  END IF;
@@ -170,6 +181,11 @@ CREATE FUNCTION auth_l1.rotate_session(p_old_digest text,p_new_digest text,
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE old_owner text; o record; s record; now_db timestamptz; new_idle timestamptz;
 BEGIN
+ IF p_old_digest IS NULL OR p_old_digest !~ '^[0-9a-f]{64}$'
+    OR p_epoch IS NULL OR p_epoch<0 OR p_generation IS NULL
+    OR p_generation<0 OR p_generation=2147483647 THEN
+  RAISE EXCEPTION 'INVALID_ROTATION_CAS' USING ERRCODE='P0001';
+ END IF;
  IF p_new_digest IS NULL OR p_new_digest !~ '^[0-9a-f]{64}$'
     OR p_new_digest=p_old_digest THEN RAISE EXCEPTION 'INVALID_ROTATION' USING ERRCODE='P0001'; END IF;
  SELECT x.owner_id INTO old_owner FROM auth_l1.sessions x WHERE x.digest_sha256=p_old_digest;
@@ -177,8 +193,8 @@ BEGIN
  SELECT * INTO o FROM auth_l1.owners x WHERE x.owner_id=old_owner FOR UPDATE;
  SELECT * INTO s FROM auth_l1.sessions x WHERE x.digest_sha256=p_old_digest FOR UPDATE;
  now_db:=clock_timestamp();
- IF o.state<>'active' OR o.reset_gate<>'open' OR o.session_epoch<>p_epoch
-    OR s.status<>'active' OR s.session_epoch<>p_epoch OR s.generation<>p_generation
+ IF o.state<>'active' OR o.reset_gate<>'open' OR o.session_epoch IS DISTINCT FROM p_epoch
+    OR s.status<>'active' OR s.session_epoch IS DISTINCT FROM p_epoch OR s.generation IS DISTINCT FROM p_generation
     OR now_db>=s.idle_expires_at OR now_db>=s.absolute_expires_at THEN
   RAISE EXCEPTION 'ROTATION_CAS_DENIED' USING ERRCODE='P0001';
  END IF;
@@ -197,12 +213,16 @@ CREATE FUNCTION auth_l1.revoke_one(p_digest text,p_epoch bigint) RETURNS boolean
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE old_owner text; o record; s record; now_db timestamptz;
 BEGIN
+ IF p_digest IS NULL OR p_digest !~ '^[0-9a-f]{64}$'
+    OR p_epoch IS NULL OR p_epoch<0 THEN
+  RAISE EXCEPTION 'INVALID_REVOKE_ONE_CAS' USING ERRCODE='P0001';
+ END IF;
  SELECT x.owner_id INTO old_owner FROM auth_l1.sessions x WHERE x.digest_sha256=p_digest;
  IF old_owner IS NULL THEN RETURN false; END IF;
  SELECT * INTO o FROM auth_l1.owners x WHERE x.owner_id=old_owner FOR UPDATE;
  SELECT * INTO s FROM auth_l1.sessions x WHERE x.digest_sha256=p_digest FOR UPDATE;
  now_db:=clock_timestamp();
- IF o.session_epoch<>p_epoch OR s.session_epoch<>p_epoch
+ IF o.session_epoch IS DISTINCT FROM p_epoch OR s.session_epoch IS DISTINCT FROM p_epoch
     OR s.status<>'active' OR now_db>=s.idle_expires_at OR now_db>=s.absolute_expires_at THEN
   RETURN false;
  END IF;
@@ -214,8 +234,11 @@ CREATE FUNCTION auth_l1.revoke_all(p_owner text,p_epoch bigint) RETURNS bigint
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE o record; new_epoch bigint;
 BEGIN
+ IF p_owner IS NULL OR length(btrim(p_owner))=0 OR p_epoch IS NULL OR p_epoch<0 THEN
+  RAISE EXCEPTION 'INVALID_REVOKE_ALL_CAS' USING ERRCODE='P0001';
+ END IF;
  SELECT * INTO o FROM auth_l1.owners x WHERE x.owner_id=p_owner FOR UPDATE;
- IF NOT FOUND OR o.session_epoch<>p_epoch OR o.session_epoch=9223372036854775807 THEN
+ IF NOT FOUND OR o.session_epoch IS DISTINCT FROM p_epoch OR o.session_epoch=9223372036854775807 THEN
   RAISE EXCEPTION 'REVOKE_EPOCH_CAS_DENIED' USING ERRCODE='P0001';
  END IF;
  new_epoch:=p_epoch+1;
@@ -229,8 +252,11 @@ CREATE FUNCTION auth_l1.suspend_owner(p_owner text,p_epoch bigint) RETURNS bigin
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE o record; new_epoch bigint;
 BEGIN
+ IF p_owner IS NULL OR length(btrim(p_owner))=0 OR p_epoch IS NULL OR p_epoch<0 THEN
+  RAISE EXCEPTION 'INVALID_SUSPEND_CAS' USING ERRCODE='P0001';
+ END IF;
  SELECT * INTO o FROM auth_l1.owners x WHERE x.owner_id=p_owner FOR UPDATE;
- IF NOT FOUND OR o.state<>'active' OR o.session_epoch<>p_epoch
+ IF NOT FOUND OR o.state<>'active' OR o.session_epoch IS DISTINCT FROM p_epoch
     OR o.session_epoch=9223372036854775807 THEN
   RAISE EXCEPTION 'SUSPEND_EPOCH_CAS_DENIED' USING ERRCODE='P0001';
  END IF;
@@ -245,10 +271,13 @@ CREATE FUNCTION auth_l1.finish_simulated_reauth(p_owner text,p_epoch bigint)
 RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE o record;
 BEGIN
+ IF p_owner IS NULL OR length(btrim(p_owner))=0 OR p_epoch IS NULL OR p_epoch<0 THEN
+  RAISE EXCEPTION 'INVALID_REAUTH_CAS' USING ERRCODE='P0001';
+ END IF;
  -- ONLY a separately authenticated/trusted reauth service may invoke this.
  -- In BND-DB-01 a distinct synthetic CI role emulates that trust; NO IdP proof exists.
  SELECT * INTO o FROM auth_l1.owners x WHERE x.owner_id=p_owner FOR UPDATE;
- IF NOT FOUND OR o.state<>'active' OR o.session_epoch<>p_epoch
+ IF NOT FOUND OR o.state<>'active' OR o.session_epoch IS DISTINCT FROM p_epoch
     OR o.reset_gate<>'pending_reauth' THEN
   RAISE EXCEPTION 'REAUTH_GATE_DENIED' USING ERRCODE='P0001';
  END IF;
