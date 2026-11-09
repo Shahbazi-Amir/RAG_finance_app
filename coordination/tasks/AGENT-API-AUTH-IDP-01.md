@@ -375,3 +375,39 @@ docker build, docker compose, docker network inspection/egress denial,
 python compileall, actual Chromium /suite/evaluate.py, always teardown,
 sanitized artifact. Keep Draft PR #13, no merge. Implemented=C_BROWSER_RESET_SESSION_FIX;
 Tested=A_B_PASS_PREVIOUS_SHA_C_PENDING; Accepted=NONE.
+
+
+## IDP-CI-01-AF — FINAL verified A/B/C CI-only evidence, review handoff (2026-11-09)
+
+Continuation Starting HEAD 59f0d63bea6ebdd144a990848eb4efda2aa0a160. Historical main and task base 4831ff90470028abab1dd6dd78834fcf3446a716. Same agent/auth-idp-ci branch, existing open Draft PR #13. Source: references/phase2/roadmaps/RAG_finance_phase3_modular_execution_plan.md, Module 05, P3M05-A02/A06/A07/A08/A10. No product Gate acceptance. Retain all prior historical failures, code and successes.
+
+**Actual TESTED CODE SHA:** 835bd417ede49184caa93f36bbfcc8d7bac12a3a.
+Both GitHub Actions first-attempt runs completed SUCCESS on this exact SHA:
+- Push https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42616328060
+- PR https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42616335573
+- Downloaded and READ real sanitized PR artifact 13673196367: overall PASS, current_stage completed, IDP-A01..A06, B00/B01 and C01..C03 all PASS.
+All CI job steps passed, including real Chromium/Keycloak+PostgreSQL identity-only/Mailpit, actual outbound TCP denial, no published ports, internal-only network, unconditional teardown and sanitized artifact. Keycloak 26.8.2, PostgreSQL 17.11, Mailpit 1.32.0, Playwright Chromium 1.64.1 pinned. No secret, email body, Code, Cookie, Token, password, reset URL or OTP seed logged or uploaded.
+
+**A — real negative OIDC PASS:**
+- A01 wrong State, A02 absent State, each applied to a DIFFERENT genuine browser-issued, still-unexchanged Code. Both rejected by same checked_callback_exchange function as positive flow with explicit STATE_MISMATCH BEFORE exchange, original legitimate Code still exchangeable.
+- A03 bad expected nonce -> AssertionError, A04 bad expected issuer -> InvalidIssuerError, A05 bad expected audience -> InvalidAudienceError, all using a REAL signed Keycloak ID token and independently rechecked with correct expectations.
+- A06 separate fresh browser Code with invalid PKCE S256 verifier -> real IdP token HTTP 400. Existing IDP-05 code replay HTTP 400 and invalid redirect, signature tamper checks remain PASS.
+- No product callback, fake token, auth override or actor selector.
+
+**B — measured genuine pre-reset old browser SSO and tokens PASS:**
+- B00 independent actual OIDC login for the second synthetic user in retained Chromium context, prompt=none SSO with validated Code/PKCE/nonce BEFORE reset succeeded.
+- After real Reset via separate verified-email browser flow, with NO admin logout, B01 prompt=none on SAME old browser cookie context still succeeded with actual OIDC Code/PKCE and validated signed ID token. Old refresh token returned HTTP 200, old UserInfo with old access returned HTTP 200, old access JWT locally passed JWKS signature+exp check before expiry. All actual observed values; negative revocation was NOT invented to obtain green CI. Browser SSO was probed before refresh to avoid changing session evidence.
+- Separate IDP-16 ADMIN-INITIATED logout: old refresh HTTP 400 explicitly asserted, old UserInfo HTTP 401 explicitly asserted as 401/403 allowed denial, old signed access JWT signature still verifies before expiry (realm lifespan 180 seconds). Not equivalent to RP/BFF logout. Access token introspection NOT_RUN.
+- **Security consequence:** In this tested Keycloak configuration password Reset DOES NOT invalidate the old browser SSO nor pre-reset access/refresh. Future BFF/API must explicitly handle and test all-session revocation on reset/logout and an independent old-JWT/token lifetime policy. No product BFF session exists in this evaluation.
+
+**C — real password policy + brute-force behavior PASS:**
+- C01 second verified synthetic user initiated REAL Forgot/Reset browser flow, local Mailpit action followed in the SAME authentication context; submitting weak password left reset form visible (rejected). Strong new randomly generated compliant password accepted; fresh OIDC login with new password succeeded, weak and previous valid password denied.
+- Separate third synthetic policy-probe account with generated compliant initial password was used only for lockout. C02 five (5) bounded deliberate wrong-password Chromium logins (maximum allowed 7, spacing > quick-login threshold), Keycloak read-only Attack Detection REST observed numFailures=5 and disabled=true. Attempt with CORRECT password while disabled was denied.
+- C03 status polling observed disabled=false naturally, WITHOUT admin clear or forced logout; fresh real OIDC login with correct password then succeeded. This is observed lockout + release, not sleep-only PASS. CI-only realm failureFactor=5, waitIncrementSeconds=12 seconds, maxFailureWaitSeconds=30 seconds; not a proposed production policy.
+- Previous real source runs 42614945923/42614953978 (initial C broad action-email stage failure) and 42615811964/42615822049 (standalone admin action landing did not present password form) remain logged in earlier checkpoint sections. Final C uses proven browser-initiated Forgot/Reset, no lowered assertions.
+
+**Implementation paths in continuation:** tests/phase3/integration/auth_idp/evaluate.py, tests/phase3/integration/auth_idp/support.py, infra/auth-ci/README.md and this SINGLE cumulative checkpoint. Existing Docker/Compose, .github/workflows/auth-idp.yml, product API/UI/History/DB, root/shared contracts, checklist and RAG_finance repo unchanged. Exact checks: unmodified GitHub Workflow auth-idp.yml invokes docker build, compose up, network_guard.py + denied egress probes, python -m compileall, real Docker Python /suite/evaluate.py, always compose down --volumes and sanitized artifact upload. No Mac installation, public port, real email, paid service, purchase or deployment.
+
+Remaining separate next package: enforce CSRF and BFF server-side session/cookie rotation/revocation, issuer+subject-to-immutable-owner binding, token/session invalidation on reset/logout, real authenticated RLS, admin step-up and cross-user negative cases. Production TLS/HA, real SMTP deliverability, Iran reachability, provider/hosting/cost selection, security certification, NB23 live runtime and Module 00 remain blocked/out of scope. Keycloak is technically viable as an ISOLATED candidate only, not selected production Auth.
+
+Implemented=LIMITED_A_B_C_CI_TESTS; Tested=TWO_REAL_GREEN_RUNS_ON_EXACT_SHA; Accepted=NONE / SUPERVISOR_PENDING. READY_FOR_REVIEW — ISOLATED_IDP_EVALUATION. Keep PR #13 DRAFT/UNMERGED. This is final TESTED CODE SHA; a later documentary-only final commit SHA must be reported separately.
