@@ -267,3 +267,66 @@ Fit assessment: Keycloak is a TECHNICALLY VIABLE ISOLATED SELF-HOSTED CANDIDATE 
 Next separately authorized BFF/API + UI/DB integration package must implement trusted OIDC iss+sub -> immutable internal owner mapping and RLS under real user contexts, BFF server-only sessions and secure cookies/CSRF/session rotation, state/nonce/code exchange and token storage, logout and reset revocation across BFF+IdP+refresh+access, admin-only step-up and actual forbidden operations, negative stale/stolen cookie and cross-user tests, status/deletion after session revoke and telemetry redaction; separately strengthen behavioral password/brute-force tests and fully measure post-reset IdP token/session effects. NB23 draft input remains only contract_version + question; Module 00 and live engine remain blocked.
 
 Precise status at review handoff: IMPLEMENTED=ISOLATED_IDP_TEST_HARNESS; TESTED=TWO_GREEN_GITHUB_CI_RUNS_ON_EXACT_SOURCE_SHA; ACCEPTED=NONE / SUPERVISOR_PENDING. Proposed delivery label READY_FOR_REVIEW — ISOLATED_IDP_EVALUATION. Keep PR DRAFT; DO NOT MERGE independently. This is P3M05 IDP candidate evidence only, not AUTH_PRODUCT_ACCEPTED or PRODUCTION_READY.
+
+## IDP-CI-01-AC — limited follow-up A/B/C prepared, awaiting real CI (2026-11-09)
+
+Supervisor-authorized continuation of SAME mission and same Draft PR #13.
+Live GitHub branch and expected Starting HEAD both
+59f0d63bea6ebdd144a990848eb4efda2aa0a160; main remains
+4831ff90470028abab1dd6dd78834fcf3446a716. Last existing head CI
+Run 42612169707 SUCCESS; no active run and no need to rebuild previous
+test cases. Existing PR unchanged in ownership and scope. Sources/IDs:
+references/phase2/roadmaps/RAG_finance_phase3_modular_execution_plan.md,
+Module 05 P3M05-A02/A06/A07/A08/A10. C is isolated IdP password/lockout
+behavior, not full product enforcement or M05 Gate.
+
+Implement A:
+- Reuse one real callback state validation function before actual Code exchange.
+- Independent real browser Code+PKCE flows for modified and missing state
+  reject via explicit assertion; original genuine Code must still exchange.
+- Negative expected nonce, issuer and audience use REAL signed ID token and
+  fail with explicit expected verification exceptions; positive expectations
+  remain valid. Independent fresh Code with incorrect verifier is denied by
+  real IdP token endpoint; original replay denial remains preserved.
+Implement B:
+- Independent pre-reset real browser OIDC login and silent SSO evidence
+  in persistent original Chromium context. Actual password-reset flow is
+  separate. After reset, probe original browser before refresh; individually
+  collect old refresh status, old UserInfo status and local JWKS verification.
+  Any surviving token or cookie is an OBSERVED limitation, not a test failure
+  masked with admin-initiated logout. Strengthen previously observed logout
+  UserInfo denial to a required explicit assertion.
+Implement C:
+- Synthetic third policy probe with its own local-only UPDATE_PASSWORD action,
+  real weak-form rejection and compliant-password acceptance followed by
+  independent login; actual failure counters, bounded attempts <=7,
+  lockout (correct password denied), natural expiry and successful login
+  verified via Keycloak read-only Attack Detection REST. No admin release.
+  Change disposable CI realm waitIncrementSeconds 5->12 to make behavioral
+  observation bounded; keep failureFactor 5 and max 30. This is neither a
+  recommended production policy nor an unauthorized realm outside CI.
+
+Changed mission paths ONLY:
+tests/phase3/integration/auth_idp/evaluate.py,
+tests/phase3/integration/auth_idp/support.py, infra/auth-ci/README.md,
+and THIS single cumulative checkpoint. Existing workflow, Docker single
+internal-only network, zero published ports, denied egress probes, Mailpit
+local capture, 3-day sanitized artifacts, cleanup and no product edit
+remain unchanged. Official Keycloak 26.8 Admin REST attack detection:
+https://www.keycloak.org/docs-api/26.8.0/rest-api/index.html ;
+official temporary brute-force account policy:
+https://www.keycloak.org/docs/26.5.7/server_admin/ ;
+Keycloak reset preserves internal-user session by default when same
+authentication context is used (not an assumed result for this independent
+old-context experiment):
+https://www.keycloak.org/docs/26.8.0/server_admin/ .
+
+Check command (in unchanged auth-idp.yml):
+python -m compileall -q tests/phase3/integration/auth_idp ;
+docker run --rm --network authidpci_authisolated ... python /suite/evaluate.py ;
+automatic CI startup/network_guard, unconditional volume and credential teardown.
+Result for THIS source revision: NOT_RUN pending real CI. Retain prior green
+Runs 42611617511, 42611629862, 42612169707 on their actual prior SHAs.
+Implemented=SOURCE_A_B_C_PREPARED; Tested=NEW_CI_PENDING; Accepted=NONE.
+No Auth product, UI, History, PostgreSQL product, root, shared schema,
+checklist, bank, model, Mac installation, real email or deployment.

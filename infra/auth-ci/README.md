@@ -54,3 +54,35 @@ docker run --rm --network authidpci_authisolated auth-idp-runner:ci python /suit
 docker compose --env-file $RUNNER_TEMP/idp-ci.env -f infra/auth-ci/compose.yml down --volumes --remove-orphans
 
 All command/test results MUST be taken from actual GitHub CI. No claim that a future plan passed. Next separate, authorized package: Next BFF server sessions/CSRF, trusted FastAPI Auth, (issuer,subject) stable internal owner, RLS under two authenticated actors, secure logout/reset, enforced admin MFA and policy. NO product connection here.
+
+## Authorized additional evidence A/B/C (2026-11-09; pending CI on modified source)
+
+A: Negative callback state (mismatched/missing) runs through the same
+checked_callback_exchange path as positive Code+PKCE, and a genuine unspent
+Code remains exchangeable only with the correct callback. Fresh independent
+authorization Code tests PKCE verifier mismatch. Signed genuine ID tokens
+must reject nonce/issuer/audience misexpectations with precise exceptions;
+the previously accepted Code replay assertion remains. Each case is fail-closed.
+
+B: A separate real second-user OIDC login retains its original browser context,
+cookies and access/refresh tokens before reset. A real prompt=none OIDC Code
+flow proves SSO beforehand; after reset the exact old browser is retested
+BEFORE old-token refresh to avoid modifying session evidence. Report actual
+HTTP statuses, independent JWKS JWT verification and silent SSO outcome; do
+not assume desired revocation. This is not a product BFF or frontchannel logout.
+Admin-initiated logout now ASSERTS UserInfo denial rather than merely noting
+its status.
+
+C: One extra synthetic policy-probe account, local-only UPDATE_PASSWORD mail,
+real weak-password rejection and strong-password acceptance on the action
+form, followed by independent login proofs. A maximum of seven password-failure
+browser attempts with deliberate spacing checks the real Admin REST brute-force
+failure count and temporary disabled state. During lock, correct credentials
+must fail. Unlock is observed by polling the read-only Keycloak status, followed
+by a successful login; NO admin clear/force-logout, no raw cookies or tokens
+and no external SMTP. CI-only waitIncrementSeconds=12, failureFactor=5,
+maxFailureWaitSeconds=30; no production policy recommendation is implied.
+
+These additions are NOT_RUN until exact-SHA real GitHub CI results and the
+cumulative mission checkpoint attest otherwise. Code, password, OTP and all
+action URLs remain in process only.

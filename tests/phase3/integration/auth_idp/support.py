@@ -90,7 +90,7 @@ class Admin:
             "verifyEmail": True, "resetPasswordAllowed": True,
             "rememberMe": False,
             "bruteForceProtected": True, "failureFactor": 5,
-            "waitIncrementSeconds": 5, "maxFailureWaitSeconds": 30,
+            "waitIncrementSeconds": 12, "maxFailureWaitSeconds": 30,
             "maxDeltaTimeSeconds": 30,
             "passwordPolicy": "length(12) and digits(1) and upperCase(1) and specialChars(1)",
             "accessTokenLifespan": 180,
@@ -158,6 +158,22 @@ class Admin:
                   json=[role], expected=204)
         return uid
 
+    def create_policy_probe(self, email: str) -> str:
+        # Ephemeral third account only for C: no seeded password, no real user.
+        self.call("POST", "/users", json={
+            "username": email, "email": email, "enabled": True,
+            "emailVerified": True, "firstName": "Synthetic",
+            "lastName": "Policy", "requiredActions": []
+        }, expected=201)
+        return self.user(email)["id"]
+
+    def brute_force_status(self, uid: str) -> dict:
+        # Read-only status endpoint. Never clear lockout administratively.
+        result = self.call("GET", "/attack-detection/brute-force/users/" + uid).json()
+        assert isinstance(result.get("disabled"), bool), "INVALID_BRUTE_FORCE_STATUS"
+        assert isinstance(result.get("numFailures"), int), "INVALID_FAILURE_COUNT"
+        return result
+
     def action_mail(self, uid: str, action: str, ttl: int = 120) -> None:
         self.call("PUT", "/users/" + uid + "/execute-actions-email",
              params={"lifespan": ttl, "client_id": CLIENT, "redirect_uri": CALLBACK},
@@ -207,13 +223,13 @@ def challenge(value: str) -> str:
 
 
 def authorization(config: dict, nonce: str, state: str, proof: str,
-                  *, admin_api: bool = False) -> str:
+                  *, admin_api: bool = False, prompt_login: bool = True) -> str:
     data = {
         "client_id": CLIENT, "redirect_uri": CALLBACK, "response_type": "code",
         "scope": ("openid email profile kc-admin-api" if admin_api
                   else "openid email profile"), "state": state, "nonce": nonce,
         "code_challenge": challenge(proof), "code_challenge_method": "S256",
-        "prompt": "login",
+        "prompt": "login" if prompt_login else "none",
     }
     return config["authorization_endpoint"] + "?" + urlencode(data)
 
@@ -234,11 +250,15 @@ def refresh(config: dict, value: str) -> int:
     return r.status_code
 
 
-def verify_id(config: dict, token: str, nonce: str):
+def verify_id(config: dict, token: str, nonce: str, *,
+              expected_issuer: str | None = None,
+              expected_audience: str | None = None):
     jwks = jwt.PyJWKClient(config["jwks_uri"])
     key = jwks.get_signing_key_from_jwt(token).key
-    claims = jwt.decode(token, key, algorithms=["RS256"], audience=CLIENT,
-        issuer=config["issuer"], options={"require": ["exp", "iat", "iss", "aud", "sub"]})
+    claims = jwt.decode(token, key, algorithms=["RS256"],
+        audience=CLIENT if expected_audience is None else expected_audience,
+        issuer=config["issuer"] if expected_issuer is None else expected_issuer,
+        options={"require": ["exp", "iat", "iss", "aud", "sub"]})
     assert claims.get("nonce") == nonce, "NONCE_MISMATCH"
     return claims
 

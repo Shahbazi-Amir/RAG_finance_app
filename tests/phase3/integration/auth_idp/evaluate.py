@@ -34,6 +34,7 @@ REPORT = None
 RESULTS = {}
 EMAILS = ("first@example.test", "second@example.test")
 MANAGER = "realm-operator@example.test"
+POLICY = "policy-probe@example.test"
 PASSWORDS = {}
 ADMIN = None
 OIDC = None
@@ -98,17 +99,97 @@ async def fill_login(page, email: str, password: str):
     await page.locator("#kc-login").click()
 
 
+def checked_callback_code(params: dict, flow: dict) -> str:
+    # Must execute before exchange in both product-independent positive and
+    # deliberately corrupted test callbacks.
+    assert params.get("state") == [flow["state"]], "STATE_MISMATCH"
+    assert "error" not in params, "CALLBACK_AUTH_ERROR"
+    assert len(params.get("code", [])) == 1, "CALLBACK_CODE_COUNT"
+    return params["code"][0]
+
+
+async def checked_callback_exchange(params: dict, flow: dict):
+    code = checked_callback_code(params, flow)
+    tokens = await asyncio.to_thread(exchange, OIDC, code, flow["proof"])
+    return tokens, code
+
+
 async def authorized(page, cb, flow):
     await page.wait_for_url("http://127.0.0.1:8765/callback*", timeout=20000)
-    params = cb.next()
-    assert params.get("state") == [flow["state"]], "STATE_MISMATCH"
-    assert "error" not in params and len(params.get("code", [])) == 1
-    code = params["code"][0]
-    tokens = await asyncio.to_thread(exchange, OIDC, code, flow["proof"])
+    tokens, code = await checked_callback_exchange(cb.next(), flow)
     claims = await asyncio.to_thread(verify_id, OIDC, tokens["id_token"], flow["nonce"])
     assert claims["email_verified"] is True, "UNVERIFIED_ACCOUNT_ISSUED_ID_TOKEN"
     return tokens, claims, code
 
+
+
+async def real_unexchanged_callback(browser, cb, email: str, password: str):
+    # A fresh browser-authenticated Code for each destructive scenario.
+    flow, ctx, page = await begin(browser)
+    await fill_login(page, email, password)
+    await page.wait_for_url(CALLBACK + "*", timeout=20000)
+    params = cb.next()
+    assert checked_callback_code(params, flow), "REAL_CALLBACK_REQUIRED"
+    return flow, params, ctx
+
+
+async def reject_state_variant(browser, cb, email, password, *, absent: bool):
+    global CURRENT
+    flow, params, ctx = await real_unexchanged_callback(browser, cb, email, password)
+    corrupted = dict(params)
+    if absent:
+        corrupted.pop("state", None)
+    else:
+        corrupted["state"] = [secrets.token_urlsafe(32)]
+        assert corrupted["state"] != params.get("state")
+    CURRENT = "negative-oidc-state-missing" if absent else "negative-oidc-state-wrong"
+    try:
+        # If validation were absent, this would consume the REAL Code.
+        await checked_callback_exchange(corrupted, flow)
+    except AssertionError as exc:
+        assert str(exc) == "STATE_MISMATCH", "WRONG_CALLBACK_REJECTION_STAGE"
+    else:
+        raise AssertionError("CORRUPTED_STATE_WAS_ACCEPTED")
+    # Only a code NOT exchanged by the corrupted callback can still succeed.
+    tokens, _ = await checked_callback_exchange(params, flow)
+    await asyncio.to_thread(verify_id, OIDC, tokens["id_token"], flow["nonce"])
+    await ctx.close()
+    case("IDP-A02-missing-state-rejected-before-exchange" if absent else
+         "IDP-A01-wrong-state-rejected-before-exchange")
+
+
+async def oidc_negative_matrix(browser, cb, good_id_token, good_nonce):
+    global CURRENT
+    await reject_state_variant(browser, cb, EMAILS[0], PASSWORDS[EMAILS[0]], absent=False)
+    await reject_state_variant(browser, cb, EMAILS[0], PASSWORDS[EMAILS[0]], absent=True)
+    for test_name, overrides, exception_type in (
+        ("IDP-A03-wrong-expected-nonce", {"nonce": secrets.token_urlsafe(24)}, AssertionError),
+        ("IDP-A04-wrong-expected-issuer",
+         {"expected_issuer": OIDC["issuer"] + "/invalid"}, jwt.InvalidIssuerError),
+        ("IDP-A05-wrong-expected-audience",
+         {"expected_audience": "unregistered-client"}, jwt.InvalidAudienceError),
+    ):
+        CURRENT = "negative-oidc-claim-" + test_name
+        args = dict(overrides)
+        nonce = args.pop("nonce", good_nonce)
+        try:
+            await asyncio.to_thread(verify_id, OIDC, good_id_token, nonce, **args)
+        except exception_type:
+            pass
+        else:
+            raise AssertionError("WRONG_EXPECTED_ID_TOKEN_CLAIM_ACCEPTED")
+        # Same real signed token MUST pass the genuine expectations.
+        await asyncio.to_thread(verify_id, OIDC, good_id_token, good_nonce)
+        case(test_name)
+    CURRENT = "negative-oidc-wrong-pkce-fresh-code"
+    flow, params, ctx = await real_unexchanged_callback(
+        browser, cb, EMAILS[0], PASSWORDS[EMAILS[0]])
+    code = checked_callback_code(params, flow)
+    wrong_proof = verifier()
+    assert wrong_proof != flow["proof"], "PKCE_NEGATIVE_NOT_DISTINCT"
+    assert await asyncio.to_thread(exchange, OIDC, code, wrong_proof, 400) is None
+    await ctx.close()
+    case("IDP-A06-fresh-code-wrong-pkce-verifier-rejected")
 
 async def signup(browser, cb, email, password):
     f, ctx, page = await begin(browser)
@@ -309,6 +390,66 @@ async def reset_password(browser, cb, email: str, old: str, new: str):
     await logged[0].close()
 
 
+
+async def old_browser_sso(ctx, cb) -> bool:
+    flow = fresh_flow()
+    page = await ctx.new_page()
+    try:
+        await page.goto(authorization(OIDC, flow["nonce"], flow["state"],
+                                      flow["proof"], prompt_login=False),
+                        wait_until="domcontentloaded")
+        await page.wait_for_url(CALLBACK + "*", timeout=12000)
+        params = cb.next()
+        assert params.get("state") == [flow["state"]], "SSO_STATE_MISMATCH"
+        if "error" in params:
+            assert params["error"] in (["login_required"], ["interaction_required"]), "UNEXPECTED_SSO_ERROR"
+            assert not params.get("code"), "SSO_ERROR_WITH_CODE"
+            return False
+        tokens, _ = await checked_callback_exchange(params, flow)
+        claims = await asyncio.to_thread(verify_id, OIDC, tokens["id_token"], flow["nonce"])
+        assert claims["email_verified"] is True, "SSO_UNVERIFIED_USER"
+        return True
+    finally:
+        await page.close()
+
+
+async def observe_after_reset(browser, cb, context, old_tokens):
+    global CURRENT
+    CURRENT = "reset-old-browser-sso"
+    # Probe BEFORE refresh so a successful refresh cannot revive the
+    # very browser SSO session we are measuring.
+    sso = await old_browser_sso(context, cb)
+    CURRENT = "reset-old-refresh"
+    refresh_status = await asyncio.to_thread(refresh, OIDC, old_tokens["refresh_token"])
+    assert refresh_status in (200, 400, 401), "UNEXPECTED_RESET_REFRESH_STATUS"
+    CURRENT = "reset-old-userinfo"
+    userinfo_status = (await asyncio.to_thread(request,
+        "GET", OIDC["userinfo_endpoint"],
+        headers={"Authorization": "Bearer " + old_tokens["access_token"]})).status_code
+    assert userinfo_status in (200, 401, 403), "UNEXPECTED_RESET_USERINFO_STATUS"
+    CURRENT = "reset-old-access-local-jwt"
+    signed = False
+    try:
+        jwk = jwt.PyJWKClient(OIDC["jwks_uri"]).get_signing_key_from_jwt(old_tokens["access_token"]).key
+        decoded = jwt.decode(old_tokens["access_token"], jwk, algorithms=["RS256"],
+                             issuer=OIDC["issuer"],
+                             options={"verify_aud": False, "require": ["exp", "iss"]})
+        assert decoded["exp"] > datetime.now(timezone.utc).timestamp(), "OLD_TOKEN_EXPIRED_DURING_PROBE"
+        signed = True
+    except jwt.InvalidTokenError:
+        signed = False
+    assert isinstance(sso, bool) and isinstance(signed, bool), "INVALID_RESET_OBSERVATION"
+    RESULTS["after_password_reset"] = {
+        "old_browser_silent_oidc_login_without_new_password": sso,
+        "old_refresh_http": refresh_status,
+        "old_userinfo_http": userinfo_status,
+        "old_access_jwt_signature_valid_before_expiry": signed,
+        "policy": "observe-only: reset is not assumed to revoke independent JWT, refresh or browser session",
+        "admin_forced_logout_used_for_reset_test": False,
+        "product_bff_session_tested": False,
+    }
+    case("IDP-B01-reset-observed-old-browser-refresh-userinfo-and-jwt")
+
 async def expired_action(browser, email):
     global CURRENT
     CURRENT = "expired-action-email-request"
@@ -326,6 +467,90 @@ async def expired_action(browser, email):
     await ctx.close()
     case("IDP-09-expired-reset-link-denied")
 
+
+
+async def password_policy_and_lockout(browser, cb):
+    global CURRENT
+    CURRENT = "policy-create-ephemeral-account"
+    uid = ADMIN.create_policy_probe(POLICY)
+    previous = mail_ids()
+    await asyncio.to_thread(ADMIN.action_mail, uid, "UPDATE_PASSWORD")
+    CURRENT = "policy-local-update-password-email"
+    _, msg = await email_after(POLICY, previous)
+    ctx, page = await new_page(browser)
+    await page.goto(action_url(msg), wait_until="domcontentloaded")
+    fields = '#password-new, input[name="password-new"]'
+    await expect(page.locator(fields).first).to_be_visible(timeout=15000)
+    CURRENT = "policy-submit-weak-password"
+    await page.locator(fields).first.fill("weak")
+    await page.locator('#password-confirm, input[name="password-confirm"]').first.fill("weak")
+    await page.locator('#kc-submit, #kc-passwd-update-form button[type="submit"], #kc-passwd-update-form input[type="submit"]').first.click()
+    await expect(page.locator(fields).first).to_be_visible(timeout=12000)
+    assert "/callback" not in urlsplit(page.url).path, "WEAK_PASSWORD_COMPLETED_ACTION"
+    # A weak rejected submission leaves the SAME required update action
+    # available to complete with a password satisfying all four policies.
+    CURRENT = "policy-submit-compliant-password"
+    await page.locator(fields).first.fill(PASSWORDS[POLICY])
+    await page.locator('#password-confirm, input[name="password-confirm"]').first.fill(PASSWORDS[POLICY])
+    await page.locator('#kc-submit, #kc-passwd-update-form button[type="submit"], #kc-passwd-update-form input[type="submit"]').first.click()
+    await ctx.close()
+    # Action-email completion can leave a callback from its own flow.
+    # Consume only non-exchanged callbacks and never use them as login proof.
+    while not cb.server.inbox.empty():
+        prior = cb.server.inbox.get_nowait()
+        assert not prior.get("code"), "UNEXPECTED_POLICY_CALLBACK_CODE"
+    CURRENT = "policy-valid-password-independent-login"
+    valid = await login(browser, cb, POLICY, PASSWORDS[POLICY])
+    assert valid[3]["email_verified"] is True
+    await valid[0].close()
+    CURRENT = "policy-weak-password-independent-denial"
+    await login(browser, cb, POLICY, "weak", expect_failure=True)
+    case("IDP-C01-weak-password-rejected-and-strong-password-login")
+    # Separate bounded failures, all against synthetic policy-probe only.
+    CURRENT = "policy-brute-force-negative-logins"
+    counts = []
+    locked = False
+    for attempt in range(7):
+        await asyncio.sleep(1.2)  # keep successive attempts > quick-login threshold
+        await login(browser, cb, POLICY, "definitely-not-the-correct-password",
+                    expect_failure=True)
+        state = ADMIN.brute_force_status(uid)
+        counts.append(state["numFailures"])
+        if state["disabled"] is True:
+            locked = True
+            break
+    assert locked, "TEMPORARY_LOCKOUT_NOT_OBSERVED"
+    assert len(counts) <= 7 and len(counts) >= 1, "FAILURE_ATTEMPT_BOUND_BROKEN"
+    assert max(counts) >= 1, "BRUTE_FORCE_FAILURE_NOT_COUNTED"
+    CURRENT = "policy-valid-password-while-locked"
+    assert ADMIN.brute_force_status(uid)["disabled"] is True, "LOCK_EXPIRED_BEFORE_VALID_NEGATIVE"
+    await login(browser, cb, POLICY, PASSWORDS[POLICY], expect_failure=True)
+    assert ADMIN.brute_force_status(uid)["disabled"] is True, "LOCK_EXPIRED_BEFORE_DENIAL_CONFIRMED"
+    case("IDP-C02-bounded-failed-logins-and-locked-good-password-denied")
+    CURRENT = "policy-natural-unlock-no-admin-clear"
+    unlocked = False
+    for _ in range(100):
+        state = ADMIN.brute_force_status(uid)
+        if state["disabled"] is False:
+            unlocked = True
+            break
+        await asyncio.sleep(0.25)
+    assert unlocked, "LOCK_NOT_RELEASED_WITHIN_25_SECONDS"
+    recovered = await login(browser, cb, POLICY, PASSWORDS[POLICY])
+    assert recovered[3]["email_verified"] is True
+    await recovered[0].close()
+    RESULTS["brute_force_behavior"] = {
+        "wrong_password_attempts": len(counts),
+        "observed_max_failure_count": max(counts),
+        "disabled_observed": locked,
+        "correct_password_denied_while_disabled": True,
+        "natural_recovery_without_admin_clear": unlocked,
+        "successful_login_after_natural_unlock": True,
+        "wait_increment_config_seconds": 12,
+        "max_wait_config_seconds": 30,
+        "failure_factor_config": 5,
+    }
+    case("IDP-C03-temporary-lockout-natural-release-and-login")
 
 async def manager(browser, cb):
     global CURRENT
@@ -448,8 +673,8 @@ async def run(browser, cb):
         else:
             raise AssertionError("TAMPERED_TOKEN_OR_NONCE_ACCEPTED")
     case("IDP-13-signature-issuer-audience-nonce-validation")
-    # Callback state binding: an unrelated forged state is never exchangeable.
-    assert first[5]["state"] != secrets.token_urlsafe(24)
+    # Real malicious callback variants and separate unspent PKCE Code.
+    await oidc_negative_matrix(browser, cb, tok, first[5]["nonce"])
     # Server itself must reject an unregistered redirect URI.
     bad = request("GET", OIDC["authorization_endpoint"], params={
         "client_id": CLIENT, "response_type": "code", "scope": "openid",
@@ -484,6 +709,7 @@ async def run(browser, cb):
     after_userinfo = request("GET", OIDC["userinfo_endpoint"],
                              headers={"Authorization": "Bearer " + access}).status_code
     assert after_refresh in (400, 401), "REVOKED_REFRESH_ACCEPTED"
+    assert after_userinfo in (401, 403), "LOGOUT_USERINFO_NOT_DENIED"
     jwt_local_signed = False
     try:
         key = jwt.PyJWKClient(OIDC["jwks_uri"]).get_signing_key_from_jwt(access).key
@@ -505,14 +731,23 @@ async def run(browser, cb):
     await first[0].close()
     await second[0].close()
 
+    # B: a separate pre-reset REAL OIDC login stays in its original
+    # Chromium context; its tokens and cookies are not overwritten by reset.
+    CURRENT = "reset-independent-preexisting-login"
+    pre_reset = await login(browser, cb, EMAILS[1], PASSWORDS[EMAILS[1]])
+    assert await old_browser_sso(pre_reset[0], cb), "PRE_RESET_SSO_WAS_NOT_ESTABLISHED"
+    case("IDP-B00-old-browser-sso-established-before-reset")
     await reset_password(browser, cb, EMAILS[1], PASSWORDS[EMAILS[1]], PASSWORDS["reset"])
+    await observe_after_reset(browser, cb, pre_reset[0], pre_reset[2])
+    await pre_reset[0].close()
     await expired_action(browser, EMAILS[1])
+    await password_policy_and_lockout(browser, cb)
     uid, manager_tokens = await manager(browser, cb)
     case("IDP-17-admin-actor-is-not-unbounded-superuser",
          "realm-management view-users only; no admin panel or product scope")
 
     # Never confuse action-password reset with revocation of all access JWTs.
-    RESULTS["reset_limit"] = "Old password rejects new login; access/refresh/session behavior after reset requires separate explicit tests if not observed."
+    RESULTS["reset_limit"] = "Reset effects on preexisting browser SSO, old refresh, UserInfo and locally signed JWT are separately measured under after_password_reset; product BFF revocation remains out of scope."
     RESULTS["compatibility"] = "Keycloak 26.8.2 + PostgreSQL 17.11 + Mailpit 1.32.0; test-only localhost HTTP; no production TLS/BFF/RLS"
 
 
@@ -540,7 +775,7 @@ async def main():
     global CURRENT
     require_ci()
     # All test credentials are synthetic and ephemeral; never print or save.
-    for email in (*EMAILS, MANAGER):
+    for email in (*EMAILS, MANAGER, POLICY):
         PASSWORDS[email] = "Qx9!" + secrets.token_urlsafe(18)
     PASSWORDS["reset"] = "Zp7!" + secrets.token_urlsafe(18)
     try:
