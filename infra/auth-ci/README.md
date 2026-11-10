@@ -423,3 +423,32 @@ remains outside such restrictions. Product Session revocation,
 DB fencing, external event delivery and cross-DB Reset
 semantics remain NOT_TESTED/BLOCKED. No production code,
 migration, SPI, outbox or deploy in this bundle.
+
+
+## BND-IDP-02C bounded continuation — supported FGAP v2 and existing-flow logout probe
+
+The original RC-00..11 and all older IDP/RA/RB suites remain unchanged.
+On the same disposable second Keycloak 26.8.2 Realm, CI now measures:
+- A real second pre-policy browser UPDATE_PASSWORD form, retained verbatim
+  through policy hardening; POST /admin/realms/{realm}/logout-all is
+  applied *after* the original undrained baseline RC-08, and the same
+  already rendered second form is submitted without reload. A second
+  pre-issued local action-token link is attempted after logout. Both
+  outcomes require independent old/new password OIDC verification.
+- Supported FGAP V2 via adminPermissionsEnabled (standard version,
+  not preview V1) and admin-permissions REST Policy/Permission. A
+  Client Credentials principal with **no built-in broad realm-management
+  role** is granted only the Users reset-password scope for exactly one
+  synthetic account. CI measures target reset, unrelated-account reset,
+  and unrelated profile mutation, plus independent credential tests.
+
+These are experiments, not claimed results. Global logout-all describes
+user sessions, and does not itself establish cancellation of authentication
+sessions or action tokens. The original fail-closed overall security
+assertions remain active: even scoped FGAP cannot compensate for an
+in-flight bypass. Official version-family sources:
+https://www.keycloak.org/docs/26.8.0/server_admin/
+https://www.keycloak.org/docs-api/26.8.0/rest-api/index.html
+Local same-version tested source, actual Run/JSON results and remaining
+blockers must be added in the original cumulative task checkpoint.
+No product Auth acceptance or security Gate is authorized.

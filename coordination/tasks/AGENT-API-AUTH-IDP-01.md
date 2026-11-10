@@ -1290,3 +1290,52 @@ negative result, no `AUTH_PRODUCT_ACCEPTED` or Merge.
 Only five previously authorized files changed since
 starting main; final documentation-only commit (if any)
 does NOT convert any red tests green.
+
+
+## IDP-CI-01-BC — scoped FGAP v2 and authentic pre-policy session transition probe (2026-11-11)
+
+**Preflight observed** on 2026-11-11: main `600bbd68ce8883d960b789320bc8b2454a3ff66c`,
+existing branch `agent/idp-controlled-reset` at
+`32b690dfadf15a2bb044199d668b1abfc4136756`, same original
+open Draft PR #23. Final PR CI 42908568238 is COMPLETE FAILURE
+on exactly this HEAD, not PASS; logs show prior IDP/RA/RB cases,
+RC-00..11 as measured, then the deliberate security denial.
+No parallel branch or PR or new realm.
+
+**Documentation checked before changing the disposable fixture:**
+Keycloak 26.8.x supported FGAP v2 (NOT deprecated preview v1)
+is standard realm opt-in `adminPermissionsEnabled`. Its Users
+`reset-password` operation supports explicit per-UUID scope via
+`admin-permissions` client policy and permission endpoints; broad
+built-in admin role skips the fine-grained decision. Official guide:
+https://www.keycloak.org/docs/26.8.0/server_admin/
+and REST: https://www.keycloak.org/docs-api/26.8.0/rest-api/index.html.
+This documentation is NOT same-patch readback or runtime proof.
+
+**Session transition investigation:** Standard Admin REST
+`POST /logout-all` removes user sessions, not explicitly all
+authentication sessions. Official Keycloak issue #49007 concerns
+persisting in-progress authentication sessions after logout. To avoid
+confusing expiry/logout and Required Action cancellation, source adds
+a SECOND already-rendered UPDATE_PASSWORD form opened BEFORE policy
+lock, and a SECOND pre-issued action-token link; after preserving the
+original RC-08 undrained bypass measurement, attempts both after the
+real standard global user-session logout (same form without reload).
+Independent fresh OIDC credential checks at final denial are mandatory.
+This is a disposable-only global logout test, NOT a proposed viable
+per-user production barrier or evidence of durable token revocation.
+
+**Implemented in this commit:** limited `controlled_reset.py`
+tests only, documentation append in `infra/auth-ci/README.md` and
+this SAME cumulative checkpoint. No other file, network, product
+module, migrations, runtime, IdP version, SPI, outbox or workflow
+modification. First original 01/02A/02B suites retained, original
+strict fail-closed assertion retained; extra RC-12..14 measurement
+labels are NOT additional canonical checklist completions.
+
+**Tested:** NEW SOURCE PENDING REAL CI (do not report PASS before
+exact SHA and real Run); historical tested SHA
+`eedb648e32b79c990a476783b5e3df26bd4a3033`,
+historical FINAL `32b690dfadf15a2bb044199d668b1abfc4136756`
+and failures including 42908568238 remain archived above.
+**Accepted:** NONE / SUPERVISOR_PENDING.

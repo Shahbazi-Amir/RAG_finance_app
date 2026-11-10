@@ -322,6 +322,49 @@ def restrict_standard(root):
             "readback_verified":True}
 
 
+
+def configure_scoped_fgap(root, target_user_id, service_client_id):
+    """Supported FGAP v2, only in disposable realm; no broad admin role."""
+    previous=root.call("GET").json()
+    enabled=deepcopy(previous)
+    enabled["adminPermissionsEnabled"]=True
+    root.call("PUT",json=enabled,expect_status=204)
+    assert root.call("GET").json().get("adminPermissionsEnabled") is True, (
+        "CONTROL_FGAP_V2_NOT_ENABLED")
+    authz_client=root.client("admin-permissions")["id"]
+    service_client=root.client(service_client_id)["id"]
+    service_user=root.call("GET","/clients/"+service_client+
+        "/service-account-user").json()["id"]
+    rm_id=root.client("realm-management")["id"]
+    mappings=root.call("GET","/users/"+service_user+
+        "/role-mappings/clients/"+rm_id).json()
+    assert not any(x.get("name") in (
+        "manage-users","view-users","realm-admin","manage-realm") for x in mappings), (
+        "CONTROL_FGAP_SERVICE_HAS_BROAD_BUILTIN_ROLE")
+    prefix="/clients/"+authz_client+"/authz/resource-server"
+    policy_name="controlled-reset-only-service-policy"
+    perm_name="controlled-one-user-reset-operation"
+    root.call("POST",prefix+"/policy/user",json={
+        "name":policy_name,"logic":"POSITIVE",
+        "users":[service_user]},expect_status=201)
+    root.call("POST",prefix+"/permission/scope",json={
+        "name":perm_name,"resourceType":"Users",
+        "scopes":["reset-password"],"resources":[target_user_id],
+        "policies":[policy_name]},expect_status=201)
+    entries=root.call("GET",prefix+"/permission/scope").json()
+    matching=[x for x in entries if x.get("name")==perm_name]
+    assert len(matching)==1,"CONTROL_FGAP_PERMISSION_NOT_READABLE"
+    assert matching[0].get("resourceType")=="Users", (
+        "CONTROL_FGAP_RESOURCE_TYPE_WRONG")
+    assert "reset-password" in matching[0].get("scopes",[]), (
+        "CONTROL_FGAP_OPERATION_SCOPE_NOT_READABLE")
+    assert target_user_id in matching[0].get("resources",[]), (
+        "CONTROL_FGAP_USER_SCOPE_NOT_READABLE")
+    return {"enabled_readback":True,"service_has_no_broad_admin_role":True,
+            "one_user_scope_readback":True,
+            "only_reset_password_scope_readback":True}
+
+
 async def run(e,browser,cb):
     # Launch only AFTER prior suites pass. No existing test realm modifications.
     e.CURRENT="RC-separate-realm-standard-initialize"
@@ -331,7 +374,10 @@ async def run(e,browser,cb):
     started="inflight-controlled@example.test"
     direct_user="direct-action-controlled@example.test"
     unrelated="other-managed-user@example.test"
-    users=(ordinary,issued,started,direct_user,unrelated)
+    started_after_logout="inflight-logout-controlled@example.test"
+    issued_after_logout="old-link-logout-controlled@example.test"
+    users=(ordinary,issued,started,direct_user,unrelated,
+           started_after_logout,issued_after_logout)
     old={k:"Qx9!"+secrets.token_urlsafe(18) for k in users}
     new={k:"Zp8!"+secrets.token_urlsafe(18) for k in users}
     uid={}
@@ -342,8 +388,12 @@ async def run(e,browser,cb):
     e.case("RC-01-real-user-oidc-before-restriction")
     e.CURRENT="RC-before-lock-old-issued-token-and-prestarted-action"
     old_url=await old_action_token(e,root,issued,uid[issued])
+    old_url_after_logout=await old_action_token(
+        e,root,issued_after_logout,uid[issued_after_logout])
     started_ctx,started_page=await standard_action_started_before_restriction(
         e,browser,oidc,started,old[started])
+    logout_ctx,logout_page=await standard_action_started_before_restriction(
+        e,browser,oidc,started_after_logout,old[started_after_logout])
     e.case("RC-02-stale-action-token-and-inflight-form-preissued")
     e.CURRENT="RC-standard-policy-restrictions-readback"
     readback=restrict_standard(root)
@@ -428,6 +478,34 @@ async def run(e,browser,cb):
     discarded_inflight=drain_probe_callbacks(cb)
     e.RESULTS["RC_prestarted_action"]["callbacks_after_submit"]=discarded_inflight
     e.case("RC-08-prestarted-action-form-continued-after-hardening")
+    # Separate IN-FLIGHT form created before policy, not a reload or new
+    # challenge. Try the documented standard user-session logout-all and
+    # independently check the credential afterwards. The earlier baseline
+    # in-flight bypass above remains unchanged.
+    e.CURRENT="RC-standard-logout-all-versus-existing-authentication-form"
+    logout_reply=root.call("POST","/logout-all",expect_status=(200,204))
+    try:
+        try:
+            await complete_existing_action(logout_page,new[started_after_logout])
+            after_logout_submitted=True
+        except (PWTimeout,AssertionError):
+            after_logout_submitted=False
+    finally:
+        await logout_ctx.close()
+    logout_callbacks=drain_probe_callbacks(cb)
+    old_link_post_logout=await browser_action_attempt(
+        e,browser,old_url_after_logout,new[issued_after_logout])
+    old_link_callbacks=drain_probe_callbacks(cb)
+    e.RESULTS["RC_standard_user_session_logout_barrier"]={
+        "admin_logout_all_http":logout_reply.status_code,
+        "preexisting_form_used_without_reload":True,
+        "inflight_form_submitted_after_logout":after_logout_submitted,
+        "inflight_callbacks_after_logout":logout_callbacks,
+        "preissued_token_form_after_logout":old_link_post_logout["real_password_form"],
+        "preissued_token_submitted_after_logout":old_link_post_logout["submitted"],
+        "preissued_token_callbacks_after_logout":old_link_callbacks,
+        "logout_all_is_not_authentication_session_revocation_proof":True}
+    e.case("RC-12-standard-logout-all-preexisting-form-and-token-probed")
 
     e.CURRENT="RC-direct-kc-action-old-vs-new-credential-check"
     # A mere missing form is not enough: the independent old credential
@@ -481,18 +559,70 @@ async def run(e,browser,cb):
        "single_user_scope_proven":False,
        "manage_users_is_sufficient_but_broad":other_status==204}
     e.case("RC-11-builtin-manage-users-scope-measured")
+    # Supported FGAP v2 on the SAME disposable second realm. Do not give
+    # this principal view-users/manage-users/realm-admin or 'manage' scope.
+    e.CURRENT="RC-fgap-v2-exact-permission-config-readback"
+    scoped_client="controlled-reset-scoped-service"
+    scoped_token=issue_service(root,scoped_client)
+    fgap_readback=configure_scoped_fgap(root,uid[ordinary],scoped_client)
+    e.RESULTS["RC_fgap_configuration"]=fgap_readback
+    e.case("RC-13-standard-fgap-v2-reset-password-only-readback")
+
+    e.CURRENT="RC-fgap-v2-real-target-and-unrelated-operation-tests"
+    fgap_new="Sc7!"+secrets.token_urlsafe(18)
+    fgap_other="No7!"+secrets.token_urlsafe(18)
+    scoped_target_status=password_update(root,uid[ordinary],fgap_new,
+                                         token_value=scoped_token)
+    if scoped_target_status==204:
+        await login(e,browser,cb,oidc,ordinary,new[ordinary],
+                    expect_failure=True)
+        await login(e,browser,cb,oidc,ordinary,fgap_new)
+    scoped_other_status=password_update(root,uid[unrelated],fgap_other,
+                                        token_value=scoped_token)
+    unrelated_profile_status=admin_request(
+        scoped_token,"/users/"+uid[ordinary],
+        json={"firstName":"ForbiddenMutation"}).status_code
+    target_profile_unchanged=(
+        root.call("GET","/users/"+uid[ordinary]).json().get("firstName")
+        =="Synthetic")
+    # A refused reset must leave the OTHER user's actual credential
+    # usable. No credential value, token or user identifier is exported.
+    if scoped_other_status in (401,403):
+        await login(e,browser,cb,oidc,unrelated,new[unrelated])
+        unrelated_old_retained=True
+    else:
+        unrelated_old_retained=False
+    e.RESULTS["RC_fgap_results"]={
+        "target_reset_http":scoped_target_status,
+        "target_new_credential_verified":scoped_target_status==204,
+        "other_user_reset_http":scoped_other_status,
+        "other_user_old_credential_retained":unrelated_old_retained,
+        "unrelated_admin_profile_update_http":unrelated_profile_status,
+        "target_profile_unchanged":target_profile_unchanged,
+        "least_privilege_test_passed":(
+            scoped_target_status==204 and scoped_other_status in (401,403)
+            and unrelated_old_retained and unrelated_profile_status in (401,403)
+            and target_profile_unchanged)}
+    e.case("RC-14-fgap-v2-target-other-user-and-other-operation-measured")
 
     e.CURRENT="RC-adversarial-bypass-final-denial"
     # Read actual independent credential status for pre-issued token
     # and in-flight form, not merely the UI's hidden/visible state.
     bypass=[]
-    for email in (issued,started):
+    for email in (issued,started,issued_after_logout,started_after_logout):
         try:
             await login(e,browser,cb,oidc,email,new[email])
         except (PWTimeout,AssertionError):
             pass
         else:
-            bypass.append("old-token" if email==issued else "inflight-form")
+            if email==issued:
+                bypass.append("old-token")
+            elif email==started:
+                bypass.append("inflight-form")
+            elif email==issued_after_logout:
+                bypass.append("old-token-after-logout-all")
+            else:
+                bypass.append("inflight-form-after-logout-all")
     e.RESULTS["RC_bypass"]={
         "old_token_or_inflight_password_change_succeeded":bool(bypass),
         "bypass_classifications":bypass,
@@ -508,7 +638,7 @@ async def run(e,browser,cb):
         "next":"test standard fine-grained admin permissions & complete independent "
                "credential change controls before designing product reset gate",
     }
-    if bypass or direct["submitted"] or other_status==204:
+    if bypass or direct["submitted"] or other_status==204 or not e.RESULTS["RC_fgap_results"]["least_privilege_test_passed"]:
         # A real bypass or broader-than-user service authority is a
         # denial of the claimed strong single-entry policy. CI RED.
         e.STAGES["RC-12-single-controlled-reset-entry"] = "BLOCKED"
