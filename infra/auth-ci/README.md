@@ -477,3 +477,68 @@ attempts and independently checking whether an already-rendered
 password form really changed credentials AFTER standard logout-all.
 Neither representation mismatch nor a successful Reset API call
 is an acceptance Gate; never pass without the full proof.
+
+
+## BND-IDP-02C — verified limited result, final functional matrix (2026-11-11)
+
+**Exact tested source** `a2ac3af6548e310db9c4def20b4bc985468adcd4`.
+[Actual GitHub PR Run 42913693567](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42913693567)
+COMPLETED FAILURE on strict `RC-adversarial-bypass-final-denial`;
+job `130170545439`; sanitized artifact
+[13808642104](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42913693567/artifacts/13808642104)
+(`overall=FAIL`, `RC_verdict.controlled_entry=NOT_PROVEN`).
+All pre-existing IDP-01/02A/02B regressions, isolated network
+egress-denial, second synthetic realm, RC-00..11 observations and
+mandatory container/credential teardown executed as expected.
+
+**Fine-grained admin REST, bounded positive and negatives:** Standard
+`adminPermissionsEnabled=true` enabled/read back on second Realm,
+the built-in `admin-permissions` client, user-policy and
+specific `Users/reset-password` permission created, and a separate
+Client Credentials service principal has NO realm-management
+`manage-users`/`view-users`/realm-admin grant. Its direct
+`PUT /users/{target}/reset-password` returned **204**, independently
+verified by real Code+PKCE browser OLD DENY / NEW ACCEPT. The SAME
+principal's cross-target reset returned **403**, with the unrelated
+user's prior credential still accepted. Attempted target profile
+mutation returned **403**, and root readback confirmed unchanged
+profile. The separate historical `manage-users` role remained
+demonstrably broad (other-user reset HTTP 204). These data establish
+a bounded **functional service authorization** observation; not
+production-level identity or the single-entry guarantee.
+
+**Readback limitation:** Admin permission by-ID GET confirmed
+resourceType=Users; direct string-equality comparisons of persisted
+`scopes`, `resources` and `policies` to submitted names/UUID
+returned false, consistent with possible AuthZ-internal references
+but NOT independently resolved. The strict stored-ID-to-entity
+permission mapping remains `NOT_VERIFIED`, even though direct real
+authorization positive/negative tests succeeded. No failed
+readback assertion was converted into policy PASS.
+
+**Already-started form: definite second negative:** The same true
+pre-restriction UPDATE_PASSWORD form, retained without reload
+in another real browser, could still submit AFTER standard
+`POST /logout-all` returned **200**. Its new password independently
+succeeded, and old credential independently failed via fresh
+OIDC Code+PKCE login: a **CONFIRMED SELF-SERVICE BYPASS EVEN AFTER
+STANDARD USER-SESSION LOGOUT-ALL**. Pre-issued local action-token
+URL separately had no form and did not change its credential.
+Fresh Forgot, kc_action and Account Console paths stayed bounded
+negative on the tested paths. This does not exhaust all action
+tokens, authentication sessions or privilege roots. No standard
+authentication-session drain or durable cancellation barrier
+was demonstrated on the exact pre-started challenge.
+
+**Result and limit:** `NOT_PROVEN` for exclusive controlled
+password-reset entry; strict CI intentionally RED. FGAP V2
+standard scoped permission is a credible *partial* route for
+the service-authority problem; it cannot solve the in-flight
+user-form problem. Need supervisor decision on whether a
+non-product standard verified drain/transition period or
+authorized different reset architecture is admissible.
+Never equate SSO logout or normal session expiry with canceling
+a preissued action form. No SPI, custom Outbox, product-session,
+Migration, deployment, real email or Auth Gate PASS here.
+This is **READY_FOR_REVIEW — CONTROLLED_RESET_ENTRY_PROOF**
+as a bounded negative result only.

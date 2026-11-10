@@ -1448,3 +1448,73 @@ README/THIS cumulative checkpoint. **Tested:** pending exact real
 CI on new source; earlier source RUNS all RED. **Accepted:** NONE.
 If new CI still cannot support exact complete policy and flow
 closure, stop with NOT_PROVEN; no further speculative changes.
+
+## IDP-CI-01-BG — BND-IDP-02C actual measured finish and supervisor handoff (2026-11-11)
+
+**Starting confirmed main SHA:** `600bbd68ce8883d960b789320bc8b2454a3ff66c`.
+Branch `agent/idp-controlled-reset`, same OPEN/DRAFT PR #23;
+no branch duplication, merge or protected-file edits.
+**Exact tested source** `a2ac3af6548e310db9c4def20b4bc985468adcd4`.
+**Real PR CI:** [42913693567](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42913693567);
+job `130170545439`, sanitized artifact
+[13808642104](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42913693567/artifacts/13808642104).
+**COMPLETED / FAILURE** at exact `RC-adversarial-bypass-final-denial`,
+`overall=FAIL`, `RC_verdict.controlled_entry=NOT_PROVEN`.
+Earlier actual CI failures 42908568238, 42910810577,
+42911896683 and 42912734889 remain logged in prior cumulative
+sections. The present source does not suppress original assertions
+or alter the source versions.
+
+**Trace**: P3M05-A01/A07/A08/A09/A10, supporting P3M13-A08,
+P3M06-A07 and existing P3OP03 overlay; non-counting per-probe RC
+IDs and existing 01/02A/02B case labels are NOT new checklist
+completions. No Foundation-owned canonical checklist edited.
+
+### Functional adversarial matrix (one real isolated run)
+
+| Probe | Exact observed | Meaning |
+|---|---|---|
+| Earlier IDP-01/02A/02B; Keycloak/PG/Mailpit & internal deny | Existing suites PASS; teardown PASS | Bounded regressions, no new Auth Gate |
+| Standard flags after restriction | Forgot/reset=false; account-console disabled; UPDATE_PASSWORD provider disabled; readback TRUE | Config-only, not a live-flow cancellation guarantee |
+| Fresh direct Forgot / kc_action / Account | No observed new Update Password form or mutation | Tested paths only |
+| Pre-policy issued action token | No form; old credential accepted after logout probe | One token negative, not universal invalidation |
+| Original pre-policy rendered form after restriction | Submit, new password independently accepted | CONFIRMED first in-flight bypass |
+| Admin POST /logout-all, **second pre-policy rendered form still open** | 200 Logout; same form submitted without reload; NEW ACCEPT/OLD DENY in real OIDC | CONFIRMED second in-flight bypass after user-session logout |
+| Ordinary user Admin Reset | HTTP 401 | Unauthorized |
+| view-users operational service Admin Reset | HTTP 403 | Unauthorized |
+| manage-users service on target / other user | HTTP 204 / 204 | Broad built-in role, insufficient scoped service |
+| NEW FGAP V2 service, no broad role, allowed target reset | HTTP 204; OLD DENY/NEW ACCEPT | Genuine functionally authorized scoped reset |
+| Same FGAP service, unrelated target Reset | HTTP 403; prior password still accepted | Genuine cross-target deny |
+| Same FGAP service, unrelated profile update | HTTP 403; profile unchanged | Genuine unrelated-operation deny |
+| FGAP persisted permission full-object name equality | Users resourceType TRUE; scope/resource/policy text matches FALSE | Internal ID mapping NOT_VERIFIED; do not claim complete readback |
+
+**Analysis:** Keycloak 26.8.2 supports scoped administrative
+`reset-password` as a practical STANDARD V2 permission, provided
+the delegated service has no broad built-in admin role.
+The measured positive and two negative authorization outcomes
+establish a bounded least-privilege service operation. However,
+the strict **exclusive entry policy is DISPROVED** by the
+actual already-open UPDATE_PASSWORD challenge, even after
+standard `logout-all`. Neither login/logout expiry nor disabling
+future Required Actions retroactively aborts that exact flow.
+An independently verified barrier addressing **Authentication
+Sessions / already rendered forms and preissued action tokens**
+would be required before calling the single-entry proposition
+feasible. No standard complete cancellation/drain solution
+was found or proven in this package. Root/master/realm-admin
+recovery remains outside the proposed trust boundary; full
+path enumeration/product session/incident notification NOT_TESTED.
+
+**Implemented:** limited test-only FGAP and old form/logout
+experiments + same cumulative README/mission checkpoints.
+Actual source changes limited to the original five PR paths,
+with this final handoff **documentation-only**.
+**Tested:** exact previous source SHA `a2ac3af...dcd4`,
+the above genuine CI Run, intentionally FAIL at policy.
+**Accepted:** NONE / SUPERVISOR_PENDING.
+**No AUTH_PRODUCT_ACCEPTED, no Module Gate PASS, no merge.**
+Next is supervisor evaluation/authorization of a standard
+explicit authentication-session transition barrier or a
+separately scoped design decision; avoid speculative CI loops.
+**READY_FOR_REVIEW — CONTROLLED_RESET_ENTRY_PROOF** with
+honest negative final verdict.
