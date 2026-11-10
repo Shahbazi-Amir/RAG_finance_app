@@ -220,8 +220,31 @@ async def update_account_console(e, browser, cb, email, old_pw, new_pw, context)
         await page.goto(BASE + "/realms/" + REALM +
                         "/account/#/account-security/signing-in",
                         wait_until="domcontentloaded")
-        # Initial UI may redirect to SSO authorization and back.
-        await expect(page.get_by_role("button", name="Update").first).to_be_visible(timeout=20000)
+        e.CURRENT = "RB-account-console-screen-inspect"
+        await page.locator("body").wait_for(state="visible", timeout=12000)
+        # The initial Account Console can redirect to its OWN login client
+        # even when the test OIDC client has SSO. Real form auth is allowed,
+        # but no implicit bypass or fabricated account password update.
+        needs_login = await page.locator("#kc-form-login").is_visible()
+        if needs_login:
+            e.CURRENT = "RB-account-console-real-user-credential"
+            await e.fill_login(page, email, old_pw)
+            await page.wait_for_load_state("domcontentloaded")
+        e.CURRENT = "RB-account-console-safe-ui-shape"
+        await page.wait_for_timeout(1300)
+        shape = {
+            "account_path": "/account" in urlsplit(page.url).path,
+            "login_form_visible": await page.locator("#kc-form-login").is_visible(),
+            "update_button_count": await page.get_by_role("button", name="Update").count(),
+            "update_link_count": await page.get_by_role("link", name="Update").count(),
+            "signing_in_link_count": await page.get_by_role("link", name="Signing in").count(),
+            "password_new_count": await page.locator("#password-new").count(),
+            "account_security_link_count": await page.locator('a[href*="account-security"]').count(),
+        }
+        # Static element counts/booleans ONLY, never HTML, URL, form data.
+        e.RESULTS["RB_account_console_ui_shape"] = shape
+        print("RB_ACCOUNT_UI_SHAPE=" + repr(shape), flush=True)
+        await expect(page.get_by_role("button", name="Update").first).to_be_visible(timeout=16000)
         e.CURRENT = "RB-account-console-click-update"
         await page.get_by_role("button", name="Update").first.click()
         e.CURRENT = "RB-account-console-password-change-form"

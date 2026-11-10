@@ -567,3 +567,34 @@ down --volumes and sanitized 3-day artifact. All prior 01/02A cases
 remain strict. First test outcome NOT_RUN until real Actions; failures
 will be recorded in THIS file, not hidden. **Implemented** source
 prepared; **Tested** NOT_RUN; **Accepted** none, supervisor pending.
+
+
+## IDP-CI-01-AN — first real BND-IDP-02B CI fails at Account Console view (2026-11-10)
+
+**Exact tested source:** `4e508e4dfa065fdcf4c9ae4b370d2c598d8e46a3`,
+[GitHub Push Run 42849562118](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42849562118)
+**COMPLETED FAILURE** in stage `RB-account-console-navigate`, category
+`AssertionError`. The long-standing original IdP-01 baseline and ALL
+RA-00..RA-12 had independently passed on this same run. New
+`RB-backchannel-standard-client-config-readback` PASS after standard
+client configuration and independent readback; new real
+`RB-route-forgot-actual-password-and-session-matrix` PASS, proving
+real independent synthetic Forgot/Reset with prior-session measurements.
+**No Account Console password change, no Required Action/Admin route
+matrix, no Logout Token delivery, no outage test was yet proven.**
+Keycloak/Postgres/Mailpit startup, internal no-egress network, cleanup
+of volumes/network and secret file remained PASS. Actual safe failure
+stage does not distinguish redirected Account Console login from
+missing Update button, so no claim which cause.
+
+**Narrow test-only correction:** inspect ONLY safe booleans/counts
+(login form, update link/button, Signing in route, password form,
+account path), without page URL/query, headers, token, user text or
+credentials. If the Account Console's separate `account-console` OIDC
+client presents a REAL login form, fill the existing synthetic user's
+valid credential and retry the normal browser Account Console UI path;
+never bypass with Admin REST or claim the Account Console route changed
+a password without actual UI. Test remains strict: update password,
+independent old login DENY and new login ACCEPT before PASS. Need new
+CI to determine UI shape; baseline assertions retained. No Keycloak
+version/flow, DB migration, product or workflow grant changed.
