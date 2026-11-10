@@ -757,11 +757,59 @@ def initialize_clean_realm(e):
     return root,discovered.json(),login_root
 
 
-def clean_fgap_permission(e,root,target_uuid,service_cid):
-    # Administrative readback uses the real 26.8 REST representation:
-    # PolicyRepresentation.scopes/resources/policies may contain internal IDs,
-    # while scopesData/resourcesData can contain structured objects.
-    # Exact matches, not mere array length, are essential to mark PROVEN.
+def _cb_paged_authz(root, prefix, route, filters=None):
+    """Read every standard REST page; return sanitized metadata, not entities.
+
+    Keycloak 26.8 Admin REST exposes first/max for resource and permission
+    collection searches. If a provider rejects paging or ignores offsets,
+    mark the readback incomplete instead of trusting the first response.
+    """
+    size=32
+    rows=[]
+    seen=set()
+    meta={"http":None,"pages":0,"complete":False,"count":0,
+          "response_is_list":False,"duplicate_page_ids":False}
+    for page in range(32):
+        params={"first":page*size,"max":size}
+        params.update(filters or {})
+        response=root.call("GET",prefix+route,params=params,
+                           expect_status=(200,400,404))
+        meta["http"]=response.status_code
+        meta["pages"]+=1
+        if response.status_code!=200:
+            return rows,meta
+        try:
+            data=response.json()
+        except ValueError:
+            return rows,meta
+        if not isinstance(data,list):
+            return rows,meta
+        meta["response_is_list"]=True
+        if len(data)>size or any(not isinstance(x,dict) or not x.get("id")
+                                 for x in data):
+            return rows,meta
+        ids=[x["id"] for x in data]
+        if len(ids)!=len(set(ids)) or seen.intersection(ids):
+            meta["duplicate_page_ids"]=True
+            return rows,meta
+        seen.update(ids)
+        rows.extend(data)
+        meta["count"]=len(rows)
+        if len(data)<size:
+            meta["complete"]=True
+            return rows,meta
+    return rows,meta
+
+
+def clean_fgap_permission(e,root,target_uuid,service_cid,excluded_user_ids):
+    """Fail-closed persisted FGAP readback, using resource selectors not IDs.
+
+    The documented resources POST field for Users is an *entity UUID*;
+    that is NOT evidence it equals an Authorization Resource store ID.
+    Discover stored resources and independently query server-side filtered
+    permissions with both allowed and excluded logical user selectors.
+    No identifiers or raw response bodies are exported or printed.
+    """
     e.CURRENT="CB-01-create-exact-scoped-permission"
     assert root.call("GET").json().get("adminPermissionsEnabled") is True
     service_uuid=root.client(service_cid)["id"]
@@ -770,9 +818,17 @@ def clean_fgap_permission(e,root,target_uuid,service_cid):
     management_uuid=root.client("realm-management")["id"]
     roles=root.call("GET","/users/"+suid+
          "/role-mappings/clients/"+management_uuid).json()
-    assert not any(x.get("name") in (
-         "manage-users","view-users","realm-admin","manage-realm")
-         for x in roles),"CB_BROAD_ROLE_NOT_ALLOWED"
+    # The composite readback prevents a broad inherited admin role from
+    # being overlooked when the direct mapping array happens to be empty.
+    composite=root.call("GET","/users/"+suid+
+         "/role-mappings/clients/"+management_uuid+"/composite",
+         expect_status=(200,404))
+    broad={"manage-users","view-users","realm-admin","manage-realm"}
+    no_broad=(composite.status_code==200
+         and not any(x.get("name") in broad for x in roles)
+         and not any(x.get("name") in broad for x in composite.json()))
+    assert no_broad,"CB_BROAD_ADMIN_ROLE_OR_COMPOSITE_NOT_EXCLUDED"
+
     authz=root.client("admin-permissions")["id"]
     pref="/clients/"+authz+"/authz/resource-server"
     pname="clean-one-service-policy"
@@ -784,147 +840,192 @@ def clean_fgap_permission(e,root,target_uuid,service_cid):
          "name":name,"resourceType":"Users","scopes":["reset-password"],
          "resources":[target_uuid],"policies":[pname]
     },expect_status=201)
-    all_permissions=root.call("GET",pref+"/permission/scope").json()
+
+    e.CURRENT="CB-01-permission-and-policy-paged-readback"
+    all_permissions,permission_page=_cb_paged_authz(
+        root,pref,"/permission/scope")
     exact=[x for x in all_permissions if x.get("name")==name]
-    assert len(exact)==1 and exact[0].get("id")
-    item=root.call("GET",pref+"/permission/scope/"+exact[0]["id"]).json()
+    assert permission_page["complete"] and len(exact)==1
+    permission_id=exact[0]["id"]
+    item=root.call("GET",pref+"/permission/scope/"+permission_id).json()
     assert item.get("name")==name and item.get("resourceType")=="Users"
-    policy_rows=root.call("GET",pref+"/policy/user").json()
+
+    policy_rows,policy_page=_cb_paged_authz(root,pref,"/policy/user")
     policies=[x for x in policy_rows if x.get("name")==pname]
-    assert len(policies)==1 and policies[0].get("id")
+    assert policy_page["complete"] and len(policies)==1
     policy_id=policies[0]["id"]
     policy_detail=root.call("GET",pref+"/policy/user/"+policy_id).json()
     assert policy_detail.get("name")==pname
 
-    # Resolve permission references against the same pinned server's
-    # persisted AuthZ scope, resource and policy objects (no ID logging).
-    scope_rows=root.call("GET",pref+"/scope").json()
-    scope_by_id={x.get("id"):x.get("name") for x in scope_rows
-                 if x.get("id") and x.get("name")}
-    def extract_ids(items):
-        return [x.get("id") if isinstance(x,dict) else x
-                for x in (items or [])]
-    scope_ref=extract_ids(item.get("scopes"))
-    scope_obj=[x.get("name") for x in (item.get("scopesData") or [])
-               if isinstance(x,dict)]
-    resolved_scopes=[scope_by_id.get(v,v) for v in scope_ref]
-    # The API may emit either IDs or scopesData, not necessarily both.
-    scope_ok=(resolved_scopes==["reset-password"] or
-              scope_obj==["reset-password"])
-    if resolved_scopes and scope_obj:
-        scope_ok=scope_ok and set(resolved_scopes)==set(scope_obj)
-
-    resource_ref=extract_ids(item.get("resources"))
-    resource_data=item.get("resourcesData") or []
-    resource_ids=[x.get("id") for x in resource_data if isinstance(x,dict)]
-    names=[x.get("name") for x in resource_data if isinstance(x,dict)]
-    candidate_ids=resource_ref or resource_ids
-    candidate_names=names
-    # If the permission references AuthZ resource IDs, query the actual
-    # resources and cross-check their entity UUID, not their display label.
-    if candidate_ids and target_uuid not in candidate_ids:
-        linked=[]
-        for rid in candidate_ids:
-            reply=root.call("GET",pref+"/resource/"+rid)
-            linked.append(reply.json())
-        candidate_ids=[x.get("id") for x in linked]
-        candidate_names=[x.get("name") for x in linked]
-    resource_ok=(len(candidate_ids)==1 and
-                 (candidate_ids[0]==target_uuid or
-                  (len(candidate_names)==1 and
-                   candidate_names[0]==target_uuid)))
-    # The AuthZ user resource UUID is an authoritative entity identifier.
-    # A broad "Users" type-level resource must never satisfy this check.
-    if candidate_names==["Users"] and target_uuid not in candidate_ids:
-        resource_ok=False
-    policy_refs=extract_ids(item.get("policies"))
-    policy_ok=(len(policy_refs)==1 and policy_refs[0] in (policy_id,pname))
-    if not policy_refs:
-        # Server-side associated-policy relation is a distinct Admin REST
-        # endpoint; never fabricate a match from the POST request itself.
-        assoc=root.call("GET",pref+"/permission/scope/"+
-                        exact[0]["id"]+"/associatedPolicies",
-                        expect_status=(200,404))
-        if assoc.status_code==200:
-            ar=assoc.json()
-            policy_ok=(len(ar)==1 and
-                       ar[0].get("id")==policy_id and
-                       ar[0].get("name")==pname)
-    # Keycloak 26.8 GET of a scope permission is a brief
-    # PolicyRepresentation: it may OMIT *all* related arrays, even when
-    # permission evaluation works. Instead independently check the actual
-    # reverse associations from the standard Admin REST API:
-    #   scope/{scope-id}/permissions, resource/{resource-id}/permissions,
-    #   permission/scope/{permission-id}/associatedPolicies.
-    e.CURRENT="CB-01-reverse-scope-association"
+    e.CURRENT="CB-01-scope-and-policy-standard-reverse-readback"
+    scope_rows,scope_page=_cb_paged_authz(root,pref,"/scope")
     reset_scopes=[x for x in scope_rows if x.get("name")=="reset-password"]
     scope_reverse=False
     other_scope_links=False
-    if len(reset_scopes)==1 and reset_scopes[0].get("id"):
-        sr=root.call("GET",pref+"/scope/"+reset_scopes[0]["id"]+
-                     "/permissions",expect_status=(200,404))
-        if sr.status_code==200:
-            rows=sr.json()
-            scope_reverse=any(x.get("id")==exact[0]["id"] for x in rows)
+    if scope_page["complete"] and len(reset_scopes)==1:
+        reset_id=reset_scopes[0]["id"]
+        sr=root.call("GET",pref+"/scope/"+reset_id+"/permissions",
+                     expect_status=(200,404))
+        if sr.status_code==200 and isinstance(sr.json(),list):
+            scope_reverse=(
+                [x.get("id") for x in sr.json()
+                 if x.get("id")==permission_id]==[permission_id])
         for x in scope_rows:
-            if x.get("id") and x["id"]!=reset_scopes[0]["id"]:
-                other_reply=root.call("GET",pref+"/scope/"+x["id"]+
-                     "/permissions",expect_status=(200,404))
-                if other_reply.status_code==200 and any(
-                        p.get("id")==exact[0]["id"] for p in other_reply.json()):
+            if x["id"]!=reset_id:
+                other=root.call("GET",pref+"/scope/"+x["id"]+
+                       "/permissions",expect_status=(200,404))
+                if other.status_code!=200 or not isinstance(other.json(),list):
+                    other_scope_links=True   # fail closed on unreadable scope
+                elif any(p.get("id")==permission_id for p in other.json()):
                     other_scope_links=True
-    if not scope_ok:
-        scope_ok=scope_reverse and not other_scope_links
-    e.CURRENT="CB-01-reverse-target-resource-association"
-    res=root.call("GET",pref+"/resource/"+target_uuid,
-                  expect_status=(200,404))
-    resource_reverse=False
-    if res.status_code==200:
-        resource=res.json()
-        if resource.get("id")==target_uuid:
-            rp=root.call("GET",pref+"/resource/"+target_uuid+
-                         "/permissions",expect_status=(200,404))
-            if rp.status_code==200:
-                resource_reverse=any(x.get("id")==exact[0]["id"]
-                                     for x in rp.json())
-    if not resource_ok:
-        resource_ok=resource_reverse
+    linked=root.call("GET",pref+"/permission/scope/"+permission_id+
+                     "/associatedPolicies",expect_status=(200,404))
+    policy_reverse=(linked.status_code==200
+        and isinstance(linked.json(),list)
+        and len(linked.json())==1
+        and linked.json()[0].get("id")==policy_id
+        and linked.json()[0].get("name")==pname)
+    scope_ok=scope_page["complete"] and scope_reverse and not other_scope_links
+    policy_ok=policy_reverse
 
-    e.CURRENT="CB-01-reverse-linked-policy-association"
-    linked=root.call("GET",pref+"/permission/scope/"+
-              exact[0]["id"]+"/associatedPolicies",expect_status=(200,404))
-    policy_reverse=linked.status_code==200 and any(
-         x.get("id")==policy_id and x.get("name")==pname
-         for x in linked.json())
-    if not policy_ok:
-        policy_ok=policy_reverse
+    e.CURRENT="CB-01-resource-and-permission-paged-discovery"
+    resources,resource_page=_cb_paged_authz(root,pref,"/resource")
+    # Filtered REST search uses the documented logical resource selector.
+    # No identity is inferred from a displayName or from the original POST.
+    user_type,types_meta=_cb_paged_authz(root,pref,"/permission",
+                  {"resourceType":"Users"})
+    target_hits,target_meta=_cb_paged_authz(root,pref,"/permission",
+                  {"resourceType":"Users","resource":target_uuid,
+                   "scope":"reset-password"})
+    excluded_metas=[]
+    excluded_match=False
+    for uid in excluded_user_ids:
+        excluded,meta=_cb_paged_authz(root,pref,"/permission",
+                  {"resourceType":"Users","resource":uid,
+                   "scope":"reset-password"})
+        excluded_metas.append(meta)
+        if any(x.get("id")==permission_id for x in excluded):
+            excluded_match=True
+    all_perm_ids={x["id"] for x in all_permissions}
+    target_ids={x["id"] for x in target_hits}
+    type_ids={x["id"] for x in user_type}
+    selector_verified=(target_meta["complete"] and types_meta["complete"]
+        and all(x["complete"] for x in excluded_metas)
+        and target_ids=={permission_id}
+        and type_ids=={permission_id}
+        and all_perm_ids=={permission_id}
+        and not excluded_match)
+
+    # Inspect the actual Authorization Resource collection. Its internal
+    # IDs are used ONLY if returned by this API; never GET /resource/{user-id}.
+    # An equal display label is insufficient: a candidate also needs the
+    # server-reported reverse Permission relationship and selector evidence.
+    candidate_count=0
+    resource_reverse=False
+    resource_get_statuses=[]
+    for candidate in resources:
+        fields=candidate.get("attributes") or {}
+        related=any(target_uuid in (
+                     values if isinstance(values,list) else [values])
+                  for values in fields.values() if values is not None)
+        hinted=(candidate.get("id")==target_uuid
+                or candidate.get("name")==target_uuid or related)
+        if not hinted:
+            continue
+        candidate_count+=1
+        internal_id=candidate["id"]
+        detail=root.call("GET",pref+"/resource/"+internal_id,
+                         expect_status=(200,404))
+        resource_get_statuses.append(detail.status_code)
+        if detail.status_code!=200:
+            continue
+        stored=detail.json()
+        if not isinstance(stored,dict) or stored.get("id")!=internal_id:
+            continue
+        rp=root.call("GET",pref+"/resource/"+internal_id+"/permissions",
+                     expect_status=(200,404))
+        if (rp.status_code==200 and isinstance(rp.json(),list)
+            and any(p.get("id")==permission_id for p in rp.json())
+            and selector_verified):
+            resource_reverse=True
+
+    # Keycloak may expose FGAP Users as a *logical* selector rather than
+    # a stored per-user Authorization ResourceRepresentation. In that
+    # case the documented permission search is authoritative ONLY if
+    # full pagination, exact target hit, excluded-user misses, one Users
+    # permission, and Scope/Policy reverse links all independently agree.
+    # A present but unresolved matching resource would be contradictory
+    # and must NOT be masked by selector-search success.
+    resource_ok=(resource_page["complete"] and selector_verified
+         and (resource_reverse or candidate_count==0))
     checks={
        "resource_type_users":item.get("resourceType")=="Users",
-       "only_reset_password_scope_resolved":scope_ok and not other_scope_links,
+       "only_reset_password_scope_resolved":scope_ok,
        "exact_single_target_user_resource_resolved":resource_ok,
        "exact_single_service_policy_resolved":policy_ok,
-       "no_broad_admin_role":True,
+       "no_broad_admin_role":no_broad,
+    }
+
+    # Safe evidence: shape, counts, HTTP statuses, Booleans only. Never
+    # export user UUIDs, internal AuthZ IDs, action links, policy IDs or
+    # other server response values, even in diagnostics or CI failure.
+    safe_fields={"id","name","type","displayName","uris","uri",
+                 "scopes","owner","attributes","ownerManagedAccess"}
+    resource_fields=sorted(safe_fields.intersection(
+        set().union(*(set(r.keys()) for r in resources)) if resources else set()))
+    e.RESULTS["CB_resource_discovery"]={
+       "all_resources":{"status":resource_page["http"],
+                        "pages":resource_page["pages"],
+                        "count":resource_page["count"],
+                        "complete":resource_page["complete"],
+                        "response_is_list":resource_page["response_is_list"]},
+       "resource_response_field_names":resource_fields,
+       "candidate_count_by_server_returned_fields":candidate_count,
+       "candidate_full_get_statuses":resource_get_statuses,
+       "candidate_reverse_permission_link":resource_reverse,
+       "user_entity_and_authz_resource_ids_not_assumed_equal":True,
+       "users_permission_type_search":{"status":types_meta["http"],
+                                      "count":types_meta["count"],
+                                      "complete":types_meta["complete"]},
+       "target_resource_selector_search":{"status":target_meta["http"],
+                                          "count":target_meta["count"],
+                                          "complete":target_meta["complete"],
+                                          "exact_permission_match":target_ids=={permission_id}},
+       "excluded_resource_selector_searches":{
+           "count":len(excluded_metas),
+           "complete":all(x["complete"] for x in excluded_metas),
+           "unexpected_permission_match":excluded_match},
+       "one_users_permission_and_no_wider_permission":(
+             types_meta["complete"] and type_ids=={permission_id}
+             and all_perm_ids=={permission_id}),
+       "logical_selector_relation_verified":selector_verified,
+       "relation_basis":("materialized-resource-id-and-reverse-link"
+                         if resource_reverse else
+                         "server-side-exact-entity-selector-filter"
+                         if selector_verified and candidate_count==0 else
+                         "not-verified"),
     }
     e.RESULTS["CB_inverse_relation_probes"]={
-       "scope_permission_reverse_link":scope_reverse,
-       "unexpected_other_scope_link":other_scope_links,
-       "target_resource_get_http":res.status_code,
-       "target_permission_reverse_link":resource_reverse,
-       "policy_permission_reverse_link":policy_reverse
+        "scope_permission_reverse_link":scope_reverse,
+        "unexpected_other_scope_link":other_scope_links,
+        "policy_permission_reverse_link":policy_reverse,
+        "authz_resource_collection_http":resource_page["http"],
+        "authz_user_uuid_not_used_as_resource_rest_id":True,
+        "target_permission_selector_link":selector_verified,
+        "candidate_resource_reverse_link":resource_reverse,
     }
     e.RESULTS["CB_permission_readback"]={
-       "keycloak_permission_representation":"PolicyRepresentation",
-       "scope_refs_count":len(scope_ref),
-       "scope_objects_count":len(scope_obj),
-       "resource_refs_count":len(resource_ref),
-       "resource_objects_count":len(resource_data),
-       "policy_refs_count":len(policy_refs),
-       "checks":checks,
-       "all_relations_verified":all(checks.values()),
+        "keycloak_permission_representation":"PolicyRepresentation",
+        "scope_refs_count":len(item.get("scopes") or []),
+        "scope_objects_count":len(item.get("scopesData") or []),
+        "resource_refs_count":len(item.get("resources") or []),
+        "resource_objects_count":len(item.get("resourcesData") or []),
+        "policy_refs_count":len(item.get("policies") or []),
+        "checks":checks,
+        "all_relations_verified":all(checks.values())
     }
     e.case("CB-01-FGAP-references-readback-measured")
     return all(checks.values())
-
 
 async def clean_unchanged_password(e,browser,cb,oidc,email,old,attempted,stage):
     # An omitted form alone never qualifies as a password boundary.
@@ -963,7 +1064,8 @@ async def run_clean(e,browser,cb):
     uid={k:create_user(root,email[k],old[k]) for k in actors}
     service_token=issue_service(root,"clean-reset-only-service")
     fgap_ok=clean_fgap_permission(e,root,uid["target"],
-                                   "clean-reset-only-service")
+                                   "clean-reset-only-service",
+                                   [uid[k] for k in actors if k!="target"])
     # This is the FIRST user authentication in this new realm.
     e.CURRENT="CB-02-real-ordinary-email-password-login"
     await login(e,browser,cb,oidc,email["target"],old["target"])
