@@ -229,3 +229,95 @@ with the push/PR branch guard extended to
 `agent/idp-reauth-proof`. No service is published. All case results and
 version/status values must be verified from the actual sanitized CI
 artifact or GitHub job log before supervisor review.
+
+
+## BND-IDP-02B — standard Logout & Reset coverage, CI-only
+
+**Source prepared, not accepted until actual green CI.** Existing
+IDP-01 and RA-00–RA-12 real Chromium/Keycloak tests execute FIRST
+and unchanged. The new `reset_logout.py` uses only the same pinned
+Keycloak 26.8.2, identity PostgreSQL 17.11, Mailpit 1.32.0 and Playwright
+1.64.1 browser in the egress-denied Docker-internal CI network.
+
+**Account Console** is exercised via its real browser Account Security /
+Signing in / Password Update screen; Forgot/Reset (local captured email),
+UPDATE_PASSWORD Required Action and Admin Reset remain separate routes.
+Four independent synthetic pre-change browser contexts/Refresh/Access
+credentials are measured after each change without confusing successful
+new-password login with invalidating previous credentials. Standard built-in
+IdP user event type enums are observed read-only, NOT guaranteed delivery.
+
+A minimal `IsolatedLogoutReceiver` is co-located in the existing
+ephemeral browser runner at `idp-logout-receiver:8788`, **internal Docker
+DNS only, no published ports**. Keycloak test OIDC client's standard
+backchannel.logout.url and session.required settings are configured and
+read back. Real POST Logout Tokens are verified with Keycloak JWKS RS256,
+issuer, audience, iat/exp, events, sid/sub, nonce prohibition and unique
+jti. Negative tests verify replay, forged/broken signature, policy and
+expected issuer/audience. Receiver memory is test-only, not production
+durability, and no Token/JWT/Cookie/action URL is ever logged or written
+to artifacts.
+
+Standard OIDC end-session and Admin user Logout are evaluated separately.
+A real receiver stop (closed TCP port) precedes one Admin Logout, then
+restart and 4-second bounded observation. Retry, retention and recovery
+are recorded only if observed; neither a delivery receipt nor the Keycloak
+built-in event database is a verified durable cross-DB outbox. No product
+Session/BFF/History wiring, SPI, migrations or live side effects.
+Security verdict remains BLOCKED until an independently accepted product
+revocation barrier and complete credential-change event coverage.
+
+
+## BND-IDP-02B Account Console blocker resolved in isolated browser (2026-11-10)
+
+**Current evidence supersedes only the earlier NOT_RUN/UI BLOCKED fixture note
+above**; earlier red GitHub Actions runs remain available as audit history.
+
+[Full real GitHub CI Run 42891870367](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42891870367)
+completed **SUCCESS** on exact tested source SHA
+`1b7e264db74d4ee30a2549ed3384642492d9863a`.
+All original IDP-01/RA-00–12 and new RB cases PASS, including
+a real Keycloak Account Console password change from a synthetic
+Chromium account, followed by independent old-password DENY and
+new-password ACCEPT OIDC browser sign-in.
+
+**Harness root cause:** The `Account Security` accordion button was
+initially collapsed; selecting `.first` hidden anchors or an unrelated
+Navigation dropdown never exposed `Signing in`. The actual Account
+Console uses a **path-based** SPA route after clicking its visible
+security button/link, while the old harness demanded a Hash/fragment
+route exclusively. The corrected harness explicitly sets 1440×900
+page viewport, reads standard `account-console` client state
+without granting new permissions, awaits conditionally visible/enabled
+controls, enumerates EVERY match, expands the actual visible
+Account Security accordion, follows the visible Signing-in link,
+and clicks the real Password Update UI. Safe HTTP status, JS
+error class and request failure counts are captured without logging
+raw URLs/queries, page text, Cookie, JWT, email or password. No
+forced element click, DOM scripting or bypass.
+
+**Observed genuine 4-route matrix in that green CI (all separate
+synthetic pre-change sessions):**
+
+| Password route | OLD / NEW | Original SSO silent | Original Refresh | Original UserInfo | Backchannel during mutation |
+|---|---|---|---:|---:|---:|
+| Forgot/Reset local mail | DENIED / ACCEPTED | survived | HTTP 200 | HTTP 200 | 0 |
+| Account Console real UI | DENIED / ACCEPTED | survived | HTTP 200 | HTTP 200 | 0 |
+| Required Action | DENIED / ACCEPTED | survived | HTTP 200 | HTTP 200 | 0 |
+| Admin Reset | DENIED / ACCEPTED | survived | HTTP 200 | HTTP 200 | 0 |
+
+Keycloak user-event type observations: Account Console and Required
+Action showed UPDATE_CREDENTIAL/UPDATE_PASSWORD in bounded test windows;
+Forgot/Reset also showed SEND_RESET_PASSWORD etc; Admin Reset showed
+no USER events in the queried window (Admin Event API was not tested).
+Events are not per-mutation causal tracing or delivery evidence.
+Independent RP and Admin Logout produced verifiable signed Backchannel
+Logout Tokens and HTTP 400 old Refresh; deliberate receiver outage
+produced no catch-up in the 4-second post-restart window. No durable
+retry, no cross-database event propagation or product Session
+revocation has been proven.
+
+**Acceptance remains limited**: isolated local Account Console
+capability and all four synthetic reset route behaviors were
+tested; production Auth/Session, external Reset revocation and
+event delivery still BLOCKED. No product Gate and no merge.

@@ -521,3 +521,538 @@ The current stage covered one or more Admin REST calls and built-in flow/executi
 **Exact unchanged workflow method:** `docker build --pull -f infra/auth-ci/Dockerfile.test-runner -t auth-idp-runner:ci infra/auth-ci`; `docker compose --env-file "$RUNNER_TEMP/idp-ci.env" -f infra/auth-ci/compose.yml up -d`; `python tests/phase3/integration/auth_idp/network_guard.py`; `python -m compileall -q tests/phase3/integration/auth_idp`; isolated `docker run ... auth-idp-runner:ci python /suite/evaluate.py`; unconditional `docker compose ... down --volumes --remove-orphans` and credential-file deletion. Pinned Keycloak 26.8.2, PostgreSQL 17.11, Mailpit 1.32.0, Playwright/Chromium 1.64.1; no version upgrade. The first four non-green Runs 42717943231 / 42718543627 / 42719133392 / 42719627050 and their narrowed fixes are honestly preserved under AH–AK. No claim those passed.
 
 **Traceability unchanged:** `P3M05-A01/A02/A06/A07/A08/A09/A10` primary, `P3M03-A01/A03/A08`, `P3M06-A03/A05/A07`, `P3M13-A03/A07/A08/A09/A10` supporting and P3OP03-R01/R02/R05 as non-counting overlay. **Implemented**=ISOLATED_KEYCLOAK_STANDARD_FLOW_AND_REAL_BROWSER_FIXTURE; **Tested**=ALL_RA_13_PASS_ON_REAL_CI_SOURCE_SHA; **Verdict**=PARTIALLY_PROVEN local fresh credential, BLOCKED comprehensive external reset; **Accepted**=NONE/SUPERVISOR_PENDING. READY_FOR_REVIEW — ISOLATED_REAUTH_PROOF. No product Session issuance, Auth product/m05 Gate, source DB migration, deploy, real email, model, purchase or parent repository write. This checkpoint will be the ONLY post-test documentation edit; Final SHA differs from previously tested source SHA and any CI run on it must be independently checked before claiming success.
+
+
+## IDP-CI-01-AM — BND-IDP-02B source checkpoint; awaiting CI
+
+**Exact confirmed live baseline**: `main` =
+`21de761c880c5c7c0241fb8ce683e616e44ca11b`; PR #21 merged
+with identical merge SHA. No matching open PR or existing 02B branch.
+Created `agent/idp-reset-boundary` from that baseline. Reused all
+original 01/02A suites, pinned Keycloak 26.8.2/Postgres 17.11/
+Mailpit 1.32.0/Playwright 1.64.1 and original cumulative mission file.
+Read AGENTS, ownership, ADR 0005, existing checkpoint and exact IdP
+harness/Workflow before edit.
+
+**Bounded ownership**: P3M05-A01/A02/A06/A07/A08/A09/A10 (Module05);
+support P3M03-A01/A03/A08, P3M06-A03/A05/A07,
+P3M13-A03/A07/A08/A09/A10; P3OP03-R01/R02/R05 overlays only.
+No new Gates.
+
+**Exact 5 changed authorized paths**:
+`tests/phase3/integration/auth_idp/reset_logout.py` new temporary
+in-runner recipient + four credential-change route/browser/session
+tests and real logout/outage/negative-token tests;
+`tests/phase3/integration/auth_idp/evaluate.py` append 02B hook
+only AFTER previous 01/02A successful suite;
+`.github/workflows/auth-idp.yml` add scoped branch and internal
+Docker DNS alias to existing runner, never publish port;
+`infra/auth-ci/README.md` document exact test-only boundary;
+`coordination/tasks/AGENT-API-AUTH-IDP-01.md` THIS cumulative ledger.
+
+No product API/UI/DB, Migration, root, shared Contract/ADR/checklist,
+Keycloak version, real email, SPI, outbox, Mac install or Deploy.
+Standard OIDC backchannel.logout.url triggers Logout events if emitted;
+it is NOT automatically an external credential-change notification.
+Receiver uses standard RS256/JWKS, iss/aud/time/events/sid/sub/jti and
+in-memory replay validation for synthetic tests; it never claims durable
+JTI or sends product Session messages. Real receiver outage/restart
+and finite retry observations are planned, no guarantees assumed.
+
+**Commands**: unchanged existing GitHub `auth-idp.yml` Docker build,
+Compose up, network_guard+egress deny, `python -m compileall -q
+tests/phase3/integration/auth_idp`, same Playwright runner
+`python /suite/evaluate.py` plus new module, always Compose
+down --volumes and sanitized 3-day artifact. All prior 01/02A cases
+remain strict. First test outcome NOT_RUN until real Actions; failures
+will be recorded in THIS file, not hidden. **Implemented** source
+prepared; **Tested** NOT_RUN; **Accepted** none, supervisor pending.
+
+
+## IDP-CI-01-AN — first real BND-IDP-02B CI fails at Account Console view (2026-11-10)
+
+**Exact tested source:** `4e508e4dfa065fdcf4c9ae4b370d2c598d8e46a3`,
+[GitHub Push Run 42849562118](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42849562118)
+**COMPLETED FAILURE** in stage `RB-account-console-navigate`, category
+`AssertionError`. The long-standing original IdP-01 baseline and ALL
+RA-00..RA-12 had independently passed on this same run. New
+`RB-backchannel-standard-client-config-readback` PASS after standard
+client configuration and independent readback; new real
+`RB-route-forgot-actual-password-and-session-matrix` PASS, proving
+real independent synthetic Forgot/Reset with prior-session measurements.
+**No Account Console password change, no Required Action/Admin route
+matrix, no Logout Token delivery, no outage test was yet proven.**
+Keycloak/Postgres/Mailpit startup, internal no-egress network, cleanup
+of volumes/network and secret file remained PASS. Actual safe failure
+stage does not distinguish redirected Account Console login from
+missing Update button, so no claim which cause.
+
+**Narrow test-only correction:** inspect ONLY safe booleans/counts
+(login form, update link/button, Signing in route, password form,
+account path), without page URL/query, headers, token, user text or
+credentials. If the Account Console's separate `account-console` OIDC
+client presents a REAL login form, fill the existing synthetic user's
+valid credential and retry the normal browser Account Console UI path;
+never bypass with Admin REST or claim the Account Console route changed
+a password without actual UI. Test remains strict: update password,
+independent old login DENY and new login ACCEPT before PASS. Need new
+CI to determine UI shape; baseline assertions retained. No Keycloak
+version/flow, DB migration, product or workflow grant changed.
+
+
+## IDP-CI-01-AO — actual rerun isolated Account Console navigation evidence
+
+First attempt 2 source `e3fa3b4c9767e721eb474840316790b335219097`
+[Run 42850378441](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42850378441)
+attempt 1 **FAILURE** BEFORE 02B at original IDP-01 manager-MFA form
+`manager-mfa-enrollment-submit` TimeoutError; no new Account Console
+diagnosis. **Reran same failed GitHub job, unchanged code and tests**,
+attempt 2: original IDP-01, all RA-00–12 PASS; standard backchannel client
+configuration PASS; Forgot/Reset independent old SSO/Refresh/UserInfo
+PASS; then Account Console failed at `RB-account-console-safe-ui-shape`
+with AssertionError. Safe live UI shape:
+`account_path=True, login_form_visible=False,
+update_button_count=0, update_link_count=0,
+signing_in_link_count=0, password_new_count=0,
+account_security_link_count=2`.
+Therefore it displayed an account-app path and Account Security
+navigation but **NO** Update action or login form: NO real Account
+Console password change proven, and no claims of password revocation,
+later route or Logout Token/outage progress. Both attempts require
+failing overall; the first is unrelated historical browser fixture
+flakiness, and the second is a reproducible UI navigation miss.
+
+**Narrow next change:** Browser visits the Account Console's own
+`account-security` / `signing-in` link rather than assuming a direct
+deep hash renders its child; add only safe **booleans** for existence
+of signing-in href/hash and error/password page indicators. No
+document body, raw href, URL, username, email, Cookie, JWT, Reset link
+or password in stdout/artifact. Keep exact successful old-password
+reject/new-password accept criterion; no Admin REST mutation fallback.
+If the standard UI remains inaccessible, mark NOT_PROVEN; no version
+upgrade, application/product code, DB/schema or service grant change.
+
+
+## IDP-CI-01-AP — third real CI: Account Console deep-hash renders noninteractive nav; bounded root fallback
+
+**Source** `3abb368e8b827f595cb19c5c086c54581eebe274`,
+[Push Run 42851688072](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42851688072)
+**COMPLETED FAILURE** only on new stage
+`RB-account-console-navigate-own-security-menu` with
+Playwright `TimeoutError`. Previous IDP-01/RA-00..12 PASS,
+standard OIDC Back-channel config readback PASS, Forgot/Reset
+old independent browser and token matrix PASS.
+Safe observed UI shape on Chromium: account path True,
+no login form, no Update button/link, a DOM `signing-in` href
+present, signing-in fragment correct, password text absent,
+no generic error wording. The attempted Account Security DOM link
+could NOT be clicked as an interactive visible element. This is
+**NOT** proof that Account Console credential edit happened and
+is NOT an IdP rejection of the new password. Required/Admin route,
+standard logout/backchannel JWT and outage not yet reached.
+
+**Next strict fixture behavior**: Navigate the standard Account
+Console ROOT first, inspect only safe element counts/visibility,
+click its OWN visible `Signing in` or Account Security link,
+and insist on real Update button and password form before any
+PASS claim. If UI is still unavailable, capture `BLOCKED` for
+Account Console and **continue** independent Required/Admin
+and Logout/receiver-outage tests; after all other tests, report
+a final non-green CI/fail-closed `ACCOUNT_CONSOLE_NOT_PROVEN`.
+This is explicitly NOT an alternative Admin REST password update
+or fabricated success. No other security criterion weakened,
+no versions/migrations/Keycloak product or network permissions
+changed. Exact prior failed stages and first MFA timeout remain
+in original checkpoint.
+
+
+## IDP-CI-01-AQ — bounded FINAL BND-IDP-02B evidence, independent routes + Logout; Account Console BLOCKED (2026-11-10)
+
+**Tested source SHA:** `a2ff6c75b81290bc003f45a2d56feea1c2e30e6f`.
+**Real [GitHub Push Run 42852620874](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42852620874): COMPLETED / FAILURE**. The failed overall status is **intentionally retained**: standard Account Console password change was NOT PROVEN despite real Chromium UI attempts. Browser-runner code records its blocker and runs other independent tests before final generic rejection `RB-account-console-not-proven-final`; no false all-green CI, no Account Console PASS, no fallback to Admin REST claiming Account Console. The same run verified all original `IDP-01`/A/B/C and `RA-00..RA-12` previously accepted Chromium/Keycloak, plus new bounded cases listed below. Runner's pinned Keycloak 26.8.2, identity Postgres 17.11, Mailpit 1.32.0 and Playwright 1.64.1 unchanged. Internal-only Docker network, no host ports, negative egress test, synthetic `.test` accounts, teardown/credential deletion PASS.
+
+**Audited source of factual matrix:** [sanitized CI artifact `auth-idp-sanitized-42852620874`](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42852620874/artifacts/13780518282), ID `13780518282`, 3-day retention; GitHub job logs list all RB stage outcomes and `ISOLATED_IDP_EVALUATION_FAIL stage=RB-account-console-not-proven-final category=AssertionError`. Artifact read as JSON, no bearer/refresh/id/logout JWT, raw cookie, email, reset link, login code, OTP seed or action-token URL exposed in outputs. Actual static `safe_report` overall is **FAIL**.
+
+**Four independent pre-change-browser/refresh/access observations on synthetic users (do NOT extrapolate to Product Session):**
+
+| Keycloak standard password mutation | New credential / prior credential outcome | Preserved original browser `prompt=none` | Original Refresh HTTP | Original Access/UserInfo HTTP | Valid backchannel tokens observed during mutation | User event type enums seen in the bounded test window |
+|---|---|---|---|---|---|---|
+| Forgot/Reset (real local Mailpit) | NEW ACCEPT / OLD DENY — PASS `RB-route-forgot` | TRUE | 200 | 200 | 0 | `LOGIN_ERROR`, `RESET_PASSWORD_ERROR`, `SEND_RESET_PASSWORD`, `UPDATE_CREDENTIAL`, `UPDATE_PASSWORD` |
+| Built-in Required Action `UPDATE_PASSWORD` | NEW ACCEPT / OLD DENY — PASS `RB-route-required` | TRUE | 200 | 200 | 0 | `UPDATE_CREDENTIAL`, `UPDATE_PASSWORD` |
+| Standard Admin REST `reset-password` | NEW ACCEPT / OLD DENY — PASS `RB-route-admin` | TRUE | 200 | 200 | 0 | none in *user-event endpoint*; Admin REST event endpoint NOT queried |
+| Account Console UI Account Security/Signing in | **BLOCKED/NOT_PROVEN**; never submitted password change | NOT_MEASURED | NOT_MEASURED | NOT_MEASURED | NOT_PROVEN | NOT_MEASURED |
+
+**Important event attribution limit:** the Keycloak built-in user-event type set is computed within the route + credential-check/old SSO test window. The Forgot/Reset helper itself checks old-password denial, new-password login and action-token replay; event types like `LOGIN_ERROR`/`RESET_PASSWORD_ERROR` must NOT be attributed specifically to successful credential change. The set difference identifies **observed** built-in user event enums in this isolated Keycloak realm, not an atomic per-change event, webhook, durable queue, cross-DB delivery or eventual product revocation. Standard Admin Reset may use a separate Admin Event channel, which was **NOT** inspected: zero user events does **not** mean zero Admin Events. The counts above are for the registered OIDC client ONLY in the measured window; other clients, retry or different deployments not tested.
+
+**Logout separate from password change (same synthetic DB, same client):**
+- `RB-standard-oidc-logout-measured` **PASS**: real RP-initiated standard `end_session_endpoint` from authenticated Chromium context with genuine ID Token hint, original Refresh HTTP 400, original UserInfo HTTP 401, standard Back-channel valid token delivered to test recipient.
+- `RB-standard-admin-logout-backchannel-delivered` **PASS**: independent standard Keycloak Admin REST user logout invalidated prior Refresh (HTTP 400), and real Back-channel Logout Token reached the isolated receiver.
+- `RB-logout-token-real-signature-claims-and-replay-negatives` **PASS**: receiver verified real Keycloak JWKS RS256, exact issuer, test-client audience, `iat/exp`, exact OIDC backchannel `events`, nonempty `sid` or `sub`, no `nonce`, unique `jti`. Replayed exact signed token got HTTP 409, altered-signature/invalid compact or wrong content-type HTTP 400; wrong expected issuer/audience were rejected by real JWT verifier; invalid event/time/identity/nonce checked through policy negative tests on COPIES of already verified signed claims. No fabricated issuer-signed token for mutated events. Received tokens and client credential references remained RAM-only and were never logged.
+- `RB-receiver-outage-and-restart-observed` **PASS as measurement**: actual TCP listener CLOSED before a fresh standard Admin Logout, original Refresh returned HTTP 400, **0 delivered while offline**. Receiver reopened on same internal alias/port and **0 messages arrived in bounded 4-second observation**. This does NOT prove Keycloak will never retry later; no durable retry, delivery, persistence, recovery or acknowledged product Session invalidation is proven. Receiver's own replay set is RAM-only and restart persistence NOT_IMPLEMENTED, emphatically not production-grade.
+
+**Account Console exact safe browser evidence and blocker:** Direct Keycloak `/realms/{realm}/account/#/account-security/signing-in` shows account path and one DOM link with signing-in href, correct fragment, no login form, **zero visible/counted Update buttons**, zero password form, zero 'password' wording, no recognized error wording. Attempt to click account security menu timed out because its DOM link was not visible. A second attempt navigated to Account Console ROOT, but `root_signing_link_count=1` (invisible), `root_security_link_count=2` (invisible), `root_has_update_button=False`; no actual password change attempted. **This proves a CI fixture/Account Console UI coverage blocker only**, not that Keycloak lacks the standard capability or that Admin/Required action paths can stand in for an authenticated Account Console UI. Do not represent this route as passed, or infer revocation of its pre-change tokens. Next isolated task needs to diagnose account SPA/bootstrap/access prerequisites with safe browser/network diagnostics or build a supported Account UI fixture, then repeat actual old/new credential verification and independent session probes.
+
+**Actual failure history retained cumulatively in AM–AP:**
+1. [Run 42849562118](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42849562118) failed at first Account UI Update button on direct deep link after previous IDP and Forgot successes.
+2. [Run 42850378441](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42850378441) attempt 1 failed transient old suite manager MFA form timeout; unchanged same-code rerun attempt 2 old suite PASS, safe Account UI shape found no Update; failed there. No historical test weakened.
+3. [Run 42851688072](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42851688072) failed Account hidden link click after old/new Forgot successes.
+4. [Run 42852620874](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42852620874) final tested source ran all independent Required/Admin/Logout/receiver/offline suites **PASS**, but marked Account `BLOCKED` and ended **FAIL** overall intentionally.
+
+**Simplest next separately approved work:**
+1. **Restrict and prove reset entry surfaces before any Product Auth Gate**: define which password changes can be centrally initiated and which are independently available in Account Console, Required Action, Keycloak Admin, identity federation and recovery. If feasible, explicitly restrict unsupported external paths and prove enforcement in real browser/Admin API tests; neither this CI nor a setting by itself proves that such restriction is complete.
+2. **Keep product revocation authoritative and fail closed** with existing DB Session/epoch/fence primitives; controlled product reset must revoke/tombstone product Sessions before permitting any reset flow. On external IdP mutation without authenticated durable notification, do NOT create a fresh Product Session from old SSO or assert bounded automatic logout. OIDC `prompt=login&max_age=0` is evidence only for local fresh login, not remote product revocation.
+3. **Reuse standard Logout/Backchannel only for events actually observed**, with signature/aud/issuer/iat/exp/events/sid-or-sub/JTI validation at the eventually approved BFF consumer and separate persistent dedupe/queue, but don't treat Logout as guaranteed Password Reset event. Outage test proves NO observed catch-up in 4 seconds. If any uncontrolled external mutation paths must remain usable, seek a **separate authorized evaluation of authenticated durable event extraction/ack/reconciliation and fail-safe session barrier**; an SPI/outbox may need consideration in a different mission only AFTER standard coverage is exhausted. No extension or migration implemented here.
+
+**Scope and acceptance:** still exactly five authorized IdP paths since Starting main (new `reset_logout.py`, existing `evaluate.py`, existing `auth-idp.yml`, existing `infra/auth-ci/README.md` and THIS unchanged path used as cumulative ledger). No product API/BFF/UI/History/DB or Migration 001–005, shared contract, ADR, checklist or parent repo edits; no real mail/credential, model, public server or deploy. Source traceability unchanged: P3M05-A01/A02/A06/A07/A08/A09/A10 primary, supporting P3M03-A01/A03/A08, P3M06-A03/A05/A07, P3M13-A03/A07/A08/A09/A10; P3OP03-R01/R02/R05 non-counting overlays. **Implemented:** CI-only four reset pathways attempted, standards-based Logout Token receiver/outage measured; Account Console UI attempt BLOCKED. **Tested:** real GitHub Runner partial successes above and overall FAILURE on exact code SHA (no green 02B run). **Accepted:** NONE/SUPERVISOR_PENDING. **Verdict:** PARTIALLY_PROVEN explicit Logout/three reset paths; BLOCKED complete four-path coverage and external reset delivery; **READY_FOR_REVIEW — STANDARD_RESET_LOGOUT_EVALUATION** with visible blockers, NOT AUTH_PRODUCT_ACCEPTED or Gate PASS. The following final HEAD is documentation-only relative to tested code SHA; CI status of that HEAD must not be invented.
+
+
+## IDP-CI-01-AR — precise constrained Account Console root-cause probe on existing PR #22 (2026-11-10)
+
+**Authorized limited continuation from checked HEAD**
+`ee539d1932166c387a7cc1660c50356b2df33d8f`: exact branch
+`agent/idp-reset-boundary`, existing open Draft PR #22, base `main`
+`21de761c880c5c7c0241fb8ce683e616e44ca11b`; no new branch,
+PR, migration or checkpoint file. Previous CI [42852620874](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42852620874)
+**FAIL** with only Account Console not proven; 3 password routes and
+two real Logout operations, negative signed JWT, listener outage probes
+had distinct real successes. Preserve their exact per-route numeric
+matrix and all previous 01/02A IDP regressions. No false green status.
+
+**Observed pre-fix limitation:** `a[href*="signing-in"]` and Account
+Security link nodes exist in DOM but prior `.first` was hidden and
+`Update` never visible. Fixed `wait_for_timeout(1200/1300)` cannot
+establish React SPA readiness. It is **NOT YET** evidence of missing
+standard Account Console capability, user authorization failure, JS
+breakage or a password mutation. Standard documentation uses Account
+Security → Signing in → Password Update. The known old browser SSO
+cookie and regular OIDC callback are not a substitute for this action.
+
+**Narrow two-file change, SOURCE NOT_RUN until CI:** Only
+`tests/phase3/integration/auth_idp/reset_logout.py` and this same
+cumulative checkpoint appended; no workflow or version change.
+Explicit **1440×900** Playwright Page viewport is set before navigation.
+Before browser mutation, read **existing standard**
+`account-console` and `account` client configuration via read-only
+Admin GET, reporting non-secret boolean enabled, publicClient and
+standardFlowEnabled flags; no grant/policy/client modification.
+Instrument browser `response`, `requestfailed`, `pageerror` with
+ONLY fixed resource route categories, HTTP status counts and whitelisted
+JS exception-type categories (never URLs/query, header, HTML, token,
+Cookie, email, OTP, password or reset link). Inspect **every** matching
+Update button/link, signing-in/security nav link, menu and expansion
+control for actual visible and enabled state. Wait by **conditional
+bounded predicates** for visible enabled real UI controls, not a
+longer fixed sleep; open ONLY real visible menu button if collapsed,
+then click a visible signing-in/security link with `.nth(visibleIndex)`
+rather than `.first` or forced clicks. Genuine user/password form
+and independent old-password deny/new-password accept remain required.
+A handler may record a bounded Account Console blocker, continue
+independent Required Action/Admin/Logout/outage tests and finally
+FAIL the overall run if Account Console is unproven.
+
+**Security and decision:** If HTTP 401/403 or script/network errors
+appear, classify root cause on actual CI; no guessed Keycloak config
+changes or elevated admin access. True Account Console password edit
+must precede old cookie SSO/Refresh/UserInfo/backchannel observation
+on its *original* Session and later independent credential checks.
+No SPI, outbox, BFF/History API or product DB, migrations, real email,
+Mac install, deploy or merge. Earlier user-event vs Admin Event
+attribution limitations unchanged. **Implemented:** diagnostic source
+prepared; **Tested:** new source NOT_RUN, historical 02B CI FAILURE;
+**Accepted:** NONE/SUPERVISOR_PENDING. No Gate opened.
+
+
+## IDP-CI-01-AS — Account Console safe runtime diagnostics on real CI 42888996706
+
+**Actual source SHA:** `306dc11d2c1c2827ba4735be6ca17695c0026faa`,
+[Push Run 42888996706](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42888996706):
+**COMPLETED FAILURE**, solely `RB-account-console-not-proven-final`
+after previous IDP-01/RA-00..12 PASS, Forgot/Reset route PASS,
+Required Action PASS, Admin Reset PASS, genuine RP/Admin Logout tokens
+and negative-validation/outage PASS. The receiver/outage/old Session
+matrix is unchanged from previous AQ. All containers/network and
+credentials torn down successfully.
+
+Read actual [sanitized artifact 13798056513](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42888996706/artifacts/13798056513):
+standard `account-console` OIDC client **present/enabled**,
+`standardFlowEnabled=true`, `publicClient=true`, built-in
+`account` client exists; no extra grants were made. Explicit
+**1440×900** page viewport, document at Account Console path,
+not at login/redirect; real DOM ready. Network safe counters:
+4 Account document/API HTTP 200, 25 theme/SPA static asset HTTP 200,
+3 OIDC HTTP 200 and 1 OIDC HTTP 302, **no observed 401/403**,
+no `requestfailed` and no `pageerror` events in capture window.
+Matching UI elements ALL enumerated: 1 signing-in link invisible,
+2 Account Security links invisible, **0** Update buttons/links,
+**1** visible/usable menu-like button and 3 visible/usable
+aria-expanded=false buttons. No password form or active login form.
+The previous `.first` navigation failure was not proof of missing
+capability. **This evidence excludes disabled account-console and
+observed unauthorized HTTP as immediate causes**, but does not yet
+identify whether menu opens navigation, app displays a fallback
+screen, or script console emitted errors not surfaced as pageerrors.
+No password was changed through Account Console; no green CI claim.
+
+**Next narrow diagnostics, same five-path limit:** capture ONLY
+fixed allowlisted English UI section words as booleans, rendered
+body-length bucket, visible menu-button category and whether
+aria-expanded actually changed after a genuine UI click; also
+categorize console errors (CSP/CORS/load/fetch/syntax/other) without
+ever persisting message, URL, HTML, Cookie, token or user text.
+Continue to demand a rendered Signing in password Update button
+and actual independent old/new credential proof. No extra timeouts,
+role change, browser JS injection, element force click or new
+workflow/migration. New source awaits real GitHub CI.
+
+
+## IDP-CI-01-AT — real CI 42890184780 shows separate Account Security accordion; scoped selector correction
+
+**Source SHA** `c67f4d7a8fc022674ee6e9c54d6f8c7a3978dbc0`,
+[Push Run 42890184780](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42890184780):
+**COMPLETED FAILURE** with exact Account Console stage
+`RB-account-console-ui-not-ready`. Prior IDP-01, RA-00–12,
+Forgot/Reset, Required Action, Admin Reset, RP/Admin OIDC Logout,
+genuine Logout Token negative/replay matrix and receiver-outage
+experiments all PASS in this same real run; global CI FAILURE remains
+correct until real Account Console password change is verified.
+
+**Safe Account UI rendering evidence**: body text is a SHORT visible
+content bucket and contains `Personal Info`, `Account Security` and
+`Applications` sections but **not** `Signing in`, `Password` or
+`Update`. Main section is visible. Exactly one visible
+`Navigation` menu-like button has `aria-expanded=false` and 3
+additional visible `aria-expanded=false` buttons. The existing
+generic "Menu" selector clicked a **Navigation** button, not the
+specific Account Security accordion. One Signing-in anchor and two
+Account Security anchors remain in the DOM but hidden; default
+account-console client active and its assets/API return HTTP 200.
+**No failed request/HTTP 401/403** observed. Two generic console
+error events were counted and sanitized, not identified as
+session/auth denials; no JavaScript pageerror or requestfailed.
+No credential edit from Account Console yet; total Run FAIL.
+
+**Tested hypothesis, not automatic Root Cause PASS:** a separate
+rendered `Account Security` **button** likely controls the hidden
+nested Signing-in link. Next source change adds a real accessible
+`role=button/name=Account Security` locator, enumerates ALL
+matching visible/enabled controls and prioritizes clicking that
+button before any generic Navigation menu. It records only
+aria-expanded before/after booleans and then clicks the first
+**actually visible** Signing-in link using its observed index.
+No `.first` hidden-element fallback, synthetic update, JS
+injection, force-click, extra grant, role elevation, guessed Keycloak
+theme change or fixed sleep. Actual password update followed by
+independent old-password DENY/new-password ACCEPT and original
+SSO/Refresh/UserInfo/Backchannel counts is still the sole
+successful outcome. Exact source retest PENDING.
+
+**Scope** remains same PR #22, same branch, only isolated
+`reset_logout.py` and cumulative checkpoint appended; existing
+pinned versions, network isolation, previous security regressions
+and mandatory teardown unchanged.
+
+
+## IDP-CI-01-AU — confirmed standard Accordion + SPA path readiness bug on real CI (2026-11-10)
+
+**Exact tested SHA** `fa38fe1de9a1b413c792303aecfa348818ab31bc`,
+[GitHub Run 42891043095](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42891043095)
+**COMPLETED FAILURE overall** only for `RB-account-console-not-proven-final`
+after all previous IDP-01, BND-IDP-02A, three password
+mutation routes, standard RP/Admin Logout, real JWT negative and
+receiver-outage tests had passed independently in the SAME run.
+
+**Decisive actual UI evidence:** after clicking the real accessible
+**Account Security** accordion button (instead of the previously
+chosen Navigation menu), the Keycloak Account Console rendered
+`Signing in`, `My Password`, and `Update` words in main content
+with **one genuinely visible & enabled Update button**, **one visible
+Signing in link**, **two visible Account Security links**, and one
+visible Account Security button, while its Navigation menu reported
+`expanded=True`. Previously all these child links were hidden.
+Viewport 1440×900, 5 account document/API HTTP 200, 37 theme/SPA
+asset HTTP 200, OIDC 3×200 and 1×302, no observed 401/403 or failed
+requests, plus two non-sensitive generic console errors which are not
+causal evidence. Standard account-console and account clients remain
+enabled/present with no added grants. **No password was changed yet**,
+because the conditional readiness predicate erroneously insisted
+`"signing-in" in urlsplit(page.url).fragment` (legacy deep `#/`
+fragment), while the actual rendered Account Console's browser
+navigation is path-based after the real click. Safe diagnostic printed
+`on_signin_hash=False`, but visible Update button=True. The test
+wrongly rejected a visible working form before clicking Update.
+
+**Minimal source fix:** accept a page if and ONLY if the genuine
+Update button/link is visible/enabled AND the actual browser URL has
+the standard **`/account-security/signing-in` PATH**, OR the old
+standard signing-in fragment; no assumption that a hidden anchor is
+ready, and no removal of route assurance. Add ONLY a safe boolean
+`on_signin_path` to report; do not print URL, query or browser
+content. Clicking the Update button and real password form still
+requires further actual CI. No change to Keycloak roles, UI product,
+API/DB/migrations, IdP version/network, callback policy, Logout tests
+or approved contracts. Previous red runs remain red. New source
+NOT_RUN until next CI.
+
+**Root cause (scope of fixture):** wrong element selector prioritized
+a generic Navigation dropdown, leaving the Account Security
+accordion collapsed; then erroneous hash-only URL readiness check
+rejected the successfully expanded **path-router** Signing In view.
+This is a **test harness routing/selector** error, not evidence
+that standard Keycloak Account Console was disabled, missing
+permissions, or that external Reset revocation is solved.
+
+
+## IDP-CI-01-AV — BND-IDP-02B account-console real successful CI, all four routes and Logout (2026-11-10)
+
+**Exact TESTED CODE SHA:** `1b7e264db74d4ee30a2549ed3384642492d9863a`.
+[Real GitHub Actions Push Run 42891870367](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42891870367)
+**COMPLETED SUCCESS** on exactly this source SHA (not just source
+preparation). Full original IDP-01 browser/SMTP/TOTP/PKCE/Reset
+regressions and RA-00..RA-12 completed PASS, followed by ALL
+BND-IDP-02B RB steps PASS including the previously blocked REAL
+Account Console. GitHub log explicitly records:
+`RB-route-account-actual-password-and-session-matrix: PASS` and
+`ISOLATED_IDP_EVALUATION_PASS`. Same run confirms
+`NETWORK_GUARD_PASS` (Docker Internal=true, zero published ports,
+outbound TCP denied), unconditional container/volume/network/secret
+teardown and `EPHEMERAL_IDP_TEARDOWN_CHECK_COMPLETE`.
+[SANITIZED JSON artifact 13797964580](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42891870367/artifacts/13797964580)
+is **overall PASS**, with 3-day retention: actual separately
+captured non-secret JWT/Session/route counters only.
+
+**Real Account Console root cause, NOT guessed configuration:**
+1. Previous fixture selected `.first` matching Account Security/
+   Signing-in links without checking actual element visibility. Those
+   DOM nodes were hidden because the separately accessible real
+   **Account Security button** was an accordion in collapsed state.
+   An unrelated generic Navigation menu button was toggled instead.
+2. The exact real Chromium 1440×900 run changed accordion
+   `aria-expanded` from **false → true** by clicking its actual
+   visible accessible `role=button/name=Account Security` control,
+   without JS injection, forced click or direct password API.
+   This exposed one visible Signing-in link and one visible/enabled
+   **Update** button, alongside `My Password` content.
+3. Old fixture rejected this visible valid state because it demanded
+   `signing-in` in the URL **fragment/Hash only**, despite the
+   standard Keycloak account SPA having navigated to the actual
+   `/account-security/signing-in` **path** after real UI click.
+   Source fix checks visible enabled Update AND standard route
+   (actual path OR legacy fragment), no generic fallback.
+4. On the corrected code the REAL Account Console Update UI was
+   clicked; the real password form was filled/submitted in Chromium.
+   Independent fresh OIDC Code+PKCE browser login with the **old
+   credential was denied**, then independent login with the
+   **new credential was accepted**. No Admin Reset stand-in.
+   Account Console client was read-only inspected: present/enabled,
+   standard flow and public client true, built-in account client
+   present; **NO permission changes/elevation**. The actual prior
+   credential rejection plus newly accepted credential proves a
+   genuine password mutation on this isolated local account.
+
+**Exact separate four-path old-session/Backchannel evidence on CI:**
+
+| Password change route | REAL password verification | Retained original browser `prompt=none` | Prior Refresh HTTP | Prior Access/UserInfo HTTP | Backchannel Logout tokens DURING change | Observable built-in Keycloak user event types in test window |
+|---|---|---|---|---|---|---|
+| Browser Forgot/Reset via local Mailpit | OLD DENY / NEW ACCEPT | TRUE | 200 | 200 | 0 | LOGIN_ERROR, RESET_PASSWORD_ERROR, SEND_RESET_PASSWORD, UPDATE_CREDENTIAL, UPDATE_PASSWORD |
+| REAL Account Console UI (Account Security → Signing in → Update) | OLD DENY / NEW ACCEPT | TRUE | 200 | 200 | 0 | UPDATE_CREDENTIAL, UPDATE_PASSWORD |
+| Built-in UPDATE_PASSWORD Required Action | OLD DENY / NEW ACCEPT | TRUE | 200 | 200 | 0 | UPDATE_CREDENTIAL, UPDATE_PASSWORD |
+| Standard Admin REST Reset | OLD DENY / NEW ACCEPT | TRUE | 200 | 200 | 0 | none in queried USER events; Admin Event endpoint NOT queried |
+
+**Interpretation boundaries:** These HTTP 200 and preserved silent SSO
+results explicitly show that **NONE of the four tested changes**
+invalidated the original IdP browser session or the previous Refresh
+and Access/UserInfo values in this disposable Keycloak realm. Zero
+Backchannel tokens were observed **during each mutation** for the
+single registered synthetic OIDC client; this is not universal
+nonexistence across Keycloak settings, clients or other events.
+The user-event enum set-difference includes the subsequent negative
+old-password and fresh new-password tests; event types must NOT be
+causally assigned to one mutation from this aggregated window.
+Admin events NOT read; no claim Admin Reset produced zero admin
+events. Event DB is not a product delivery outbox.
+
+**Same real CI independently retains standard Logout evidence:**
+- Genuine RP-initiated OIDC end-session: original Refresh HTTP 400,
+  prior UserInfo HTTP 401, a correctly signed Keycloak Logout Token
+  arrived at isolated CI-only Backchannel receiver.
+- Independent Admin user Logout: original Refresh HTTP 400, genuine
+  Logout Token arrived.
+- Genuine Logout Token RS256/JWKS + issuer, audience, `iat/exp`,
+  exact events, `sid` or `sub`, no `nonce`, JTI validation passed;
+  direct replay got HTTP 409; forged/tampered or wrong-form HTTP
+  400; mismatched expected issuer/audience denied; synthetic claim
+  mutations on COPIES of the verified claims denied (not forged
+  IdP-signed alternate tokens).
+- Real receiver shut down BEFORE Admin Logout: 0 received while
+  offline, 0 caught up within 4 seconds after restart. No claim
+  Keycloak NEVER retries later; no durable acknowledgment,
+  retention or cross-DB repair proven.
+- No product session issuance or external product reset/History
+  wiring. **Product-wide external credential-change/session
+  revocation remains BLOCKED**, even though local four-route
+  coverage is PROVEN and overall limited CI is green.
+
+**Exhaustive continuation failure audit, in order, with actual GitHub runs:**
+- Prior PR #22 Run 42852620874 and original AM–AQ history:
+  Account Console real UI missing in fixture due hidden DOM
+  and deep route assumptions; other RB paths passed; overall FAIL.
+- [Run 42888996706](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42888996706)
+  tested 306dc11d2c1c2827ba4735be6ca17695c0026faa:
+  old IDP suites and other RB tests PASS; 1440×900 explicit
+  viewport/read-only client config/assets 200; no observable
+  401/403/pageerror/requestfailed, 0 visible Signing-in and Update;
+  Account Console UI NOT_READY; overall FAIL.
+- [Run 42890184780](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42890184780)
+  tested c67f4d7a8fc022674ee6e9c54d6f8c7a3978dbc0:
+  visible section words Personal Info/Account Security/
+  Applications; Navigation menu still collapsed, hidden
+  Signing-in link; 2 sanitized generic console errors without
+  raw contents; Account not ready; overall FAIL.
+- [Run 42891043095](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42891043095)
+  tested fa38fe1de9a1b413c792303aecfa348818ab31bc:
+  Account Security accordion clicked, visible/enabled real
+  Update button, My Password and Signing in content; **erroneous
+  hash-only predicate** prevented form execution; overall FAIL.
+- [Run 42891870367](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42891870367)
+  tested 1b7e264db74d4ee30a2549ed3384642492d9863a:
+  path OR hash + visible Update; actual Account Console form
+  submitted; old password denied/new accepted; original
+  SSO/Refresh/UserInfo/Backchannel observed; ALL prior and
+  RB cases PASS; overall **SUCCESS**. No earlier failures were
+  overwritten or represented green.
+
+**Change scope/versions:** Since given starting HEAD
+`ee539d1932166c387a7cc1660c50356b2df33d8f` the ONLY
+source security/test behavior changed is
+`tests/phase3/integration/auth_idp/reset_logout.py`. Diagnostic
+changes and checkpoint were made in the same allowed existing
+file `coordination/tasks/AGENT-API-AUTH-IDP-01.md`;
+the final documentation follow-up appends this checkpoint and
+`infra/auth-ci/README.md` inside the ORIGINAL five allowed
+PR #22 paths to keep instructions current. Keycloak 26.8.2,
+Postgres 17.11, Mailpit 1.32.0, Chromium Playwright 1.64.1
+and Docker Internal-only egress denied unchanged. No actual
+email, production IdP, model, public service, local Mac install,
+version bump, role privilege, SPI/extension, new outbox,
+Migration 001–005 or product API/BFF/UI/DB/History modification.
+
+**Recommendation for separate next mission:** Bounded/
+enforceable allowed Reset entry surfaces + product-authoritative
+Session revocation/reset_gate first. If Account Console, Admin
+Reset, Required Action or external identity federation remain
+available, standard Logout alone is insufficient as a password
+mutation event: separately authorize a tested reliable
+authenticated credential-change event/ack/reconcile and fail-safe
+product session barrier; don't assume built-in user-event storage
+or a received Logout Token provides durable cross-DB delivery.
+No solution/production acceptance in this isolated package.
+
+**READY_FOR_REVIEW — STANDARD_RESET_LOGOUT_EVALUATION**,
+**Implemented**: standard browser Account Console password
+change and four-path measured old Session/Backchannel behavior
+plus prior Logout/outage negative tests;
+**Tested**: exact green real GitHub Actions source SHA above;
+**Accepted**: NONE/SUPERVISOR_PENDING; no Gate, never
+`AUTH_PRODUCT_ACCEPTED`. Final documentation-only HEAD
+will differ from tested source; verify its own CI before saying
+its exact SHA is green.
