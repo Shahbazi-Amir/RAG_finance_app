@@ -803,3 +803,50 @@ Continue to demand a rendered Signing in password Update button
 and actual independent old/new credential proof. No extra timeouts,
 role change, browser JS injection, element force click or new
 workflow/migration. New source awaits real GitHub CI.
+
+
+## IDP-CI-01-AT — real CI 42890184780 shows separate Account Security accordion; scoped selector correction
+
+**Source SHA** `c67f4d7a8fc022674ee6e9c54d6f8c7a3978dbc0`,
+[Push Run 42890184780](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42890184780):
+**COMPLETED FAILURE** with exact Account Console stage
+`RB-account-console-ui-not-ready`. Prior IDP-01, RA-00–12,
+Forgot/Reset, Required Action, Admin Reset, RP/Admin OIDC Logout,
+genuine Logout Token negative/replay matrix and receiver-outage
+experiments all PASS in this same real run; global CI FAILURE remains
+correct until real Account Console password change is verified.
+
+**Safe Account UI rendering evidence**: body text is a SHORT visible
+content bucket and contains `Personal Info`, `Account Security` and
+`Applications` sections but **not** `Signing in`, `Password` or
+`Update`. Main section is visible. Exactly one visible
+`Navigation` menu-like button has `aria-expanded=false` and 3
+additional visible `aria-expanded=false` buttons. The existing
+generic "Menu" selector clicked a **Navigation** button, not the
+specific Account Security accordion. One Signing-in anchor and two
+Account Security anchors remain in the DOM but hidden; default
+account-console client active and its assets/API return HTTP 200.
+**No failed request/HTTP 401/403** observed. Two generic console
+error events were counted and sanitized, not identified as
+session/auth denials; no JavaScript pageerror or requestfailed.
+No credential edit from Account Console yet; total Run FAIL.
+
+**Tested hypothesis, not automatic Root Cause PASS:** a separate
+rendered `Account Security` **button** likely controls the hidden
+nested Signing-in link. Next source change adds a real accessible
+`role=button/name=Account Security` locator, enumerates ALL
+matching visible/enabled controls and prioritizes clicking that
+button before any generic Navigation menu. It records only
+aria-expanded before/after booleans and then clicks the first
+**actually visible** Signing-in link using its observed index.
+No `.first` hidden-element fallback, synthetic update, JS
+injection, force-click, extra grant, role elevation, guessed Keycloak
+theme change or fixed sleep. Actual password update followed by
+independent old-password DENY/new-password ACCEPT and original
+SSO/Refresh/UserInfo/Backchannel counts is still the sole
+successful outcome. Exact source retest PENDING.
+
+**Scope** remains same PR #22, same branch, only isolated
+`reset_logout.py` and cumulative checkpoint appended; existing
+pinned versions, network isolation, previous security regressions
+and mandatory teardown unchanged.

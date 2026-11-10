@@ -248,6 +248,8 @@ async def _account_ui_state(page, responses, script_errors, request_failures):
         "update_links": page.get_by_role("link", name="Update", exact=True),
         "signing_links": page.locator('a[href*="signing-in"]'),
         "security_links": page.locator('a[href*="account-security"]'),
+        "security_section_buttons": page.get_by_role(
+            "button", name=re.compile(r"account\s+security", re.I)),
         "menu_buttons": page.get_by_role(
             "button", name=re.compile(r"menu|navigation|sidebar|toggle", re.I)),
         "expanded_buttons": page.locator('button[aria-expanded="false"]'),
@@ -392,6 +394,7 @@ async def update_account_console(e, browser, cb, email, old_pw, new_pw, context)
         # polling is only for the real UI states.
         deadline = time.monotonic() + 18
         navigated = False
+        expanded_security = False
         ready = False
         while time.monotonic() < deadline:
             safe, usable = await _account_ui_state(
@@ -410,6 +413,23 @@ async def update_account_console(e, browser, cb, email, old_pw, new_pw, context)
                 await page.locator('a[href*="signing-in"]').nth(
                     usable["signing_links"][0]).click()
                 navigated = True
+            elif usable["security_section_buttons"] and not expanded_security:
+                # Previous test clicked a generic Navigation Menu button,
+                # while Account Security's nested Signing-in link was hidden.
+                # Click the actual accessible Account Security accordion.
+                e.CURRENT = "RB-account-console-expand-account-security"
+                actual = page.get_by_role(
+                    "button", name=re.compile(r"account\s+security", re.I)
+                ).nth(usable["security_section_buttons"][0])
+                before = await actual.get_attribute("aria-expanded")
+                await actual.click(timeout=12000)
+                after = await actual.get_attribute("aria-expanded")
+                e.RESULTS["RB_security_accordion_click"] = {
+                    "actual_visible_button_clicked": True,
+                    "aria_expanded_before": before == "true",
+                    "aria_expanded_after": after == "true",
+                }
+                expanded_security = True
             elif usable["security_links"]:
                 e.CURRENT = "RB-account-console-visible-security-link"
                 await page.locator('a[href*="account-security"]').nth(
