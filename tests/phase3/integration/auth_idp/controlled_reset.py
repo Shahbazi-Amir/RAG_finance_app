@@ -395,7 +395,7 @@ async def run(e,browser,cb):
             "visible_password_change_form":await page.locator("#password-new").is_visible(),
             "visible_update_button":await page.get_by_role(
                 "button",name="Update",exact=True).is_visible(),
-            "account_page_http_status":(await request("GET",LOGIN+"/account/")).status_code,
+            "account_page_http_status":request("GET",LOGIN+"/account/").status_code,
         }
     finally:
         await ctx.close()
