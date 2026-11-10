@@ -464,3 +464,16 @@ for resource type, allowed operation, sole resource and
 linked policy. Neither a POST status nor a shallow list
 is accepted as proof of least privilege. The real target,
 unrelated target and unrelated operation tests must still run.
+
+
+### One final bounded evidence pass
+Exact prior PR CI `42912734889` tested full permission GET and
+confirmed resourceType=Users, but name-based string comparisons
+of persisted scope, resource, and policy associations were all
+false. This may be a representation using internal authorization IDs.
+The next CI retains these unresolved checks as a blocked final
+security verdict while continuing to direct service permission
+attempts and independently checking whether an already-rendered
+password form really changed credentials AFTER standard logout-all.
+Neither representation mismatch nor a successful Reset API call
+is an acceptance Gate; never pass without the full proof.

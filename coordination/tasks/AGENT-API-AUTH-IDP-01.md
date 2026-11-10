@@ -1408,3 +1408,43 @@ failed check and stop further speculative changes.
 No other tests, versions, role scopes or core API/UI/DB
 modules changed. **Tested new source:** pending real CI;
 **Accepted:** NONE, security verdict NOT_PROVEN.
+
+
+## IDP-CI-01-BF — exact third Run JSON and final bounded functional measurements (2026-11-11)
+
+**Real exact tested SHA** `4a9a36cbd50185d7f25b1186f86beb6b39e8288a`,
+[PR CI Run 42912734889](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42912734889),
+job `130167279347`, sanitized JSON artifact `13807952970`:
+COMPLETED FAILURE at `RC-fgap-v2-verify-persisted-resource-operation-and-policy`.
+The full GET-by-ID returned the named permission and `resourceType=Users`,
+but a direct **string comparison** to the requested scope name,
+target user UUID and policy name returned three false booleans:
+`{type:true,scope:false,one_resource:false,linked_policy:false}`.
+The fields may be persisted as authorization IDs rather than the
+input names; the observation is **NOT_VERIFIED mapping**, not evidence
+that FGAP grants or denies target authorization. The actual direct
+scoped-admin user tests were not reached. Old IDP/RA/RB, original
+RC-00..11, second old-form/logout measurements, internal isolation
+and cleanup succeeded. Security Gate remains NOT_PROVEN.
+
+**Last bounded test correction, no scope weakening:** retain
+every failed readback Boolean as a fail-closed condition at the FINAL
+security verdict (no PASS may arise from unresolved field identity).
+Instead of aborting on representation-format mismatch BEFORE actual
+permission requests, execute the real scoped service target reset
+and unrelated-user reset/profile updates with independent browser
+credential verification. Any unexpected 204, target denial,
+unrelated credential change or unresolved readback remains
+NOT_PROVEN. Also move independent **old/new browser credential
+verification** of the second exact pre-policy form to immediately
+after standard logout-all, so that later FGAP failure does not
+prevent detecting actual credential mutation. The same form is
+submitted without reload, not a newly created flow. This does
+not delete or duplicate canonical checklist progress, or relax
+the original in-flight bypass test.
+
+**Implemented:** only the original `controlled_reset.py` and
+README/THIS cumulative checkpoint. **Tested:** pending exact real
+CI on new source; earlier source RUNS all RED. **Accepted:** NONE.
+If new CI still cannot support exact complete policy and flow
+closure, stop with NOT_PROVEN; no further speculative changes.

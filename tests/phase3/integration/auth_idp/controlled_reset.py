@@ -382,10 +382,17 @@ def configure_scoped_fgap(e, root, target_user_id, service_client_id):
       "linked_policy":policy_name in actual.get("policies",[]),
     }
     e.RESULTS["RC_fgap_exact_readback_checks"]=readback
-    assert all(readback.values()),"CONTROL_FGAP_FULL_PERMISSION_READBACK_MISMATCH"
+    # The provider may serialize stored associations as internal AuthZ IDs
+    # rather than the names/UUIDs used in POST. Preserve this mismatch as
+    # NOT_VERIFIED, and still run direct positive + adversarial REST tests.
+    # The final CI security verdict MUST remain blocked if any readback
+    # property or functional negative test is unproven.
+    exact_readback=all(readback.values())
     return {"enabled_readback":True,"service_has_no_broad_admin_role":True,
-            "one_user_scope_readback":True,
-            "only_reset_password_scope_readback":True}
+            "one_user_scope_readback":readback["one_resource"],
+            "only_reset_password_scope_readback":readback["scope"],
+            "linked_policy_readback":readback["linked_policy"],
+            "stored_permission_details_verified":exact_readback}
 
 
 async def run(e,browser,cb):
@@ -528,6 +535,30 @@ async def run(e,browser,cb):
         "preissued_token_submitted_after_logout":old_link_post_logout["submitted"],
         "preissued_token_callbacks_after_logout":old_link_callbacks,
         "logout_all_is_not_authentication_session_revocation_proof":True}
+    # This is a real independent browser credential check, not a callback
+    # inference. Do it BEFORE FGAP so a later permission/setup failure
+    # cannot hide the answer about the SAME pre-policy in-flight form.
+    e.CURRENT="RC-logout-all-real-credential-independence-check"
+    try:
+        await login(e,browser,cb,oidc,started_after_logout,
+                    new[started_after_logout])
+    except (PWTimeout,AssertionError):
+        logout_form_changed_password=False
+        await login(e,browser,cb,oidc,started_after_logout,
+                    old[started_after_logout])
+    else:
+        logout_form_changed_password=True
+        await login(e,browser,cb,oidc,started_after_logout,
+                    old[started_after_logout],expect_failure=True)
+    # An unsubmitted old email action link must not change the credential.
+    await login(e,browser,cb,oidc,issued_after_logout,
+                old[issued_after_logout])
+    e.RESULTS["RC_standard_user_session_logout_barrier"].update({
+        "same_inflight_form_new_password_independently_accepted":
+            logout_form_changed_password,
+        "same_inflight_form_old_password_independently_denied":
+            logout_form_changed_password,
+        "preissued_token_old_credential_still_accepted":True})
     e.case("RC-12-standard-logout-all-preexisting-form-and-token-probed")
 
     e.CURRENT="RC-direct-kc-action-old-vs-new-credential-check"
@@ -589,7 +620,7 @@ async def run(e,browser,cb):
     scoped_token=issue_service(root,scoped_client)
     fgap_readback=configure_scoped_fgap(e,root,uid[ordinary],scoped_client)
     e.RESULTS["RC_fgap_configuration"]=fgap_readback
-    e.case("RC-13-standard-fgap-v2-reset-password-only-readback")
+    e.case("RC-13-standard-fgap-v2-reset-password-only-readback-measured")
 
     e.CURRENT="RC-fgap-v2-real-target-and-unrelated-operation-tests"
     fgap_new="Sc7!"+secrets.token_urlsafe(18)
@@ -632,20 +663,16 @@ async def run(e,browser,cb):
     # Read actual independent credential status for pre-issued token
     # and in-flight form, not merely the UI's hidden/visible state.
     bypass=[]
-    for email in (issued,started,issued_after_logout,started_after_logout):
+    for email in (issued,started):
         try:
             await login(e,browser,cb,oidc,email,new[email])
         except (PWTimeout,AssertionError):
             pass
         else:
-            if email==issued:
-                bypass.append("old-token")
-            elif email==started:
-                bypass.append("inflight-form")
-            elif email==issued_after_logout:
-                bypass.append("old-token-after-logout-all")
-            else:
-                bypass.append("inflight-form-after-logout-all")
+            bypass.append("old-token" if email==issued else "inflight-form")
+    if e.RESULTS["RC_standard_user_session_logout_barrier"][
+            "same_inflight_form_new_password_independently_accepted"]:
+        bypass.append("inflight-form-after-logout-all")
     e.RESULTS["RC_bypass"]={
         "old_token_or_inflight_password_change_succeeded":bool(bypass),
         "bypass_classifications":bypass,
@@ -655,13 +682,16 @@ async def run(e,browser,cb):
     }
     e.RESULTS["RC_verdict"]={
         "controlled_entry":"NOT_PROVEN",
-        "reason":"standard manage-users is realm-wide; pre-issued flow measured separately; "
-                 "no per-credential operation entitlement or product reset barrier",
+        "reason":"original manage-users service remains realm-wide; pre-policy "
+                 "in-flight form and post-logout form tested independently; "
+                 "scoped FGAP service proof reported separately; no product reset barrier",
         "product_session_revocation":"NOT_TESTED",
         "next":"test standard fine-grained admin permissions & complete independent "
                "credential change controls before designing product reset gate",
     }
-    if bypass or direct["submitted"] or other_status==204 or not e.RESULTS["RC_fgap_results"]["least_privilege_test_passed"]:
+    if (bypass or direct["submitted"] or other_status==204
+            or not e.RESULTS["RC_fgap_results"]["least_privilege_test_passed"]
+            or not fgap_readback["stored_permission_details_verified"]):
         # A real bypass or broader-than-user service authority is a
         # denial of the claimed strong single-entry policy. CI RED.
         e.STAGES["RC-12-single-controlled-reset-entry"] = "BLOCKED"
