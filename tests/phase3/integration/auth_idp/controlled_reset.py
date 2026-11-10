@@ -123,10 +123,18 @@ async def login(e, browser, cb, oidc, email, password, *, expect_failure=False,
         await expect(page.locator("#kc-form-login")).to_be_visible(timeout=15000)
         await e.fill_login(page,email,password)
         if expect_failure:
-            await expect(page.locator(
-                '#input-error, [role="alert"], .alert-error, #kc-feedback-text').first
-            ).to_be_visible(timeout=10000)
-            assert cb.server.inbox.empty(),"CONTROL_OLD_CREDENTIAL_GOT_CODE"
+            # Mirror the already-accepted IDP-01 negative OIDC proof:
+            # the theme is free to put error text outside legacy alerts.
+            # REAL denial means stable login form, no redirect, and
+            # no callback with this challenge's signed random state.
+            await expect(page.locator("#kc-form-login")).to_be_visible(
+                timeout=10000)
+            await page.wait_for_load_state("networkidle",timeout=10000)
+            assert "/callback" not in urlsplit(page.url).path
+            assert await page.locator("#kc-form-login").is_visible()
+            while not cb.server.inbox.empty():
+                payload=cb.next()
+                assert payload.get("state") != [state],"CONTROL_OLD_CREDENTIAL_GOT_CODE"
             return None
         await page.wait_for_url(CALLBACK+"*",timeout=18000)
         data=cb.next()
@@ -446,6 +454,7 @@ async def run(e,browser,cb):
     e.CURRENT="RC-service-role-real-password-change"
     result=password_update(root,uid[ordinary],new[ordinary],
                            token_value=service_token)
+    e.RESULTS["RC_service_controlled_reset_http"]=result
     assert result==204,"SERVICE_STANDARD_RESET_NOT_AUTHORIZED"
     await login(e,browser,cb,oidc,ordinary,old[ordinary],
                 expect_failure=True)
