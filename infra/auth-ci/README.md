@@ -381,3 +381,45 @@ https://www.keycloak.org/docs-api/26.8.0/rest-api/index.html and
 https://www.keycloak.org/docs/26.8.0/server_admin/
 (The latter docs have different patch numbers; all behavioral
 claims must be supported by the actual pinned **26.8.2** CI).
+
+
+## BND-IDP-02C — measured NOT_PROVEN verdict (fail-closed, not acceptance)
+
+The isolated two-Realm standard-only evaluation was run on
+[real CI 42907619285](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42907619285)
+with source SHA `eedb648e32b79c990a476783b5e3df26bd4a3033`.
+Full legacy IDP-01/02A/02B suites PASS; new second Realm
+`auth-idp-controlled-ci` RC-00–11 individual cases measured,
+then **CI FAILS intentionally at `RC-adversarial-bypass-final-denial`**,
+overall `NOT_PROVEN`.
+
+All toggles were read back (`resetPasswordAllowed=false`,
+registration disabled, `account-console` disabled,
+`UPDATE_PASSWORD` Required Action provider disabled).
+Direct new Forgot/kc_action/Account UI and a prior mailed action
+token produced no observed new password-update form. However
+a **real `UPDATE_PASSWORD` form started BEFORE disabling the
+provider was submitted AFTER the policy change and its new
+password was independently accepted by actual OIDC browser
+login**. This is a direct **in-flight bypass**.
+
+Ordinary OIDC user Admin Reset HTTP **401**, limited
+`view-users` operator HTTP **403**; intended service with
+built-in `manage-users` performed a real target password
+update HTTP **204** followed by old DENY/new ACCEPT. The
+**same** service changed a second unrelated synthetic
+account HTTP **204**. Thus standard built-in role alone
+is **not** narrow single-target permission and must not be
+treated as authorized product Reset service admission.
+
+**Next separate bounded evaluation:** same pinned Keycloak
+version's fine-grained admin `reset-password` scoped user
+permissions **without** a broad built-in `manage-users`
+role, plus a separately proven transition barrier for
+pre-policy action tokens/in-flight browser challenges.
+Only after both are demonstrated could controlled service
+entry be reconsidered. Trusted root/realm-admin recovery
+remains outside such restrictions. Product Session revocation,
+DB fencing, external event delivery and cross-DB Reset
+semantics remain NOT_TESTED/BLOCKED. No production code,
+migration, SPI, outbox or deploy in this bundle.

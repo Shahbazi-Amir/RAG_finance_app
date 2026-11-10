@@ -1162,3 +1162,131 @@ authorized package, and still address pre-policy in-flight action
 form or enforce a Reset drain/barrier before claiming single entry.
 Trusted root/realm-admin and outage/recovery remain outside
 policy, no infrastructure admin restriction asserted.
+
+
+## IDP-CI-01-BB — BND-IDP-02C final bounded controlled Reset evaluation / two real bypasses (2026-11-10)
+
+**Base and handoff:** verified live main `600bbd68ce8883d960b789320bc8b2454a3ff66c`
+(the precise MERGED PR #22 SHA); adopted pre-existing branch
+`agent/idp-controlled-reset` and the SAME pre-existing open
+Draft PR #23. No duplicate mission, branch, PR, fixture Realm
+or checkpoint. Starting head of adopted branch was
+`3fbbd7e8d9507dbf870330d9b6188fed6d3cc77c`. The previously
+tested failed CI events and narrow fixes remain in AX–BA.
+Only source continuation: one additional synthetic
+**ordinary OIDC access-token bearer** direct Admin REST reset
+negative and independent old-password survival confirmation,
+with no policy, security acceptance, Keycloak Realm setting,
+version, product or workflow change.
+
+**Exact tested source SHA**
+`eedb648e32b79c990a476783b5e3df26bd4a3033`.
+[Real GitHub Push Run 42907619285](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42907619285)
+**COMPLETED / FAILURE** precisely because `RC-adversarial-bypass-final-denial`
+asserted the **fail-closed** verdict. Original IdP-01 + all 02A
+RA-00..12 + all 02B four password-route and OIDC Logout/
+Backchannel JWT replay/receiver outage regressions PASS in same
+run, BEFORE new RC tests. RC-00..RC-11 PASS **as bounded
+individual observations**, not as evidence that the strong
+single-entry hypothesis was satisfied. `NETWORK_GUARD_PASS`,
+Keycloak/Postgres/Mailpit readiness and mandatory
+`EPHEMERAL_IDP_TEARDOWN_CHECK_COMPLETE` verified; no real email,
+external model, public network, deploy or product Session.
+
+**Actual sanitized artifact:** [auth-idp-sanitized-42907619285,
+artifact 13805158908](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42907619285/artifacts/13805158908),
+3-day CI retention; read directly as JSON. `overall=FAIL`,
+`current_stage=RC-adversarial-bypass-final-denial`,
+`RC_verdict.controlled_entry=NOT_PROVEN` and
+`RC_bypass.bypass_classifications=["inflight-form"]`.
+No token, password, cookie, mail body/action-token link or
+browser URL/query entered the artifact.
+
+**One distinct REAL second Keycloak Realm only**
+`auth-idp-controlled-ci` under existing pinned Keycloak 26.8.2,
+Postgres 17.11, Mailpit 1.32.0, Playwright Chromium 1.64.1
+and Docker internal-only network; earlier realm
+`auth-idp-ci` and its source/regressions untouched.
+
+**Standard Realm restrictions applied and READ BACK:** 
+`resetPasswordAllowed=false`;
+`registrationAllowed=false`;
+standard OIDC `account-console.enabled=false`;
+built-in Required Action `UPDATE_PASSWORD.enabled=false`.
+These DO NOT automatically revoke tokens or already rendered
+password-update challenges. Root/bootstrap and realm-admin
+remain privileged recovery authorities OUTSIDE these restrictions.
+
+### BND-IDP-02C actual adversarial matrix — careful interpretation
+
+| Origin / attack or approved route | Real post-policy result | What that proves / does NOT prove |
+|---|---|---|
+| New normal-user Forgot/Reset UI + tested direct URL | Forgot link not visible; no password form; zero new local reset mail | Negative for tested request; hiding link alone not taken as comprehensive proof |
+| Direct real `kc_action=UPDATE_PASSWORD` authorization | No password form, no submit; **one OIDC callback** | Callback is NOT password mutation; original password independently still accepted |
+| Direct browser Account Console URL | HTTP **200 document**, but no Update button or password form; standard account-console Client disabled | 200 static document is NOT proof a usable password-change feature survives; no actual mutation observed |
+| UPDATE_PASSWORD action-token link issued before policy | No actual password form, no submit; zero callbacks | Tested stale link did NOT change credential; doesn't prove all other action tokens or external flows blocked |
+| **UPDATE_PASSWORD in-flight real form opened BEFORE restriction** | Form submitted AFTER readback, one callback, and **independent new-password OIDC login succeeded** | **CONFIRMED SELF-SERVICE BYPASS** of strict single-entry policy (old in-flight state survived policy change) |
+| Ordinary nonadmin's real OIDC Access Token → direct Admin reset-password | HTTP **401**, original password still accepted in real browser | Ordinary identity cannot perform tested Admin Reset |
+| Restricted operational service with only `view-users` → Admin Reset | HTTP **403** | Denied as expected |
+| Intended reset service with only built-in `realm-management/manage-users` → target synthetic account | HTTP **204**, independent OLD DENY / NEW ACCEPT | Genuine standard service reset possible, but alone NOT bounded least privilege |
+| **Same service** → a second unrelated synthetic account | HTTP **204** | **CONFIRMED OVERBROAD SERVICE AUTHORIZATION**, not target-scoped |
+| Trusted root/realm-admin/recovery administrators | Explicitly OUTSIDE negative model | No claim infrastructure/root privileges are restricted |
+
+**Critical interpretation:** `manage-users` is a broad
+built-in role in this pinned tested configuration. Its privilege
+scope cannot be represented as a single-account Reset service
+entitlement. A controlled service endpoint and an actual service
+credential update can work while exclusive Reset entry is still
+**NOT_PROVEN**. The pre-policy in-flight real password form
+alone disproves admission through ONLY the intended new service,
+even if fresh Forgot/Account/kc_action paths appear disabled.
+The green individual probes (RC-00..11) coexist with the real
+overall FAIL. No simulated login/reauth or fake reset success.
+
+**Independent standard administration design option, NOT
+implemented or tested here:** Keycloak fine-grained admin
+permissions can conditionally distinguish `reset-password`
+from broader `manage`, with per-user/policy restrictions;
+in its administrative role model, built-in global `manage-users`
+bypasses these finer checks. The 26.8 documentation describes
+this capability; it still needs exact 26.8.2 Admin REST
+configuration/readback plus REAL positive in-scope and negative
+out-of-scope credential resets in a separately authorized
+isolated test. Official documentation:
+`https://www.keycloak.org/docs/26.8.0/server_admin/` and
+`https://www.keycloak.org/docs/latest/server_admin/` —
+do NOT mistake variant patch or current online docs for
+pinned-version proof. First investigate policy reset scope
+and avoid broad manage-users entirely. Independently
+establish a **transition/drain barrier** for started action
+tokens/forms or bounded cancellation/expiration before
+exclusive service Reset begins. Without both solutions,
+single-entry claim remains unproven. Root/realm-admin and
+break-glass need separate trust policy, not magic IdP
+restriction.
+
+**Decision: NOT_PROVEN for exclusive controlled Reset.** 
+Current CI intentionally fails closed; do not soften
+`RC-adversarial-bypass-final-denial`, disable the in-flight
+probe, or consider a CI PASS necessary to say the evaluation
+completed accurately. The next narrowly scoped package should
+evaluate same-version fine-grained per-user reset-password
+authorization and a verified pre-existing-flow drain/cancel
+boundary, then re-run ALL direct/browser/token/Admin positive
+and negative cases. Product-owned DB Session/epoch/revocation
+barrier is a separate subsequent integration, NOT tested here.
+No external Reset delivery/Outbox/ack, no product Auth
+Session and no Gate.
+
+**Implemented:** two-Realm standard-only CI candidate,
+in-flight token/action challenges, actual browser and Admin
+REST permission & broad-role counterexamples;
+**Tested:** actual real GitHub CI, earlier complete IDP
+regressions pass, case RC-00..11 measured, final
+NOT_PROVEN deliberately RED at RC-adversarial-bypass-final-denial;
+**Accepted:** NONE / supervisor pending. 
+**READY_FOR_REVIEW — CONTROLLED_RESET_ENTRY_PROOF** with honest
+negative result, no `AUTH_PRODUCT_ACCEPTED` or Merge.
+Only five previously authorized files changed since
+starting main; final documentation-only commit (if any)
+does NOT convert any red tests green.
