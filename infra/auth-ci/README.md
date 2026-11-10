@@ -321,3 +321,452 @@ revocation has been proven.
 capability and all four synthetic reset route behaviors were
 tested; production Auth/Session, external Reset revocation and
 event delivery still BLOCKED. No product Gate and no merge.
+
+
+## BND-IDP-02C — controlled Reset entry feasibility, strictly second disposable Realm
+
+**Isolated evaluation only.** The existing full IDP-01, 02A and 02B
+Chromium/SMTP/OIDC/MFA/four password-route/Logout suites run unchanged
+FIRST. Only after they succeed is a SECOND realm
+`auth-idp-controlled-ci` created in the same pinned, egress-denied,
+temporary Keycloak 26.8.2 instance. Its synthetic users, local
+Mailpit mail and in-memory client secrets are never shared with the
+prior `auth-idp-ci` Realm or any product service. The historical
+realm remains unchanged. No SPI, Migration, custom Outbox, production
+BFF, product Session or external delivery.
+
+The candidate **standard-only** restrictions are disposable Realm
+`resetPasswordAllowed=false`, `registrationAllowed=false`,
+`account-console` client `enabled=false`, and built-in
+`UPDATE_PASSWORD` Required Action provider `enabled=false`.
+Every configuration change is independently read back via the
+versioned Admin REST API; toggled UI links alone are not accepted.
+These are **not a proven comprehensive policy**, and may prevent
+legitimate account management and required onboarding actions.
+
+**Test matrix, with direct adversarial attempts:** user browser login
+and direct Forgot/Reset page, Account Console path, real
+`kc_action=UPDATE_PASSWORD` with credentials, pre-issued local
+`execute-actions-email` update-password action token, and a
+password-update challenge already begun before changing policy
+(stale in-flight form) are each tested. Fresh OIDC Code+PKCE
+logins verify which generated passwords are actually accepted.
+For Admin API, a service account assigned **only**
+`realm-management/manage-users` attempts the permitted built-in
+`PUT /users/{id}/reset-password`, while an operator service
+account assigned only `view-users` must fail. Test-only master
+bootstrap admin is used only for controlled realm provisioning,
+not claimed as a restricted role. The built-in `manage-users`
+role may grant **realm-wide user modification**, not one-user
+scope: an entirely independent synthetic user is also tested.
+This is a sensitive privilege, not a demonstrated fine-grained
+product Reset service entitlement.
+
+**Fail-closed verdict:** FEASIBLE only if direct paths including
+old action tokens and pre-started Required Actions fail and
+truly least-privilege, bounded service scopes are proven.
+If a bypass remains or role scope is too broad, report
+`NOT_PROVEN` with an actual non-green CI rather than counting
+mere config readback as success. Root, trusted infrastructure
+admin, local Keycloak database and recovery operations are outside
+the proposed restriction, even under a limited success.
+An observed password change is NOT product Session revocation
+or an authenticated durable Reset event.
+
+**Authority for same-version examination:** Keycloak 26.8.2
+actual REST configuration/readback and built-in RequiredActionProvider
+API (https://www.keycloak.org/docs-api/26.8.2/javadocs/org/keycloak/authentication/RequiredActionProvider.html).
+Related 26.8-series Admin REST and Server Admin documentation:
+https://www.keycloak.org/docs-api/26.8.0/rest-api/index.html and
+https://www.keycloak.org/docs/26.8.0/server_admin/
+(The latter docs have different patch numbers; all behavioral
+claims must be supported by the actual pinned **26.8.2** CI).
+
+
+## BND-IDP-02C — measured NOT_PROVEN verdict (fail-closed, not acceptance)
+
+The isolated two-Realm standard-only evaluation was run on
+[real CI 42907619285](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42907619285)
+with source SHA `eedb648e32b79c990a476783b5e3df26bd4a3033`.
+Full legacy IDP-01/02A/02B suites PASS; new second Realm
+`auth-idp-controlled-ci` RC-00–11 individual cases measured,
+then **CI FAILS intentionally at `RC-adversarial-bypass-final-denial`**,
+overall `NOT_PROVEN`.
+
+All toggles were read back (`resetPasswordAllowed=false`,
+registration disabled, `account-console` disabled,
+`UPDATE_PASSWORD` Required Action provider disabled).
+Direct new Forgot/kc_action/Account UI and a prior mailed action
+token produced no observed new password-update form. However
+a **real `UPDATE_PASSWORD` form started BEFORE disabling the
+provider was submitted AFTER the policy change and its new
+password was independently accepted by actual OIDC browser
+login**. This is a direct **in-flight bypass**.
+
+Ordinary OIDC user Admin Reset HTTP **401**, limited
+`view-users` operator HTTP **403**; intended service with
+built-in `manage-users` performed a real target password
+update HTTP **204** followed by old DENY/new ACCEPT. The
+**same** service changed a second unrelated synthetic
+account HTTP **204**. Thus standard built-in role alone
+is **not** narrow single-target permission and must not be
+treated as authorized product Reset service admission.
+
+**Next separate bounded evaluation:** same pinned Keycloak
+version's fine-grained admin `reset-password` scoped user
+permissions **without** a broad built-in `manage-users`
+role, plus a separately proven transition barrier for
+pre-policy action tokens/in-flight browser challenges.
+Only after both are demonstrated could controlled service
+entry be reconsidered. Trusted root/realm-admin recovery
+remains outside such restrictions. Product Session revocation,
+DB fencing, external event delivery and cross-DB Reset
+semantics remain NOT_TESTED/BLOCKED. No production code,
+migration, SPI, outbox or deploy in this bundle.
+
+
+## BND-IDP-02C bounded continuation — supported FGAP v2 and existing-flow logout probe
+
+The original RC-00..11 and all older IDP/RA/RB suites remain unchanged.
+On the same disposable second Keycloak 26.8.2 Realm, CI now measures:
+- A real second pre-policy browser UPDATE_PASSWORD form, retained verbatim
+  through policy hardening; POST /admin/realms/{realm}/logout-all is
+  applied *after* the original undrained baseline RC-08, and the same
+  already rendered second form is submitted without reload. A second
+  pre-issued local action-token link is attempted after logout. Both
+  outcomes require independent old/new password OIDC verification.
+- Supported FGAP V2 via adminPermissionsEnabled (standard version,
+  not preview V1) and admin-permissions REST Policy/Permission. A
+  Client Credentials principal with **no built-in broad realm-management
+  role** is granted only the Users reset-password scope for exactly one
+  synthetic account. CI measures target reset, unrelated-account reset,
+  and unrelated profile mutation, plus independent credential tests.
+
+These are experiments, not claimed results. Global logout-all describes
+user sessions, and does not itself establish cancellation of authentication
+sessions or action tokens. The original fail-closed overall security
+assertions remain active: even scoped FGAP cannot compensate for an
+in-flight bypass. Official version-family sources:
+https://www.keycloak.org/docs/26.8.0/server_admin/
+https://www.keycloak.org/docs-api/26.8.0/rest-api/index.html
+Local same-version tested source, actual Run/JSON results and remaining
+blockers must be added in the original cumulative task checkpoint.
+No product Auth acceptance or security Gate is authorized.
+
+
+### FGAP detailed readback clarification (source-only, pending CI)
+The first supported-FGAP diagnostic run `42911896683` reached
+realm enable, user-policy and scope-permission creation, and
+failed only at the direct assertions against a list entry.
+Use documented GET by the listed permission's internal ID
+for exact full-object checks. Export only four booleans
+for resource type, allowed operation, sole resource and
+linked policy. Neither a POST status nor a shallow list
+is accepted as proof of least privilege. The real target,
+unrelated target and unrelated operation tests must still run.
+
+
+### One final bounded evidence pass
+Exact prior PR CI `42912734889` tested full permission GET and
+confirmed resourceType=Users, but name-based string comparisons
+of persisted scope, resource, and policy associations were all
+false. This may be a representation using internal authorization IDs.
+The next CI retains these unresolved checks as a blocked final
+security verdict while continuing to direct service permission
+attempts and independently checking whether an already-rendered
+password form really changed credentials AFTER standard logout-all.
+Neither representation mismatch nor a successful Reset API call
+is an acceptance Gate; never pass without the full proof.
+
+
+## BND-IDP-02C — verified limited result, final functional matrix (2026-11-11)
+
+**Exact tested source** `a2ac3af6548e310db9c4def20b4bc985468adcd4`.
+[Actual GitHub PR Run 42913693567](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42913693567)
+COMPLETED FAILURE on strict `RC-adversarial-bypass-final-denial`;
+job `130170545439`; sanitized artifact
+[13808642104](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42913693567/artifacts/13808642104)
+(`overall=FAIL`, `RC_verdict.controlled_entry=NOT_PROVEN`).
+All pre-existing IDP-01/02A/02B regressions, isolated network
+egress-denial, second synthetic realm, RC-00..11 observations and
+mandatory container/credential teardown executed as expected.
+
+**Fine-grained admin REST, bounded positive and negatives:** Standard
+`adminPermissionsEnabled=true` enabled/read back on second Realm,
+the built-in `admin-permissions` client, user-policy and
+specific `Users/reset-password` permission created, and a separate
+Client Credentials service principal has NO realm-management
+`manage-users`/`view-users`/realm-admin grant. Its direct
+`PUT /users/{target}/reset-password` returned **204**, independently
+verified by real Code+PKCE browser OLD DENY / NEW ACCEPT. The SAME
+principal's cross-target reset returned **403**, with the unrelated
+user's prior credential still accepted. Attempted target profile
+mutation returned **403**, and root readback confirmed unchanged
+profile. The separate historical `manage-users` role remained
+demonstrably broad (other-user reset HTTP 204). These data establish
+a bounded **functional service authorization** observation; not
+production-level identity or the single-entry guarantee.
+
+**Readback limitation:** Admin permission by-ID GET confirmed
+resourceType=Users; direct string-equality comparisons of persisted
+`scopes`, `resources` and `policies` to submitted names/UUID
+returned false, consistent with possible AuthZ-internal references
+but NOT independently resolved. The strict stored-ID-to-entity
+permission mapping remains `NOT_VERIFIED`, even though direct real
+authorization positive/negative tests succeeded. No failed
+readback assertion was converted into policy PASS.
+
+**Already-started form: definite second negative:** The same true
+pre-restriction UPDATE_PASSWORD form, retained without reload
+in another real browser, could still submit AFTER standard
+`POST /logout-all` returned **200**. Its new password independently
+succeeded, and old credential independently failed via fresh
+OIDC Code+PKCE login: a **CONFIRMED SELF-SERVICE BYPASS EVEN AFTER
+STANDARD USER-SESSION LOGOUT-ALL**. Pre-issued local action-token
+URL separately had no form and did not change its credential.
+Fresh Forgot, kc_action and Account Console paths stayed bounded
+negative on the tested paths. This does not exhaust all action
+tokens, authentication sessions or privilege roots. No standard
+authentication-session drain or durable cancellation barrier
+was demonstrated on the exact pre-started challenge.
+
+**Result and limit:** `NOT_PROVEN` for exclusive controlled
+password-reset entry; strict CI intentionally RED. FGAP V2
+standard scoped permission is a credible *partial* route for
+the service-authority problem; it cannot solve the in-flight
+user-form problem. Need supervisor decision on whether a
+non-product standard verified drain/transition period or
+authorized different reset architecture is admissible.
+Never equate SSO logout or normal session expiry with canceling
+a preissued action form. No SPI, custom Outbox, product-session,
+Migration, deployment, real email or Auth Gate PASS here.
+This is **READY_FOR_REVIEW — CONTROLLED_RESET_ENTRY_PROOF**
+as a bounded negative result only.
+
+
+## BND-IDP-02C — separate CLEAN BOOTSTRAP proof lane (2026-11-11)
+
+**Live preflight:** Starting and actual branch HEAD
+`7617339a8a9520fa29ffc7cf550b32c99877f8af`, `main`
+`600bbd68ce8883d960b789320bc8b2454a3ff66c`.
+Original Draft PR #23 OPEN, same five authorized paths.
+Prior [CI 42914658604](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42914658604)
+completed FAILURE at RC-adversarial-bypass-final-denial, and its
+real post-logout in-flight password change is CONFIRMED;
+**TRANSITION_WITH_PREEXISTING_FLOWS: NOT_PROVEN** permanently
+preserved unless a new real authorized transition proof is given.
+
+**Exact scope of added lane:** a separate `clean-bootstrap-idp`
+job on its OWN ephemeral GitHub runner/Keycloak 26.8.2/PostgreSQL
+17.11/Mailpit 1.32.0/internal-only Docker network, own sanitized
+`clean_bootstrap.json` and distinct artifact. Original
+`isolated-idp` job, prior regressions/RC failure, Docker
+teardown, versions, original artifact all remain unchanged.
+A clean PASS is ONLY local clean-bootstrap evidence; overall
+workflow remains RED while the historical transition job is RED.
+
+**Clean bootstrap fixture:** new realm
+`auth-idp-clean-bootstrap-ci` created with reset and
+registration disabled + supported FGAP V2 enabled. Both
+Account Console client and UPDATE_PASSWORD Required Action
+disabled/read back BEFORE ANY synthetic user, browser session,
+reset link or required-action form is created in that realm.
+Then synthetic users and service client created; no broad
+realm-management manage-users granted. Independent real
+Code+PKCE OIDC logins, genuine browser attempted Forgot
+and direct reset path, account-console security route,
+new kc_action, in-policy admin-issued action link and
+in-policy admin-assigned Required Action. Each relevant
+negative is checked with rejected attempted password and
+accepted original password in a NEW real browser flow; a
+hidden link alone never counts as proof. An ordinary bearer
+is also denied the direct Admin reset endpoint.
+
+**FGAP readback repair** (actual version's REST mapping):
+resolve scope IDs against same server's `resource-server/scope`
+list and `scopesData`, resource references against
+`resourcesData` and actual resource GET, and policy
+references against created user-policy ID. Do not record
+password, user UUID, policy ID, action link, Cookie or token;
+report boolean exact matches and harmless array counts.
+Only Users resource, exactly one target, ONLY reset-password
+operation and one linked service principal policy may qualify.
+Then positive target Reset OLD DENY/NEW ACCEPT and negative
+other-user Reset and unrelated profile write are verified.
+
+**Independent verdicts:** TRANSITION_WITH_PREEXISTING_FLOWS
+remains NOT_PROVEN regardless of this job. Clean is
+PROVEN only if all live inputs, full ID-resolved permission
+associations and positive/negative credential outcomes succeed;
+otherwise CLEAN_BOOTSTRAP_CONTROLLED_RESET=NOT_PROVEN with
+precise sanitized failure. Trusted master/realm-admin provisioning
+is outside the policy boundary. No product sessions/BFF, RAG,
+database migration, contract, shared checklist, SPI/outbox or deploy.
+Additional CB case identifiers are non-counting probes; P3M05-A07/A08/A10
+remain NOT_ACCEPTED as product capabilities.
+
+**Implemented:** source/CI split prepared (the five authorized
+files only). **Tested new source:** CI_PENDING; no new PROVEN
+claim before SHA-specific actual Job and artifact. **Accepted:**
+NONE / SUPERVISOR_PENDING. 
+
+
+## IDP-CI-01-BH — first independent Clean Bootstrap CI, readback limitation (2026-11-11)
+
+**Actual tested source** `0144b2d6038a7a7e79d4c1437121bb0ddc302bab`,
+[real PR CI Run 42918661903](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42918661903),
+independent `clean-bootstrap-idp` Job `130187569390`,
+[clean artifact 13810168829](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42918661903/artifacts/13810168829).
+Clean Job completed FAILURE intentionally at
+`CB-11-clean-bootstrap-final-verdict`:
+`CLEAN_BOOTSTRAP_CONTROLLED_RESET=NOT_PROVEN`.
+Full fresh-realm policy was applied/read back BEFORE user creation,
+and the independent Job's full CB-00..10 measurements all ran.
+Genuine user OIDC login PASS, Forgot/direct/Account Console/
+kc_action/post-policy-issued action-token/post-policy admin-assigned
+Required Action each independently preserved original password
+and rejected attempted new password. The post-policy privileged
+action e-mail DID issue (HTTP 204) to local Mailpit and its actual
+link was opened; no password mutation. Ordinary bearer Admin Reset
+HTTP 401. Scoped service target Admin Reset HTTP 204 OLD DENY/NEW
+ACCEPT. Cross-account Reset HTTP 403 old retained; unrelated
+profile update HTTP 403 unchanged.
+
+**Precise open issue:** full GET-by-ID permission object provides
+`resourceType=Users` but `scopes`, `scopesData`,
+`resources`, `resourcesData` and `policies`
+arrays are all absent or empty in this response
+(counts ALL ZERO). This **does not** prove associations
+absent: the actual isolated permission enforcement worked.
+Original `scope`/resource/policy representation assertions
+remain NOT_VERIFIED. Artifact records type=true,
+scope=false, resource=false, policy=true (the latter through
+an already-supported reverse associated-policy read).
+No sensitive content was written to logs.
+
+**Minimal non-speculative correction:** Query actual 26.8.0
+Admin REST relationship endpoints:
+`GET resource-server/scope/{id}/permissions`,
+`GET resource-server/resource/{id}/permissions` and
+`GET resource-server/permission/scope/{id}/associatedPolicies`.
+Resolve ONLY the named reset-password scope and UUID target
+with exact matching permission UUID; inspect ALL other AuthZ
+scopes for any other link to the same permission. No assumed
+field values, no log of UUIDs/tokens/action links. Preserve
+all original negative tests and fail-closed final verdict
+on missing/unverified relation. No policy criteria, version,
+network, product, workflow job or old RC failure modified.
+
+**Implemented** narrowly in the existing controlled_reset.py
+plus README and THIS cumulative checkpoint. **Tested new
+source:** pending real CI, **Accepted:** NONE.
+
+
+## BND-IDP-02C — independently tested CLEAN BOOTSTRAP, unresolved exact target resource (2026-11-11)
+
+**Live verified source SHA:** `98479a8b6780889fbda0af366d311fe218f90e72`, exactly two commits after supervisor-provided `7617339a8a9520fa29ffc7cf550b32c99877f8af`. Same Draft PR #23, only five authorized PR paths. [Real PR workflow 42919414527](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42919414527), separate clean job `130190316916`, actual [sanitized clean artifact 13810713146](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42919414527/artifacts/13810713146), **COMPLETED FAILURE**, final `CB-11-clean-bootstrap-final-verdict` deliberately blocks `CLEAN_BOOTSTRAP_CONTROLLED_RESET=NOT_PROVEN`. Same-source [push workflow 42919406790](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42919406790) also FAILED. Original `isolated-idp` job `130190316392` remains FAILURE on preserved transition bypass; no relabel, skipped assertions or removed regression.
+
+**Actual clean job facts:** CB-00 final restrictions and FGAP V2 read back before creating any user/session/reset token; CB-02 normal Code+PKCE email/password login PASS. CB-03 Forgot and direct reset, CB-04 authenticated kc_action, CB-05 Account Console, CB-06 post-policy issued REAL local SMTP action token (issue HTTP 204, link actually opened), CB-07 post-policy privileged admin-assigned Required Action all tested; in each case attempted new password was independently DENIED and original password ACCEPTED using a separate real OIDC browser login. No claim that hidden links or missing forms alone are sufficient. Ordinary user directly resetting via Admin REST HTTP 401. Delegated FGAP service with no broad manage-users: target reset HTTP 204 with OLD DENY/NEW ACCEPT; unrelated-user reset HTTP 403 with old still accepted; unrelated profile PUT HTTP 403 and original profile retained. No production session revocation or privileged root closure inferred.
+
+**Precise remaining permission readback failure:** 26.8.2 scope-permission GET by ID omits `scopes`, `scopesData`, `resources`, `resourcesData`, `policies` (all counts 0). Reverse scope association through real scope ID yielded `scope_permission_reverse_link=true`; no other scope linked `unexpected_other_scope_link=false`. Reverse associated-policy endpoint yielded `policy_permission_reverse_link=true`. However GET Authorization Resource with **target user's entity UUID** yielded HTTP **404**, with `target_permission_reverse_link=false`; **`exact_single_target_user_resource_resolved=false`**. Although Keycloak documented FGAP POST allows a user UUID as a scoped resource identifier and direct functional authorization is correct, this UUID is not proven to be an addressable AuthZ resource UUID through this reverse REST endpoint. Do not confuse user-entity ID with AuthZ resource ID or manufacture readback from original POST. Thus `resource_type_users=true`, `only_reset_password_scope_resolved=true`, `exact_single_service_policy_resolved=true`, `no_broad_admin_role=true`, **`all_relations_verified=false`**.
+
+**Independent verdicts:** `TRANSITION_WITH_PREEXISTING_FLOWS=NOT_PROVEN` (confirmed old already-open UPDATE_PASSWORD form still changes password after restriction and standard logout-all); `CLEAN_BOOTSTRAP_CONTROLLED_RESET=NOT_PROVEN` (only persisted single-target permission resource relation unresolved, not an observed functional cross-target bypass). Both isolated CI jobs are red for their own exact reasons. **Implemented** separate clean job/fixture and reverse relation checks; **Tested** real source SHA above, separate full CI. **Accepted NONE / supervisor pending.** Final documentation-only SHA must be verified independently; no Gate, product Session revocation, SPI/Outbox, migration, deployment, broad role grant or merge.
+
+
+## IDP-CI-01-BI — exact FGAP resource readback, separate CLEAN BOOTSTRAP result (2026-11-11)
+
+**Live tested source SHA:** `0ca98d70defc7ef6cc250686b08f62dc57441571`;
+same branch `agent/idp-controlled-reset`, same OPEN/DRAFT PR #23,
+same five authorized PR files. **Actual PR workflow**
+[42922819381](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42922819381)
+**COMPLETED FAILURE (intentionally mixed security conclusions)**.
+Two truly independent isolated hosted Keycloak 26.8.2 /
+PostgreSQL 17.11 / Mailpit 1.32.0 / Playwright 1.64.1 jobs,
+without exposed ports or egress, with teardown PASS:
+
+- **Clean job** `130201655712` **SUCCESS**, exact source SHA;
+  [sanitized actual artifact 13813086540](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42922819381/artifacts/13813086540)
+  has `overall=PASS`, 17/17 CB stages PASS,
+  `CLEAN_BOOTSTRAP_CONTROLLED_RESET.verdict=PROVEN`,
+  `permission_readback_complete=true`.
+- **Original transition job** `130201655242` **FAILURE** at preserved
+  `RC-adversarial-bypass-final-denial`;
+  [sanitized actual artifact 13812442224](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42922819381/artifacts/13812442224)
+  has `overall=FAIL`, `RC_verdict.controlled_entry=NOT_PROVEN`,
+  `RC_bypass.bypass_classifications=[inflight-form,inflight-form-after-logout-all]`.
+  Actual old rendered form changed the credential independently even AFTER
+  `POST /logout-all` HTTP 200. All legacy IDP-01/RA/RB regression
+  measurements retained. No old assertion, Skip, rename or CI override.
+
+**Why old resource readback returned 404:** `resources` in the
+documented FGAP V2 specific-resource POST takes **User entity UUID**;
+the actual Keycloak 26.8.2 authorization `ResourceRepresentation`
+uses its own **`_id`** field (confirmed by the version-tagged
+Keycloak admin-client declaration). GET
+`/authz/resource-server/resource/{target-user-UUID}` incorrectly
+assumed both IDs coincide. It did NOT establish absence of a relation.
+The 26.8 admin REST `GET .../permission` also legitimately responds
+**204 No Content** for empty filtered searches. Old readback/diagnostic
+failures [42920435688](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42920435688)
+and [42922196578](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42922196578)
+were not retroactively relabeled.
+
+**Live persisted-permission chain, NOT inferred from the POST payload:**
+
+| API and independent check | Actual sanitized response |
+|---|---|
+| Paginated `GET /resource` inventory | HTTP 200; 6 resources; 1 page; complete; internal field `_id` present |
+| Match real user entity identifier to returned resource fields, then `GET /resource/{server-returned-_id}` | 1 candidate, HTTP 200; user UUID never used as resource REST ID |
+| `GET /resource/{real-_id}/permissions` | Exact permission's ID linked = true |
+| Paginated `GET /permission?resourceType=Users&resource=<target-UUID>&scope=reset-password` | HTTP 200; exactly 1 exact permission; fully read |
+| Same exact query for six independent non-target users | six HTTP **204**; zero permission matches; all complete |
+| Paginated `GET /permission?resourceType=Users` plus entire `GET /permission/scope` | exactly 1 permission; no type-wide/other-user extra permission |
+| `GET /scope/{real-scope-id}/permissions` and all other scopes | expected `reset-password` reverse link true; other scope links false |
+| `GET /permission/scope/{permission-id}/associatedPolicies` | exactly 1 expected service principal user policy; reverse link true |
+| Service account direct and composite `realm-management` role mappings | no `manage-users`, `view-users`, `realm-admin`, `manage-realm` |
+| Final `CB_permission_readback.checks` | resource type Users true; only reset-password true; exact target true; policy true; no broad role true; ALL TRUE |
+
+Keycloak's permission-by-ID `PolicyRepresentation` still omits
+`scopes/scopesData/resources/resourcesData/policies` arrays (all lengths 0),
+so these empty direct fields are **not** treated as a negative relation.
+The persisted chain was independently proven by the actual list, returned
+AuthZ `_id`, resource reverse permissions, exact target vs excluded
+server-side searches, scope reverse and associated-policy endpoints.
+Pagination was completed and checked for malformed/missing/repeated
+identifiers; only status codes, shape names, counts and Booleans exported.
+
+**Independent real browser/security matrix:** fresh final restricted
+realm policy before ANY user, form or action link; normal email/password
+Code+PKCE succeeds; Forgot + direct reset, Account Console, new
+`kc_action=UPDATE_PASSWORD`, in-policy issued local SMTP action token
+(issuance HTTP 204; actual link opened), and in-policy privileged
+admin-assigned Required Action all independently show NEW attempted
+password DENY / OLD original password ACCEPT in actual separate OIDC
+browser sign-ins. Ordinary user Admin reset HTTP **401**. Scoped
+service target reset HTTP **204**, OLD DENY / NEW ACCEPT; other user
+reset HTTP **403**, old retained; unrelated profile mutation HTTP
+**403**, profile unchanged. No secret, user UUID, resource UUID, policy
+ID, credential, email URL, authentication token, callback code or
+Cookie in exported artifacts.
+
+**Two distinct verdicts, never combined into a green Gate:**
+`CLEAN_BOOTSTRAP_CONTROLLED_RESET=PROVEN` strictly for the
+clean-from-origin synthetic realm/configuration and tested routes;
+`TRANSITION_WITH_PREEXISTING_FLOWS=NOT_PROVEN` with an actually
+exploitable preexisting rendered form, including after standard
+user-session logout. Overall workflow MUST remain FAILURE while the
+transition job is red. Trusted root/master/realm-admin, exhaustive
+future channel coverage, product Session revocation, durable external
+event delivery and product acceptance are NOT_PROVEN/OUT_OF_SCOPE.
+No product code/API/BFF/Login/DB, SPI, Outbox, migration, contracts,
+canonical checklist, deployment, new branch or merge.
+**Implemented:** only bounded clean FGAP readback source plus this
+documentation. **Tested:** exact SHA and real PR CI above;
+**Accepted:** NONE, supervisor pending. Final documentation-only
+SHA and its distinct workflow results require fresh verification.
+
+Version-tagged reference:
+https://github.com/keycloak/keycloak/blob/26.8.2/js/libs/keycloak-admin-client/src/defs/resourceRepresentation.ts .
+Standard resource/permission REST and specific-resource UUID semantics:
+https://www.keycloak.org/docs-api/26.8.0/rest-api/index.html
+and https://www.keycloak.org/docs/26.8.0/server_admin/ .

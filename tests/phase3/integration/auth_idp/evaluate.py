@@ -1094,6 +1094,10 @@ async def run(browser, cb):
     # BND-IDP-02B only after every old 01/02A regression has passed.
     from reset_logout import run as bnd_idp_02b
     await bnd_idp_02b(browser, cb, sys.modules[__name__])
+    # BND-IDP-02C ONLY after every existing IDP-01/02A/02B regression;
+    # entirely separate synthetic realm within the same isolated CI.
+    from controlled_reset import run as bnd_idp_02c
+    await bnd_idp_02c(sys.modules[__name__],browser,cb)
 
     # Never confuse action-password reset with revocation of all access JWTs.
     RESULTS["reset_limit"] = "Reset effects on preexisting browser SSO, old refresh, UserInfo and locally signed JWT are separately measured under after_password_reset; product BFF revocation remains out of scope."
@@ -1102,11 +1106,16 @@ async def run(browser, cb):
 
 def safe_report(success: bool):
     path = Path(os.environ.get("IDP_REPORT", "/nonexistent"))
-    if os.environ.get("CI") != "true" or str(path) != "/evidence/report.json":
+    mode=os.environ.get("IDP_TEST_MODE","transition")
+    expected=("/evidence/clean_bootstrap.json" if mode=="clean"
+              else "/evidence/report.json")
+    if os.environ.get("CI") != "true" or str(path) != expected:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
         "mission": "AGENT-API-AUTH-IDP-01",
+        "evaluation_mode": "CLEAN_BOOTSTRAP_CONTROLLED_RESET"
+                 if mode=="clean" else "TRANSITION_WITH_PREEXISTING_FLOWS",
         "candidate": "Keycloak 26.8.2",
         "identity_database": "PostgreSQL 17.11 (separate, disposable)",
         "smtp": "Mailpit v1.32.0 (Docker internal, only capture)",
@@ -1123,6 +1132,35 @@ def safe_report(success: bool):
 async def main():
     global CURRENT
     require_ci()
+    mode=os.environ.get("IDP_TEST_MODE","transition")
+    assert mode in ("transition","clean"),"INVALID_IDP_TEST_MODE"
+    if mode=="clean":
+        # Standalone CI job; does NOT run, skip, or replace historical
+        # transition tests in the independent original isolated-idp job.
+        RESULTS["TRANSITION_WITH_PREEXISTING_FLOWS"]="NOT_PROVEN_UNCHANGED"
+        RESULTS["CLEAN_BOOTSTRAP_CONTROLLED_RESET"]={"verdict":"NOT_PROVEN"}
+        try:
+            with CallbackServer() as cb:
+                async with async_playwright() as playwright:
+                    browser=await playwright.chromium.launch(headless=True)
+                    try:
+                        from controlled_reset import run_clean
+                        await run_clean(sys.modules[__name__],browser,cb)
+                    finally:
+                        await browser.close()
+            CURRENT="CB-completed"
+            safe_report(True)
+            print("CLEAN_BOOTSTRAP_CONTROLLED_RESET_PROVEN",flush=True)
+        except Exception as exc:
+            STAGES[CURRENT]="FAIL"
+            try:
+                safe_report(False)
+            except OSError:
+                print("CLEAN_BOOTSTRAP_REPORT_WRITE_FAILED",flush=True)
+            print("CLEAN_BOOTSTRAP_CONTROLLED_RESET_NOT_PROVEN stage="+
+                  CURRENT+" category="+type(exc).__name__,flush=True)
+            sys.exit(1)
+        return
     # All test credentials are synthetic and ephemeral; never print or save.
     for email in (*EMAILS, MANAGER, POLICY, FRESH, REQUIRED):
         PASSWORDS[email] = "Qx9!" + secrets.token_urlsafe(18)
