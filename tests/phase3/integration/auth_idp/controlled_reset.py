@@ -224,7 +224,10 @@ async def browser_action_attempt(e,browser,url,new_password,*,email=None,old_pas
         form=page.locator("#password-new")
         try:
             await expect(form).to_be_visible(timeout=4500)
-        except PWTimeout:
+        except (PWTimeout, AssertionError):
+            # Playwright expect() emits AssertionError on a visible-state
+            # mismatch. No password form is an observed negative, not CI
+            # success. Actual credentials are tested independently below.
             return {"real_password_form":False,"submitted":False}
         await form.fill(new_password)
         confirm=page.locator("#password-confirm")
@@ -236,6 +239,17 @@ async def browser_action_attempt(e,browser,url,new_password,*,email=None,old_pas
         return {"real_password_form":True,"submitted":True}
     finally:
         await ctx.close()
+
+
+def drain_probe_callbacks(cb):
+    # Adversarial action flows may redirect to the CI-only callback even
+    # without displaying an UPDATE_PASSWORD form. Never treat such a
+    # callback as proof of credential mutation and never leak Code/URL.
+    removed = 0
+    while not cb.server.inbox.empty():
+        cb.next()
+        removed += 1
+    return removed
 
 
 async def standard_action_started_before_restriction(e,browser,oidc,email,password):
@@ -337,8 +351,10 @@ async def run(e,browser,cb):
         "code_challenge":challenge(verifier()),"code_challenge_method":"S256",
         "prompt":"login","kc_action":"UPDATE_PASSWORD"})
     direct=await browser_action_attempt(e,browser,direct_action,new[direct_user],email=direct_user,old_password=old[direct_user])
+    discarded_direct=drain_probe_callbacks(cb)
     e.RESULTS["RC_kc_action_new"]={"password_form":direct["real_password_form"],
-                                  "password_submit":direct["submitted"]}
+                                  "password_submit":direct["submitted"],
+                                  "callback_count_after_direct_probe":discarded_direct}
     e.case("RC-04-actual-direct-kc-action-probed")
 
     e.CURRENT="RC-after-lock-forgot-direct"
@@ -389,9 +405,11 @@ async def run(e,browser,cb):
     # a NEW kc_action request. Test them AFTER restrictions.
     e.CURRENT="RC-after-lock-preissued-mail-action-token"
     old_link=await browser_action_attempt(e,browser,old_url,new[issued])
+    discarded_old_token=drain_probe_callbacks(cb)
     e.RESULTS["RC_old_action_link"]={
         "real_password_form":old_link["real_password_form"],
-        "password_submitted":old_link["submitted"]}
+        "password_submitted":old_link["submitted"],
+        "callbacks_after_old_link":discarded_old_token}
     e.case("RC-07-preissued-action-token-real-browser-probe")
     e.CURRENT="RC-after-lock-prestarted-required-action-form"
     try:
@@ -399,8 +417,16 @@ async def run(e,browser,cb):
         e.RESULTS["RC_prestarted_action"]={"submitted_after_policy_change":True}
     finally:
         await started_ctx.close()
+    discarded_inflight=drain_probe_callbacks(cb)
+    e.RESULTS["RC_prestarted_action"]["callbacks_after_submit"]=discarded_inflight
     e.case("RC-08-prestarted-action-form-continued-after-hardening")
 
+    e.CURRENT="RC-direct-kc-action-old-vs-new-credential-check"
+    # A mere missing form is not enough: the independent old credential
+    # must remain accepted before the controlled service reset.
+    if not direct["submitted"]:
+        await login(e,browser,cb,oidc,direct_user,old[direct_user])
+    e.case("RC-08a-direct-action-credential-fence-measured")
     e.CURRENT="RC-no-admin-for-ordinary-or-limited-operator"
     # Client Credentials: separate role-bound identities for the
     # test-only restricted operational principal and service principal.
