@@ -1,7 +1,7 @@
 name: Auth IDP isolated Keycloak candidate evaluation
 on:
   push:
-    branches: [agent/auth-idp-ci, agent/idp-reauth-proof, agent/idp-reset-boundary]
+    branches: [agent/auth-idp-ci, agent/idp-reauth-proof, agent/idp-reset-boundary, agent/idp-controlled-reset]
     paths:
       - 'infra/auth-ci/**'
       - 'tests/phase3/integration/auth_idp/**'
@@ -25,7 +25,8 @@ jobs:
       (github.event_name == 'pull_request' &&
        (github.event.pull_request.head.ref == 'agent/auth-idp-ci' ||
         (github.event.pull_request.head.ref == 'agent/idp-reauth-proof' ||
-        github.event.pull_request.head.ref == 'agent/idp-reset-boundary')) &&
+        (github.event.pull_request.head.ref == 'agent/idp-reset-boundary' ||
+        github.event.pull_request.head.ref == 'agent/idp-controlled-reset'))) &&
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 30

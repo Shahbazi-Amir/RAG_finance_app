@@ -1094,6 +1094,10 @@ async def run(browser, cb):
     # BND-IDP-02B only after every old 01/02A regression has passed.
     from reset_logout import run as bnd_idp_02b
     await bnd_idp_02b(browser, cb, sys.modules[__name__])
+    # BND-IDP-02C ONLY after every existing IDP-01/02A/02B regression;
+    # entirely separate synthetic realm within the same isolated CI.
+    from controlled_reset import run as bnd_idp_02c
+    await bnd_idp_02c(sys.modules[__name__],browser,cb)
 
     # Never confuse action-password reset with revocation of all access JWTs.
     RESULTS["reset_limit"] = "Reset effects on preexisting browser SSO, old refresh, UserInfo and locally signed JWT are separately measured under after_password_reset; product BFF revocation remains out of scope."

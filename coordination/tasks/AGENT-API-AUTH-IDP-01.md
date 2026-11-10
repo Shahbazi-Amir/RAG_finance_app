@@ -1056,3 +1056,18 @@ plus prior Logout/outage negative tests;
 `AUTH_PRODUCT_ACCEPTED`. Final documentation-only HEAD
 will differ from tested source; verify its own CI before saying
 its exact SHA is green.
+
+
+## IDP-CI-01-AW — BND-IDP-02C controlled Reset-entry SOURCE preparation, independently isolated Realm (2026-11-11)
+
+**Live preflight:** `main` exactly `600bbd68ce8883d960b789320bc8b2454a3ff66c`, corresponding to PR #22 CLOSED/MERGED with EXACT merge SHA. No existing similar 02C branch or PR; created new mission branch `agent/idp-controlled-reset` from exactly that main. Prior PR #22 all four Route/Logout CI success remains accepted only as disposable identity browser proof; no product Auth or Reset revocation.
+
+**Owner and trace:** primary P3M05-A01/A02/A06/A07/A08/A09/A10; supporting P3M03-A01/A03/A08, P3M06-A03/A05/A07, P3M13-A03/A07/A08/A09/A10, P3OP03-R01/R02/R05 non-counting overlay. ADR 0005, original cumulative IdP record, AGENTS, path ownership, pinned IdP workflow/compose/support and existing 01/02A/02B source inspected before writing. No Gate accepted.
+
+**Scope**: new `tests/phase3/integration/auth_idp/controlled_reset.py` only for second synthetic `auth-idp-controlled-ci` Realm; tiny end-of-suite call in existing `tests/phase3/integration/auth_idp/evaluate.py` AFTER old complete 01/02A/02B regression; scoped branch/workflow guard update in existing `.github/workflows/auth-idp.yml`; append `infra/auth-ci/README.md` and THIS same cumulative file. No compose/image version, network, DB product, API/UI/History/contract, migration, custom SPI/outbox, privileged role escalation, real email, deploy or Mac install.
+
+**Standard-only candidate**: resetPasswordAllowed=false, registrationAllowed=false, account-console client disabled, required-action provider UPDATE_PASSWORD disabled, all read back. This is NOT assumed a comprehensive boundary. Test exact direct Forgot and account path, user-authenticated kc_action, preissued execute-actions-email action-token and pre-initialized OIDC Required Action, ordinary and view-users-only operator denied Admin reset, manage-users service account positive and separate-other-user broad-scope probe; must verify old/new credentials independently where relevant. Master bootstrap explicitly outside boundary. Browser uses real Chromium Code+PKCE, state/nonce and signed JWT validation; not a service-session replacement. Tokens/action links, Cookies, user credentials, raw URL/HTML are transient RAM only and never saved/logged.
+
+**Decision**: do not silently claim `FEASIBLE` if standard builtin `manage-users` is broader than target user or any old flow survives; fail-closed `NOT_PROVEN` with full per-route evidence. No claim accepted Password Reset event delivery or product Session revocation. Keycloak 26.8.2 and temporary PostgreSQL 17.11/Mailpit 1.32.0/Playwright 1.64.1 remain pinned and the isolated network/teardown preserved. Public documentation around 26.8 has variable patch tags, so actual 26.8.2 CI/readback is decisive.
+
+**First real GitHub CI status**: NOT_RUN on prepared source; no asserted PASS. Future failures, fixes, numerical HTTP/callback evidence and exact actual run links will be appended ONLY here; preserve all previous checkpoints. `Implemented=SOURCE_PREPARED`, `Tested=NOT_RUN`, `Accepted=NONE/SUPERVISOR_PENDING`. READY_FOR_REVIEW only after reproducible real evidence and explicit limits.

@@ -321,3 +321,63 @@ revocation has been proven.
 capability and all four synthetic reset route behaviors were
 tested; production Auth/Session, external Reset revocation and
 event delivery still BLOCKED. No product Gate and no merge.
+
+
+## BND-IDP-02C — controlled Reset entry feasibility, strictly second disposable Realm
+
+**Isolated evaluation only.** The existing full IDP-01, 02A and 02B
+Chromium/SMTP/OIDC/MFA/four password-route/Logout suites run unchanged
+FIRST. Only after they succeed is a SECOND realm
+`auth-idp-controlled-ci` created in the same pinned, egress-denied,
+temporary Keycloak 26.8.2 instance. Its synthetic users, local
+Mailpit mail and in-memory client secrets are never shared with the
+prior `auth-idp-ci` Realm or any product service. The historical
+realm remains unchanged. No SPI, Migration, custom Outbox, production
+BFF, product Session or external delivery.
+
+The candidate **standard-only** restrictions are disposable Realm
+`resetPasswordAllowed=false`, `registrationAllowed=false`,
+`account-console` client `enabled=false`, and built-in
+`UPDATE_PASSWORD` Required Action provider `enabled=false`.
+Every configuration change is independently read back via the
+versioned Admin REST API; toggled UI links alone are not accepted.
+These are **not a proven comprehensive policy**, and may prevent
+legitimate account management and required onboarding actions.
+
+**Test matrix, with direct adversarial attempts:** user browser login
+and direct Forgot/Reset page, Account Console path, real
+`kc_action=UPDATE_PASSWORD` with credentials, pre-issued local
+`execute-actions-email` update-password action token, and a
+password-update challenge already begun before changing policy
+(stale in-flight form) are each tested. Fresh OIDC Code+PKCE
+logins verify which generated passwords are actually accepted.
+For Admin API, a service account assigned **only**
+`realm-management/manage-users` attempts the permitted built-in
+`PUT /users/{id}/reset-password`, while an operator service
+account assigned only `view-users` must fail. Test-only master
+bootstrap admin is used only for controlled realm provisioning,
+not claimed as a restricted role. The built-in `manage-users`
+role may grant **realm-wide user modification**, not one-user
+scope: an entirely independent synthetic user is also tested.
+This is a sensitive privilege, not a demonstrated fine-grained
+product Reset service entitlement.
+
+**Fail-closed verdict:** FEASIBLE only if direct paths including
+old action tokens and pre-started Required Actions fail and
+truly least-privilege, bounded service scopes are proven.
+If a bypass remains or role scope is too broad, report
+`NOT_PROVEN` with an actual non-green CI rather than counting
+mere config readback as success. Root, trusted infrastructure
+admin, local Keycloak database and recovery operations are outside
+the proposed restriction, even under a limited success.
+An observed password change is NOT product Session revocation
+or an authenticated durable Reset event.
+
+**Authority for same-version examination:** Keycloak 26.8.2
+actual REST configuration/readback and built-in RequiredActionProvider
+API (https://www.keycloak.org/docs-api/26.8.2/javadocs/org/keycloak/authentication/RequiredActionProvider.html).
+Related 26.8-series Admin REST and Server Admin documentation:
+https://www.keycloak.org/docs-api/26.8.0/rest-api/index.html and
+https://www.keycloak.org/docs/26.8.0/server_admin/
+(The latter docs have different patch numbers; all behavioral
+claims must be supported by the actual pinned **26.8.2** CI).
