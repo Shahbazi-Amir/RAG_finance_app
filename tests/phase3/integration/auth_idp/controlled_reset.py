@@ -440,10 +440,20 @@ async def run(e,browser,cb):
     # test-only restricted operational principal and service principal.
     operator_token=issue_service(root,"controlled-operator",grant_view=True)
     service_token=issue_service(root,"controlled-reset-service",grant_manage=True)
+    # Prove both unauthorized identities against the DIRECT Admin API:
+    # ordinary user password OIDC bearer versus view-users-only operator.
+    ordinary_login=await login(e,browser,cb,oidc,ordinary,old[ordinary])
+    ordinary_status=password_update(root,uid[ordinary],new[ordinary],
+                                    token_value=ordinary_login["access_token"])
+    assert ordinary_status in (401,403),"ORDINARY_USER_ADMIN_RESET_AUTHORIZATION_BYPASS"
     operator_status=password_update(root,uid[ordinary],new[ordinary],
                                     token_value=operator_token)
     assert operator_status in (401,403),"OPERATOR_RESET_REST_AUTHORIZATION_BYPASS"
+    # The unauthorized attempts did NOT change the credential.
+    await login(e,browser,cb,oidc,ordinary,old[ordinary])
     e.RESULTS["RC_role_limits"]={
+        "ordinary_real_user_admin_reset_http":ordinary_status,
+        "ordinary_real_user_denied":True,
         "operator_view_users_only":True,
         "operator_reset_status":operator_status,
         "service_uses_only_manage_users_role":True,

@@ -1093,3 +1093,72 @@ its exact SHA is green.
 [GitHub Push Run 42903195429](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42903195429) exact SHA `1c8d8ef754804ee3b2f100e72a5fa436220acd46` **COMPLETED FAILURE** at `RC-service-role-real-password-change` `AssertionError`. All earlier IDP-01/02A/02B regression suites PASS. Second distinct disposable Realm created successfully, stored/readback standard resetPasswordAllowed=false, registrationAllowed=false, account-console enabled=false, UPDATE_PASSWORD required-action provider enabled=false. RC-04 direct real user-authenticated `kc_action=UPDATE_PASSWORD`: no password form, no submit, **one OIDC callback not treated as password mutation**. RC-05 Forgot link hidden, direct route no password form/no new email; RC-06 Account Console direct route HTTP 200 (static document), no password Update button/form. RC-07 old preissued email action-token URL: no password form or submit. RC-08 preexisting real UPDATE_PASSWORD form was SUBMITTED after the restriction and one callback observed (**NOT proof of password actually changed**, independent credential verification still required). RC-08a new direct user's old credential still accepted. RC-09 view-users-only operator Admin Reset returned **HTTP 403**. All RC-00..09 labels PASS as bounded observations; no `RC-10` positive service reset / independent old/new login yet and no valid final single-entry verdict.
 
 [Sanitized artifact 13804216453](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42903195429/artifacts/13804216453) is the source of the above numeric values. Next code change ONLY aligns negative old-password browser login with proven existing `evaluate.py:login(expect_failure=True)`: check network-idle actual login form and explicitly reject any callback carrying THIS flow's state; DO NOT require a theme-specific `#input-error` CSS selector, which is not a security property. In addition record only the actual HTTP STATUS returned by the trusted service's standard reset call before independent browser denial/acceptance. This is not a weakened negative test: callback state-binding and real browser login rejection remain mandatory. Root/scope not changed. All earlier failure history remains preserved. Test must be re-run; no service or stale-flow success implied from this red Run. `Accepted=NONE`, overall still NOT_PROVEN.
+
+
+## IDP-CI-01-BA — BND-IDP-02C takeover and fail-closed unauthorized ordinary user Admin API probe
+
+**Live preflight:** requested `main` SHA `600bbd68ce8883d960b789320bc8b2454a3ff66c` is exact and PR #22 is **MERGED** with this exact SHA. Existing branch `agent/idp-controlled-reset` already at
+`3fbbd7e8d9507dbf870330d9b6188fed6d3cc77c` and existing independent
+Draft [PR #23](https://github.com/Shahbazi-Amir/RAG_finance_app/pull/23)
+already OPEN, five authorized paths only. **Reused** the existing
+02C work, no new branch/PR/Realm apart from its existing synthetic
+CI fixture; all previous IdP-01/02A/02B regressions unchanged.
+
+**Real tested prior SHA** `3fbbd7e8d9507dbf870330d9b6188fed6d3cc77c`:
+both [Push 42904227495](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42904227495) and [PR 42904237087](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42904237087)
+COMPLETED **FAILURE by explicit policy denial** `RC-adversarial-bypass-final-denial`. All previous IDP suites PASS, second Realm RC-00..11 PASS as **measurements**, including:
+- Standard `resetPasswordAllowed=false`, registration disabled,
+  `account-console.enabled=false`, and
+  `UPDATE_PASSWORD.enabled=false` independently read back.
+- New `kc_action=UPDATE_PASSWORD` produced no password form
+  (1 ordinary OIDC callback is **not** credential change), direct
+  Forgot link absent/no update form/no local Reset mail;
+  direct Account Console returned static HTTP 200 but no active
+  Update button/form. Pre-policy minted UPDATE_PASSWORD action
+  link produced no update form on tested browser attempt.
+- **Authenticated old pre-policy UPDATE_PASSWORD form remained usable
+  after policy hardening**. Real form submitted and independent new
+  credential OIDC login ACCEPTED: observed `inflight-form` bypass
+  of any *single-entry* guarantee.
+- Restricted operator `realm-management/view-users` received
+  Admin REST reset HTTP 403.
+- Separate intended reset service `realm-management/manage-users`
+  received HTTP 204 when resetting its target; after that the
+  original credential was DENIED and new credential ACCEPTED by
+  independent genuine OIDC/PKCE browser checks.
+- **Same service** used its **unchanged** built-in `manage-users`
+  role against a second synthetic unrelated account, HTTP **204**:
+  permission is broader than an individual target. Not a safe
+  per-user credential Reset entitlement.
+- Entire original IDP regression/network cleanup passed, no real
+  email, model, migrations, product API/Auth/DB, production events
+  or Session proof. Real sanitized JSON artifact
+  [13803748704](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42904227495/artifacts/13803748704)
+  confirms `RC_bypass.bypass_classifications=["inflight-form"]`,
+  `RC_service_scope.other_user_reset_http=204`,
+  `RC_service_controlled_reset_http=204`, verdict NOT_PROVEN.
+
+**Exact remaining narrow proof added for user request**: the existing
+real ordinary synthetic OIDC user now also invokes the **direct**
+Admin REST reset-password endpoint with its own genuine unprivileged
+access token; MUST receive 401/403, followed by genuine successful
+OIDC sign-in with the original credential showing that neither
+ordinary-user nor `view-users` operator unauthorized calls changed
+password. Test-only code unchanged other than this negative operation
+and its sanitized HTTP count in `RC_role_limits`. Do NOT modify
+`manage-users` entitlement or disable in-flight bypass to chase
+green. New source CI to rerun on this branch. **02C intended
+conclusion remains NOT_PROVEN** and **overall CI MUST remain red**
+when in-flight bypass or cross-user service reset is observed.
+No policy/Gate or AUTH_PRODUCT_ACCEPTED.
+
+**Official candidate next investigation, NOT assumed present/enabled
+in pinned 26.8.2**: Keycloak fine-grained administration includes
+`reset-password` scope and can delegate per-user management with
+policy evaluation, whereas built-in `manage-users` bypasses that
+fine-grained check; must separately reproduce scoped and target-denied
+Admin REST tests **without** global `manage-users` in a newly
+authorized package, and still address pre-policy in-flight action
+form or enforce a Reset drain/barrier before claiming single entry.
+Trusted root/realm-admin and outage/recovery remain outside
+policy, no infrastructure admin restriction asserted.
