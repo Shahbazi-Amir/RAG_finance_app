@@ -850,3 +850,53 @@ successful outcome. Exact source retest PENDING.
 `reset_logout.py` and cumulative checkpoint appended; existing
 pinned versions, network isolation, previous security regressions
 and mandatory teardown unchanged.
+
+
+## IDP-CI-01-AU — confirmed standard Accordion + SPA path readiness bug on real CI (2026-11-10)
+
+**Exact tested SHA** `fa38fe1de9a1b413c792303aecfa348818ab31bc`,
+[GitHub Run 42891043095](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42891043095)
+**COMPLETED FAILURE overall** only for `RB-account-console-not-proven-final`
+after all previous IDP-01, BND-IDP-02A, three password
+mutation routes, standard RP/Admin Logout, real JWT negative and
+receiver-outage tests had passed independently in the SAME run.
+
+**Decisive actual UI evidence:** after clicking the real accessible
+**Account Security** accordion button (instead of the previously
+chosen Navigation menu), the Keycloak Account Console rendered
+`Signing in`, `My Password`, and `Update` words in main content
+with **one genuinely visible & enabled Update button**, **one visible
+Signing in link**, **two visible Account Security links**, and one
+visible Account Security button, while its Navigation menu reported
+`expanded=True`. Previously all these child links were hidden.
+Viewport 1440×900, 5 account document/API HTTP 200, 37 theme/SPA
+asset HTTP 200, OIDC 3×200 and 1×302, no observed 401/403 or failed
+requests, plus two non-sensitive generic console errors which are not
+causal evidence. Standard account-console and account clients remain
+enabled/present with no added grants. **No password was changed yet**,
+because the conditional readiness predicate erroneously insisted
+`"signing-in" in urlsplit(page.url).fragment` (legacy deep `#/`
+fragment), while the actual rendered Account Console's browser
+navigation is path-based after the real click. Safe diagnostic printed
+`on_signin_hash=False`, but visible Update button=True. The test
+wrongly rejected a visible working form before clicking Update.
+
+**Minimal source fix:** accept a page if and ONLY if the genuine
+Update button/link is visible/enabled AND the actual browser URL has
+the standard **`/account-security/signing-in` PATH**, OR the old
+standard signing-in fragment; no assumption that a hidden anchor is
+ready, and no removal of route assurance. Add ONLY a safe boolean
+`on_signin_path` to report; do not print URL, query or browser
+content. Clicking the Update button and real password form still
+requires further actual CI. No change to Keycloak roles, UI product,
+API/DB/migrations, IdP version/network, callback policy, Logout tests
+or approved contracts. Previous red runs remain red. New source
+NOT_RUN until next CI.
+
+**Root cause (scope of fixture):** wrong element selector prioritized
+a generic Navigation dropdown, leaving the Account Security
+accordion collapsed; then erroneous hash-only URL readiness check
+rejected the successfully expanded **path-router** Signing In view.
+This is a **test harness routing/selector** error, not evidence
+that standard Keycloak Account Console was disabled, missing
+permissions, or that external Reset revocation is solved.

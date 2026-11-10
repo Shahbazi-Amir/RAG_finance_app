@@ -303,6 +303,7 @@ async def _account_ui_state(page, responses, script_errors, request_failures):
         "on_oidc_redirect": "/protocol/openid-connect/" in urlsplit(page.url).path,
         "on_login_action": "/login-actions/" in urlsplit(page.url).path,
         "on_signin_hash": "signing-in" in urlsplit(page.url).fragment,
+        "on_signin_path": "/account-security/signing-in" in urlsplit(page.url).path,
         "dom_ready": await page.locator("body").count() > 0,
         "matches": matches, "responses": status_summary,
         "script_error_categories": dict(script_errors),
@@ -404,8 +405,14 @@ async def update_account_console(e, browser, cb, email, old_pw, new_pw, context)
                 await e.fill_login(page, email, old_pw)
                 navigated = False
                 continue
+            # Keycloak 26 Account Console uses a path-based SPA route
+            # after a real menu click; the old fixture insisted on '#/'.
+            # No direct URL manipulation, no DOM injection and no bypass.
+            real_path = urlsplit(page.url).path
+            real_hash = urlsplit(page.url).fragment
             if (usable["update_buttons"] or usable["update_links"]) and (
-                    "signing-in" in urlsplit(page.url).fragment):
+                    "/account-security/signing-in" in real_path
+                    or "account-security/signing-in" in real_hash):
                 ready = True
                 break
             if usable["signing_links"]:
