@@ -778,6 +778,11 @@ def _cb_paged_authz(root, prefix, route, filters=None):
                          params=params)
         meta["http"]=response.status_code
         meta["pages"]+=1
+        if response.status_code==204:
+            # Keycloak 26.8 REST documents 204 No Content for a
+            # permission search with no matching rows.
+            meta["complete"]=True
+            return rows,meta
         if response.status_code!=200:
             return rows,meta
         try:
@@ -787,10 +792,18 @@ def _cb_paged_authz(root, prefix, route, filters=None):
         if not isinstance(data,list):
             return rows,meta
         meta["response_is_list"]=True
-        if len(data)>size or any(not isinstance(x,dict) or not x.get("id")
+        # Actual 26.8.2 ResourceRepresentation (_id), as defined by
+        # Keycloak's tagged admin-client type. Policy rows use id.
+        get_id=(lambda x: x.get("_id") or x.get("id")) if route=="/resource" else (
+                lambda x: x.get("id"))
+        if len(data)>size or any(not isinstance(x,dict) or not get_id(x)
                                  for x in data):
+            meta["row_keys_if_unrecognized"]=sorted(
+                 {"_id","id","name","type","attributes"}.intersection(
+                      set(data[0].keys()) if data and isinstance(data[0],dict)
+                      else set()))
             return rows,meta
-        ids=[x["id"] for x in data]
+        ids=[get_id(x) for x in data]
         if len(ids)!=len(set(ids)) or seen.intersection(ids):
             meta["duplicate_page_ids"]=True
             return rows,meta
@@ -935,14 +948,15 @@ def clean_fgap_permission(e,root,target_uuid,service_cid,excluded_user_ids):
         if not hinted:
             continue
         candidate_count+=1
-        internal_id=candidate["id"]
+        internal_id=candidate.get("_id") or candidate.get("id")
         detail=root.call("GET",pref+"/resource/"+internal_id,
                          expect_status=(200,400,404,500))
         resource_get_statuses.append(detail.status_code)
         if detail.status_code!=200:
             continue
         stored=detail.json()
-        if not isinstance(stored,dict) or stored.get("id")!=internal_id:
+        if not isinstance(stored,dict) or (
+                stored.get("_id") or stored.get("id"))!=internal_id:
             continue
         rp=root.call("GET",pref+"/resource/"+internal_id+"/permissions",
                      expect_status=(200,400,404,500))
@@ -971,7 +985,7 @@ def clean_fgap_permission(e,root,target_uuid,service_cid,excluded_user_ids):
     # Safe evidence: shape, counts, HTTP statuses, Booleans only. Never
     # export user UUIDs, internal AuthZ IDs, action links, policy IDs or
     # other server response values, even in diagnostics or CI failure.
-    safe_fields={"id","name","type","displayName","uris","uri",
+    safe_fields={"_id","id","name","type","displayName","uris","uri",
                  "scopes","owner","attributes","ownerManagedAccess"}
     resource_fields=sorted(safe_fields.intersection(
         set().union(*(set(r.keys()) for r in resources)) if resources else set()))
@@ -996,7 +1010,8 @@ def clean_fgap_permission(e,root,target_uuid,service_cid,excluded_user_ids):
        "excluded_resource_selector_searches":{
            "count":len(excluded_metas),
            "complete":all(x["complete"] for x in excluded_metas),
-           "unexpected_permission_match":excluded_match},
+           "unexpected_permission_match":excluded_match,
+           "http_status_codes_only":[x["http"] for x in excluded_metas]},
        "one_users_permission_and_no_wider_permission":(
              types_meta["complete"] and type_ids=={permission_id}
              and all_perm_ids=={permission_id}),
