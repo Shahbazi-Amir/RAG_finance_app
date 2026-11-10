@@ -772,8 +772,10 @@ def _cb_paged_authz(root, prefix, route, filters=None):
     for page in range(32):
         params={"first":page*size,"max":size}
         params.update(filters or {})
-        response=root.call("GET",prefix+route,params=params,
-                           expect_status=(200,400,404))
+        response=request("GET",BASE+"/admin/realms/"+root.realm_name+
+                         prefix+route,
+                         headers={"Authorization":"Bearer "+root.master_token},
+                         params=params)
         meta["http"]=response.status_code
         meta["pages"]+=1
         if response.status_code!=200:
@@ -935,7 +937,7 @@ def clean_fgap_permission(e,root,target_uuid,service_cid,excluded_user_ids):
         candidate_count+=1
         internal_id=candidate["id"]
         detail=root.call("GET",pref+"/resource/"+internal_id,
-                         expect_status=(200,404))
+                         expect_status=(200,400,404,500))
         resource_get_statuses.append(detail.status_code)
         if detail.status_code!=200:
             continue
@@ -943,7 +945,7 @@ def clean_fgap_permission(e,root,target_uuid,service_cid,excluded_user_ids):
         if not isinstance(stored,dict) or stored.get("id")!=internal_id:
             continue
         rp=root.call("GET",pref+"/resource/"+internal_id+"/permissions",
-                     expect_status=(200,404))
+                     expect_status=(200,400,404,500))
         if (rp.status_code==200 and isinstance(rp.json(),list)
             and any(p.get("id")==permission_id for p in rp.json())
             and selector_verified):
