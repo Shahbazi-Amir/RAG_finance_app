@@ -262,7 +262,39 @@ async def _account_ui_state(page, responses, script_errors, request_failures):
     for bucket, status in responses:
         key = bucket + "_" + str(status)
         status_summary[key] = status_summary.get(key, 0) + 1
+    # Inspect rendered UI vocabulary as FIXED booleans only; never save
+    # account text or elements that might contain synthetic email or token.
+    visible_text = (await page.locator("body").inner_text()).casefold()
+    known_sections = {key: (key in visible_text) for key in (
+        "personal info", "account security", "signing in", "my password",
+        "password", "loading", "update", "applications",
+        "we are sorry", "access denied", "something went wrong",
+        "error", "log in", "sign in", "profile")}
+    menu_button_metadata = []
+    menu_btn = selectors["menu_buttons"]
+    for idx in range(await menu_btn.count()):
+        btn = menu_btn.nth(idx)
+        if not await btn.is_visible():
+            continue
+        aria_label = ((await btn.get_attribute("aria-label")) or "").casefold()
+        btn_text = ((await btn.inner_text()) or "").casefold()
+        # Fixed category labels only; never emit raw button/user text.
+        category = ("navigation" if ("navigation" in aria_label
+                 or "navigation" in btn_text) else
+                 "sidebar" if ("sidebar" in aria_label or "sidebar" in btn_text) else
+                 "account_menu" if ("user" in aria_label or "account" in aria_label) else
+                 "generic_menu" if "menu" in aria_label else "other_menu")
+        menu_button_metadata.append({
+            "kind": category,
+            "expanded": (await btn.get_attribute("aria-expanded")) in ("true", "false"),
+            "currently_expanded": (await btn.get_attribute("aria-expanded")) == "true",
+            "aria_controls_present": bool(await btn.get_attribute("aria-controls")),
+        })
     safe = {
+        "body_text_size_bucket": min(len(visible_text) // 100, 100),
+        "known_rendered_section_words": known_sections,
+        "visible_menu_button_classes": menu_button_metadata,
+        "main_visible": await page.locator("main").is_visible(),
         "viewport_width": page.viewport_size["width"],
         "viewport_height": page.viewport_size["height"],
         "on_account_path": "/account" in urlsplit(page.url).path,
@@ -333,8 +365,23 @@ async def update_account_console(e, browser, cb, email, old_pw, new_pw, context)
         key = _account_resource_category(req.url)
         request_failures[key] = request_failures.get(key, 0) + 1
 
+    def track_console(message):
+        if message.type != "error":
+            return
+        # Only whitelisted static error classes; NEVER log console text.
+        value = message.text.lower()
+        category = (
+            "csp" if "content security policy" in value else
+            "cors" if "cors" in value else
+            "resource_load" if "failed to load resource" in value else
+            "network_fetch" if "failed to fetch" in value else
+            "syntax" if "syntaxerror" in value else
+            "generic_console_error")
+        script_errors[category] = script_errors.get(category, 0) + 1
+
     page.on("response", track_response)
     page.on("pageerror", track_pageerror)
+    page.on("console", track_console)
     page.on("requestfailed", track_failure)
     try:
         e.CURRENT = "RB-account-console-root-document-navigation"
@@ -370,9 +417,18 @@ async def update_account_console(e, browser, cb, email, old_pw, new_pw, context)
                 navigated = True
             elif usable["menu_buttons"] and not navigated:
                 e.CURRENT = "RB-account-console-open-real-menu"
-                await page.get_by_role(
+                chosen = page.get_by_role(
                     "button", name=re.compile(r"menu|navigation|sidebar|toggle", re.I)
-                ).nth(usable["menu_buttons"][0]).click()
+                ).nth(usable["menu_buttons"][0])
+                before_state = await chosen.get_attribute("aria-expanded")
+                await chosen.click()
+                after_state = await chosen.get_attribute("aria-expanded")
+                e.RESULTS["RB_menu_actual_click"] = {
+                    "clicked_visible_enabled": True,
+                    "aria_expanded_before": before_state in ("true", "false"),
+                    "aria_expanded_after": after_state in ("true", "false"),
+                    "expanded_after": after_state == "true",
+                }
                 navigated = True
             elif usable["expanded_buttons"] and not navigated:
                 # Only click real visible controls. No force/hidden click.

@@ -760,3 +760,46 @@ Mac install, deploy or merge. Earlier user-event vs Admin Event
 attribution limitations unchanged. **Implemented:** diagnostic source
 prepared; **Tested:** new source NOT_RUN, historical 02B CI FAILURE;
 **Accepted:** NONE/SUPERVISOR_PENDING. No Gate opened.
+
+
+## IDP-CI-01-AS — Account Console safe runtime diagnostics on real CI 42888996706
+
+**Actual source SHA:** `306dc11d2c1c2827ba4735be6ca17695c0026faa`,
+[Push Run 42888996706](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42888996706):
+**COMPLETED FAILURE**, solely `RB-account-console-not-proven-final`
+after previous IDP-01/RA-00..12 PASS, Forgot/Reset route PASS,
+Required Action PASS, Admin Reset PASS, genuine RP/Admin Logout tokens
+and negative-validation/outage PASS. The receiver/outage/old Session
+matrix is unchanged from previous AQ. All containers/network and
+credentials torn down successfully.
+
+Read actual [sanitized artifact 13798056513](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42888996706/artifacts/13798056513):
+standard `account-console` OIDC client **present/enabled**,
+`standardFlowEnabled=true`, `publicClient=true`, built-in
+`account` client exists; no extra grants were made. Explicit
+**1440×900** page viewport, document at Account Console path,
+not at login/redirect; real DOM ready. Network safe counters:
+4 Account document/API HTTP 200, 25 theme/SPA static asset HTTP 200,
+3 OIDC HTTP 200 and 1 OIDC HTTP 302, **no observed 401/403**,
+no `requestfailed` and no `pageerror` events in capture window.
+Matching UI elements ALL enumerated: 1 signing-in link invisible,
+2 Account Security links invisible, **0** Update buttons/links,
+**1** visible/usable menu-like button and 3 visible/usable
+aria-expanded=false buttons. No password form or active login form.
+The previous `.first` navigation failure was not proof of missing
+capability. **This evidence excludes disabled account-console and
+observed unauthorized HTTP as immediate causes**, but does not yet
+identify whether menu opens navigation, app displays a fallback
+screen, or script console emitted errors not surfaced as pageerrors.
+No password was changed through Account Console; no green CI claim.
+
+**Next narrow diagnostics, same five-path limit:** capture ONLY
+fixed allowlisted English UI section words as booleans, rendered
+body-length bucket, visible menu-button category and whether
+aria-expanded actually changed after a genuine UI click; also
+categorize console errors (CSP/CORS/load/fetch/syntax/other) without
+ever persisting message, URL, HTML, Cookie, token or user text.
+Continue to demand a rendered Signing in password Update button
+and actual independent old/new credential proof. No extra timeouts,
+role change, browser JS injection, element force click or new
+workflow/migration. New source awaits real GitHub CI.
