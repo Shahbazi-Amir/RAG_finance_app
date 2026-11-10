@@ -17,7 +17,7 @@ from urllib.parse import urlencode, urlsplit
 
 import jwt
 import requests
-from playwright.async_api import expect
+from playwright.async_api import expect, TimeoutError as PlaywrightTimeoutError
 
 from support import BASE, CLIENT, REALM, refresh, request, verify_id
 
@@ -257,15 +257,39 @@ async def update_account_console(e, browser, cb, email, old_pw, new_pw, context)
         # directly loaded deep hash. Use its OWN visible navigation, never
         # an Admin REST password reset or fabricated success.
         if not await page.get_by_role("button", name="Update").count():
-            e.CURRENT = "RB-account-console-navigate-own-security-menu"
-            if await signing_link.count():
-                if not await signing_link.first.is_visible():
-                    security = page.locator('a[href*="account-security"]').first
-                    await security.click(timeout=12000)
-                await signing_link.first.click(timeout=12000)
-            else:
-                security = page.locator('a[href*="account-security"]').first
-                await security.click(timeout=12000)
+            e.CURRENT = "RB-account-console-root-first-real-navigation"
+            # Real Account Console root is visited and its OWN visible nav
+            # followed. A hidden deep-link DOM node is NOT interactive.
+            await page.goto(BASE + "/realms/" + REALM + "/account/",
+                            wait_until="domcontentloaded")
+            await page.wait_for_timeout(1200)
+            if await page.locator("#kc-form-login").is_visible():
+                await e.fill_login(page, email, old_pw)
+                await page.wait_for_load_state("domcontentloaded")
+            signing = page.locator('a[href*="signing-in"]')
+            security = page.locator('a[href*="account-security"]')
+            root_shape = {
+                "account_root_path":"/account" in urlsplit(page.url).path,
+                "root_login_form":await page.locator("#kc-form-login").is_visible(),
+                "root_signing_link_count":await signing.count(),
+                "root_signing_link_visible": (await signing.first.is_visible()
+                    if await signing.count() else False),
+                "root_security_link_count":await security.count(),
+                "root_security_link_visible": (await security.first.is_visible()
+                    if await security.count() else False),
+                "root_has_update_button":bool(
+                    await page.get_by_role("button", name="Update").count()),
+            }
+            e.RESULTS["RB_account_console_root_shape"] = root_shape
+            print("RB_ACCOUNT_ROOT_SHAPE=" + repr(root_shape), flush=True)
+            if await signing.count() and await signing.first.is_visible():
+                await signing.first.click(timeout=10000)
+            elif await security.count() and await security.first.is_visible():
+                await security.first.click(timeout=10000)
+                if await signing.count() and await signing.first.is_visible():
+                    await signing.first.click(timeout=10000)
+            elif not await page.get_by_role("button", name="Update").count():
+                raise AssertionError("ACCOUNT_CONSOLE_STANDARD_UI_NAV_BLOCKED")
         e.CURRENT = "RB-account-console-update-button"
         await expect(page.get_by_role("button", name="Update").first).to_be_visible(timeout=15000)
         e.CURRENT = "RB-account-console-click-update"
@@ -500,9 +524,26 @@ async def run(browser, cb, e):
         e.CURRENT = "RB-backchannel-client-config"
         configure_backchannel(e.ADMIN)
         e.case("RB-backchannel-standard-client-config-readback")
+        account_blocked = False
         for kind in ("forgot","account","required","admin"):
             e.CURRENT = "RB-route-" + kind
-            await route_probe(e, browser, cb, receiver, kind)
+            if kind == "account":
+                try:
+                    await route_probe(e, browser, cb, receiver, kind)
+                except (AssertionError, PlaywrightTimeoutError) as exc:
+                    # Not a PASS or fallback: carry this blocker forward so
+                    # standard Logout, required/Admin route and outage probes
+                    # still execute before the final CI fails closed.
+                    e.RESULTS["RB_account_console_blocker"] = {
+                        "stage":e.CURRENT, "category":type(exc).__name__,
+                        "actual_account_password_changed":False}
+                    e.STAGES["RB-route-account-console"] = "BLOCKED"
+                    print("RB-route-account-console: BLOCKED stage=" +
+                          e.CURRENT + " category=" + type(exc).__name__,
+                          flush=True)
+                    account_blocked = True
+            else:
+                await route_probe(e, browser, cb, receiver, kind)
         await standard_logout(e,browser,cb,receiver)
         await offline_recovery(e,browser,cb,receiver)
         e.RESULTS["RB_verdict"] = {
@@ -514,5 +555,9 @@ async def run(browser, cb, e):
                            "event delivery needs separate reliable mechanism/acceptance",
         }
         e.case("RB-result-standard-capabilities-bounded-external-reset-blocked")
+        if account_blocked:
+            e.RESULTS["RB_verdict"]["account_console"]="BLOCKED_NOT_PROVEN"
+            e.CURRENT = "RB-account-console-not-proven-final"
+            raise AssertionError("ACCOUNT_CONSOLE_NOT_PROVEN")
     finally:
         receiver.stop()

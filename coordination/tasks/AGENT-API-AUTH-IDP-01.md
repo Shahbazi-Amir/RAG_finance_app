@@ -631,3 +631,36 @@ or password in stdout/artifact. Keep exact successful old-password
 reject/new-password accept criterion; no Admin REST mutation fallback.
 If the standard UI remains inaccessible, mark NOT_PROVEN; no version
 upgrade, application/product code, DB/schema or service grant change.
+
+
+## IDP-CI-01-AP — third real CI: Account Console deep-hash renders noninteractive nav; bounded root fallback
+
+**Source** `3abb368e8b827f595cb19c5c086c54581eebe274`,
+[Push Run 42851688072](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42851688072)
+**COMPLETED FAILURE** only on new stage
+`RB-account-console-navigate-own-security-menu` with
+Playwright `TimeoutError`. Previous IDP-01/RA-00..12 PASS,
+standard OIDC Back-channel config readback PASS, Forgot/Reset
+old independent browser and token matrix PASS.
+Safe observed UI shape on Chromium: account path True,
+no login form, no Update button/link, a DOM `signing-in` href
+present, signing-in fragment correct, password text absent,
+no generic error wording. The attempted Account Security DOM link
+could NOT be clicked as an interactive visible element. This is
+**NOT** proof that Account Console credential edit happened and
+is NOT an IdP rejection of the new password. Required/Admin route,
+standard logout/backchannel JWT and outage not yet reached.
+
+**Next strict fixture behavior**: Navigate the standard Account
+Console ROOT first, inspect only safe element counts/visibility,
+click its OWN visible `Signing in` or Account Security link,
+and insist on real Update button and password form before any
+PASS claim. If UI is still unavailable, capture `BLOCKED` for
+Account Console and **continue** independent Required/Admin
+and Logout/receiver-outage tests; after all other tests, report
+a final non-green CI/fail-closed `ACCOUNT_CONSOLE_NOT_PROVEN`.
+This is explicitly NOT an alternative Admin REST password update
+or fabricated success. No other security criterion weakened,
+no versions/migrations/Keycloak product or network permissions
+changed. Exact prior failed stages and first MFA timeout remain
+in original checkpoint.
