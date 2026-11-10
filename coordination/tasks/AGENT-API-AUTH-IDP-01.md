@@ -1518,3 +1518,70 @@ explicit authentication-session transition barrier or a
 separately scoped design decision; avoid speculative CI loops.
 **READY_FOR_REVIEW — CONTROLLED_RESET_ENTRY_PROOF** with
 honest negative final verdict.
+
+
+## BND-IDP-02C — separate CLEAN BOOTSTRAP proof lane (2026-11-11)
+
+**Live preflight:** Starting and actual branch HEAD
+`7617339a8a9520fa29ffc7cf550b32c99877f8af`, `main`
+`600bbd68ce8883d960b789320bc8b2454a3ff66c`.
+Original Draft PR #23 OPEN, same five authorized paths.
+Prior [CI 42914658604](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42914658604)
+completed FAILURE at RC-adversarial-bypass-final-denial, and its
+real post-logout in-flight password change is CONFIRMED;
+**TRANSITION_WITH_PREEXISTING_FLOWS: NOT_PROVEN** permanently
+preserved unless a new real authorized transition proof is given.
+
+**Exact scope of added lane:** a separate `clean-bootstrap-idp`
+job on its OWN ephemeral GitHub runner/Keycloak 26.8.2/PostgreSQL
+17.11/Mailpit 1.32.0/internal-only Docker network, own sanitized
+`clean_bootstrap.json` and distinct artifact. Original
+`isolated-idp` job, prior regressions/RC failure, Docker
+teardown, versions, original artifact all remain unchanged.
+A clean PASS is ONLY local clean-bootstrap evidence; overall
+workflow remains RED while the historical transition job is RED.
+
+**Clean bootstrap fixture:** new realm
+`auth-idp-clean-bootstrap-ci` created with reset and
+registration disabled + supported FGAP V2 enabled. Both
+Account Console client and UPDATE_PASSWORD Required Action
+disabled/read back BEFORE ANY synthetic user, browser session,
+reset link or required-action form is created in that realm.
+Then synthetic users and service client created; no broad
+realm-management manage-users granted. Independent real
+Code+PKCE OIDC logins, genuine browser attempted Forgot
+and direct reset path, account-console security route,
+new kc_action, in-policy admin-issued action link and
+in-policy admin-assigned Required Action. Each relevant
+negative is checked with rejected attempted password and
+accepted original password in a NEW real browser flow; a
+hidden link alone never counts as proof. An ordinary bearer
+is also denied the direct Admin reset endpoint.
+
+**FGAP readback repair** (actual version's REST mapping):
+resolve scope IDs against same server's `resource-server/scope`
+list and `scopesData`, resource references against
+`resourcesData` and actual resource GET, and policy
+references against created user-policy ID. Do not record
+password, user UUID, policy ID, action link, Cookie or token;
+report boolean exact matches and harmless array counts.
+Only Users resource, exactly one target, ONLY reset-password
+operation and one linked service principal policy may qualify.
+Then positive target Reset OLD DENY/NEW ACCEPT and negative
+other-user Reset and unrelated profile write are verified.
+
+**Independent verdicts:** TRANSITION_WITH_PREEXISTING_FLOWS
+remains NOT_PROVEN regardless of this job. Clean is
+PROVEN only if all live inputs, full ID-resolved permission
+associations and positive/negative credential outcomes succeed;
+otherwise CLEAN_BOOTSTRAP_CONTROLLED_RESET=NOT_PROVEN with
+precise sanitized failure. Trusted master/realm-admin provisioning
+is outside the policy boundary. No product sessions/BFF, RAG,
+database migration, contract, shared checklist, SPI/outbox or deploy.
+Additional CB case identifiers are non-counting probes; P3M05-A07/A08/A10
+remain NOT_ACCEPTED as product capabilities.
+
+**Implemented:** source/CI split prepared (the five authorized
+files only). **Tested new source:** CI_PENDING; no new PROVEN
+claim before SHA-specific actual Job and artifact. **Accepted:**
+NONE / SUPERVISOR_PENDING. 

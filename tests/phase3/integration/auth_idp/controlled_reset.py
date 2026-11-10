@@ -19,6 +19,7 @@ from support import (BASE, MAIL, CALLBACK, CLIENT, credentials, request,
     message_for, mail_ids, action_url, verifier, challenge)
 
 REALM_C = "auth-idp-controlled-ci"
+CLEAN_REALM = "auth-idp-clean-bootstrap-ci"
 ROOT = BASE + "/admin/realms/" + REALM_C
 LOGIN = BASE + "/realms/" + REALM_C
 USER_SCOPE = "openid email profile"
@@ -26,11 +27,12 @@ AUTH_ADMIN_SCOPE = "openid email profile kc-admin-api"
 
 
 class Root:
-    def __init__(self, master_token):
+    def __init__(self, master_token, realm_name=REALM_C):
         self.master_token = master_token
+        self.realm_name = realm_name
 
     def call(self, method, suffix="", *, expect_status=200, **kwargs):
-        reply = request(method, ROOT + suffix,
+        reply = request(method, BASE + "/admin/realms/" + self.realm_name + suffix,
                         headers={"Authorization":"Bearer " + self.master_token}, **kwargs)
         allowed = {expect_status} if isinstance(expect_status,int) else set(expect_status)
         assert reply.status_code in allowed, "CONTROL_ROOT_STANDARD_REST_UNEXPECTED_STATUS"
@@ -160,7 +162,7 @@ async def login(e, browser, cb, oidc, email, password, *, expect_failure=False,
 
 
 def token(root, client_id, secret, *, scope="kc-admin-api"):
-    reply=request("POST",LOGIN+"/protocol/openid-connect/token",
+    reply=request("POST",BASE+"/realms/"+root.realm_name+"/protocol/openid-connect/token",
                   data={"grant_type":"client_credentials",
                         "client_id":client_id,"client_secret":secret,
                         "scope":scope})
@@ -168,8 +170,8 @@ def token(root, client_id, secret, *, scope="kc-admin-api"):
     return reply.json()["access_token"]
 
 
-def admin_request(access, suffix, *, method="PUT", **kwargs):
-    return request(method, ROOT + suffix,
+def admin_request(access, suffix, *, method="PUT", realm_name=REALM_C, **kwargs):
+    return request(method, BASE + "/admin/realms/" + realm_name + suffix,
          headers={"Authorization":"Bearer "+access},**kwargs)
 
 
@@ -209,7 +211,8 @@ def password_update(root, uid, value, *, token_value=None):
     payload={"type":"password","temporary":False,"value":value}
     if token_value is None:
         return root.call("PUT",url,json=payload,expect_status=204).status_code
-    return admin_request(token_value,url,json=payload).status_code
+    return admin_request(token_value,url,realm_name=root.realm_name,
+                         json=payload).status_code
 
 
 async def old_action_token(e, root, email, uid):
@@ -697,3 +700,442 @@ async def run(e,browser,cb):
         e.STAGES["RC-12-single-controlled-reset-entry"] = "BLOCKED"
         raise AssertionError("CONTROLLED_RESET_SINGLE_ENTRY_NOT_PROVEN")
     raise AssertionError("CONTROLLED_RESET_EXHAUSTIVE_SCOPE_NOT_PROVEN")
+
+
+# CLEAN BOOTSTRAP is a distinct CI mode, not the historical RC migration test.
+# Do not move, delete, bypass or relabel run() and its final fail-closed check.
+def initialize_clean_realm(e):
+    e.CURRENT="CB-00-create-fresh-realm-with-final-policy"
+    master=e.Admin().token
+    root=Root(master,CLEAN_REALM)
+    initial={
+      "realm":CLEAN_REALM,"enabled":True,"sslRequired":"none",
+      "registrationAllowed":False,"registrationEmailAsUsername":True,
+      "loginWithEmailAllowed":True,"duplicateEmailsAllowed":False,
+      "verifyEmail":False,"resetPasswordAllowed":False,
+      "adminPermissionsEnabled":True,"bruteForceProtected":False,
+      "passwordPolicy":"length(12) and digits(1) and upperCase(1) and specialChars(1)",
+      "accessTokenLifespan":180,
+      "actionTokenGeneratedByAdminLifespan":180,
+      "actionTokenGeneratedByUserLifespan":180,
+      "smtpServer":{"host":"mailpit","port":"1025",
+                    "from":"clean-bootstrap-ci@example.test",
+                    "ssl":"false","starttls":"false","auth":"false"}
+    }
+    resp=request("POST",BASE+"/admin/realms",
+       headers={"Authorization":"Bearer "+master},json=initial)
+    assert resp.status_code==201,"CB_REALM_CREATE_FAILED"
+    r=root.call("GET").json()
+    assert r["realm"]==CLEAN_REALM
+    assert r.get("adminPermissionsEnabled") is True
+    assert r["resetPasswordAllowed"] is False
+    # No synthetic users, browser login, action-token issue or action form
+    # has occurred in this fresh realm; lock every alternative BEFORE those.
+    readback=restrict_standard(root)
+    assert root.call("GET").json().get("adminPermissionsEnabled") is True
+    create_client(root,{
+       "clientId":CLIENT,"enabled":True,"protocol":"openid-connect",
+       "publicClient":True,"standardFlowEnabled":True,
+       "directAccessGrantsEnabled":False,"implicitFlowEnabled":False,
+       "serviceAccountsEnabled":False,"redirectUris":[CALLBACK],
+       "webOrigins":[],"attributes":{"pkce.code.challenge.method":"S256"}
+    })
+    login_root=BASE+"/realms/"+CLEAN_REALM
+    discovered=request("GET",login_root+"/.well-known/openid-configuration")
+    assert discovered.status_code==200
+    assert discovered.json()["issuer"]==login_root
+    e.RESULTS["CB_initial_conditions"]={
+      "separate_fresh_realm":True,
+      "final_reset_and_registration_disabled_before_users":True,
+      "account_console_and_required_action_disabled_before_users":True,
+      "fgap_v2_enabled_before_users":True,
+      "no_preexisting_browser_form_or_reset_link_in_this_realm":True,
+      "transition_proof_not_claimed":True,
+      "standard_restrictions_readback":readback
+    }
+    e.case("CB-00-clean-policy-before-users-or-flows")
+    return root,discovered.json(),login_root
+
+
+def clean_fgap_permission(e,root,target_uuid,service_cid):
+    # Administrative readback uses the real 26.8 REST representation:
+    # PolicyRepresentation.scopes/resources/policies may contain internal IDs,
+    # while scopesData/resourcesData can contain structured objects.
+    # Exact matches, not mere array length, are essential to mark PROVEN.
+    e.CURRENT="CB-01-create-exact-scoped-permission"
+    assert root.call("GET").json().get("adminPermissionsEnabled") is True
+    service_uuid=root.client(service_cid)["id"]
+    suid=root.call("GET","/clients/"+service_uuid+
+         "/service-account-user").json()["id"]
+    management_uuid=root.client("realm-management")["id"]
+    roles=root.call("GET","/users/"+suid+
+         "/role-mappings/clients/"+management_uuid).json()
+    assert not any(x.get("name") in (
+         "manage-users","view-users","realm-admin","manage-realm")
+         for x in roles),"CB_BROAD_ROLE_NOT_ALLOWED"
+    authz=root.client("admin-permissions")["id"]
+    pref="/clients/"+authz+"/authz/resource-server"
+    pname="clean-one-service-policy"
+    name="clean-one-target-reset-only"
+    root.call("POST",pref+"/policy/user",json={
+         "name":pname,"logic":"POSITIVE","users":[suid]
+    },expect_status=201)
+    root.call("POST",pref+"/permission/scope",json={
+         "name":name,"resourceType":"Users","scopes":["reset-password"],
+         "resources":[target_uuid],"policies":[pname]
+    },expect_status=201)
+    all_permissions=root.call("GET",pref+"/permission/scope").json()
+    exact=[x for x in all_permissions if x.get("name")==name]
+    assert len(exact)==1 and exact[0].get("id")
+    item=root.call("GET",pref+"/permission/scope/"+exact[0]["id"]).json()
+    assert item.get("name")==name and item.get("resourceType")=="Users"
+    policy_rows=root.call("GET",pref+"/policy/user").json()
+    policies=[x for x in policy_rows if x.get("name")==pname]
+    assert len(policies)==1 and policies[0].get("id")
+    policy_id=policies[0]["id"]
+    policy_detail=root.call("GET",pref+"/policy/user/"+policy_id).json()
+    assert policy_detail.get("name")==pname
+
+    # Resolve permission references against the same pinned server's
+    # persisted AuthZ scope, resource and policy objects (no ID logging).
+    scope_rows=root.call("GET",pref+"/scope").json()
+    scope_by_id={x.get("id"):x.get("name") for x in scope_rows
+                 if x.get("id") and x.get("name")}
+    def extract_ids(items):
+        return [x.get("id") if isinstance(x,dict) else x
+                for x in (items or [])]
+    scope_ref=extract_ids(item.get("scopes"))
+    scope_obj=[x.get("name") for x in (item.get("scopesData") or [])
+               if isinstance(x,dict)]
+    resolved_scopes=[scope_by_id.get(v,v) for v in scope_ref]
+    # The API may emit either IDs or scopesData, not necessarily both.
+    scope_ok=(resolved_scopes==["reset-password"] or
+              scope_obj==["reset-password"])
+    if resolved_scopes and scope_obj:
+        scope_ok=scope_ok and set(resolved_scopes)==set(scope_obj)
+
+    resource_ref=extract_ids(item.get("resources"))
+    resource_data=item.get("resourcesData") or []
+    resource_ids=[x.get("id") for x in resource_data if isinstance(x,dict)]
+    names=[x.get("name") for x in resource_data if isinstance(x,dict)]
+    candidate_ids=resource_ref or resource_ids
+    candidate_names=names
+    # If the permission references AuthZ resource IDs, query the actual
+    # resources and cross-check their entity UUID, not their display label.
+    if candidate_ids and target_uuid not in candidate_ids:
+        linked=[]
+        for rid in candidate_ids:
+            reply=root.call("GET",pref+"/resource/"+rid)
+            linked.append(reply.json())
+        candidate_ids=[x.get("id") for x in linked]
+        candidate_names=[x.get("name") for x in linked]
+    resource_ok=(len(candidate_ids)==1 and
+                 (candidate_ids[0]==target_uuid or
+                  (len(candidate_names)==1 and
+                   candidate_names[0]==target_uuid)))
+    # The AuthZ user resource UUID is an authoritative entity identifier.
+    # A broad "Users" type-level resource must never satisfy this check.
+    if candidate_names==["Users"] and target_uuid not in candidate_ids:
+        resource_ok=False
+    policy_refs=extract_ids(item.get("policies"))
+    policy_ok=(len(policy_refs)==1 and policy_refs[0] in (policy_id,pname))
+    if not policy_refs:
+        # Server-side associated-policy relation is a distinct Admin REST
+        # endpoint; never fabricate a match from the POST request itself.
+        assoc=root.call("GET",pref+"/permission/scope/"+
+                        exact[0]["id"]+"/associatedPolicies",
+                        expect_status=(200,404))
+        if assoc.status_code==200:
+            ar=assoc.json()
+            policy_ok=(len(ar)==1 and
+                       ar[0].get("id")==policy_id and
+                       ar[0].get("name")==pname)
+    checks={
+       "resource_type_users":item.get("resourceType")=="Users",
+       "only_reset_password_scope_resolved":scope_ok,
+       "exact_single_target_user_resource_resolved":resource_ok,
+       "exact_single_service_policy_resolved":policy_ok,
+       "no_broad_admin_role":True,
+    }
+    e.RESULTS["CB_permission_readback"]={
+       "keycloak_permission_representation":"PolicyRepresentation",
+       "scope_refs_count":len(scope_ref),
+       "scope_objects_count":len(scope_obj),
+       "resource_refs_count":len(resource_ref),
+       "resource_objects_count":len(resource_data),
+       "policy_refs_count":len(policy_refs),
+       "checks":checks,
+       "all_relations_verified":all(checks.values()),
+    }
+    e.case("CB-01-FGAP-references-readback-measured")
+    return all(checks.values())
+
+
+async def clean_unchanged_password(e,browser,cb,oidc,email,old,attempted,stage):
+    # An omitted form alone never qualifies as a password boundary.
+    e.CURRENT=stage+"-real-negative-new-password"
+    await login(e,browser,cb,oidc,email,attempted,expect_failure=True)
+    e.CURRENT=stage+"-real-positive-original-password"
+    await login(e,browser,cb,oidc,email,old)
+    e.RESULTS[stage]={"attempted_password_rejected":True,
+                      "original_password_still_accepted":True}
+    e.case(stage+"-credential-not-changed")
+
+
+async def clean_browser_password_attempt(e,browser,url,new_password,cb,
+                                         *,email=None,old_password=None):
+    outcome=await browser_action_attempt(e,browser,url,new_password,
+                    email=email,old_password=old_password)
+    callbacks=drain_probe_callbacks(cb)
+    return {"real_password_form":outcome["real_password_form"],
+            "submitted":outcome["submitted"],
+            "callback_count":callbacks}
+
+
+async def run_clean(e,browser,cb):
+    # Distinct CI job / disposable Keycloak instance; does not run old RC.
+    # The historical failing RC transition remains in its own job.
+    e.RESULTS["CLEAN_BOOTSTRAP_CONTROLLED_RESET"]={
+       "verdict":"NOT_PROVEN",
+       "mode":"fresh-realm-final-policy-before-all-users-and-flows",
+       "product_session_revocation":"NOT_TESTED",
+       "existing_transition_result":"NOT_PROVEN_UNCHANGED"}
+    root,oidc,lr=initialize_clean_realm(e)
+    actors=("target","other","forgot","action","account","direct","required")
+    email={k:"clean-"+k+"@example.test" for k in actors}
+    old={k:"Qx9!"+secrets.token_urlsafe(18) for k in actors}
+    attempted={k:"Zp8!"+secrets.token_urlsafe(18) for k in actors}
+    uid={k:create_user(root,email[k],old[k]) for k in actors}
+    service_token=issue_service(root,"clean-reset-only-service")
+    fgap_ok=clean_fgap_permission(e,root,uid["target"],
+                                   "clean-reset-only-service")
+    # This is the FIRST user authentication in this new realm.
+    e.CURRENT="CB-02-real-ordinary-email-password-login"
+    await login(e,browser,cb,oidc,email["target"],old["target"])
+    await login(e,browser,cb,oidc,email["other"],old["other"])
+    e.case("CB-02-normal-real-OIDC-login-after-final-policy")
+
+    e.CURRENT="CB-03-browser-forgot-and-direct-reset-endpoint"
+    ctx,page=await e.new_page(browser)
+    before=mail_ids()
+    reset_form_seen=False
+    try:
+        nonce=secrets.token_urlsafe(18)
+        url=oidc["authorization_endpoint"]+"?"+urlencode({
+          "client_id":CLIENT,"redirect_uri":CALLBACK,"response_type":"code",
+          "scope":USER_SCOPE,"state":secrets.token_urlsafe(18),
+          "nonce":nonce,"code_challenge":challenge(verifier()),
+          "code_challenge_method":"S256"})
+        await page.goto(url,wait_until="domcontentloaded")
+        await expect(page.locator("#kc-form-login")).to_be_visible()
+        link=page.locator('a[href*="reset-credentials"]')
+        visible_forgot=await link.is_visible()
+        if await link.count():
+            href=await link.first.get_attribute("href")
+            if href:
+                await page.goto(BASE+href if href.startswith("/") else href)
+                reset_form_seen=await page.locator("#kc-reset-password-form").is_visible()
+        # Direct URL is exercised separately, regardless of link visibility.
+        await page.goto(lr+"/login-actions/reset-credentials",
+                        wait_until="domcontentloaded")
+        direct_form=await page.locator("#kc-reset-password-form").is_visible()
+        if direct_form:
+            reset_form_seen=True
+            await page.locator('#kc-reset-password-form input[name="username"]').fill(
+                email["forgot"])
+            await page.locator('#kc-reset-password-form button[type="submit"], #kc-reset-password-form input[type="submit"]').first.click()
+    finally:
+        await ctx.close()
+    message=await asyncio.to_thread(message_for,email["forgot"],before)
+    if message:
+        attempt=await clean_browser_password_attempt(
+               e,browser,action_url(message[1]),attempted["forgot"],cb)
+    else:
+        attempt={"real_password_form":False,"submitted":False,"callback_count":0}
+    e.RESULTS["CB_forgot"]={
+        "visible_link":visible_forgot,"form_seen":reset_form_seen,
+        "local_mail_created":bool(message),"action_form_submitted":attempt["submitted"]}
+    e.case("CB-03-forgot-direct-and-local-mail-attempted")
+    await clean_unchanged_password(e,browser,cb,oidc,email["forgot"],
+          old["forgot"],attempted["forgot"],"CB-03-forgot")
+
+    e.CURRENT="CB-04-fresh-kc-action-actual-login-and-form"
+    action_url_new=oidc["authorization_endpoint"]+"?"+urlencode({
+       "client_id":CLIENT,"redirect_uri":CALLBACK,"response_type":"code",
+       "scope":USER_SCOPE,"state":secrets.token_urlsafe(20),
+       "nonce":secrets.token_urlsafe(20),
+       "code_challenge":challenge(verifier()),
+       "code_challenge_method":"S256","prompt":"login",
+       "kc_action":"UPDATE_PASSWORD"})
+    action_result=await clean_browser_password_attempt(e,browser,
+         action_url_new,attempted["action"],cb,
+         email=email["action"],old_password=old["action"])
+    e.RESULTS["CB_kc_action"]=action_result
+    e.case("CB-04-kc-action-real-browser-attempted")
+    await clean_unchanged_password(e,browser,cb,oidc,email["action"],
+         old["action"],attempted["action"],"CB-04-kc-action")
+
+    e.CURRENT="CB-05-account-console-UI-and-direct-route"
+    ctx,page=await e.new_page(browser)
+    try:
+        await page.goto(lr+"/account/#/security/signingin",
+                        wait_until="domcontentloaded")
+        status=request("GET",lr+"/account/").status_code
+        update=page.get_by_role("button",name="Update",exact=True)
+        update_button=await update.is_visible()
+        if update_button:
+            await update.click()
+        password_form=await page.locator("#password-new").is_visible()
+        did_submit=False
+        if password_form:
+            await page.locator("#password-new").fill(attempted["account"])
+            await page.locator("#password-confirm").fill(attempted["account"])
+            await page.locator(
+                '#kc-submit, #kc-passwd-update-form input[type="submit"]'
+            ).first.click()
+            did_submit=True
+        e.RESULTS["CB_account_console"]={
+           "direct_http":status,"visible_update_button":update_button,
+           "actual_password_form":password_form,"submitted":did_submit,
+           "client_disabled_readback":root.client("account-console")["enabled"] is False}
+    finally:
+        await ctx.close()
+    drain_probe_callbacks(cb)
+    e.case("CB-05-account-console-direct-UI-attempted")
+    await clean_unchanged_password(e,browser,cb,oidc,email["account"],
+         old["account"],attempted["account"],"CB-05-account")
+
+    e.CURRENT="CB-06-same-configuration-admin-issued-action-link"
+    before=mail_ids()
+    issuance=root.call("PUT","/users/"+uid["direct"]+"/execute-actions-email",
+        params={"client_id":CLIENT,"redirect_uri":CALLBACK,"lifespan":180},
+        json=["UPDATE_PASSWORD"],expect_status=(204,400,403))
+    mail=await asyncio.to_thread(message_for,email["direct"],before)
+    if issuance.status_code==204 and not mail:
+        # The server accepted the issue request but there is no link to
+        # exercise. Do not turn an untested link into a success.
+        e.RESULTS["CB_action_issuance_missing_mail"]=True
+    if mail:
+        link_result=await clean_browser_password_attempt(
+            e,browser,action_url(mail[1]),attempted["direct"],cb,
+            email=email["direct"],old_password=old["direct"])
+    else:
+        link_result={"real_password_form":False,"submitted":False,
+                     "callback_count":0}
+    e.RESULTS["CB_action_link"]={
+       "after_policy_issue_http":issuance.status_code,
+       "issued_local_action_mail":bool(mail),
+       "real_password_form":link_result["real_password_form"],
+       "submitted":link_result["submitted"],
+       "untested_accepted_issue":issuance.status_code==204 and not bool(mail)}
+    e.case("CB-06-post-policy-action-token-tested-if-issued")
+    await clean_unchanged_password(e,browser,cb,oidc,email["direct"],
+         old["direct"],attempted["direct"],"CB-06-action-link")
+
+    e.CURRENT="CB-07-same-configuration-admin-assigned-required-action"
+    # This is an explicitly privileged bootstrap-issued action, NOT
+    # evidence of a pre-existing user flow from before clean lockdown.
+    u=root.call("GET","/users/"+uid["required"]).json()
+    modified=deepcopy(u)
+    modified["requiredActions"]=["UPDATE_PASSWORD"]
+    root.call("PUT","/users/"+uid["required"],json=modified,expect_status=204)
+    ctx,page=await e.new_page(browser)
+    try:
+        ra_url=oidc["authorization_endpoint"]+"?"+urlencode({
+          "client_id":CLIENT,"redirect_uri":CALLBACK,"response_type":"code",
+          "scope":USER_SCOPE,"state":secrets.token_urlsafe(22),
+          "nonce":secrets.token_urlsafe(22),
+          "code_challenge":challenge(verifier()),
+          "code_challenge_method":"S256","prompt":"login"})
+        await page.goto(ra_url,wait_until="domcontentloaded")
+        await expect(page.locator("#kc-form-login")).to_be_visible()
+        await e.fill_login(page,email["required"],old["required"])
+        real_form=await page.locator("#password-new").is_visible()
+        submitted=False
+        if real_form:
+            await page.locator("#password-new").fill(attempted["required"])
+            await page.locator("#password-confirm").fill(attempted["required"])
+            await page.locator(
+                '#kc-submit, #kc-passwd-update-form input[type="submit"]'
+            ).first.click()
+            submitted=True
+        e.RESULTS["CB_required_action"]={
+           "admin_assigned_after_lock":True,
+           "password_form_after_assignment":real_form,
+           "submitted":submitted}
+    finally:
+        await ctx.close()
+    drain_probe_callbacks(cb)
+    # Clear the trusted-admin fixture requirement to enable an independent
+    # fresh login; no normal user/limited service has this permission.
+    changed=root.call("GET","/users/"+uid["required"]).json()
+    changed["requiredActions"]=[]
+    root.call("PUT","/users/"+uid["required"],json=changed,expect_status=204)
+    e.case("CB-07-post-policy-assigned-required-action-attempted")
+    await clean_unchanged_password(e,browser,cb,oidc,email["required"],
+         old["required"],attempted["required"],"CB-07-required-action")
+
+    e.CURRENT="CB-08-ordinary-OIDC-bearer-admin-reset-negative"
+    ordinary=await login(e,browser,cb,oidc,email["other"],old["other"])
+    unpriv=password_update(root,uid["target"],attempted["target"],
+          token_value=ordinary["access_token"])
+    assert unpriv in (401,403),"CB_ORDINARY_USER_ADMIN_RESET_ALLOWED"
+    e.RESULTS["CB_ordinary_admin_reset_http"]=unpriv
+    await login(e,browser,cb,oidc,email["target"],old["target"])
+    e.case("CB-08-normal-user-admin-reset-denied")
+
+    e.CURRENT="CB-09-scoped-service-actual-reset"
+    status=password_update(root,uid["target"],attempted["target"],
+          token_value=service_token)
+    if status==204:
+        await login(e,browser,cb,oidc,email["target"],old["target"],
+                    expect_failure=True)
+        await login(e,browser,cb,oidc,email["target"],attempted["target"])
+    e.RESULTS["CB_target_reset"]={
+       "http":status,"old_denied_new_accepted":status==204}
+    e.case("CB-09-scoped-target-password-reset-measured")
+
+    e.CURRENT="CB-10-service-out-of-domain-and-unrelated-operation"
+    out_pw="Oz8!"+secrets.token_urlsafe(18)
+    out_status=password_update(root,uid["other"],out_pw,
+                               token_value=service_token)
+    profile_status=admin_request(service_token,
+         "/users/"+uid["target"],realm_name=root.realm_name,
+         json={"firstName":"ForbiddenMutation"}).status_code
+    unchanged=root.call("GET","/users/"+uid["target"]).json().get(
+         "firstName")=="Synthetic"
+    if out_status in (401,403):
+        await login(e,browser,cb,oidc,email["other"],old["other"])
+    e.RESULTS["CB_scope_negatives"]={
+       "other_user_reset_http":out_status,
+       "other_user_old_credential_retained":out_status in (401,403),
+       "unrelated_profile_http":profile_status,
+       "target_profile_unchanged":unchanged}
+    e.case("CB-10-cross-user-and-profile-negative-measured")
+
+    evidence=e.RESULTS
+    mutation_routes=("CB-03-forgot","CB-04-kc-action","CB-05-account",
+                     "CB-06-action-link","CB-07-required-action")
+    forms_denied=all(evidence[k]["original_password_still_accepted"]
+           and evidence[k]["attempted_password_rejected"] for k in mutation_routes)
+    clean_pass=(fgap_ok and forms_denied
+          and not evidence["CB_action_link"]["untested_accepted_issue"]
+          and status==204 and out_status in (401,403)
+          and profile_status in (401,403) and unchanged
+          and unpriv in (401,403))
+    evidence["CLEAN_BOOTSTRAP_CONTROLLED_RESET"].update({
+       "verdict":"PROVEN" if clean_pass else "NOT_PROVEN",
+       "permission_readback_complete":fgap_ok,
+       "ordinary_route_password_unchanged":forms_denied,
+       "allowed_target_reset_verified":status==204,
+       "other_user_reset_denied":out_status in (401,403),
+       "unrelated_admin_operation_denied":profile_status in (401,403),
+       "root_or_realm_admin_outside_boundary":True,
+       "transition_with_preexisting_flows":"NOT_PROVEN",
+       "no_product_session_claim":True,
+    })
+    e.CURRENT="CB-11-clean-bootstrap-final-verdict"
+    if not clean_pass:
+        e.STAGES["CB-11-clean-bootstrap-final-verdict"]="BLOCKED"
+        raise AssertionError("CLEAN_BOOTSTRAP_CONTROLLED_RESET_NOT_PROVEN")
+    e.case("CB-11-clean-bootstrap-controlled-reset-PROVEN")
