@@ -1647,3 +1647,102 @@ source:** pending real CI, **Accepted:** NONE.
 **Precise remaining permission readback failure:** 26.8.2 scope-permission GET by ID omits `scopes`, `scopesData`, `resources`, `resourcesData`, `policies` (all counts 0). Reverse scope association through real scope ID yielded `scope_permission_reverse_link=true`; no other scope linked `unexpected_other_scope_link=false`. Reverse associated-policy endpoint yielded `policy_permission_reverse_link=true`. However GET Authorization Resource with **target user's entity UUID** yielded HTTP **404**, with `target_permission_reverse_link=false`; **`exact_single_target_user_resource_resolved=false`**. Although Keycloak documented FGAP POST allows a user UUID as a scoped resource identifier and direct functional authorization is correct, this UUID is not proven to be an addressable AuthZ resource UUID through this reverse REST endpoint. Do not confuse user-entity ID with AuthZ resource ID or manufacture readback from original POST. Thus `resource_type_users=true`, `only_reset_password_scope_resolved=true`, `exact_single_service_policy_resolved=true`, `no_broad_admin_role=true`, **`all_relations_verified=false`**.
 
 **Independent verdicts:** `TRANSITION_WITH_PREEXISTING_FLOWS=NOT_PROVEN` (confirmed old already-open UPDATE_PASSWORD form still changes password after restriction and standard logout-all); `CLEAN_BOOTSTRAP_CONTROLLED_RESET=NOT_PROVEN` (only persisted single-target permission resource relation unresolved, not an observed functional cross-target bypass). Both isolated CI jobs are red for their own exact reasons. **Implemented** separate clean job/fixture and reverse relation checks; **Tested** real source SHA above, separate full CI. **Accepted NONE / supervisor pending.** Final documentation-only SHA must be verified independently; no Gate, product Session revocation, SPI/Outbox, migration, deployment, broad role grant or merge.
+
+
+## IDP-CI-01-BI — exact FGAP resource readback, separate CLEAN BOOTSTRAP result (2026-11-11)
+
+**Live tested source SHA:** `0ca98d70defc7ef6cc250686b08f62dc57441571`;
+same branch `agent/idp-controlled-reset`, same OPEN/DRAFT PR #23,
+same five authorized PR files. **Actual PR workflow**
+[42922819381](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42922819381)
+**COMPLETED FAILURE (intentionally mixed security conclusions)**.
+Two truly independent isolated hosted Keycloak 26.8.2 /
+PostgreSQL 17.11 / Mailpit 1.32.0 / Playwright 1.64.1 jobs,
+without exposed ports or egress, with teardown PASS:
+
+- **Clean job** `130201655712` **SUCCESS**, exact source SHA;
+  [sanitized actual artifact 13813086540](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42922819381/artifacts/13813086540)
+  has `overall=PASS`, 17/17 CB stages PASS,
+  `CLEAN_BOOTSTRAP_CONTROLLED_RESET.verdict=PROVEN`,
+  `permission_readback_complete=true`.
+- **Original transition job** `130201655242` **FAILURE** at preserved
+  `RC-adversarial-bypass-final-denial`;
+  [sanitized actual artifact 13812442224](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42922819381/artifacts/13812442224)
+  has `overall=FAIL`, `RC_verdict.controlled_entry=NOT_PROVEN`,
+  `RC_bypass.bypass_classifications=[inflight-form,inflight-form-after-logout-all]`.
+  Actual old rendered form changed the credential independently even AFTER
+  `POST /logout-all` HTTP 200. All legacy IDP-01/RA/RB regression
+  measurements retained. No old assertion, Skip, rename or CI override.
+
+**Why old resource readback returned 404:** `resources` in the
+documented FGAP V2 specific-resource POST takes **User entity UUID**;
+the actual Keycloak 26.8.2 authorization `ResourceRepresentation`
+uses its own **`_id`** field (confirmed by the version-tagged
+Keycloak admin-client declaration). GET
+`/authz/resource-server/resource/{target-user-UUID}` incorrectly
+assumed both IDs coincide. It did NOT establish absence of a relation.
+The 26.8 admin REST `GET .../permission` also legitimately responds
+**204 No Content** for empty filtered searches. Old readback/diagnostic
+failures [42920435688](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42920435688)
+and [42922196578](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42922196578)
+were not retroactively relabeled.
+
+**Live persisted-permission chain, NOT inferred from the POST payload:**
+
+| API and independent check | Actual sanitized response |
+|---|---|
+| Paginated `GET /resource` inventory | HTTP 200; 6 resources; 1 page; complete; internal field `_id` present |
+| Match real user entity identifier to returned resource fields, then `GET /resource/{server-returned-_id}` | 1 candidate, HTTP 200; user UUID never used as resource REST ID |
+| `GET /resource/{real-_id}/permissions` | Exact permission's ID linked = true |
+| Paginated `GET /permission?resourceType=Users&resource=<target-UUID>&scope=reset-password` | HTTP 200; exactly 1 exact permission; fully read |
+| Same exact query for six independent non-target users | six HTTP **204**; zero permission matches; all complete |
+| Paginated `GET /permission?resourceType=Users` plus entire `GET /permission/scope` | exactly 1 permission; no type-wide/other-user extra permission |
+| `GET /scope/{real-scope-id}/permissions` and all other scopes | expected `reset-password` reverse link true; other scope links false |
+| `GET /permission/scope/{permission-id}/associatedPolicies` | exactly 1 expected service principal user policy; reverse link true |
+| Service account direct and composite `realm-management` role mappings | no `manage-users`, `view-users`, `realm-admin`, `manage-realm` |
+| Final `CB_permission_readback.checks` | resource type Users true; only reset-password true; exact target true; policy true; no broad role true; ALL TRUE |
+
+Keycloak's permission-by-ID `PolicyRepresentation` still omits
+`scopes/scopesData/resources/resourcesData/policies` arrays (all lengths 0),
+so these empty direct fields are **not** treated as a negative relation.
+The persisted chain was independently proven by the actual list, returned
+AuthZ `_id`, resource reverse permissions, exact target vs excluded
+server-side searches, scope reverse and associated-policy endpoints.
+Pagination was completed and checked for malformed/missing/repeated
+identifiers; only status codes, shape names, counts and Booleans exported.
+
+**Independent real browser/security matrix:** fresh final restricted
+realm policy before ANY user, form or action link; normal email/password
+Code+PKCE succeeds; Forgot + direct reset, Account Console, new
+`kc_action=UPDATE_PASSWORD`, in-policy issued local SMTP action token
+(issuance HTTP 204; actual link opened), and in-policy privileged
+admin-assigned Required Action all independently show NEW attempted
+password DENY / OLD original password ACCEPT in actual separate OIDC
+browser sign-ins. Ordinary user Admin reset HTTP **401**. Scoped
+service target reset HTTP **204**, OLD DENY / NEW ACCEPT; other user
+reset HTTP **403**, old retained; unrelated profile mutation HTTP
+**403**, profile unchanged. No secret, user UUID, resource UUID, policy
+ID, credential, email URL, authentication token, callback code or
+Cookie in exported artifacts.
+
+**Two distinct verdicts, never combined into a green Gate:**
+`CLEAN_BOOTSTRAP_CONTROLLED_RESET=PROVEN` strictly for the
+clean-from-origin synthetic realm/configuration and tested routes;
+`TRANSITION_WITH_PREEXISTING_FLOWS=NOT_PROVEN` with an actually
+exploitable preexisting rendered form, including after standard
+user-session logout. Overall workflow MUST remain FAILURE while the
+transition job is red. Trusted root/master/realm-admin, exhaustive
+future channel coverage, product Session revocation, durable external
+event delivery and product acceptance are NOT_PROVEN/OUT_OF_SCOPE.
+No product code/API/BFF/Login/DB, SPI, Outbox, migration, contracts,
+canonical checklist, deployment, new branch or merge.
+**Implemented:** only bounded clean FGAP readback source plus this
+documentation. **Tested:** exact SHA and real PR CI above;
+**Accepted:** NONE, supervisor pending. Final documentation-only
+SHA and its distinct workflow results require fresh verification.
+
+Version-tagged reference:
+https://github.com/keycloak/keycloak/blob/26.8.2/js/libs/keycloak-admin-client/src/defs/resourceRepresentation.ts .
+Standard resource/permission REST and specific-resource UUID semantics:
+https://www.keycloak.org/docs-api/26.8.0/rest-api/index.html
+and https://www.keycloak.org/docs/26.8.0/server_admin/ .
