@@ -11,6 +11,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import secrets
+import re
 import threading
 import time
 from urllib.parse import urlencode, urlsplit
@@ -212,98 +213,237 @@ async def changed_password_verified(e, browser, cb, email, old, new):
     await latest[0].close()
 
 
+async def _visible_matches(locator):
+    """Inspect ALL matching elements; never assume .first is visible."""
+    count = await locator.count()
+    visible = []
+    for i in range(count):
+        item = locator.nth(i)
+        if await item.is_visible() and await item.is_enabled():
+            visible.append(i)
+    return {"total": count, "visible_enabled": len(visible)}, visible
+
+
+def _account_resource_category(url: str) -> str:
+    """Static route categories only: never return URL, query or token."""
+    path = urlsplit(url).path
+    if "/realms/" in path and "/account/" in path:
+        if path.endswith((".js", ".mjs", ".css")):
+            return "account_asset"
+        if "/account/resources/" in path:
+            return "account_api"
+        return "account_document_or_api"
+    if "/resources/" in path:
+        return "theme_or_spa_asset"
+    if "/protocol/openid-connect/" in path:
+        return "oidc"
+    if "/login-actions/" in path:
+        return "login_action"
+    return "other_internal"
+
+
+async def _account_ui_state(page, responses, script_errors, request_failures):
+    selectors = {
+        "update_buttons": page.get_by_role("button", name="Update", exact=True),
+        "update_links": page.get_by_role("link", name="Update", exact=True),
+        "signing_links": page.locator('a[href*="signing-in"]'),
+        "security_links": page.locator('a[href*="account-security"]'),
+        "menu_buttons": page.get_by_role(
+            "button", name=re.compile(r"menu|navigation|sidebar|toggle", re.I)),
+        "expanded_buttons": page.locator('button[aria-expanded="false"]'),
+        "password_new": page.locator('#password-new, input[name="password-new"]'),
+        "login_form": page.locator("#kc-form-login"),
+    }
+    matches = {}
+    usable = {}
+    for name, locator in selectors.items():
+        matches[name], usable[name] = await _visible_matches(locator)
+    status_summary = {}
+    for bucket, status in responses:
+        key = bucket + "_" + str(status)
+        status_summary[key] = status_summary.get(key, 0) + 1
+    safe = {
+        "viewport_width": page.viewport_size["width"],
+        "viewport_height": page.viewport_size["height"],
+        "on_account_path": "/account" in urlsplit(page.url).path,
+        "on_oidc_redirect": "/protocol/openid-connect/" in urlsplit(page.url).path,
+        "on_login_action": "/login-actions/" in urlsplit(page.url).path,
+        "on_signin_hash": "signing-in" in urlsplit(page.url).fragment,
+        "dom_ready": await page.locator("body").count() > 0,
+        "matches": matches, "responses": status_summary,
+        "script_error_categories": dict(script_errors),
+        "request_failure_categories": dict(request_failures),
+    }
+    return safe, usable
+
+
 async def update_account_console(e, browser, cb, email, old_pw, new_pw, context):
-    """Real Playwright Account Console UI, never direct credential Admin REST."""
-    e.CURRENT = "RB-account-console-navigate"
+    """Real Account Console user interaction, no programmatic UI bypass.
+
+    Diagnose the root cause through safe route/status/error classes and real
+    per-element visibility. Do not claim readiness because hidden DOM exists.
+    """
+    global_base = BASE + "/realms/" + REALM + "/account/"
+    e.CURRENT = "RB-account-console-readonly-client-configuration"
+    account_clients = e.ADMIN.call(
+        "GET", "/clients", params={"clientId": "account-console"}).json()
+    assert len(account_clients) == 1, "STANDARD_ACCOUNT_CONSOLE_CLIENT_MISSING"
+    account_client = e.ADMIN.call(
+        "GET", "/clients/" + account_clients[0]["id"]).json()
+    builtin_account = e.ADMIN.call(
+        "GET", "/clients", params={"clientId": "account"}).json()
+    e.RESULTS["RB_account_client_readback"] = {
+        "account_console_present": True,
+        "account_console_enabled": account_client.get("enabled") is True,
+        "standard_flow_enabled": account_client.get("standardFlowEnabled") is True,
+        "public_client": account_client.get("publicClient") is True,
+        "account_client_exists": len(builtin_account) == 1,
+        "realm_account_theme": bool(e.ADMIN.call("GET", "").json().get("accountTheme")),
+        "no_client_privilege_changed": True,
+    }
+    assert account_client.get("enabled") is True, "ACCOUNT_CONSOLE_CLIENT_DISABLED"
+
+    e.CURRENT = "RB-account-console-set-explicit-viewport"
     page = await context.new_page()
+    await page.set_viewport_size({"width": 1440, "height": 900})
+    responses = []
+    script_errors = {}
+    request_failures = {}
+
+    def track_response(response):
+        # Safe categories only. No paths, URL queries, response body, token.
+        bucket = _account_resource_category(response.url)
+        status = response.status
+        if status in (200,201,204,301,302,303,304,307,308,400,401,403,404,429) or status >= 500:
+            responses.append((bucket, status))
+        if len(responses) > 240:
+            del responses[:40]
+
+    def track_pageerror(error):
+        # Never persist exception text: it may contain user input or URL.
+        candidate = str(error).split(":", 1)[0].lower()
+        category = next((key for key in (
+            "typeerror", "referenceerror", "syntaxerror", "rangeerror",
+            "networkerror", "chunkloaderror") if candidate == key),
+            "other_javascript_exception")
+        script_errors[category] = script_errors.get(category, 0) + 1
+
+    def track_failure(req):
+        # No failure text; a failed resource's route bucket is enough.
+        key = _account_resource_category(req.url)
+        request_failures[key] = request_failures.get(key, 0) + 1
+
+    page.on("response", track_response)
+    page.on("pageerror", track_pageerror)
+    page.on("requestfailed", track_failure)
     try:
-        await page.goto(BASE + "/realms/" + REALM +
-                        "/account/#/account-security/signing-in",
-                        wait_until="domcontentloaded")
-        e.CURRENT = "RB-account-console-screen-inspect"
-        await page.locator("body").wait_for(state="visible", timeout=12000)
-        # The initial Account Console can redirect to its OWN login client
-        # even when the test OIDC client has SSO. Real form auth is allowed,
-        # but no implicit bypass or fabricated account password update.
-        needs_login = await page.locator("#kc-form-login").is_visible()
-        if needs_login:
-            e.CURRENT = "RB-account-console-real-user-credential"
-            await e.fill_login(page, email, old_pw)
-            await page.wait_for_load_state("domcontentloaded")
-        e.CURRENT = "RB-account-console-safe-ui-shape"
-        await page.wait_for_timeout(1300)
-        shape = {
-            "account_path": "/account" in urlsplit(page.url).path,
-            "login_form_visible": await page.locator("#kc-form-login").is_visible(),
-            "update_button_count": await page.get_by_role("button", name="Update").count(),
-            "update_link_count": await page.get_by_role("link", name="Update").count(),
-            "signing_in_link_count": await page.get_by_role("link", name="Signing in").count(),
-            "password_new_count": await page.locator("#password-new").count(),
-            "account_security_link_count": await page.locator('a[href*="account-security"]').count(),
-        }
-        # Static element counts/booleans ONLY, never HTML, URL, form data.
-        signing_link = page.locator('a[href*="signing-in"]')
-        shape["signing_in_href_count"] = await signing_link.count()
-        shape["hash_is_signing_in"] = (urlsplit(page.url).fragment ==
-                                       "/account-security/signing-in")
-        body = (await page.locator("body").inner_text()).casefold()
-        shape["account_has_password_word"] = "password" in body
-        shape["account_has_error_word"] = any(k in body for k in
-            ("something went wrong","access denied","an error occurred",
-             "page not found","not authorized"))
-        e.RESULTS["RB_account_console_ui_shape"] = shape
-        print("RB_ACCOUNT_UI_SHAPE=" + repr(shape), flush=True)
-        # Account Console SPA may need actual menu navigation instead of a
-        # directly loaded deep hash. Use its OWN visible navigation, never
-        # an Admin REST password reset or fabricated success.
-        if not await page.get_by_role("button", name="Update").count():
-            e.CURRENT = "RB-account-console-root-first-real-navigation"
-            # Real Account Console root is visited and its OWN visible nav
-            # followed. A hidden deep-link DOM node is NOT interactive.
-            await page.goto(BASE + "/realms/" + REALM + "/account/",
-                            wait_until="domcontentloaded")
-            await page.wait_for_timeout(1200)
-            if await page.locator("#kc-form-login").is_visible():
+        e.CURRENT = "RB-account-console-root-document-navigation"
+        await page.goto(global_base, wait_until="domcontentloaded")
+        e.CURRENT = "RB-account-console-conditionally-await-UI"
+        # SPA readiness is a meaningful, rendered & enabled control, not a
+        # fixed delay or an arbitrary hidden DOM anchor. Conditional bounded
+        # polling is only for the real UI states.
+        deadline = time.monotonic() + 18
+        navigated = False
+        ready = False
+        while time.monotonic() < deadline:
+            safe, usable = await _account_ui_state(
+                page, responses, script_errors, request_failures)
+            if usable["login_form"]:
+                e.CURRENT = "RB-account-console-real-user-password-login"
                 await e.fill_login(page, email, old_pw)
-                await page.wait_for_load_state("domcontentloaded")
-            signing = page.locator('a[href*="signing-in"]')
-            security = page.locator('a[href*="account-security"]')
-            root_shape = {
-                "account_root_path":"/account" in urlsplit(page.url).path,
-                "root_login_form":await page.locator("#kc-form-login").is_visible(),
-                "root_signing_link_count":await signing.count(),
-                "root_signing_link_visible": (await signing.first.is_visible()
-                    if await signing.count() else False),
-                "root_security_link_count":await security.count(),
-                "root_security_link_visible": (await security.first.is_visible()
-                    if await security.count() else False),
-                "root_has_update_button":bool(
-                    await page.get_by_role("button", name="Update").count()),
-            }
-            e.RESULTS["RB_account_console_root_shape"] = root_shape
-            print("RB_ACCOUNT_ROOT_SHAPE=" + repr(root_shape), flush=True)
-            if await signing.count() and await signing.first.is_visible():
-                await signing.first.click(timeout=10000)
-            elif await security.count() and await security.first.is_visible():
-                await security.first.click(timeout=10000)
-                if await signing.count() and await signing.first.is_visible():
-                    await signing.first.click(timeout=10000)
-            elif not await page.get_by_role("button", name="Update").count():
-                raise AssertionError("ACCOUNT_CONSOLE_STANDARD_UI_NAV_BLOCKED")
-        e.CURRENT = "RB-account-console-update-button"
-        await expect(page.get_by_role("button", name="Update").first).to_be_visible(timeout=15000)
-        e.CURRENT = "RB-account-console-click-update"
-        await page.get_by_role("button", name="Update").first.click()
-        e.CURRENT = "RB-account-console-password-change-form"
-        await expect(page.locator("#password-new")).to_be_visible(timeout=18000)
-        await page.locator("#password-new").fill(new_pw)
-        await page.locator("#password-confirm").fill(new_pw)
-        if await page.locator("#password").count() and await page.locator("#password").is_visible():
-            await page.locator("#password").fill(old_pw)
-        e.CURRENT = "RB-account-console-submit"
-        await page.locator('#kc-submit, #kc-passwd-update-form button[type="submit"], #kc-passwd-update-form input[type="submit"]').first.click()
-        await page.wait_for_load_state("domcontentloaded")
-        # Real credentials, separately verified by independent OIDC logins.
+                navigated = False
+                continue
+            if (usable["update_buttons"] or usable["update_links"]) and (
+                    "signing-in" in urlsplit(page.url).fragment):
+                ready = True
+                break
+            if usable["signing_links"]:
+                e.CURRENT = "RB-account-console-visible-signing-in-link"
+                await page.locator('a[href*="signing-in"]').nth(
+                    usable["signing_links"][0]).click()
+                navigated = True
+            elif usable["security_links"]:
+                e.CURRENT = "RB-account-console-visible-security-link"
+                await page.locator('a[href*="account-security"]').nth(
+                    usable["security_links"][0]).click()
+                navigated = True
+            elif usable["menu_buttons"] and not navigated:
+                e.CURRENT = "RB-account-console-open-real-menu"
+                await page.get_by_role(
+                    "button", name=re.compile(r"menu|navigation|sidebar|toggle", re.I)
+                ).nth(usable["menu_buttons"][0]).click()
+                navigated = True
+            elif usable["expanded_buttons"] and not navigated:
+                # Only click real visible controls. No force/hidden click.
+                e.CURRENT = "RB-account-console-expand-visible-menu"
+                await page.locator('button[aria-expanded="false"]').nth(
+                    usable["expanded_buttons"][0]).click()
+                navigated = True
+            await asyncio.sleep(0.2)  # conditional predicate, not fixed readiness
+        safe, usable = await _account_ui_state(
+            page, responses, script_errors, request_failures)
+        e.RESULTS["RB_account_console_diagnostics"] = safe
+        print("RB_ACCOUNT_DIAGNOSTIC=" + repr(safe), flush=True)
+        if not ready:
+            e.CURRENT = "RB-account-console-ui-not-ready"
+            raise AssertionError("ACCOUNT_CONSOLE_UI_NOT_READY")
+        if usable["update_buttons"]:
+            button = page.get_by_role("button", name="Update", exact=True).nth(
+                usable["update_buttons"][0])
+        elif usable["update_links"]:
+            button = page.get_by_role("link", name="Update", exact=True).nth(
+                usable["update_links"][0])
+        else:
+            raise AssertionError("ACCOUNT_CONSOLE_UPDATE_NOT_VISIBLE")
+        e.CURRENT = "RB-account-console-real-update-click"
+        await button.click(timeout=12000)
+
+        # The standard UI may initiate built-in UPDATE_PASSWORD as a login
+        # required action, or open an in-app password panel. Never simulate
+        # that action through Admin REST or arbitrary JS.
+        e.CURRENT = "RB-account-console-password-form"
+        form_new = page.locator(
+            '#password-new, input[name="password-new"], '
+            'input[autocomplete="new-password"]')
+        await expect(form_new.first).to_be_visible(timeout=16000)
+        visible_new = [i for i in range(await form_new.count())
+                       if await form_new.nth(i).is_visible()]
+        assert visible_new, "ACCOUNT_CONSOLE_NEW_PASSWORD_NOT_VISIBLE"
+        await form_new.nth(visible_new[0]).fill(new_pw)
+        confirm = page.locator(
+            '#password-confirm, input[name="password-confirm"], '
+            'input[autocomplete="new-password"]')
+        confirm_visible = [i for i in range(await confirm.count())
+                           if await confirm.nth(i).is_visible()]
+        assert len(confirm_visible) >= 1
+        # Use distinct confirm input, never refill first new password.
+        confirmed = False
+        for i in confirm_visible:
+            item = confirm.nth(i)
+            if await item.input_value() != new_pw:
+                await item.fill(new_pw)
+                confirmed = True
+                break
+        assert confirmed, "ACCOUNT_CONSOLE_CONFIRM_FIELD_NOT_FOUND"
+        current_pw = page.locator(
+            '#password, input[name="password"], '
+            'input[autocomplete="current-password"]')
+        for i in range(await current_pw.count()):
+            if await current_pw.nth(i).is_visible():
+                await current_pw.nth(i).fill(old_pw)
+                break
+        e.CURRENT = "RB-account-console-submit-password-from-UI"
+        submit = page.locator(
+            '#kc-submit, #kc-passwd-update-form button[type="submit"], '
+            '#kc-passwd-update-form input[type="submit"], '
+            'button[type="submit"]')
+        visible_submit = [i for i in range(await submit.count())
+                          if await submit.nth(i).is_visible()
+                          and await submit.nth(i).is_enabled()]
+        assert visible_submit, "ACCOUNT_CONSOLE_UI_SUBMIT_NOT_VISIBLE"
+        await submit.nth(visible_submit[0]).click(timeout=12000)
+        e.RESULTS["RB_account_console_actual_browser_submit"] = True
     finally:
         await page.close()
 

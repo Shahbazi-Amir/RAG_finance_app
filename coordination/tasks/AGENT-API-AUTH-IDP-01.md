@@ -704,3 +704,59 @@ in original checkpoint.
 3. **Reuse standard Logout/Backchannel only for events actually observed**, with signature/aud/issuer/iat/exp/events/sid-or-sub/JTI validation at the eventually approved BFF consumer and separate persistent dedupe/queue, but don't treat Logout as guaranteed Password Reset event. Outage test proves NO observed catch-up in 4 seconds. If any uncontrolled external mutation paths must remain usable, seek a **separate authorized evaluation of authenticated durable event extraction/ack/reconciliation and fail-safe session barrier**; an SPI/outbox may need consideration in a different mission only AFTER standard coverage is exhausted. No extension or migration implemented here.
 
 **Scope and acceptance:** still exactly five authorized IdP paths since Starting main (new `reset_logout.py`, existing `evaluate.py`, existing `auth-idp.yml`, existing `infra/auth-ci/README.md` and THIS unchanged path used as cumulative ledger). No product API/BFF/UI/History/DB or Migration 001–005, shared contract, ADR, checklist or parent repo edits; no real mail/credential, model, public server or deploy. Source traceability unchanged: P3M05-A01/A02/A06/A07/A08/A09/A10 primary, supporting P3M03-A01/A03/A08, P3M06-A03/A05/A07, P3M13-A03/A07/A08/A09/A10; P3OP03-R01/R02/R05 non-counting overlays. **Implemented:** CI-only four reset pathways attempted, standards-based Logout Token receiver/outage measured; Account Console UI attempt BLOCKED. **Tested:** real GitHub Runner partial successes above and overall FAILURE on exact code SHA (no green 02B run). **Accepted:** NONE/SUPERVISOR_PENDING. **Verdict:** PARTIALLY_PROVEN explicit Logout/three reset paths; BLOCKED complete four-path coverage and external reset delivery; **READY_FOR_REVIEW — STANDARD_RESET_LOGOUT_EVALUATION** with visible blockers, NOT AUTH_PRODUCT_ACCEPTED or Gate PASS. The following final HEAD is documentation-only relative to tested code SHA; CI status of that HEAD must not be invented.
+
+
+## IDP-CI-01-AR — precise constrained Account Console root-cause probe on existing PR #22 (2026-11-10)
+
+**Authorized limited continuation from checked HEAD**
+`ee539d1932166c387a7cc1660c50356b2df33d8f`: exact branch
+`agent/idp-reset-boundary`, existing open Draft PR #22, base `main`
+`21de761c880c5c7c0241fb8ce683e616e44ca11b`; no new branch,
+PR, migration or checkpoint file. Previous CI [42852620874](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42852620874)
+**FAIL** with only Account Console not proven; 3 password routes and
+two real Logout operations, negative signed JWT, listener outage probes
+had distinct real successes. Preserve their exact per-route numeric
+matrix and all previous 01/02A IDP regressions. No false green status.
+
+**Observed pre-fix limitation:** `a[href*="signing-in"]` and Account
+Security link nodes exist in DOM but prior `.first` was hidden and
+`Update` never visible. Fixed `wait_for_timeout(1200/1300)` cannot
+establish React SPA readiness. It is **NOT YET** evidence of missing
+standard Account Console capability, user authorization failure, JS
+breakage or a password mutation. Standard documentation uses Account
+Security → Signing in → Password Update. The known old browser SSO
+cookie and regular OIDC callback are not a substitute for this action.
+
+**Narrow two-file change, SOURCE NOT_RUN until CI:** Only
+`tests/phase3/integration/auth_idp/reset_logout.py` and this same
+cumulative checkpoint appended; no workflow or version change.
+Explicit **1440×900** Playwright Page viewport is set before navigation.
+Before browser mutation, read **existing standard**
+`account-console` and `account` client configuration via read-only
+Admin GET, reporting non-secret boolean enabled, publicClient and
+standardFlowEnabled flags; no grant/policy/client modification.
+Instrument browser `response`, `requestfailed`, `pageerror` with
+ONLY fixed resource route categories, HTTP status counts and whitelisted
+JS exception-type categories (never URLs/query, header, HTML, token,
+Cookie, email, OTP, password or reset link). Inspect **every** matching
+Update button/link, signing-in/security nav link, menu and expansion
+control for actual visible and enabled state. Wait by **conditional
+bounded predicates** for visible enabled real UI controls, not a
+longer fixed sleep; open ONLY real visible menu button if collapsed,
+then click a visible signing-in/security link with `.nth(visibleIndex)`
+rather than `.first` or forced clicks. Genuine user/password form
+and independent old-password deny/new-password accept remain required.
+A handler may record a bounded Account Console blocker, continue
+independent Required Action/Admin/Logout/outage tests and finally
+FAIL the overall run if Account Console is unproven.
+
+**Security and decision:** If HTTP 401/403 or script/network errors
+appear, classify root cause on actual CI; no guessed Keycloak config
+changes or elevated admin access. True Account Console password edit
+must precede old cookie SSO/Refresh/UserInfo/backchannel observation
+on its *original* Session and later independent credential checks.
+No SPI, outbox, BFF/History API or product DB, migrations, real email,
+Mac install, deploy or merge. Earlier user-event vs Admin Event
+attribution limitations unchanged. **Implemented:** diagnostic source
+prepared; **Tested:** new source NOT_RUN, historical 02B CI FAILURE;
+**Accepted:** NONE/SUPERVISOR_PENDING. No Gate opened.
