@@ -1339,3 +1339,40 @@ exact SHA and real Run); historical tested SHA
 historical FINAL `32b690dfadf15a2bb044199d668b1abfc4136756`
 and failures including 42908568238 remain archived above.
 **Accepted:** NONE / SUPERVISOR_PENDING.
+
+
+## IDP-CI-01-BD — real first FGAP/Logout Run and one narrow safe stage probe (2026-11-11)
+
+**Exact tested source:** `5a488acaccb56d1fca598f1c92a3c0e6e813db33`.
+[Real PR CI 42910810577](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42910810577)
+completed FAILURE at `RC-fgap-v2-exact-permission-config-readback`,
+category AssertionError; real job `130160659449`, sanitized artifact
+`13808080860` (`overall=FAIL`). Original IDP-01 / 02A / 02B,
+RC-00..11 and RC-12 logout-all measurement labels all reached.
+Ephemeral network deny and teardown PASS. No scoped service permission
+success or unauthorized target proof occurred; FGAP remains UNVERIFIED.
+
+**Actual sanitized logout observation:** standard
+`POST /admin/realms/{realm}/logout-all` returned HTTP 200.
+The independently preserved REAL UPDATE_PASSWORD form created
+BEFORE locking restrictions and NOT reloaded was successfully
+submitted AFTER logout-all, with one callback. The second
+preissued action link presented no password form and no callback.
+The post-logout independent credential check had not yet
+been reached at the subsequent FGAP failure, so password mutation
+after logout is NOT yet independently verified. The original
+undrained in-flight form mutation remains previously confirmed.
+
+**Narrow correction only:** add static sanitized stage labels for
+individual existing FGAP configuration/readback steps, without
+changing permission scopes, assertions, service roles, IdP settings,
+original suites, operation conditions, versions or acceptance logic.
+This differentiates unsupported capability / REST setup / readback
+failures with ONE more real CI. Secrets, response bodies, user UUIDs,
+credentials, HTTP URLs and tokens remain undisclosed. If standard
+configuration remains unsuitable, stop and report to supervisor;
+do not pursue speculative retry cycles.
+
+**Implemented:** diagnostic stage names only in one test file,
+append cumulative checkpoint here.
+**Tested new SHA:** pending real CI; **Accepted:** none.

@@ -323,35 +323,48 @@ def restrict_standard(root):
 
 
 
-def configure_scoped_fgap(root, target_user_id, service_client_id):
+def configure_scoped_fgap(e, root, target_user_id, service_client_id):
     """Supported FGAP v2, only in disposable realm; no broad admin role."""
+    e.CURRENT="RC-fgap-v2-realm-initial"
     previous=root.call("GET").json()
     enabled=deepcopy(previous)
     enabled["adminPermissionsEnabled"]=True
+    e.CURRENT="RC-fgap-v2-realm-activate-put"
     root.call("PUT",json=enabled,expect_status=204)
+    e.CURRENT="RC-fgap-v2-realm-activate-readback"
     assert root.call("GET").json().get("adminPermissionsEnabled") is True, (
         "CONTROL_FGAP_V2_NOT_ENABLED")
+    e.CURRENT="RC-fgap-v2-client-discovery"
     authz_client=root.client("admin-permissions")["id"]
+    e.CURRENT="RC-fgap-v2-service-client"
     service_client=root.client(service_client_id)["id"]
+    e.CURRENT="RC-fgap-v2-service-account"
     service_user=root.call("GET","/clients/"+service_client+
         "/service-account-user").json()["id"]
+    e.CURRENT="RC-fgap-v2-realm-management-client"
     rm_id=root.client("realm-management")["id"]
+    e.CURRENT="RC-fgap-v2-role-map-read"
     mappings=root.call("GET","/users/"+service_user+
         "/role-mappings/clients/"+rm_id).json()
+    e.CURRENT="RC-fgap-v2-role-map-no-broad"
     assert not any(x.get("name") in (
         "manage-users","view-users","realm-admin","manage-realm") for x in mappings), (
         "CONTROL_FGAP_SERVICE_HAS_BROAD_BUILTIN_ROLE")
     prefix="/clients/"+authz_client+"/authz/resource-server"
     policy_name="controlled-reset-only-service-policy"
     perm_name="controlled-one-user-reset-operation"
+    e.CURRENT="RC-fgap-v2-create-user-policy"
     root.call("POST",prefix+"/policy/user",json={
         "name":policy_name,"logic":"POSITIVE",
         "users":[service_user]},expect_status=201)
+    e.CURRENT="RC-fgap-v2-create-one-user-scope-permission"
     root.call("POST",prefix+"/permission/scope",json={
         "name":perm_name,"resourceType":"Users",
         "scopes":["reset-password"],"resources":[target_user_id],
         "policies":[policy_name]},expect_status=201)
+    e.CURRENT="RC-fgap-v2-list-permissions"
     entries=root.call("GET",prefix+"/permission/scope").json()
+    e.CURRENT="RC-fgap-v2-exact-permission-readback"
     matching=[x for x in entries if x.get("name")==perm_name]
     assert len(matching)==1,"CONTROL_FGAP_PERMISSION_NOT_READABLE"
     assert matching[0].get("resourceType")=="Users", (
@@ -564,7 +577,7 @@ async def run(e,browser,cb):
     e.CURRENT="RC-fgap-v2-exact-permission-config-readback"
     scoped_client="controlled-reset-scoped-service"
     scoped_token=issue_service(root,scoped_client)
-    fgap_readback=configure_scoped_fgap(root,uid[ordinary],scoped_client)
+    fgap_readback=configure_scoped_fgap(e,root,uid[ordinary],scoped_client)
     e.RESULTS["RC_fgap_configuration"]=fgap_readback
     e.case("RC-13-standard-fgap-v2-reset-password-only-readback")
 
