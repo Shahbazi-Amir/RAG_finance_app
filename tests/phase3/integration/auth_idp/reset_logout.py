@@ -242,9 +242,32 @@ async def update_account_console(e, browser, cb, email, old_pw, new_pw, context)
             "account_security_link_count": await page.locator('a[href*="account-security"]').count(),
         }
         # Static element counts/booleans ONLY, never HTML, URL, form data.
+        signing_link = page.locator('a[href*="signing-in"]')
+        shape["signing_in_href_count"] = await signing_link.count()
+        shape["hash_is_signing_in"] = (urlsplit(page.url).fragment ==
+                                       "/account-security/signing-in")
+        body = (await page.locator("body").inner_text()).casefold()
+        shape["account_has_password_word"] = "password" in body
+        shape["account_has_error_word"] = any(k in body for k in
+            ("something went wrong","access denied","an error occurred",
+             "page not found","not authorized"))
         e.RESULTS["RB_account_console_ui_shape"] = shape
         print("RB_ACCOUNT_UI_SHAPE=" + repr(shape), flush=True)
-        await expect(page.get_by_role("button", name="Update").first).to_be_visible(timeout=16000)
+        # Account Console SPA may need actual menu navigation instead of a
+        # directly loaded deep hash. Use its OWN visible navigation, never
+        # an Admin REST password reset or fabricated success.
+        if not await page.get_by_role("button", name="Update").count():
+            e.CURRENT = "RB-account-console-navigate-own-security-menu"
+            if await signing_link.count():
+                if not await signing_link.first.is_visible():
+                    security = page.locator('a[href*="account-security"]').first
+                    await security.click(timeout=12000)
+                await signing_link.first.click(timeout=12000)
+            else:
+                security = page.locator('a[href*="account-security"]').first
+                await security.click(timeout=12000)
+        e.CURRENT = "RB-account-console-update-button"
+        await expect(page.get_by_role("button", name="Update").first).to_be_visible(timeout=15000)
         e.CURRENT = "RB-account-console-click-update"
         await page.get_by_role("button", name="Update").first.click()
         e.CURRENT = "RB-account-console-password-change-form"

@@ -598,3 +598,36 @@ a password without actual UI. Test remains strict: update password,
 independent old login DENY and new login ACCEPT before PASS. Need new
 CI to determine UI shape; baseline assertions retained. No Keycloak
 version/flow, DB migration, product or workflow grant changed.
+
+
+## IDP-CI-01-AO — actual rerun isolated Account Console navigation evidence
+
+First attempt 2 source `e3fa3b4c9767e721eb474840316790b335219097`
+[Run 42850378441](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42850378441)
+attempt 1 **FAILURE** BEFORE 02B at original IDP-01 manager-MFA form
+`manager-mfa-enrollment-submit` TimeoutError; no new Account Console
+diagnosis. **Reran same failed GitHub job, unchanged code and tests**,
+attempt 2: original IDP-01, all RA-00–12 PASS; standard backchannel client
+configuration PASS; Forgot/Reset independent old SSO/Refresh/UserInfo
+PASS; then Account Console failed at `RB-account-console-safe-ui-shape`
+with AssertionError. Safe live UI shape:
+`account_path=True, login_form_visible=False,
+update_button_count=0, update_link_count=0,
+signing_in_link_count=0, password_new_count=0,
+account_security_link_count=2`.
+Therefore it displayed an account-app path and Account Security
+navigation but **NO** Update action or login form: NO real Account
+Console password change proven, and no claims of password revocation,
+later route or Logout Token/outage progress. Both attempts require
+failing overall; the first is unrelated historical browser fixture
+flakiness, and the second is a reproducible UI navigation miss.
+
+**Narrow next change:** Browser visits the Account Console's own
+`account-security` / `signing-in` link rather than assuming a direct
+deep hash renders its child; add only safe **booleans** for existence
+of signing-in href/hash and error/password page indicators. No
+document body, raw href, URL, username, email, Cookie, JWT, Reset link
+or password in stdout/artifact. Keep exact successful old-password
+reject/new-password accept criterion; no Admin REST mutation fallback.
+If the standard UI remains inaccessible, mark NOT_PROVEN; no version
+upgrade, application/product code, DB/schema or service grant change.
