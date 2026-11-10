@@ -229,3 +229,40 @@ with the push/PR branch guard extended to
 `agent/idp-reauth-proof`. No service is published. All case results and
 version/status values must be verified from the actual sanitized CI
 artifact or GitHub job log before supervisor review.
+
+
+## BND-IDP-02B — standard Logout & Reset coverage, CI-only
+
+**Source prepared, not accepted until actual green CI.** Existing
+IDP-01 and RA-00–RA-12 real Chromium/Keycloak tests execute FIRST
+and unchanged. The new `reset_logout.py` uses only the same pinned
+Keycloak 26.8.2, identity PostgreSQL 17.11, Mailpit 1.32.0 and Playwright
+1.64.1 browser in the egress-denied Docker-internal CI network.
+
+**Account Console** is exercised via its real browser Account Security /
+Signing in / Password Update screen; Forgot/Reset (local captured email),
+UPDATE_PASSWORD Required Action and Admin Reset remain separate routes.
+Four independent synthetic pre-change browser contexts/Refresh/Access
+credentials are measured after each change without confusing successful
+new-password login with invalidating previous credentials. Standard built-in
+IdP user event type enums are observed read-only, NOT guaranteed delivery.
+
+A minimal `IsolatedLogoutReceiver` is co-located in the existing
+ephemeral browser runner at `idp-logout-receiver:8788`, **internal Docker
+DNS only, no published ports**. Keycloak test OIDC client's standard
+backchannel.logout.url and session.required settings are configured and
+read back. Real POST Logout Tokens are verified with Keycloak JWKS RS256,
+issuer, audience, iat/exp, events, sid/sub, nonce prohibition and unique
+jti. Negative tests verify replay, forged/broken signature, policy and
+expected issuer/audience. Receiver memory is test-only, not production
+durability, and no Token/JWT/Cookie/action URL is ever logged or written
+to artifacts.
+
+Standard OIDC end-session and Admin user Logout are evaluated separately.
+A real receiver stop (closed TCP port) precedes one Admin Logout, then
+restart and 4-second bounded observation. Retry, retention and recovery
+are recorded only if observed; neither a delivery receipt nor the Keycloak
+built-in event database is a verified durable cross-DB outbox. No product
+Session/BFF/History wiring, SPI, migrations or live side effects.
+Security verdict remains BLOCKED until an independently accepted product
+revocation barrier and complete credential-change event coverage.

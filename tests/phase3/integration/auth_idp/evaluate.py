@@ -1091,6 +1091,9 @@ async def run(browser, cb):
     await bnd_idp_02a(browser, cb)
     case("IDP-17-admin-actor-is-not-unbounded-superuser",
          "realm-management view-users only; no admin panel or product scope")
+    # BND-IDP-02B only after every old 01/02A regression has passed.
+    from reset_logout import run as bnd_idp_02b
+    await bnd_idp_02b(browser, cb, sys.modules[__name__])
 
     # Never confuse action-password reset with revocation of all access JWTs.
     RESULTS["reset_limit"] = "Reset effects on preexisting browser SSO, old refresh, UserInfo and locally signed JWT are separately measured under after_password_reset; product BFF revocation remains out of scope."

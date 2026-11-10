@@ -1,7 +1,7 @@
 name: Auth IDP isolated Keycloak candidate evaluation
 on:
   push:
-    branches: [agent/auth-idp-ci, agent/idp-reauth-proof]
+    branches: [agent/auth-idp-ci, agent/idp-reauth-proof, agent/idp-reset-boundary]
     paths:
       - 'infra/auth-ci/**'
       - 'tests/phase3/integration/auth_idp/**'
@@ -24,7 +24,8 @@ jobs:
       github.event_name == 'push' ||
       (github.event_name == 'pull_request' &&
        (github.event.pull_request.head.ref == 'agent/auth-idp-ci' ||
-        github.event.pull_request.head.ref == 'agent/idp-reauth-proof') &&
+        (github.event.pull_request.head.ref == 'agent/idp-reauth-proof' ||
+        github.event.pull_request.head.ref == 'agent/idp-reset-boundary')) &&
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -101,7 +102,7 @@ jobs:
           python -m compileall -q tests/phase3/integration/auth_idp
           docker run --rm --init --shm-size=1g --cap-drop=ALL --security-opt=no-new-privileges \
             --user "$(id -u):$(id -g)" \
-            --network authidpci_authisolated \
+            --network authidpci_authisolated --network-alias idp-logout-receiver \
             -e CI=true -e COMPOSE_PROJECT_NAME=authidpci \
             -e RUNNER_TEMP=/run -e IDP_ENV_FILE=/run/idp.env -e IDP_REPORT=/evidence/report.json \
             -v "$GITHUB_WORKSPACE/tests/phase3/integration/auth_idp:/suite:ro" \

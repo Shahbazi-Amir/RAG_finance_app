@@ -521,3 +521,49 @@ The current stage covered one or more Admin REST calls and built-in flow/executi
 **Exact unchanged workflow method:** `docker build --pull -f infra/auth-ci/Dockerfile.test-runner -t auth-idp-runner:ci infra/auth-ci`; `docker compose --env-file "$RUNNER_TEMP/idp-ci.env" -f infra/auth-ci/compose.yml up -d`; `python tests/phase3/integration/auth_idp/network_guard.py`; `python -m compileall -q tests/phase3/integration/auth_idp`; isolated `docker run ... auth-idp-runner:ci python /suite/evaluate.py`; unconditional `docker compose ... down --volumes --remove-orphans` and credential-file deletion. Pinned Keycloak 26.8.2, PostgreSQL 17.11, Mailpit 1.32.0, Playwright/Chromium 1.64.1; no version upgrade. The first four non-green Runs 42717943231 / 42718543627 / 42719133392 / 42719627050 and their narrowed fixes are honestly preserved under AH–AK. No claim those passed.
 
 **Traceability unchanged:** `P3M05-A01/A02/A06/A07/A08/A09/A10` primary, `P3M03-A01/A03/A08`, `P3M06-A03/A05/A07`, `P3M13-A03/A07/A08/A09/A10` supporting and P3OP03-R01/R02/R05 as non-counting overlay. **Implemented**=ISOLATED_KEYCLOAK_STANDARD_FLOW_AND_REAL_BROWSER_FIXTURE; **Tested**=ALL_RA_13_PASS_ON_REAL_CI_SOURCE_SHA; **Verdict**=PARTIALLY_PROVEN local fresh credential, BLOCKED comprehensive external reset; **Accepted**=NONE/SUPERVISOR_PENDING. READY_FOR_REVIEW — ISOLATED_REAUTH_PROOF. No product Session issuance, Auth product/m05 Gate, source DB migration, deploy, real email, model, purchase or parent repository write. This checkpoint will be the ONLY post-test documentation edit; Final SHA differs from previously tested source SHA and any CI run on it must be independently checked before claiming success.
+
+
+## IDP-CI-01-AM — BND-IDP-02B source checkpoint; awaiting CI
+
+**Exact confirmed live baseline**: `main` =
+`21de761c880c5c7c0241fb8ce683e616e44ca11b`; PR #21 merged
+with identical merge SHA. No matching open PR or existing 02B branch.
+Created `agent/idp-reset-boundary` from that baseline. Reused all
+original 01/02A suites, pinned Keycloak 26.8.2/Postgres 17.11/
+Mailpit 1.32.0/Playwright 1.64.1 and original cumulative mission file.
+Read AGENTS, ownership, ADR 0005, existing checkpoint and exact IdP
+harness/Workflow before edit.
+
+**Bounded ownership**: P3M05-A01/A02/A06/A07/A08/A09/A10 (Module05);
+support P3M03-A01/A03/A08, P3M06-A03/A05/A07,
+P3M13-A03/A07/A08/A09/A10; P3OP03-R01/R02/R05 overlays only.
+No new Gates.
+
+**Exact 5 changed authorized paths**:
+`tests/phase3/integration/auth_idp/reset_logout.py` new temporary
+in-runner recipient + four credential-change route/browser/session
+tests and real logout/outage/negative-token tests;
+`tests/phase3/integration/auth_idp/evaluate.py` append 02B hook
+only AFTER previous 01/02A successful suite;
+`.github/workflows/auth-idp.yml` add scoped branch and internal
+Docker DNS alias to existing runner, never publish port;
+`infra/auth-ci/README.md` document exact test-only boundary;
+`coordination/tasks/AGENT-API-AUTH-IDP-01.md` THIS cumulative ledger.
+
+No product API/UI/DB, Migration, root, shared Contract/ADR/checklist,
+Keycloak version, real email, SPI, outbox, Mac install or Deploy.
+Standard OIDC backchannel.logout.url triggers Logout events if emitted;
+it is NOT automatically an external credential-change notification.
+Receiver uses standard RS256/JWKS, iss/aud/time/events/sid/sub/jti and
+in-memory replay validation for synthetic tests; it never claims durable
+JTI or sends product Session messages. Real receiver outage/restart
+and finite retry observations are planned, no guarantees assumed.
+
+**Commands**: unchanged existing GitHub `auth-idp.yml` Docker build,
+Compose up, network_guard+egress deny, `python -m compileall -q
+tests/phase3/integration/auth_idp`, same Playwright runner
+`python /suite/evaluate.py` plus new module, always Compose
+down --volumes and sanitized 3-day artifact. All prior 01/02A cases
+remain strict. First test outcome NOT_RUN until real Actions; failures
+will be recorded in THIS file, not hidden. **Implemented** source
+prepared; **Tested** NOT_RUN; **Accepted** none, supervisor pending.
