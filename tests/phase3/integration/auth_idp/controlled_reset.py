@@ -367,12 +367,22 @@ def configure_scoped_fgap(e, root, target_user_id, service_client_id):
     e.CURRENT="RC-fgap-v2-exact-permission-readback"
     matching=[x for x in entries if x.get("name")==perm_name]
     assert len(matching)==1,"CONTROL_FGAP_PERMISSION_NOT_READABLE"
-    assert matching[0].get("resourceType")=="Users", (
-        "CONTROL_FGAP_RESOURCE_TYPE_WRONG")
-    assert "reset-password" in matching[0].get("scopes",[]), (
-        "CONTROL_FGAP_OPERATION_SCOPE_NOT_READABLE")
-    assert target_user_id in matching[0].get("resources",[]), (
-        "CONTROL_FGAP_USER_SCOPE_NOT_READABLE")
+    assert matching[0].get("id"),"CONTROL_FGAP_PERMISSION_ID_MISSING"
+    # List entries may be BRIEF representations: independently request
+    # exact full server-side permission by its ID for scope/user readback.
+    e.CURRENT="RC-fgap-v2-read-full-permission-by-id"
+    actual=root.call("GET",prefix+"/permission/scope/"+
+                     matching[0]["id"]).json()
+    assert actual.get("name")==perm_name,"CONTROL_FGAP_PERMISSION_NAME_CHANGED"
+    e.CURRENT="RC-fgap-v2-verify-persisted-resource-operation-and-policy"
+    readback={
+      "type":actual.get("resourceType")=="Users",
+      "scope":"reset-password" in actual.get("scopes",[]),
+      "one_resource":set(actual.get("resources",[]))=={target_user_id},
+      "linked_policy":policy_name in actual.get("policies",[]),
+    }
+    e.RESULTS["RC_fgap_exact_readback_checks"]=readback
+    assert all(readback.values()),"CONTROL_FGAP_FULL_PERMISSION_READBACK_MISMATCH"
     return {"enabled_readback":True,"service_has_no_broad_admin_role":True,
             "one_user_scope_readback":True,
             "only_reset_password_scope_readback":True}

@@ -1376,3 +1376,35 @@ do not pursue speculative retry cycles.
 **Implemented:** diagnostic stage names only in one test file,
 append cumulative checkpoint here.
 **Tested new SHA:** pending real CI; **Accepted:** none.
+
+
+## IDP-CI-01-BE — CI proven narrow FGAP REST readback mismatch and full-object retry (2026-11-11)
+
+**Exact tested SHA** `8559fd771c5f96a599506a9c495500e60406eab3`:
+[real PR Run 42911896683](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42911896683)
+COMPLETED FAILURE at sanitized diagnostic
+`RC-fgap-v2-exact-permission-readback` with AssertionError,
+AFTER the standard realm activation/readback, auto-created
+`admin-permissions` discovery, service-account no-broad-role
+readback, `policy/user` creation, `permission/scope` creation,
+and permission list fetch. This pins the failure to the naive
+assumptions about list-entry readback fields, not failure to
+activate the supported FGAP V2 or create the permission.
+Original legacy regressions and real 02C baseline routes
+remain observed; there was no scoped target/non-target reset
+test, hence service scope UNVERIFIED. Cleanup passed.
+
+**Bounded source correction:** The official 26.8 server-admin
+guide documents list/read permission endpoints independently.
+After identifying the exact server-created permission ID from
+the listing, GET that single full scope-permission by ID and
+verify persisted name, exact Users resourceType, exact
+`reset-password` scope, ONLY the target user UUID and the
+linked policy. Export only four boolean checks, no UUIDs.
+Do NOT remove or relax these four security properties; future
+direct Admin REST and genuine old/new OIDC tests remain
+necessary. If Keycloak representation differs, record actual
+failed check and stop further speculative changes.
+No other tests, versions, role scopes or core API/UI/DB
+modules changed. **Tested new source:** pending real CI;
+**Accepted:** NONE, security verdict NOT_PROVEN.

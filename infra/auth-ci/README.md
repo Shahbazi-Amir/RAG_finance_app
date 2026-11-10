@@ -452,3 +452,15 @@ https://www.keycloak.org/docs-api/26.8.0/rest-api/index.html
 Local same-version tested source, actual Run/JSON results and remaining
 blockers must be added in the original cumulative task checkpoint.
 No product Auth acceptance or security Gate is authorized.
+
+
+### FGAP detailed readback clarification (source-only, pending CI)
+The first supported-FGAP diagnostic run `42911896683` reached
+realm enable, user-policy and scope-permission creation, and
+failed only at the direct assertions against a list entry.
+Use documented GET by the listed permission's internal ID
+for exact full-object checks. Export only four booleans
+for resource type, allowed operation, sole resource and
+linked policy. Neither a POST status nor a shallow list
+is accepted as proof of least privilege. The real target,
+unrelated target and unrelated operation tests must still run.
