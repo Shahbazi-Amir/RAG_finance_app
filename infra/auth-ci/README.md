@@ -609,3 +609,54 @@ remain NOT_ACCEPTED as product capabilities.
 files only). **Tested new source:** CI_PENDING; no new PROVEN
 claim before SHA-specific actual Job and artifact. **Accepted:**
 NONE / SUPERVISOR_PENDING. 
+
+
+## IDP-CI-01-BH — first independent Clean Bootstrap CI, readback limitation (2026-11-11)
+
+**Actual tested source** `0144b2d6038a7a7e79d4c1437121bb0ddc302bab`,
+[real PR CI Run 42918661903](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42918661903),
+independent `clean-bootstrap-idp` Job `130187569390`,
+[clean artifact 13810168829](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/42918661903/artifacts/13810168829).
+Clean Job completed FAILURE intentionally at
+`CB-11-clean-bootstrap-final-verdict`:
+`CLEAN_BOOTSTRAP_CONTROLLED_RESET=NOT_PROVEN`.
+Full fresh-realm policy was applied/read back BEFORE user creation,
+and the independent Job's full CB-00..10 measurements all ran.
+Genuine user OIDC login PASS, Forgot/direct/Account Console/
+kc_action/post-policy-issued action-token/post-policy admin-assigned
+Required Action each independently preserved original password
+and rejected attempted new password. The post-policy privileged
+action e-mail DID issue (HTTP 204) to local Mailpit and its actual
+link was opened; no password mutation. Ordinary bearer Admin Reset
+HTTP 401. Scoped service target Admin Reset HTTP 204 OLD DENY/NEW
+ACCEPT. Cross-account Reset HTTP 403 old retained; unrelated
+profile update HTTP 403 unchanged.
+
+**Precise open issue:** full GET-by-ID permission object provides
+`resourceType=Users` but `scopes`, `scopesData`,
+`resources`, `resourcesData` and `policies`
+arrays are all absent or empty in this response
+(counts ALL ZERO). This **does not** prove associations
+absent: the actual isolated permission enforcement worked.
+Original `scope`/resource/policy representation assertions
+remain NOT_VERIFIED. Artifact records type=true,
+scope=false, resource=false, policy=true (the latter through
+an already-supported reverse associated-policy read).
+No sensitive content was written to logs.
+
+**Minimal non-speculative correction:** Query actual 26.8.0
+Admin REST relationship endpoints:
+`GET resource-server/scope/{id}/permissions`,
+`GET resource-server/resource/{id}/permissions` and
+`GET resource-server/permission/scope/{id}/associatedPolicies`.
+Resolve ONLY the named reset-password scope and UUID target
+with exact matching permission UUID; inspect ALL other AuthZ
+scopes for any other link to the same permission. No assumed
+field values, no log of UUIDs/tokens/action links. Preserve
+all original negative tests and fail-closed final verdict
+on missing/unverified relation. No policy criteria, version,
+network, product, workflow job or old RC failure modified.
+
+**Implemented** narrowly in the existing controlled_reset.py
+plus README and THIS cumulative checkpoint. **Tested new
+source:** pending real CI, **Accepted:** NONE.

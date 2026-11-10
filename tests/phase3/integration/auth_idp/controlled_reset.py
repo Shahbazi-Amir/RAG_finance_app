@@ -850,12 +850,67 @@ def clean_fgap_permission(e,root,target_uuid,service_cid):
             policy_ok=(len(ar)==1 and
                        ar[0].get("id")==policy_id and
                        ar[0].get("name")==pname)
+    # Keycloak 26.8 GET of a scope permission is a brief
+    # PolicyRepresentation: it may OMIT *all* related arrays, even when
+    # permission evaluation works. Instead independently check the actual
+    # reverse associations from the standard Admin REST API:
+    #   scope/{scope-id}/permissions, resource/{resource-id}/permissions,
+    #   permission/scope/{permission-id}/associatedPolicies.
+    e.CURRENT="CB-01-reverse-scope-association"
+    reset_scopes=[x for x in scope_rows if x.get("name")=="reset-password"]
+    scope_reverse=False
+    other_scope_links=False
+    if len(reset_scopes)==1 and reset_scopes[0].get("id"):
+        sr=root.call("GET",pref+"/scope/"+reset_scopes[0]["id"]+
+                     "/permissions",expect_status=(200,404))
+        if sr.status_code==200:
+            rows=sr.json()
+            scope_reverse=any(x.get("id")==exact[0]["id"] for x in rows)
+        for x in scope_rows:
+            if x.get("id") and x["id"]!=reset_scopes[0]["id"]:
+                other_reply=root.call("GET",pref+"/scope/"+x["id"]+
+                     "/permissions",expect_status=(200,404))
+                if other_reply.status_code==200 and any(
+                        p.get("id")==exact[0]["id"] for p in other_reply.json()):
+                    other_scope_links=True
+    if not scope_ok:
+        scope_ok=scope_reverse and not other_scope_links
+    e.CURRENT="CB-01-reverse-target-resource-association"
+    res=root.call("GET",pref+"/resource/"+target_uuid,
+                  expect_status=(200,404))
+    resource_reverse=False
+    if res.status_code==200:
+        resource=res.json()
+        if resource.get("id")==target_uuid:
+            rp=root.call("GET",pref+"/resource/"+target_uuid+
+                         "/permissions",expect_status=(200,404))
+            if rp.status_code==200:
+                resource_reverse=any(x.get("id")==exact[0]["id"]
+                                     for x in rp.json())
+    if not resource_ok:
+        resource_ok=resource_reverse
+
+    e.CURRENT="CB-01-reverse-linked-policy-association"
+    linked=root.call("GET",pref+"/permission/scope/"+
+              exact[0]["id"]+"/associatedPolicies",expect_status=(200,404))
+    policy_reverse=linked.status_code==200 and any(
+         x.get("id")==policy_id and x.get("name")==pname
+         for x in linked.json())
+    if not policy_ok:
+        policy_ok=policy_reverse
     checks={
        "resource_type_users":item.get("resourceType")=="Users",
-       "only_reset_password_scope_resolved":scope_ok,
+       "only_reset_password_scope_resolved":scope_ok and not other_scope_links,
        "exact_single_target_user_resource_resolved":resource_ok,
        "exact_single_service_policy_resolved":policy_ok,
        "no_broad_admin_role":True,
+    }
+    e.RESULTS["CB_inverse_relation_probes"]={
+       "scope_permission_reverse_link":scope_reverse,
+       "unexpected_other_scope_link":other_scope_links,
+       "target_resource_get_http":res.status_code,
+       "target_permission_reverse_link":resource_reverse,
+       "policy_permission_reverse_link":policy_reverse
     }
     e.RESULTS["CB_permission_readback"]={
        "keycloak_permission_representation":"PolicyRepresentation",
