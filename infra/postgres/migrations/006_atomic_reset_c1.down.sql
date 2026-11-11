@@ -1,6 +1,18 @@
--- 006_atomic_reset_c1.down.sql — fail closed; use psql --single-transaction.
--- Never silently delete recovery authority/active reset operations or reopen Gate.
--- This rollback is ONLY permitted for an empty, unused 006 installation in CI.
+-- 006_atomic_reset_c1.down.sql — fail closed; use psql -1 -v ON_ERROR_STOP=1.
+-- Empty-check and DDL MUST share the same READ COMMITTED outer transaction.
+-- A one-transaction script WITHOUT these locks permits a TOCTOU insert/consume.
+-- Migration-only ACCESS EXCLUSIVE on owners deliberately fences every new
+-- issuer/executor BEFORE locking reset tables. This matches their Owner-first
+-- lock ordering; it also serializes DROP TRIGGER on owners and avoids an
+-- issuer holding an Owner lock while waiting for our reset-table lock.
+-- No PostgreSQL/IdP/Production data or previous 001..005 migrations altered.
+SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+LOCK TABLE auth_l1.owners IN ACCESS EXCLUSIVE MODE;
+LOCK TABLE auth_l1.reset_c1_authorizations IN ACCESS EXCLUSIVE MODE;
+LOCK TABLE auth_l1.reset_c1_operations IN ACCESS EXCLUSIVE MODE;
+-- The table locks persist until outer COMMIT/ROLLBACK; the following check
+-- sees commits of previous waiters because isolation is READ COMMITTED.
+-- A committed issuance or C1 causes a raised error, aborting all this DDL.
 DO $$
 BEGIN
  IF EXISTS(SELECT 1 FROM auth_l1.reset_c1_operations)

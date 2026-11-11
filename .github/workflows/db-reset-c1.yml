@@ -4,7 +4,7 @@ on:
   push:
     branches: [agent/db-reset-c1]
     paths:
-      - '.github/workflows/db-auth-session.yml'
+      - '.github/workflows/db-reset-c1.yml'
       - 'src/phase3/storage/postgres/**'
       - 'infra/postgres/**'
       - 'tests/phase3/database/**'
@@ -92,6 +92,11 @@ jobs:
           CREATE DATABASE auth_empty_ci;
           CREATE DATABASE reset_c1_empty_ci;
           CREATE DATABASE reset_c1_seeded_ci;
+          CREATE DATABASE reset_c1_issue_commit_ci;
+          CREATE DATABASE reset_c1_issue_abort_ci;
+          CREATE DATABASE reset_c1_exec_commit_ci;
+          CREATE DATABASE reset_c1_exec_abort_ci;
+          CREATE DATABASE reset_c1_down_first_ci;
           GRANT CONNECT,CREATE ON DATABASE history_ci TO history_migrator;
           GRANT CONNECT,CREATE ON DATABASE history_legacy_ci TO history_migrator;
           GRANT CONNECT,CREATE ON DATABASE history_seeded_ci TO history_migrator;
@@ -105,6 +110,13 @@ jobs:
           GRANT CONNECT,CREATE ON DATABASE auth_empty_ci TO auth_migrator;
           GRANT CONNECT,CREATE ON DATABASE reset_c1_empty_ci,reset_c1_seeded_ci TO auth_migrator;
           GRANT CONNECT ON DATABASE reset_c1_seeded_ci TO auth_reset_issuer,auth_reset_executor;
+          GRANT CONNECT,CREATE ON DATABASE
+            reset_c1_issue_commit_ci,reset_c1_issue_abort_ci,reset_c1_exec_commit_ci,
+            reset_c1_exec_abort_ci,reset_c1_down_first_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE
+            reset_c1_issue_commit_ci,reset_c1_issue_abort_ci,reset_c1_exec_commit_ci,
+            reset_c1_exec_abort_ci,reset_c1_down_first_ci
+            TO auth_reset_issuer,auth_reset_executor;
           GRANT CONNECT ON DATABASE history_ci TO auth_mapper,auth_sessions,auth_revoker,auth_reauth;
           GRANT CONNECT ON DATABASE history_ci TO auth_trust_api,auth_replay_cleaner;
           GRANT CONNECT ON DATABASE history_ci TO auth_reset_issuer,auth_reset_executor;
@@ -169,6 +181,19 @@ jobs:
           # Verify History persistence using its OWN migrator; auth_migrator has zero History grants.
           PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -d history_ci -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'"
           test "$(PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -d history_ci -Aqt -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'")" = "1"
+      - name: Provision isolated CI databases for real 006.down concurrency races
+        run: |
+          set -euo pipefail
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
+          for database in reset_c1_issue_commit_ci reset_c1_issue_abort_ci \
+                          reset_c1_exec_commit_ci reset_c1_exec_abort_ci reset_c1_down_first_ci; do
+            for migration in 003_auth_session 004_session_aware_fence \
+                             005_service_assertion_replay 006_atomic_reset_c1; do
+              psql -d "$database" -1 -v ON_ERROR_STOP=1 \
+                -f "infra/postgres/migrations/${migration}.up.sql"
+            done
+            test "$(psql -d "$database" -Aqt -c "SELECT count(*) FROM auth_l1.reset_c1_operations")" = "0"
+          done
       - name: Run real PostgreSQL synthetic History HDB, Auth BND, Replay RPL and C1 CR tests
         run: |
           set -euo pipefail

@@ -343,3 +343,217 @@ class AtomicResetC1(unittest.TestCase):
 
 def run_on_connection(c,cap):
     with c.transaction(): return commit(c,cap)
+
+
+# CR13–CR17: real migration-file concurrency regression, disposable CI only.
+import subprocess
+import threading
+from psycopg.conninfo import make_conninfo
+
+RACE_DB_NAMES={
+ "reset_c1_issue_commit_ci","reset_c1_issue_abort_ci",
+ "reset_c1_exec_commit_ci","reset_c1_exec_abort_ci",
+ "reset_c1_down_first_ci",
+}
+REAL_DOWN=ROOT/"infra/postgres/migrations/006_atomic_reset_c1.down.sql"
+
+def scoped_race_db(database,role="MIG"):
+    if os.environ.get("CI")!="true" or database not in RACE_DB_NAMES:
+        raise RuntimeError("CR_DISPOSABLE_CI_ONLY")
+    key,user={
+        "MIG":("AUTH_MIG_DSN","auth_migrator"),
+        "ISSUER":("AUTH_RESET_ISSUER_DSN","auth_reset_issuer"),
+        "EXEC":("AUTH_RESET_EXEC_DSN","auth_reset_executor"),
+    }[role]
+    dsn=os.environ[key]; v=conninfo_to_dict(dsn)
+    if not(v.get("host")=="127.0.0.1" and v.get("port")=="5432"
+           and v.get("dbname")=="history_ci" and v.get("user")==user
+           and set(v).issubset({"host","port","dbname","user","password","connect_timeout"})):
+        raise RuntimeError("UNSAFE_CR_RACE_TARGET")
+    return psycopg.connect(make_conninfo(dsn,dbname=database),
+                           autocommit=True,row_factory=dict_row)
+
+def seed_race_owner(database,with_session=False):
+    oid="synthetic_cr_race_"+uuid.uuid4().hex
+    with scoped_race_db(database) as c:
+        c.execute("INSERT INTO auth_l1.owners(owner_id) VALUES(%s)",(oid,))
+        if with_session:
+            c.execute("""WITH ts AS (SELECT clock_timestamp() AS t)
+                INSERT INTO auth_l1.sessions
+                (digest_sha256,owner_id,session_epoch,generation,status,
+                 created_at,last_activity_at,idle_expires_at,absolute_expires_at,idle_seconds)
+                SELECT %s,%s,0,0,'active',ts.t,ts.t,
+                  ts.t+interval '10 minutes',ts.t+interval '1 hour',600 FROM ts""",
+                ("f"*64,oid))
+    return oid
+
+def mint_race(c,oid):
+    expiry=c.execute("SELECT floor(extract(epoch from clock_timestamp()))::bigint+120 AS exp").fetchone()["exp"]
+    return reset.issue_synthetic_verified_authorization(
+        c,oid,reset.KIND_RECOVERY,0,expiry)
+
+def migration_env(database,app):
+    if os.environ.get("CI")!="true" or database not in RACE_DB_NAMES:
+        raise RuntimeError("CR_DISPOSABLE_CI_ONLY")
+    env=dict(os.environ)
+    env.update(PGHOST="127.0.0.1",PGPORT="5432",PGUSER="auth_migrator",
+               PGPASSWORD="synthetic_auth_migrator_only",PGDATABASE=database,
+               PGAPPNAME=app)
+    return env
+
+def start_real_down(database,app):
+    # Runs the actual repository file with psql's single transaction mode.
+    return subprocess.Popen(
+        ["psql","-X","-1","-v","ON_ERROR_STOP=1","-d",database,"-f",str(REAL_DOWN)],
+        env=migration_env(database,app),stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,text=True)
+
+def await_real_down(proc,success):
+    try: out,err=proc.communicate(timeout=15)
+    except subprocess.TimeoutExpired:
+        proc.kill(); proc.communicate(timeout=5)
+        raise AssertionError("006_DOWN_STALLED")
+    if success:
+        if proc.returncode!=0: raise AssertionError("expected empty rollback success: "+err[-900:])
+    else:
+        if proc.returncode==0 or "RESET_C1_ROLLBACK_REFUSED_EVIDENCE_EXISTS" not in err:
+            raise AssertionError("committed reset evidence not protected: "+err[-900:])
+
+def race_state(database,oid):
+    with scoped_race_db(database) as c:
+        o=c.execute("SELECT session_epoch,reset_gate FROM auth_l1.owners WHERE owner_id=%s",(oid,)).fetchone()
+        has_auth=c.execute("SELECT to_regclass('auth_l1.reset_c1_authorizations') IS NOT NULL AS ok").fetchone()["ok"]
+        has_ops=c.execute("SELECT to_regclass('auth_l1.reset_c1_operations') IS NOT NULL AS ok").fetchone()["ok"]
+        trigger=c.execute("""SELECT count(*) AS n FROM pg_trigger WHERE
+            tgrelid='auth_l1.owners'::regclass AND tgname='block_c1_gate_open_trg'""").fetchone()["n"]
+        au=c.execute("SELECT count(*) AS n FROM auth_l1.reset_c1_authorizations").fetchone()["n"] if has_auth else None
+        op=c.execute("SELECT count(*) AS n FROM auth_l1.reset_c1_operations").fetchone()["n"] if has_ops else None
+        sessions=c.execute("SELECT status,count(*) AS n FROM auth_l1.sessions WHERE owner_id=%s GROUP BY status",(oid,)).fetchall()
+        return (o["session_epoch"],o["reset_gate"],has_auth,has_ops,trigger,au,op,
+                {r["status"]:r["n"] for r in sessions})
+
+class C1RollbackTOCTOU(unittest.TestCase):
+    def held_writer_vs_real_down(self,database,kind,decision,with_session=False):
+        oid=seed_race_owner(database,with_session)
+        if kind=="execute":
+            with scoped_race_db(database,"ISSUER") as issuer:
+                cap=mint_race(issuer,oid)
+        else: cap=None
+        ready=threading.Event(); release=threading.Event()
+        app="cr_down_wait_"+uuid.uuid4().hex[:10]
+        def writer():
+            nonlocal cap
+            with scoped_race_db(database,"ISSUER" if kind=="issue" else "EXEC") as c:
+                try:
+                    with c.transaction():
+                        if kind=="issue": cap=mint_race(c,oid)
+                        else:
+                            result=reset.commit_c1(c,cap.opaque,owner_id=oid,
+                                kind=cap.kind,expected_epoch=0)
+                            assert result["status"]=="REVOKED_PENDING_IDP"
+                        ready.set()
+                        if not release.wait(12): raise AssertionError("writer Event timeout")
+                        if decision=="rollback": raise InjectedAbort()
+                    return "committed"
+                except InjectedAbort:
+                    return "rolledback"
+                finally: ready.set()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            w=pool.submit(writer); down=None
+            try:
+                self.assertTrue(ready.wait(10))
+                self.assertFalse(w.done())
+                down=start_real_down(database,app)
+                # Verifiable distinct PostgreSQL connection waiting for Owner table.
+                observed_wait([app])
+                self.assertIsNone(down.poll())
+            finally:
+                release.set()
+            self.assertEqual(w.result(timeout=15),
+                             "rolledback" if decision=="rollback" else "committed")
+            try:
+                await_real_down(down,success=(kind=="issue" and decision=="rollback"))
+            finally:
+                if down is not None and down.poll() is None:
+                    down.kill(); down.communicate(timeout=5)
+        return race_state(database,oid)
+
+    def test_CR13_issuer_commit_wins_and_real_down_preserves_authority(self):
+        s=self.held_writer_vs_real_down("reset_c1_issue_commit_ci","issue","commit")
+        self.assertEqual(s[:2],(0,"open"))
+        self.assertEqual(s[2:7],(True,True,1,1,0))
+
+    def test_CR14_issuer_rollback_then_real_down_succeeds_without_evidence(self):
+        s=self.held_writer_vs_real_down("reset_c1_issue_abort_ci","issue","rollback")
+        self.assertEqual(s[:2],(0,"open"))
+        self.assertEqual(s[2:7],(False,False,0,None,None))
+
+    def test_CR15_c1_commit_wins_and_real_down_preserves_gate_ledger_sessions(self):
+        s=self.held_writer_vs_real_down("reset_c1_exec_commit_ci","execute","commit",True)
+        self.assertEqual(s[:2],(1,"pending_reauth"))
+        self.assertEqual(s[2:7],(True,True,1,1,1))
+        self.assertEqual(s[7],{"revoked":1})
+
+    def test_CR16_c1_rollback_then_down_refuses_previously_committed_authority(self):
+        s=self.held_writer_vs_real_down("reset_c1_exec_abort_ci","execute","rollback",True)
+        self.assertEqual(s[:2],(0,"open"))
+        self.assertEqual(s[2:7],(True,True,1,1,0))
+        self.assertEqual(s[7],{"active":1})
+
+    def test_CR17_real_down_wins_before_new_issuer_and_c1_attempt(self):
+        database="reset_c1_down_first_ci"
+        oid=seed_race_owner(database)
+        app="cr_down_first_"+uuid.uuid4().hex[:9]
+        issuer_app="cr_issuer_wait_"+uuid.uuid4().hex[:9]
+        marker="CR_DOWN_LOCKS_HELD_"+uuid.uuid4().hex
+        p=subprocess.Popen(
+            ["psql","-X","-q","-A","-t","-v","ON_ERROR_STOP=1","-d",database],
+            env=migration_env(database,app),stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,bufsize=1)
+        held=threading.Event()
+        def reader():
+            for line in p.stdout:
+                if marker in line: held.set()
+        thread=threading.Thread(target=reader,daemon=True)
+        thread.start()
+        try:
+            # \i executes the exact real migration file in this open BEGIN.
+            # SELECT marker is an Event barrier AFTER all DDL, BEFORE COMMIT.
+            p.stdin.write("BEGIN;\n\\i "+str(REAL_DOWN)+"\nSELECT '"+marker+"';\n")
+            p.stdin.flush()
+            self.assertTrue(held.wait(12),"migration file did not reach held-lock barrier")
+            self.assertIsNone(p.poll())
+            def issuer():
+                with scoped_race_db(database,"ISSUER") as c:
+                    c.execute("SELECT set_config('application_name',%s,false)",(issuer_app,))
+                    try:
+                        mint_race(c,oid)
+                        return "unexpected"
+                    except psycopg.Error: return "denied"
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                pending=pool.submit(issuer)
+                observed_wait([issuer_app])
+                self.assertFalse(pending.done())
+                p.stdin.write("COMMIT;\n\\q\n")
+                p.stdin.flush()
+                self.assertEqual(p.wait(timeout=15),0)
+                self.assertEqual(pending.result(timeout=15),"denied")
+            with scoped_race_db(database,"EXEC") as c:
+                with self.assertRaises(psycopg.Error):
+                    with c.transaction():
+                        reset.commit_c1(c,"synthetic_not_issued_"+"x"*40,
+                            owner_id=oid,kind=reset.KIND_RECOVERY,expected_epoch=0)
+            s=race_state(database,oid)
+            self.assertEqual(s[:2],(0,"open"))
+            self.assertEqual(s[2:7],(False,False,0,None,None))
+        finally:
+            if p.poll() is None:
+                try:
+                    p.stdin.write("ROLLBACK;\n\\q\n")
+                    p.stdin.flush()
+                    p.wait(timeout=5)
+                except (BrokenPipeError,subprocess.TimeoutExpired):
+                    p.kill(); p.wait(timeout=5)
+            p.stdin.close()
+            thread.join(timeout=2)
+            p.stderr.close()
