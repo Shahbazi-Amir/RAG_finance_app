@@ -1,0 +1,375 @@
+name: CR-DB-01B — scoped reset identity lookup (synthetic only)
+
+on:
+  push:
+    branches: [agent/db-reset-identity-lookup]
+    paths:
+      - '.github/workflows/db-reset-identity-lookup.yml'
+      - 'src/phase3/storage/postgres/**'
+      - 'infra/postgres/**'
+      - 'tests/phase3/database/**'
+      - 'tests/phase3/integration/database/**'
+permissions:
+  contents: read
+
+jobs:
+  history-postgres:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/agent/db-reset-identity-lookup'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_PASSWORD: synthetic_ci_only_not_a_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: 'true'
+      PGPASSWORD: synthetic_ci_only_not_a_secret
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      AUTH_MAP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_mapper password=synthetic_mapper_only connect_timeout=5
+      AUTH_SESSION_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_sessions password=synthetic_session_only connect_timeout=5
+      AUTH_REVOKER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_revoker password=synthetic_revoker_only connect_timeout=5
+      AUTH_REAUTH_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reauth password=synthetic_reauth_only connect_timeout=5
+      AUTH_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_migrator password=synthetic_auth_migrator_only connect_timeout=5
+      AUTH_RESET_ISSUER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reset_issuer password=synthetic_reset_issuer_only connect_timeout=5
+      AUTH_RESET_EXEC_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reset_executor password=synthetic_reset_executor_only connect_timeout=5
+      AUTH_RESET_LOOKUP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reset_lookup password=synthetic_reset_lookup_only connect_timeout=5
+      REPLAY_API_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_trust_api password=synthetic_replay_api_only connect_timeout=5
+      REPLAY_CLEANER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_replay_cleaner password=synthetic_replay_clean_only connect_timeout=5
+      DB_APP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+      DB_SEEDED_APP_DSN: host=127.0.0.1 port=5432 dbname=history_seeded_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB_SEEDED_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_seeded_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+      DB_LEGACY_APP_DSN: host=127.0.0.1 port=5432 dbname=history_legacy_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB_LEGACY_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_legacy_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+    steps:
+      - name: Checkout exact commit (read only)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install pinned CI-only Python adapters
+        run: python -m pip install --no-cache-dir --index-url https://pypi.org/simple 'psycopg[binary]==3.3.8' 'jsonschema==4.26.0'
+      - name: Verify only temporary loopback database and versions
+        run: |
+          set -euo pipefail
+          python --version
+          python -c "import psycopg,jsonschema; print('psycopg',psycopg.__version__); print('jsonschema',jsonschema.__version__)"
+          psql --version
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'SHOW server_version;'
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'SELECT inet_server_addr(),inet_server_port();'
+      - name: Bootstrap disposable DBs and separate least-privilege roles
+        run: |
+          set -euo pipefail
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE history_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_mig_only';
+          CREATE ROLE history_app LOGIN PASSWORD 'synthetic_app_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_auth_migrator_only' NOSUPERUSER;
+          GRANT pg_read_all_stats TO auth_migrator;
+          CREATE ROLE auth_mapper LOGIN PASSWORD 'synthetic_mapper_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_sessions LOGIN PASSWORD 'synthetic_session_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_revoker LOGIN PASSWORD 'synthetic_revoker_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reauth LOGIN PASSWORD 'synthetic_reauth_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_trust_api LOGIN PASSWORD 'synthetic_replay_api_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_replay_cleaner LOGIN PASSWORD 'synthetic_replay_clean_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_issuer LOGIN PASSWORD 'synthetic_reset_issuer_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_executor LOGIN PASSWORD 'synthetic_reset_executor_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_lookup LOGIN PASSWORD 'synthetic_reset_lookup_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE DATABASE history_ci;
+          CREATE DATABASE history_legacy_ci;
+          CREATE DATABASE history_seeded_ci;
+          CREATE DATABASE history_rollback_ci;
+          CREATE DATABASE auth_rollback_ci;
+          CREATE DATABASE auth_empty_ci;
+          CREATE DATABASE reset_c1_empty_ci;
+          CREATE DATABASE reset_c1_seeded_ci;
+          CREATE DATABASE reset_c1_issue_commit_ci;
+          CREATE DATABASE reset_c1_issue_abort_ci;
+          CREATE DATABASE reset_c1_exec_commit_ci;
+          CREATE DATABASE reset_c1_exec_abort_ci;
+          CREATE DATABASE reset_c1_down_first_ci;
+          CREATE DATABASE reset_lookup_empty_ci;
+          CREATE DATABASE reset_lookup_seeded_ci;
+          GRANT CONNECT,CREATE ON DATABASE history_ci TO history_migrator;
+          GRANT CONNECT,CREATE ON DATABASE history_legacy_ci TO history_migrator;
+          GRANT CONNECT,CREATE ON DATABASE history_seeded_ci TO history_migrator;
+          GRANT CONNECT,CREATE ON DATABASE history_rollback_ci TO history_migrator;
+          GRANT CONNECT ON DATABASE history_ci TO history_app;
+          GRANT CONNECT ON DATABASE history_legacy_ci TO history_app;
+          GRANT CONNECT ON DATABASE history_seeded_ci TO history_app;
+          GRANT CONNECT ON DATABASE history_rollback_ci TO history_app;
+          GRANT CONNECT,CREATE ON DATABASE history_ci TO auth_migrator;
+          GRANT CONNECT,CREATE ON DATABASE auth_rollback_ci TO auth_migrator;
+          GRANT CONNECT,CREATE ON DATABASE auth_empty_ci TO auth_migrator;
+          GRANT CONNECT,CREATE ON DATABASE reset_c1_empty_ci,reset_c1_seeded_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE reset_c1_seeded_ci TO auth_reset_issuer,auth_reset_executor;
+          GRANT CONNECT,CREATE ON DATABASE
+            reset_c1_issue_commit_ci,reset_c1_issue_abort_ci,reset_c1_exec_commit_ci,
+            reset_c1_exec_abort_ci,reset_c1_down_first_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE
+            reset_c1_issue_commit_ci,reset_c1_issue_abort_ci,reset_c1_exec_commit_ci,
+            reset_c1_exec_abort_ci,reset_c1_down_first_ci
+            TO auth_reset_issuer,auth_reset_executor;
+          GRANT CONNECT ON DATABASE history_ci TO auth_mapper,auth_sessions,auth_revoker,auth_reauth;
+          GRANT CONNECT ON DATABASE history_ci TO auth_trust_api,auth_replay_cleaner;
+          GRANT CONNECT ON DATABASE history_ci TO auth_reset_issuer,auth_reset_executor,auth_reset_lookup;
+          GRANT CONNECT,CREATE ON DATABASE reset_lookup_empty_ci,reset_lookup_seeded_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE reset_lookup_empty_ci,reset_lookup_seeded_ci TO auth_reset_lookup,auth_reset_issuer;
+          SQL
+      - name: Apply versioned History base, and 003 on data-bearing product DB
+        run: |
+          set -euo pipefail
+          export PGUSER=history_migrator PGPASSWORD=synthetic_mig_only
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          psql -d history_legacy_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          # Separate synthetic chain seed: 001 first; acceptance test applies 002.
+          psql -d history_seeded_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          # Pre-existing synthetic History rows before new product auth migration 003.
+          PGUSER=history_app PGPASSWORD=synthetic_app_only psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          SELECT set_config('app.owner_id','synthetic_auth_migration',true);
+          INSERT INTO history_l1.conversations(owner_id,id)
+            VALUES('synthetic_auth_migration','synthetic_auth_preexisting_history');
+          COMMIT;
+          SQL
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          psql -d auth_empty_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          # Data-bearing product DB before 004: synthetic session chain, never a real user.
+          psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO auth_l1.owners(owner_id) VALUES('synthetic_fence_preexisting');
+          INSERT INTO auth_l1.identity_links(issuer,subject,owner_id)
+            VALUES('https://synthetic.invalid/bnd02','synthetic_fence_subject','synthetic_fence_preexisting');
+          INSERT INTO auth_l1.sessions(digest_sha256,owner_id,session_epoch,generation,status,
+              created_at,last_activity_at,idle_expires_at,absolute_expires_at,idle_seconds)
+            VALUES(repeat('b',64),'synthetic_fence_preexisting',0,0,'active',
+              clock_timestamp(),clock_timestamp(),
+              clock_timestamp()+interval '15 minutes',
+              clock_timestamp()+interval '1 hour',900);
+          SQL
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.up.sql
+          psql -d history_ci -1 -v ON_ERROR_STOP=1 -f infra/postgres/migrations/006_atomic_reset_c1.up.sql
+          psql -d history_ci -1 -v ON_ERROR_STOP=1 -f infra/postgres/migrations/007_scoped_reset_identity_lookup.up.sql
+          # Separate synthetic protected SQL table: CI ONLY, INSERT role, no History grants.
+          psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA service_replay_ci;
+          REVOKE ALL ON SCHEMA service_replay_ci FROM PUBLIC;
+          CREATE TABLE service_replay_ci.protected_actions(marker text PRIMARY KEY);
+          GRANT USAGE ON SCHEMA service_replay_ci TO auth_trust_api;
+          GRANT INSERT ON service_replay_ci.protected_actions TO auth_trust_api;
+          SQL
+          test "$(psql -d history_ci -Aqt -c "SELECT count(*) FROM auth_l1.sessions WHERE owner_id='synthetic_fence_preexisting'")" = "1"
+          # Only disposable CI Harness role may insert synthetic protected markers.
+          # NO History or Auth table grants to auth_sessions are added.
+          psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA auth_fence_ci;
+          REVOKE ALL ON SCHEMA auth_fence_ci FROM PUBLIC;
+          CREATE TABLE auth_fence_ci.protected_actions(
+            owner_id text NOT NULL,marker text PRIMARY KEY);
+          GRANT USAGE ON SCHEMA auth_fence_ci TO auth_sessions;
+          GRANT INSERT ON auth_fence_ci.protected_actions TO auth_sessions;
+          SQL
+          # Verify History persistence using its OWN migrator; auth_migrator has zero History grants.
+          PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -d history_ci -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'"
+          test "$(PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -d history_ci -Aqt -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'")" = "1"
+      - name: Provision isolated CI databases for real 006.down concurrency races
+        run: |
+          set -euo pipefail
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
+          for database in reset_c1_issue_commit_ci reset_c1_issue_abort_ci \
+                          reset_c1_exec_commit_ci reset_c1_exec_abort_ci reset_c1_down_first_ci; do
+            for migration in 003_auth_session 004_session_aware_fence \
+                             005_service_assertion_replay 006_atomic_reset_c1; do
+              psql -d "$database" -1 -v ON_ERROR_STOP=1 \
+                -f "infra/postgres/migrations/${migration}.up.sql"
+            done
+            test "$(psql -d "$database" -Aqt -c "SELECT count(*) FROM auth_l1.reset_c1_operations")" = "0"
+          done
+      - name: CR-DB-01B migrate 007 empty and seeded, verify down/up and preserve 003/006 evidence
+        run: |
+          set -euo pipefail
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
+          for database in reset_lookup_empty_ci reset_lookup_seeded_ci; do
+            for migration in 003_auth_session 004_session_aware_fence \
+                             005_service_assertion_replay 006_atomic_reset_c1; do
+              psql -d "$database" -1 -v ON_ERROR_STOP=1 \
+                -f "infra/postgres/migrations/${migration}.up.sql"
+            done
+          done
+          # Data-bearing product schema before 007: synthetic Identity Link and
+          # unconsumed C1 authority, with independent fixture issuer role.
+          psql -d reset_lookup_seeded_ci -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO auth_l1.owners(owner_id) VALUES('synthetic_lkp_seeded');
+          INSERT INTO auth_l1.identity_links(issuer,subject,owner_id)
+          VALUES('https://synthetic.invalid/lookup-seeded','synthetic_lookup_subject','synthetic_lkp_seeded');
+          SQL
+          PGUSER=auth_reset_issuer PGPASSWORD=synthetic_reset_issuer_only \
+            psql -d reset_lookup_seeded_ci -1 -v ON_ERROR_STOP=1 -c "SELECT auth_l1.issue_reset_c1_authorization(repeat('7',64),'synthetic_lkp_seeded','RECOVERY','CONTROLLED_RESET_C1',0,floor(extract(epoch from clock_timestamp()))::bigint+600,NULL,NULL)"
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
+          before="$(psql -d reset_lookup_seeded_ci -Aqt -c "SELECT md5(row_to_json(l)::text) FROM auth_l1.identity_links l WHERE owner_id='synthetic_lkp_seeded'")"
+          before_auth="$(psql -d reset_lookup_seeded_ci -Aqt -c "SELECT md5(row_to_json(a)::text) FROM auth_l1.reset_c1_authorizations a WHERE owner_id='synthetic_lkp_seeded'")"
+          test -n "$before" && test -n "$before_auth"
+          for database in reset_lookup_empty_ci reset_lookup_seeded_ci; do
+            psql -d "$database" -1 -v ON_ERROR_STOP=1 -f infra/postgres/migrations/007_scoped_reset_identity_lookup.up.sql
+            test "$(psql -d "$database" -Aqt -c "SELECT to_regprocedure('auth_l1.resolve_reset_identity(text,text,text,text,bigint,text)') IS NOT NULL")" = "t"
+          done
+          PGUSER=auth_reset_lookup PGPASSWORD=synthetic_reset_lookup_only \
+            psql -d reset_lookup_seeded_ci -Aqt -v ON_ERROR_STOP=1 -c "SELECT auth_l1.resolve_reset_identity(repeat('7',64),'synthetic_lkp_seeded','RECOVERY','CONTROLLED_RESET_C1',0,'https://synthetic.invalid/lookup-seeded')->>'subject'" \
+            | grep -Fx 'synthetic_lookup_subject'
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
+          for database in reset_lookup_empty_ci reset_lookup_seeded_ci; do
+            psql -d "$database" -1 -v ON_ERROR_STOP=1 -f infra/postgres/migrations/007_scoped_reset_identity_lookup.down.sql
+            test "$(psql -d "$database" -Aqt -c "SELECT to_regprocedure('auth_l1.resolve_reset_identity(text,text,text,text,bigint,text)') IS NULL")" = "t"
+            psql -d "$database" -1 -v ON_ERROR_STOP=1 -f infra/postgres/migrations/007_scoped_reset_identity_lookup.up.sql
+          done
+          test "$(psql -d reset_lookup_empty_ci -Aqt -c 'SELECT count(*) FROM auth_l1.owners')" = "0"
+          test "$(psql -d reset_lookup_seeded_ci -Aqt -c "SELECT md5(row_to_json(l)::text) FROM auth_l1.identity_links l WHERE owner_id='synthetic_lkp_seeded'")" = "$before"
+          test "$(psql -d reset_lookup_seeded_ci -Aqt -c "SELECT md5(row_to_json(a)::text) FROM auth_l1.reset_c1_authorizations a WHERE owner_id='synthetic_lkp_seeded'")" = "$before_auth"
+          test "$(psql -d reset_lookup_seeded_ci -Aqt -c "SELECT count(*) FROM auth_l1.reset_c1_operations")" = "0"
+          test "$(psql -d reset_lookup_seeded_ci -Aqt -c "SELECT session_epoch=0 AND reset_gate='open' FROM auth_l1.owners WHERE owner_id='synthetic_lkp_seeded'")" = "t"
+          echo '007 empty+seeded UP/DOWN/UP PASS, 003/006 authorization and identity data preserved'
+      - name: Run real PostgreSQL synthetic History HDB, Auth BND, Replay RPL and C1 CR tests
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/database -p 'test_*.py' -v
+      - name: CR C1 Migration 006 empty, data-bearing, rollback refusal
+        run: |
+          set -euo pipefail
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
+          for database in reset_c1_empty_ci reset_c1_seeded_ci; do
+            for n in 003_auth_session 004_session_aware_fence 005_service_assertion_replay; do
+              psql -d "$database" -1 -v ON_ERROR_STOP=1 -f "infra/postgres/migrations/${n}.up.sql"
+            done
+          done
+          psql -d reset_c1_seeded_ci -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO auth_l1.owners(owner_id) VALUES('synthetic_c1_seeded');
+          INSERT INTO auth_l1.sessions(digest_sha256,owner_id,session_epoch,generation,status,
+              created_at,last_activity_at,idle_expires_at,absolute_expires_at,idle_seconds)
+          VALUES(repeat('d',64),'synthetic_c1_seeded',0,0,'active',
+              clock_timestamp(),clock_timestamp(),clock_timestamp()+interval '15 minutes',
+              clock_timestamp()+interval '1 hour',900);
+          SQL
+          baseline="$(psql -d reset_c1_seeded_ci -Aqt -c "SELECT md5(row_to_json(s)::text) FROM auth_l1.sessions s WHERE owner_id='synthetic_c1_seeded'")"
+          test -n "$baseline"
+          for database in reset_c1_empty_ci reset_c1_seeded_ci; do
+            psql -d "$database" -1 -v ON_ERROR_STOP=1 -f infra/postgres/migrations/006_atomic_reset_c1.up.sql
+            test "$(psql -d "$database" -Aqt -c "SELECT count(*) FROM auth_l1.reset_c1_operations")" = "0"
+            psql -d "$database" -1 -v ON_ERROR_STOP=1 -f infra/postgres/migrations/006_atomic_reset_c1.down.sql
+            test "$(psql -d "$database" -Aqt -c "SELECT to_regclass('auth_l1.reset_c1_operations') IS NULL")" = "t"
+            psql -d "$database" -1 -v ON_ERROR_STOP=1 -f infra/postgres/migrations/006_atomic_reset_c1.up.sql
+          done
+          test "$(psql -d reset_c1_seeded_ci -Aqt -c "SELECT md5(row_to_json(s)::text) FROM auth_l1.sessions s WHERE owner_id='synthetic_c1_seeded'")" = "$baseline"
+          PGUSER=auth_reset_issuer PGPASSWORD=synthetic_reset_issuer_only psql -d reset_c1_seeded_ci -1 -v ON_ERROR_STOP=1 -c "SELECT auth_l1.issue_reset_c1_authorization(repeat('e',64),'synthetic_c1_seeded','RECOVERY','CONTROLLED_RESET_C1',0,floor(extract(epoch from clock_timestamp()))::bigint+120,NULL,NULL)"
+          PGUSER=auth_reset_executor PGPASSWORD=synthetic_reset_executor_only psql -d reset_c1_seeded_ci -1 -v ON_ERROR_STOP=1 -c "SELECT auth_l1.execute_reset_c1(repeat('e',64),'synthetic_c1_seeded','RECOVERY','CONTROLLED_RESET_C1',0,'00000000-0000-4000-8000-000000000001'::uuid)"
+          test "$(psql -d reset_c1_seeded_ci -Aqt -c "SELECT session_epoch=1 AND reset_gate='pending_reauth' FROM auth_l1.owners WHERE owner_id='synthetic_c1_seeded'")" = "t"
+          test "$(psql -d reset_c1_seeded_ci -Aqt -c "SELECT count(*) FROM auth_l1.reset_c1_operations WHERE status='REVOKED_PENDING_IDP'")" = "1"
+          if psql -d reset_c1_seeded_ci -1 -v ON_ERROR_STOP=1 -f infra/postgres/migrations/006_atomic_reset_c1.down.sql; then
+            echo 'ERROR: 006 DOWN destroyed active evidence' >&2
+            exit 1
+          fi
+          test "$(psql -d reset_c1_seeded_ci -Aqt -c "SELECT count(*) FROM auth_l1.reset_c1_operations")" = "1"
+          test "$(psql -d reset_c1_seeded_ci -Aqt -c "SELECT session_epoch=1 AND reset_gate='pending_reauth' FROM auth_l1.owners WHERE owner_id='synthetic_c1_seeded'")" = "t"
+          test "$(psql -d reset_c1_seeded_ci -Aqt -c "SELECT count(*) FROM auth_l1.sessions WHERE status='revoked' AND owner_id='synthetic_c1_seeded'")" = "1"
+          echo '006 EMPTY & POPULATED UP/DOWN/UP PASS; DOWN WITH ACTIVE EVIDENCE REFUSED'
+      - name: Smoke existing History rollback and auth 003 rollback on disposable databases
+        run: |
+          set -euo pipefail
+          PGUSER=history_app PGPASSWORD=synthetic_app_only psql -d history_rollback_ci -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          SELECT set_config('app.owner_id','synthetic_rollback_only',true);
+          INSERT INTO history_l1.conversations(owner_id,id) VALUES('synthetic_rollback_only','conv_synthetic');
+          COMMIT;
+          SQL
+          export PGUSER=history_migrator PGPASSWORD=synthetic_mig_only
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.down.sql
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          test "$(psql -d history_rollback_ci -Aqt -c "SELECT count(*) FROM history_l1.conversations WHERE id='conv_synthetic'")" = "1"
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.down.sql
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.down.sql
+          test "$(psql -d history_rollback_ci -Aqt -c "SELECT to_regclass('history_l1.conversations') IS NULL")" = "t"
+          echo 'History temporary rollback smoke PASS; destructive 001 is NOT backup or data recovery'
+          # The 003 rollback is destructive ONLY in another disposable CI database.
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO auth_l1.owners(owner_id) VALUES('synthetic_auth_rollback_owner');
+          INSERT INTO auth_l1.identity_links(issuer,subject,owner_id)
+            VALUES('https://synthetic.invalid/rollback','synthetic_sub','synthetic_auth_rollback_owner');
+          SQL
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT count(*) FROM auth_l1.identity_links")" = "1"
+          # Independent empty Auth 003 base, with zero Owner/Session data.
+          test "$(psql -d auth_empty_ci -Aqt -c "SELECT count(*) FROM auth_l1.owners")" = "0"
+          test "$(psql -d auth_empty_ci -Aqt -c "SELECT count(*) FROM auth_l1.sessions")" = "0"
+          psql -d auth_empty_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
+          test "$(psql -d auth_empty_ci -Aqt -c "SELECT to_regprocedure('auth_l1.admit_session_fenced(text,text,bigint,integer)') IS NOT NULL")" = "t"
+          psql -d auth_empty_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.down.sql
+          test "$(psql -d auth_empty_ci -Aqt -c "SELECT to_regprocedure('auth_l1.admit_session_fenced(text,text,bigint,integer)') IS NULL")" = "t"
+          test "$(psql -d auth_empty_ci -Aqt -c "SELECT count(*) FROM auth_l1.owners")" = "0"
+          echo '004 empty Auth database UP/DOWN PASS'
+          # On a truly empty Auth baseline (003 + 004, zero Session/Owner rows):
+          psql -d auth_empty_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
+          psql -d auth_empty_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.up.sql
+          test "$(psql -d auth_empty_ci -Aqt -c "SELECT count(*) FROM auth_l1.service_assertion_replays")" = "0"
+          psql -d auth_empty_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.down.sql
+          test "$(psql -d auth_empty_ci -Aqt -c "SELECT to_regclass('auth_l1.service_assertion_replays') IS NULL")" = "t"
+          test "$(psql -d auth_empty_ci -Aqt -c "SELECT count(*) FROM auth_l1.owners")" = "0"
+          echo '005 empty Auth UP/DOWN PASS, 003-004 preserved'
+          # A complete synthetic Owner+Session chain in 003 before 004 up.
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO auth_l1.sessions(digest_sha256,owner_id,session_epoch,generation,status,
+             created_at,last_activity_at,idle_expires_at,absolute_expires_at,idle_seconds)
+           VALUES(repeat('a',64),'synthetic_auth_rollback_owner',0,0,'active',
+              clock_timestamp(),clock_timestamp(),
+              clock_timestamp()+interval '20 minutes',
+              clock_timestamp()+interval '1 hour',1200);
+          SQL
+          before="$(psql -d auth_rollback_ci -Aqt -c "SELECT md5(row_to_json(s)::text) FROM auth_l1.sessions s WHERE digest_sha256=repeat('a',64)")"
+          test -n "$before"
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT to_regprocedure('auth_l1.admit_session_fenced(text,text,bigint,integer)') IS NOT NULL")" = "t"
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT md5(row_to_json(s)::text) FROM auth_l1.sessions s WHERE digest_sha256=repeat('a',64)")" = "$before"
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.down.sql
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT to_regprocedure('auth_l1.admit_session_fenced(text,text,bigint,integer)') IS NULL")" = "t"
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT md5(row_to_json(s)::text) FROM auth_l1.sessions s WHERE digest_sha256=repeat('a',64)")" = "$before"
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT md5(row_to_json(s)::text) FROM auth_l1.sessions s WHERE digest_sha256=repeat('a',64)")" = "$before"
+          echo '004 data-bearing up/down/up retains synthetic Owner+Session bytes; 004 down is non-destructive'
+          # Populated Auth baseline: 005 must preserve pre-existing Owner+Session,
+          # and 005 rollback deletes replay markers only (not baseline data).
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.up.sql
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO auth_l1.service_assertion_replays(issuer_jti_sha256,expires_at)
+            VALUES(repeat('c',64),clock_timestamp()+interval '5 minutes');
+          SQL
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT count(*) FROM auth_l1.service_assertion_replays")" = "1"
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.down.sql
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT to_regclass('auth_l1.service_assertion_replays') IS NULL")" = "t"
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT md5(row_to_json(s)::text) FROM auth_l1.sessions s WHERE digest_sha256=repeat('a',64)")" = "$before"
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT count(*) FROM auth_l1.owners WHERE owner_id='synthetic_auth_rollback_owner'")" = "1"
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.up.sql
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT count(*) FROM auth_l1.service_assertion_replays")" = "0"
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT md5(row_to_json(s)::text) FROM auth_l1.sessions s WHERE digest_sha256=repeat('a',64)")" = "$before"
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.down.sql
+          echo '005 seeded UP/DOWN/UP PASS: 003-004 Owner+Session retained; replay row removed'
+          # Only now perform deliberately DESTRUCTIVE 003 down on disposable DB.
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.down.sql
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.down.sql
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT to_regclass('auth_l1.owners') IS NULL")" = "t"
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          test "$(psql -d auth_rollback_ci -Aqt -c "SELECT count(*) FROM auth_l1.owners")" = "0"
+          echo 'Auth 003 up/down/up isolated CI smoke PASS; down DESTROYS auth data and is NOT restoration'
