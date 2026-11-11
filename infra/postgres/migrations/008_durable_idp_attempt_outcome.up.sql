@@ -56,9 +56,15 @@ BEGIN
     OR p_operation_id IS NULL OR p_attempt_id IS NULL
  THEN RAISE EXCEPTION 'RESET_IDP_ATTEMPT_DENIED' USING ERRCODE='P0001'; END IF;
 
- -- Read committed-only C1 evidence before any potentially blocking Owner lock.
- -- Uncommitted C1 in another connection is invisible here: reject, do not
- -- wait for C1 then re-label a precommit claim as valid.
+ -- DDL/UP-DOWN lock ordering: Owner TABLE first. ACCESS SHARE only:
+ -- compatible with C1's table ROW EXCLUSIVE and Owner tuple FOR UPDATE.
+ -- Blocks 008.down's ACCESS EXCLUSIVE until our outer COMMIT/ROLLBACK.
+ -- Do NOT acquire an early Owner tuple lock or any 006/008 table lock first.
+ LOCK TABLE auth_l1.owners IN ACCESS SHARE MODE;
+
+ -- Committed MVCC precheck BEFORE potentially blocking Owner tuple FOR SHARE.
+ -- Uncommitted C1 in another connection is invisible: fail immediately,
+ -- never wait for it to commit and then promote a precommit attempt.
  IF NOT EXISTS (
   SELECT 1 FROM auth_l1.reset_c1_operations
   WHERE operation_id=p_operation_id AND owner_id=p_owner
@@ -126,7 +132,13 @@ BEGIN
     )
  THEN RAISE EXCEPTION 'RESET_IDP_OUTCOME_DENIED' USING ERRCODE='P0001'; END IF;
 
- -- Reject a noncommitted attempt without awaiting a competing writer's commit.
+ -- DDL/UP-DOWN lock ordering: Owner TABLE first, ACCESS SHARE only.
+ -- No Owner tuple lock yet. This is compatible with uncommitted C1 and
+ -- serializes against 008.down's Owner ACCESS EXCLUSIVE-first DDL.
+ LOCK TABLE auth_l1.owners IN ACCESS SHARE MODE;
+
+ -- Preserve committed MVCC precheck BEFORE any Owner tuple FOR SHARE.
+ -- Noncommitted attempts are invisible; fail without waiting for commit.
  IF NOT EXISTS (
   SELECT 1 FROM auth_l1.reset_idp_attempts
   WHERE attempt_id=p_attempt_id AND operation_id=p_operation_id

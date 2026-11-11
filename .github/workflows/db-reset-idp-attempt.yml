@@ -105,6 +105,10 @@ jobs:
           CREATE DATABASE reset_lookup_seeded_ci;
           CREATE DATABASE reset_idp_empty_ci;
           CREATE DATABASE reset_idp_seeded_ci;
+          CREATE DATABASE reset_idp_race_attempt_commit_ci;
+          CREATE DATABASE reset_idp_race_attempt_abort_ci;
+          CREATE DATABASE reset_idp_race_outcome_ci;
+          CREATE DATABASE reset_idp_race_down_first_ci;
           GRANT CONNECT,CREATE ON DATABASE history_ci TO history_migrator;
           GRANT CONNECT,CREATE ON DATABASE history_legacy_ci TO history_migrator;
           GRANT CONNECT,CREATE ON DATABASE history_seeded_ci TO history_migrator;
@@ -131,6 +135,13 @@ jobs:
           GRANT CONNECT,CREATE ON DATABASE reset_idp_empty_ci,reset_idp_seeded_ci TO auth_migrator;
           GRANT CONNECT ON DATABASE reset_idp_seeded_ci TO auth_reset_issuer,auth_reset_executor,auth_reset_idp_recorder;
           GRANT CONNECT ON DATABASE reset_idp_empty_ci TO auth_reset_idp_recorder;
+          GRANT CONNECT,CREATE ON DATABASE
+            reset_idp_race_attempt_commit_ci,reset_idp_race_attempt_abort_ci,
+            reset_idp_race_outcome_ci,reset_idp_race_down_first_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE
+            reset_idp_race_attempt_commit_ci,reset_idp_race_attempt_abort_ci,
+            reset_idp_race_outcome_ci,reset_idp_race_down_first_ci
+            TO auth_reset_issuer,auth_reset_executor,auth_reset_idp_recorder;
           GRANT CONNECT,CREATE ON DATABASE reset_lookup_empty_ci,reset_lookup_seeded_ci TO auth_migrator;
           GRANT CONNECT ON DATABASE reset_lookup_empty_ci,reset_lookup_seeded_ci TO auth_reset_lookup,auth_reset_issuer;
           SQL
@@ -304,6 +315,20 @@ jobs:
           test "$(psql -d reset_idp_seeded_ci -Aqt -c "SELECT md5(row_to_json(a)::text) FROM auth_l1.reset_c1_authorizations a WHERE owner_id='synthetic_008_seeded'")" = "$baseline_auth"
           test "$(psql -d reset_idp_seeded_ci -Aqt -c "SELECT count(*) FROM pg_trigger WHERE tgrelid='auth_l1.owners'::regclass AND tgname='block_c1_gate_open_trg'")" = "1"
           echo '008 EMPTY+SEEDED UP/DOWN/UP PASS; COMMITTED ATTEMPT DOWN REFUSED; C1 EVIDENCE/OWNER/GATE/TRIGGER KEPT'
+      - name: Provision independent real 008 DOWN vs recorder concurrency databases
+        run: |
+          set -euo pipefail
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
+          for database in reset_idp_race_attempt_commit_ci reset_idp_race_attempt_abort_ci \
+                          reset_idp_race_outcome_ci reset_idp_race_down_first_ci; do
+            for migration in 003_auth_session 004_session_aware_fence \
+                             005_service_assertion_replay 006_atomic_reset_c1 \
+                             007_scoped_reset_identity_lookup 008_durable_idp_attempt_outcome; do
+              psql -d "$database" -X -1 -v ON_ERROR_STOP=1 \
+                -f "infra/postgres/migrations/${migration}.up.sql"
+            done
+            test "$(psql -d "$database" -Aqt -c "SELECT count(*) FROM auth_l1.reset_idp_attempts")" = "0"
+          done
       - name: Verify clean repository-root package import in independent Python process
         run: |
           set -euo pipefail
