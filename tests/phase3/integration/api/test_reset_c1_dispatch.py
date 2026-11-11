@@ -15,15 +15,18 @@ import secrets
 import sys
 import threading
 
+import jwt
+import psycopg
 from playwright.async_api import async_playwright
 
-from reset_c1_fixture import ProductFixture, ScopedIdpTransport, setup_clean_idp
+from reset_c1_fixture import (ProductFixture, ScopedIdpTransport,
+                              setup_clean_idp, provision_exact_user_service)
 from src.phase3.auth.reset_c1_dispatch import (
-    C1Rejected, dispatch_after_committed_c1,
+    BoundSyntheticReset, C1Rejected, dispatch_after_committed_c1,
 )
 from src.phase3.storage.postgres import auth_session
 from controlled_reset import login
-from support import BASE, CallbackServer, request
+from support import BASE, CLIENT, CallbackServer, request
 
 STAGES = {}
 FACTS = {
@@ -71,15 +74,26 @@ def observer(product, owner, cap, revoked_count=1):
     return check
 
 
-def transport(idp, **kw):
-    return ScopedIdpTransport(idp.root.realm_name, idp.scoped_token, **kw)
+def transport(idp, *, token=None, **kw):
+    return ScopedIdpTransport(
+        idp.root.realm_name, token if token is not None else idp.scoped_token, **kw)
 
 
 def once(product, bound, value, remote, **kw):
+    # Authz/target hint comes from caller. The verified target only comes
+    # from a separate trusted Product identity resolver, NOT the executor.
     return dispatch_after_committed_c1(
         lambda: product.connect("auth_reset_executor"),
-        bound, value, remote, **kw,
+        bound, value, remote,
+        resolve_identity=product.resolve_identity,
+        trusted_issuer=product.trusted_issuer, **kw,
     )
+
+
+def fresh_mapped_identity(product, idp, label):
+    subject,email,old=idp.create_account(label)
+    owner=product.owner(idp.oidc["issuer"], subject)
+    return owner,subject,email,old
 
 
 async def run():
@@ -96,6 +110,9 @@ async def run():
 
     CURRENT = "CR-A01-fresh-keycloak-and-target-scoped-fgap"
     idp = setup_clean_idp()
+    # Source: actual HTTPS-equivalent *isolated* Keycloak OIDC discovery,
+    # not user-supplied issuer or a synthetic product issuer.
+    product.trusted_issuer = idp.oidc["issuer"]
     case("CR-A01-clean-realm-fgap-exact-readback",
          clean_bootstrap_before_users=True,
          no_manage_users_on_reset_service=True,
@@ -106,20 +123,58 @@ async def run():
             browser = await pw.chromium.launch(headless=True)
             try:
                 CURRENT = "CR-A02-normal-login-before-reset"
-                await login(idp.e, browser, cb, idp.oidc,
-                            idp.target_email, idp.target_old)
+                signed_login = await login(idp.e, browser, cb, idp.oidc,
+                                           idp.target_email, idp.target_old)
                 await login(idp.e, browser, cb, idp.oidc,
                             idp.other_email, idp.other_old)
                 case("CR-A02-genuine-oidc-password-login-before-c1",
                      old_target_accepted=True, unrelated_accepted=True)
+                signer=jwt.PyJWKClient(idp.oidc["jwks_uri"]).get_signing_key_from_jwt(
+                    signed_login["id_token"]).key
+                verified_claims=jwt.decode(
+                    signed_login["id_token"],signer,algorithms=["RS256"],
+                    audience=CLIENT,issuer=idp.oidc["issuer"])
+                assert verified_claims["sub"] == idp.target_id
+                owner = product.owner(idp.oidc["issuer"], verified_claims["sub"])
+                assert product.resolve_identity(owner) == (
+                    idp.oidc["issuer"], idp.target_id)
+                case("CR-A02A-real-oidc-subject-to-immutable-product-owner",
+                     actual_signed_subject=True,
+                     db_owner_mapping_exact=True, executor_has_no_mapping_read=True)
+
+                # Critical adversarial test: service B has a genuinely
+                # persisted target-B reset permission (tested separately),
+                # but a synthetic authorization of owner A cannot choose
+                # B as its IdP destination. This is NOT an FGAP denial.
+                CURRENT = "CR-A02B-owner-a-target-b-mismatch-before-c1"
+                ses1, ses2 = product.session(owner), product.session(owner)
+                bound = product.authorization(owner,idp.target_id)
+                mismatched = BoundSyntheticReset(
+                    bound.authorization,idp.other_id)
+                mismatch_remote = transport(
+                    idp,token=idp.other_scoped_token)  # NO observer
+                fake_password = "Mm8!" + secrets.token_urlsafe(19)
+                try:
+                    once(product,mismatched,fake_password,mismatch_remote)
+                    raise AssertionError("OWNER_A_TARGET_B_DISPATCHED")
+                except C1Rejected:
+                    pass
+                assert mismatch_remote.calls == 0
+                assert_precommit(product, owner, bound, active_sessions=2)
+                await login(idp.e,browser,cb,idp.oidc,
+                            idp.other_email,fake_password,expect_failure=True)
+                await login(idp.e,browser,cb,idp.oidc,
+                            idp.other_email,idp.other_old)
+                case("CR-A02B-owner-a-target-b-rejected-before-c1",
+                     issuer_subject_owner_mismatch=True,
+                     b_service_has_exact_fgAP_permission=True,
+                     product_a_epoch_unchanged=True, remote_calls=0,
+                     password_b_unchanged=True)
 
                 # A real running C1 is held AFTER its SQL writes but BEFORE
                 # COMMIT. A distinct connection still sees epoch 0, and no
                 # HTTP Reset attempt has started. Then release and COMMIT.
                 CURRENT = "CR-A03-before-commit-and-successful-idp-reset"
-                owner = product.owner()
-                ses1, ses2 = product.session(owner), product.session(owner)
-                bound = product.authorization(owner, idp.target_id)
                 entered, release = threading.Event(), threading.Event()
                 next_password = "As8!" + secrets.token_urlsafe(19)
                 remote = transport(idp, observer=observer(
@@ -181,9 +236,10 @@ async def run():
                 # Simulated rollback aborts DB before commit; accepted C1
                 # wrapper rolls back authority consumption and session bump.
                 CURRENT = "CR-A07-injected-c1-rollback"
-                rollback_owner = product.owner()
+                rollback_owner,rb_uid,rb_email,rb_old = fresh_mapped_identity(
+                    product,idp,"rollback")
                 product.session(rollback_owner)
-                rb = product.authorization(rollback_owner, idp.target_id)
+                rb = product.authorization(rollback_owner, rb_uid)
                 bad_password = "Rb8!" + secrets.token_urlsafe(19)
                 rb_remote = transport(idp)
                 def abort_before_commit():
@@ -197,13 +253,46 @@ async def run():
                 assert rb_remote.calls == 0
                 assert_precommit(product, rollback_owner, rb)
                 await login(idp.e, browser, cb, idp.oidc,
-                            idp.target_email, bad_password,
-                            expect_failure=True)
+                            rb_email, bad_password, expect_failure=True)
                 await login(idp.e, browser, cb, idp.oidc,
-                            idp.target_email, current_password)
+                            rb_email, rb_old)
                 case("CR-A07-real-pg-rollback-zero-idp-and-old-credential",
                      c1_rolled_back=True, remote_attempts=0,
                      original_credential_unchanged=True)
+
+                # psycopg.Rollback is a BaseException intentionally SWALLOWED
+                # by Transaction.__exit__; the Adapter itself must intercept
+                # it INSIDE the transaction and deny network dispatch.
+                CURRENT = "CR-A07B-real-psycopg-rollback-before-commit"
+                soft_owner,soft_uid,soft_email,soft_old=fresh_mapped_identity(
+                    product,idp,"softrollback")
+                soft_session=product.session(soft_owner)
+                soft_cap=product.authorization(soft_owner,soft_uid)
+                soft_attempted="So8!"+secrets.token_urlsafe(19)
+                soft_remote=transport(idp)  # no observer, no blocking fixture
+                def absorbed_rollback():
+                    raise psycopg.Rollback()
+                try:
+                    once(product,soft_cap,soft_attempted,soft_remote,
+                         before_commit_hook=absorbed_rollback)
+                    raise AssertionError("SWALLOWED_PG_ROLLBACK_DISPATCHED")
+                except C1Rejected:
+                    pass
+                assert soft_remote.calls==0
+                assert_precommit(product,soft_owner,soft_cap)
+                with product.connect("auth_sessions") as admission:
+                    with admission.transaction():
+                        assert auth_session.admit_session_fenced(
+                            admission,soft_session.opaque,soft_owner,0,0) is True
+                await login(idp.e,browser,cb,idp.oidc,
+                            soft_email,soft_attempted,expect_failure=True)
+                await login(idp.e,browser,cb,idp.oidc,soft_email,soft_old)
+                case("CR-A07B-real-psycopg-rollback-no-dispatch",
+                     real_postgresql_rollback=True, transport_has_no_observer=True,
+                     idp_attempts=0, c1_authorization_not_consumed=True,
+                     epoch_unchanged=True, operations_zero=True,
+                     original_session_still_accepted=True,
+                     password_unchanged=True)
 
                 CURRENT = "CR-A08-same-consumed-proof-no-repeat-dispatch"
                 replay_remote = transport(idp)
@@ -219,11 +308,15 @@ async def run():
 
                 # Two actual executor connections race the SAME authority.
                 CURRENT = "CR-A09-two-concurrent-executors"
-                race_owner = product.owner()
+                race_owner,race_uid,race_email,race_old=fresh_mapped_identity(
+                    product,idp,"race")
+                race_token=provision_exact_user_service(
+                    idp.root,race_uid,"c1-race-svc",
+                    [idp.target_id,idp.other_id])
                 product.session(race_owner)
-                race = product.authorization(race_owner, idp.target_id)
+                race = product.authorization(race_owner, race_uid)
                 race_password = "Cc8!" + secrets.token_urlsafe(19)
-                race_remote = transport(idp, observer=observer(
+                race_remote = transport(idp,token=race_token,observer=observer(
                     product, race_owner, race))
                 def competing():
                     try:
@@ -239,18 +332,17 @@ async def run():
                 assert race_remote.calls == 1
                 expect_pending(product, race_owner, race)
                 await login(idp.e, browser, cb, idp.oidc,
-                            idp.target_email, current_password,
-                            expect_failure=True)
+                            race_email, race_old, expect_failure=True)
                 await login(idp.e, browser, cb, idp.oidc,
-                            idp.target_email, race_password)
-                current_password = race_password
+                            race_email, race_password)
                 case("CR-A09-real-concurrent-c1-only-one-dispatch",
                      successful_commit=1, denied_c1=1, remote_attempts=1)
 
                 CURRENT = "CR-A10-fgap-denied-cross-account"
                 # Direct IdP REST attempts are real, using ONLY the same
                 # scoped runtime principal; never root/manage-users.
-                foreign_owner = product.owner()
+                foreign_owner = product.owner(
+                    idp.oidc["issuer"],idp.other_id)
                 product.session(foreign_owner)
                 foreign = product.authorization(foreign_owner,idp.other_id)
                 foreign_pw = "Df8!" + secrets.token_urlsafe(19)
@@ -290,9 +382,10 @@ async def run():
                     ("CR-A13-disconnect", "injected_disconnect"),
                 ):
                     CURRENT = label
-                    fail_owner = product.owner()
+                    fail_owner,fail_uid,_,_=fresh_mapped_identity(
+                        product,idp,"timeout" if kind=="injected_timeout" else "disconnect")
                     product.session(fail_owner)
-                    fail_cap = product.authorization(fail_owner,idp.target_id)
+                    fail_cap = product.authorization(fail_owner,fail_uid)
                     fault = transport(idp, observer=observer(
                         product, fail_owner, fail_cap), fault=kind)
                     result = once(product, fail_cap,
@@ -308,9 +401,10 @@ async def run():
                 # Actual commit followed by simulated process death BEFORE
                 # calling IdP; next invocation cannot re-use C1 capability.
                 CURRENT = "CR-A14-stop-after-commit-before-dispatch"
-                stop_owner = product.owner()
+                stop_owner,stop_uid,_,_=fresh_mapped_identity(
+                    product,idp,"aftercommit")
                 product.session(stop_owner)
-                stop_cap = product.authorization(stop_owner,idp.target_id)
+                stop_cap = product.authorization(stop_owner,stop_uid)
                 stop_transport = transport(idp)
                 def stop_process():
                     raise RuntimeError("CI_INJECTED_AFTER_COMMIT_STOP")
@@ -337,11 +431,15 @@ async def run():
                 # is deliberately discarded. Client MUST return UNKNOWN and
                 # never infer rollback or issue another network attempt.
                 CURRENT = "CR-A15-real-change-but-lost-response"
-                loss_owner = product.owner()
+                loss_owner,loss_uid,loss_email,loss_old=fresh_mapped_identity(
+                    product,idp,"lostreply")
+                loss_token=provision_exact_user_service(
+                    idp.root,loss_uid,"c1-loss-svc",
+                    [idp.target_id,idp.other_id,race_uid])
                 product.session(loss_owner)
-                loss_cap = product.authorization(loss_owner,idp.target_id)
+                loss_cap = product.authorization(loss_owner,loss_uid)
                 lost_pw = "Ls8!" + secrets.token_urlsafe(19)
-                lost_transport = transport(idp, observer=observer(
+                lost_transport = transport(idp,token=loss_token,observer=observer(
                     product, loss_owner, loss_cap),fault="discard_real_response")
                 lost = once(product, loss_cap, lost_pw, lost_transport)
                 assert lost.observed_result == "REMOTE_UNKNOWN"
@@ -349,10 +447,10 @@ async def run():
                 assert lost_transport.calls == 1 and lost_transport.responses == [204]
                 expect_pending(product, loss_owner, loss_cap)
                 await login(idp.e, browser, cb, idp.oidc,
-                            idp.target_email, current_password,
+                            loss_email, loss_old,
                             expect_failure=True)
                 await login(idp.e, browser, cb, idp.oidc,
-                            idp.target_email, lost_pw)
+                            loss_email, lost_pw)
                 replay_after_loss = transport(idp)
                 try:
                     once(product, loss_cap,
@@ -400,6 +498,27 @@ async def run():
                      persisted_active_ops=counts, pending_gates=gates,
                      persisted_idp_outcomes=0,
                      no_credential_payload_columns=True)
+
+                # Positive capability control on B's SEPARATE scoped token,
+                # after all C1 adapter barriers: this service really can
+                # reset B. The owner-A→B mismatch refusal was therefore
+                # independent of FGAP's target-access decision.
+                CURRENT = "CR-A17-genuine-fgap-b-allowed-control"
+                control_password="Bp8!"+secrets.token_urlsafe(19)
+                b_transport=transport(idp,token=idp.other_scoped_token)
+                assert b_transport.send_reset(
+                    idp.other_id,control_password)==204
+                assert b_transport.calls==1
+                await login(idp.e,browser,cb,idp.oidc,
+                            idp.other_email,idp.other_old,expect_failure=True)
+                await login(idp.e,browser,cb,idp.oidc,
+                            idp.other_email,control_password)
+                case("CR-A17-fgap-b-service-actually-can-reset-b",
+                     independent_b_scoped_http=204,
+                     b_old_password_denied=True,
+                     b_new_password_accepted=True,
+                     b_service_has_no_broad_role=True,
+                     negative_owner_mismatch_was_pre_c1=True)
 
             finally:
                 await browser.close()

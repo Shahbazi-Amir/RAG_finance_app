@@ -28,7 +28,7 @@ sys.path.insert(0, str(ROOT / "tests/phase3/integration/auth_idp"))
 from src.phase3.auth.reset_c1_dispatch import BoundSyntheticReset
 from src.phase3.storage.postgres import auth_session, reset_c1
 from controlled_reset import (initialize_clean_realm, create_user, issue_service,
-                              clean_fgap_permission)
+                              clean_fgap_permission, _cb_paged_authz)
 from evaluate import new_page, fill_login
 from support import Admin, BASE, credentials, request
 
@@ -59,10 +59,97 @@ class SyntheticIdp:
     target_old: str
     other_old: str
     scoped_token: str
+    other_scoped_token: str
     e: IdpHarnessContext
 
     def __repr__(self):
         return "SyntheticIdp(<redacted>)"
+
+    def create_account(self, label: str):
+        # Real user in the already-restricted Keycloak realm, not merely a
+        # random UUID invented by Product PostgreSQL.
+        assert label.isalnum()
+        email = "c1-" + label + "-" + secrets.token_hex(4) + "@example.test"
+        old_password = "Qz9!" + secrets.token_urlsafe(18)
+        subject = create_user(self.root, email, old_password)
+        record = self.root.call("GET", "/users/" + subject).json()
+        assert record.get("id") == subject and record.get("email") == email
+        return subject, email, old_password
+
+
+def provision_exact_user_service(root, uid: str, cid: str, excluded: list[str]) -> str:
+    """CI bootstrap only: per-user FGAP permission, no broad admin role.
+
+    Read the persisted per-user permission via Keycloak 26.8.2's paginated
+    search and reverse resource/scope/policy endpoints. No UUIDs in reports.
+    """
+    assert cid.replace("-", "").isalnum()
+    token = issue_service(root, cid)
+    cid_uuid = root.client(cid)["id"]
+    suid = root.call("GET","/clients/"+cid_uuid+"/service-account-user").json()["id"]
+    rm_id = root.client("realm-management")["id"]
+    direct = root.call("GET","/users/"+suid+
+                      "/role-mappings/clients/"+rm_id).json()
+    composite = root.call("GET","/users/"+suid+
+                         "/role-mappings/clients/"+rm_id+"/composite").json()
+    broad={"manage-users","view-users","realm-admin","manage-realm"}
+    assert not any(x.get("name") in broad for x in direct+composite)
+    authz = root.client("admin-permissions")["id"]
+    pref = "/clients/"+authz+"/authz/resource-server"
+    policy_name = cid+"-one-user-policy"
+    permission_name = cid+"-one-user-reset"
+    root.call("POST",pref+"/policy/user",json={
+        "name":policy_name,"logic":"POSITIVE","users":[suid]
+    },expect_status=201)
+    root.call("POST",pref+"/permission/scope",json={
+        "name":permission_name,"resourceType":"Users",
+        "scopes":["reset-password"],"resources":[uid],
+        "policies":[policy_name]
+    },expect_status=201)
+    permissions,pm = _cb_paged_authz(root,pref,"/permission/scope")
+    candidates=[x for x in permissions if x.get("name")==permission_name]
+    assert pm["complete"] and len(candidates)==1
+    perm_id=candidates[0]["id"]
+    detail=root.call("GET",pref+"/permission/scope/"+perm_id).json()
+    assert detail["resourceType"]=="Users"
+    scopes,sm=_cb_paged_authz(root,pref,"/scope")
+    target_scope=[x for x in scopes if x.get("name")=="reset-password"]
+    assert sm["complete"] and len(target_scope)==1
+    for scope in scopes:
+        links=root.call("GET",pref+"/scope/"+scope["id"]+"/permissions").json()
+        assert any(x.get("id")==perm_id for x in links)==(
+            scope["id"]==target_scope[0]["id"])
+    policy_rows,polm=_cb_paged_authz(root,pref,"/policy/user")
+    policies=[x for x in policy_rows if x.get("name")==policy_name]
+    assert polm["complete"] and len(policies)==1
+    linked=root.call("GET",pref+"/permission/scope/"+perm_id+
+                     "/associatedPolicies").json()
+    assert len(linked)==1 and linked[0].get("id")==policies[0]["id"]
+    resources,rm=_cb_paged_authz(root,pref,"/resource")
+    assert rm["complete"]
+    candidates=[]
+    for resource in resources:
+        attrs=resource.get("attributes") or {}
+        if resource.get("name")==uid or any(
+            uid in (value if isinstance(value,list) else [value])
+            for value in attrs.values()
+        ):
+            candidates.append(resource)
+    assert len(candidates)==1
+    internal_id=candidates[0].get("_id") or candidates[0].get("id")
+    fetched=root.call("GET",pref+"/resource/"+internal_id).json()
+    assert (fetched.get("_id") or fetched.get("id"))==internal_id
+    reverse=root.call("GET",pref+"/resource/"+internal_id+"/permissions").json()
+    assert any(x.get("id")==perm_id for x in reverse)
+    selector,selm=_cb_paged_authz(root,pref,"/permission",{
+        "resourceType":"Users","resource":uid,"scope":"reset-password"})
+    assert selm["complete"] and any(x.get("id")==perm_id for x in selector)
+    for other in excluded:
+        excluded_rows,em=_cb_paged_authz(root,pref,"/permission",{
+            "resourceType":"Users","resource":other,"scope":"reset-password"})
+        assert em["complete"] and not any(
+            x.get("id")==perm_id for x in excluded_rows)
+    return token
 
 
 def setup_clean_idp() -> SyntheticIdp:
@@ -79,8 +166,11 @@ def setup_clean_idp() -> SyntheticIdp:
     # Actual persisted FGAP readback, from the merged PR23 standard APIs.
     # This does not silently bestow manage-users/realm-admin on executor.
     assert clean_fgap_permission(e, root, target, cid, [other])
+    # Independent service with *real* target-B capability for adversarial
+    # owner-A/target-B mismatch: this is NOT a fake 403-only FGAP case.
+    b_token=provision_exact_user_service(root,other,"c1-b-only",[target])
     return SyntheticIdp(root, oidc, target, other, target_email, other_email,
-                        old, other_old, scoped_token, e)
+                        old, other_old, scoped_token, b_token, e)
 
 
 class ProductFixture:
@@ -95,6 +185,7 @@ class ProductFixture:
         self.roles = {}
         self.dbname = "product_ci"
         self.host = "product-db"
+        self.trusted_issuer = None
 
     def admin(self):
         return psycopg.connect(
@@ -161,13 +252,31 @@ class ProductFixture:
                 "issuer_executor": False,
             }, "RESET_DB_ROLE_SPLIT_UNPROVEN"
 
-    def owner(self):
+    def owner(self, issuer: str, subject: str):
+        # Identity is already present in the *actual* synthetic IdP realm.
+        # Never invent an arbitrary subject to pair with a Keycloak user.
+        assert issuer == self.trusted_issuer and isinstance(subject,str)
         with self.connect("auth_mapper") as conn:
             with conn.transaction():
-                rec = auth_session.map_identity(
-                    conn, "urn:synthetic-c1-fixture",
-                    "fixture-" + uuid4().hex)
+                rec = auth_session.map_identity(conn, issuer, subject)
+        assert self.resolve_identity(rec["owner_id"]) == (issuer, subject)
         return rec["owner_id"]
+
+    def resolve_identity(self, owner_id: str):
+        # The accepted 003/006 executor has NO reverse identity read
+        # function. CI-only *trusted separate* admin connection reads
+        # immutable identity_links, deliberately read-only, BEFORE C1.
+        # This is NOT permission added to auth_reset_executor and is
+        # NOT a production-ready reverse-lookup interface.
+        with self.admin() as conn:
+            with conn.transaction():
+                conn.execute("SET TRANSACTION READ ONLY")
+                rows=conn.execute(
+                    "SELECT issuer,subject FROM auth_l1.identity_links "
+                    "WHERE owner_id=%s",(owner_id,)).fetchall()
+        if len(rows)!=1:
+            return None
+        return rows[0]["issuer"],rows[0]["subject"]
 
     def session(self, owner):
         with self.connect("auth_sessions") as conn:
