@@ -31,6 +31,7 @@ from controlled_reset import login
 from fresh_reset_proof import (establish_pre_reset_sso, run_bound_case,
                                reject_unqualified, reject_stale_epoch_with_real_callback,
                                assert_no_c2_or_session)
+from dedicated_password_flow import exercise as exercise_dedicated_password
 from support import BASE, CLIENT, CallbackServer, request
 
 STAGES = {}
@@ -47,6 +48,8 @@ FACTS = {
     "fresh_auth_operation_bound_oidc_candidate": "PROVEN_BOUNDED_CI_ONLY",
     "fresh_password_server_verifiable_assurance": "NOT_PROVEN",
     "fresh_auth_c2_and_product_session": "NOT_IMPLEMENTED",
+    "dedicated_password_flow_behavior": "CI_PENDING",
+    "dedicated_password_factor_claim": "NOT_PROVEN",
     "accepted": "NONE",
 }
 CURRENT = "bootstrap"
@@ -359,6 +362,15 @@ async def run():
                 fresh_server=await run_bound_case(
                     idp.e,browser,cb,idp,product,owner,bound,observed,
                     idp.target_old,next_password,old_sso_ctx,pre_reset_cb,case)
+                assert assert_no_c2_or_session(product,owner,bound)
+                CURRENT="CR-D-dedicated-keycloak-password-only"
+                await exercise_dedicated_password(
+                    idp.e,browser,cb,idp,product,fresh_server,old_sso_ctx,
+                    signed_login["id_token"],idp.target_old,next_password,case)
+                FACTS["dedicated_password_flow_behavior"]="PROVEN_BOUNDED_CI_ONLY"
+                # A signed method-per-operation claim is still not available
+                # without a separately reviewed Keycloak attestation contract.
+                FACTS["dedicated_password_factor_claim"]="NOT_PROVEN"
                 assert assert_no_c2_or_session(product,owner,bound)
 
                 # Simulated rollback aborts DB before commit; accepted C1
@@ -1031,15 +1043,17 @@ def safe_report(ok):
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
-        "mission": "CR-IDP-02A",
-        "source": "accepted real 007-006-008-IdP sequence then server-bound OIDC challenge; prior reset regressions preserved",
+        "mission": "CR-IDP-02B",
+        "source": "accepted real 007-006-008-IdP sequence + original 02A + isolated dedicated client required-password readback",
         "overall": "PASS" if ok else "FAIL",
         "stage": CURRENT,
         "cases": STAGES,
         "facts": FACTS,
-        "result_note": "Bound server OIDC candidate only; fresh password assurance NOT_PROVEN without IdP-signed password-factor evidence. No C2 or Product Session.",
+        "result_note": "Dedicated password-only flow and audience are tested against live readback and old SSO; no signed password-method-per-operation event or production C2. No Product Session.",
         "fresh_auth_verdict": "NOT_PROVEN",
         "operation_bound_oidc_candidate": "PROVEN_BOUNDED_CI_ONLY",
+        "dedicated_flow_behavior_verdict": FACTS["dedicated_password_flow_behavior"],
+        "per_operation_signed_password_factor": "NOT_PROVEN",
     }, indent=2, sort_keys=True), encoding="utf-8")
 
 
