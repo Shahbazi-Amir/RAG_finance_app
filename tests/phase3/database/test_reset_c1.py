@@ -556,4 +556,5 @@ class C1RollbackTOCTOU(unittest.TestCase):
                     p.kill(); p.wait(timeout=5)
             p.stdin.close()
             thread.join(timeout=2)
+            p.stdout.close()
             p.stderr.close()
