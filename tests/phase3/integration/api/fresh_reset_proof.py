@@ -142,7 +142,8 @@ async def _drive(ctx,cb,server,flow,email=None,password=None,*,old_bad=None,
                  downgrade_prompt=False):
     page=await ctx.new_page()
     try:
-        await page.goto(server.url(flow,downgrade_prompt=downgrade_prompt))
+        await page.goto(server.url(flow,downgrade_prompt=downgrade_prompt),
+                        wait_until="domcontentloaded",timeout=15000)
         if email is not None:
             await expect(page.locator("#kc-form-login")).to_be_visible(timeout=12000)
             await page.locator("#username").fill(email)
@@ -280,16 +281,22 @@ async def run_bound_case(e,browser,cb,idp,product,owner,bound,observed,
          downgrade_yielded_signed_code=downgrade_signed,
          server_cannot_infer_password_factor=True)
 
-    # A bound challenge with old password fails. It is not retried as a
-    # supposedly authenticated operation; a distinct new challenge starts.
+    # The old context above tests the adversarial pre-C1 SSO. Use a
+    # *separate clean browser context* for actual password entry, so an old
+    # IdP authentication-session redirect cannot be mistaken for the fresh
+    # password form. Both carry the SAME server-bound operation snapshot.
+    fresh_ctx,unused_page=await e.new_page(browser)
+    await unused_page.close()
+    print("CR-F04-bound-old-password-start: STAGE",flush=True)
     bad=server.start("interactive")
-    await _drive(old_ctx,cb,server,bad,idp.target_email,old_password,old_bad=True)
+    await _drive(fresh_ctx,cb,server,bad,idp.target_email,old_password,old_bad=True)
     assert not bad.used
     case("CR-F04-bound-old-password-denied-no-callback",
          actual_old_password_rejected=True, no_bound_callback=True)
 
+    print("CR-F05-bound-new-password-start: STAGE",flush=True)
     good=server.start("interactive")
-    params=await _drive(old_ctx,cb,server,good,idp.target_email,new_password)
+    params=await _drive(fresh_ctx,cb,server,good,idp.target_email,new_password)
     token=await _get_tokens(server,params,good)
     id_token=token["id_token"]
     # These negative tests run before one-time Candidate consumption.
@@ -368,13 +375,15 @@ async def run_bound_case(e,browser,cb,idp,product,owner,bound,observed,
     # Test Keycloak's real PKCE enforcement on a separate valid Code: an
     # incorrect code_verifier is rejected by token endpoint, not by a stub.
     pkce_flow=server.start("interactive")
-    pkce_cb=await _drive(old_ctx,cb,server,pkce_flow,idp.target_email,new_password)
+    print("CR-F08-real-pkce-negative-start: STAGE",flush=True)
+    pkce_cb=await _drive(fresh_ctx,cb,server,pkce_flow,idp.target_email,new_password)
     bad_verifier=secrets.token_urlsafe(45)
     assert bad_verifier!=pkce_flow.pkce
     assert (await asyncio.to_thread(exchange,idp.oidc,
            pkce_cb["code"][0],bad_verifier,400)) is None
     case("CR-F08-actual-keycloak-pkce-wrong-verifier-rejected",
          real_code_wrong_verifier_http_400=True)
+    await fresh_ctx.close()
 
     # Here OIDC binding is server-checkable but password factor is only
     # observed by Playwright. Deliberately no token is promoted to a C2 proof.
