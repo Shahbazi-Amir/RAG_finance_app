@@ -15,6 +15,7 @@ from pathlib import Path
 import secrets
 import sys
 import threading
+from uuid import uuid4
 
 import jwt
 import psycopg
@@ -25,7 +26,7 @@ from reset_c1_fixture import (ProductFixture, ScopedIdpTransport,
 from src.phase3.auth.reset_c1_dispatch import (
     BoundSyntheticReset, C1Rejected, dispatch_after_committed_c1,
 )
-from src.phase3.storage.postgres import auth_session
+from src.phase3.storage.postgres import auth_session, reset_idp_attempt
 from controlled_reset import login
 from support import BASE, CLIENT, CallbackServer, request
 
@@ -39,7 +40,7 @@ FACTS = {
     "c2": "NOT_IMPLEMENTED",
     "recovery": "NOT_IMPLEMENTED",
     "product_auth": "NOT_IMPLEMENTED",
-    "durable_idp_attempt_outcome": "NOT_IMPLEMENTED",
+    "durable_idp_attempt_outcome": "SYNTHETIC_008_LOCAL_OBSERVATION_ONLY",
     "accepted": "NONE",
 }
 CURRENT = "bootstrap"
@@ -67,11 +68,17 @@ def assert_precommit(product, owner, cap, active_sessions=1):
     assert s["sessions"].get("active", 0) == active_sessions
 
 
-def observer(product, owner, cap, revoked_count=1):
+def observer(product, owner, cap, revoked_count=1, *, strict_no_transaction=True):
     def check():
         # A SEPARATE committed read connection runs INSIDE the transport,
         # precisely before any Keycloak PUT can occur.
         expect_pending(product, owner, cap, revoked_count=revoked_count)
+        if strict_no_transaction:
+            product.assert_no_network_role_transactions()
+        # At transport entry the committed 008 intent is visible to a
+        # *different* Product PG connection and is not finalized yet.
+        rows=product.attempt_rows(owner)
+        assert len(rows)==1 and rows[0]["outcome"] is None
     return check
 
 
@@ -82,6 +89,7 @@ def transport(idp, *, token=None, **kw):
 
 def once(product, bound, value, remote, *,
          executor_connection_override=None, lookup_connection_override=None,
+         recorder_connection_override=None,
          trusted_issuer_override=None, **kw):
     # The normal path uses only the non-BYPASSRLS 007 lookup principal.
     # Overrides are CI-only adversarial probes, never Product inputs.
@@ -91,6 +99,8 @@ def once(product, bound, value, remote, *,
         bound, value, remote,
         lookup_connection=(lookup_connection_override or
                            (lambda: product.connect("auth_reset_lookup"))),
+        recorder_connection=(recorder_connection_override or
+                             (lambda: product.connect("auth_reset_idp_recorder"))),
         trusted_issuer=(product.trusted_issuer if trusted_issuer_override is None
                         else trusted_issuer_override), **kw,
     )
@@ -127,7 +137,19 @@ async def run():
     product.bootstrap()
     case("CR-A00-two-separate-real-postgres-and-accepted-006-roles",
          separate_network_databases=True, migrations_unchanged=True,
-         issuer_executor_roles_separated=True)
+         issuer_executor_roles_separated=True, migration008_unchanged=True,
+         dedicated_recorder_privileges_checked=True)
+    with product.connect("auth_reset_idp_recorder") as rc:
+        assert rc.execute("SELECT current_user AS role").fetchone()[
+            "role"]=="auth_reset_idp_recorder"
+        try:
+            rc.execute("SELECT 1 FROM auth_l1.reset_idp_attempts")
+            raise AssertionError("RECORDER_DIRECT_READ_SHOULD_BE_DENIED")
+        except psycopg.errors.InsufficientPrivilege:
+            pass
+    case("CR-C00-recorder-role-only-attempt-and-outcome",
+         recorder_role_is_dedicated=True, direct_table_read_denied=True,
+         no_lookup_or_executor_grants=True, no_privileged_fallback=True)
 
     CURRENT = "CR-A01-fresh-keycloak-and-target-scoped-fgap"
     idp = setup_clean_idp()
@@ -238,6 +260,7 @@ async def run():
                 # HTTP Reset attempt has started. Then release and COMMIT.
                 CURRENT = "CR-A03-before-commit-and-successful-idp-reset"
                 entered, release = threading.Event(), threading.Event()
+                attempt_entered, attempt_release = threading.Event(), threading.Event()
                 next_password = "As8!" + secrets.token_urlsafe(19)
                 remote = transport(idp, observer=observer(
                     product, owner, bound, revoked_count=2))
@@ -246,10 +269,15 @@ async def run():
                     entered.set()
                     assert release.wait(12), "CI_COMMIT_HOLD_NOT_RELEASED"
 
+                def pause_before_attempt_commit():
+                    attempt_entered.set()
+                    assert attempt_release.wait(12), "CI_ATTEMPT_COMMIT_HOLD_NOT_RELEASED"
+
                 with ThreadPoolExecutor(max_workers=1) as pool:
                     future = pool.submit(once, product, bound, next_password,
                                          remote,
-                                         before_commit_hook=pause_before_commit)
+                                         before_commit_hook=pause_before_commit,
+                                         before_attempt_commit_hook=pause_before_attempt_commit)
                     try:
                         assert entered.wait(12), "C1_DID_NOT_REACH_PRE_COMMIT"
                         assert remote.calls == 0, "IDP_CALLED_BEFORE_C1_COMMIT"
@@ -257,10 +285,25 @@ async def run():
                                          active_sessions=2)
                     finally:
                         release.set()
+                    try:
+                        assert attempt_entered.wait(12), "NO_RECORDER_PRECOMMIT"
+                        assert remote.calls == 0, "IDP_CALLED_BEFORE_ATTEMPT_COMMIT"
+                        expect_pending(product,owner,bound,revoked_count=2)
+                        assert product.attempt_rows(owner)==[]
+                    finally:
+                        attempt_release.set()
                     observed = future.result(timeout=22)
                 assert observed.observed_result == "OBSERVED_REMOTE_SUCCESS"
                 assert observed.remote_http_status == 204
-                assert observed.persisted_remote_outcome is False
+                assert observed.persisted_remote_outcome is True
+                assert observed.committed_attempt is True
+                assert observed.attempt_id is not None
+                saved=product.attempt_rows(owner)
+                assert len(saved)==1
+                assert saved[0]["attempt_id"]==observed.attempt_id
+                assert saved[0]["operation_id"]==observed.operation_id
+                assert saved[0]["outcome"]==reset_idp_attempt.OBSERVED_REMOTE_SUCCESS
+                assert saved[0]["outcome_code"]=="REMOTE_2XX_OBSERVED"
                 assert remote.calls == 1 and remote.responses == [204]
                 expect_pending(product, owner, bound, revoked_count=2)
                 case("CR-A03-no-idp-before-real-c1-commit",
@@ -269,7 +312,13 @@ async def run():
                 case("CR-A04-c1-commit-then-one-real-idp-http-204",
                      product_epoch=1, revoked_sessions=2,
                      idp_http=204, transport_attempts=1,
-                     persisted_remote_result=False)
+                     persisted_remote_result=True, durable_intent=True)
+
+                case("CR-C01-no-idp-before-separate-real-attempt-commit",
+                     zero_remote_calls_while_uncommitted=True,
+                     committed_c1_visible_before_attempt_commit=True,
+                     inserted_attempt_invisible_precommit=True,
+                     exactly_one_real_http_after_commits=True)
 
                 CURRENT = "CR-A05-fenced-old-product-sessions"
                 with product.connect("auth_sessions") as conn:
@@ -387,7 +436,7 @@ async def run():
                 race = product.authorization(race_owner, race_uid)
                 race_password = "Cc8!" + secrets.token_urlsafe(19)
                 race_remote = transport(idp,token=race_token,observer=observer(
-                    product, race_owner, race))
+                    product, race_owner, race,strict_no_transaction=False))
                 def competing():
                     try:
                         return once(product, race, race_password, race_remote)
@@ -421,6 +470,11 @@ async def run():
                 failed = once(product, foreign, foreign_pw, denied_remote)
                 assert failed.observed_result == "REMOTE_REJECTED"
                 assert failed.remote_http_status == 403
+                assert failed.persisted_remote_outcome is True
+                rejected_rows=product.attempt_rows(foreign_owner)
+                assert len(rejected_rows)==1
+                assert rejected_rows[0]["outcome"]==reset_idp_attempt.DEFINITIVE_REJECTION
+                assert rejected_rows[0]["outcome_code"]=="POLICY_REJECTED"
                 assert denied_remote.calls == 1 and denied_remote.responses == [403]
                 expect_pending(product, foreign_owner, foreign)
                 await login(idp.e, browser, cb, idp.oidc,
@@ -429,7 +483,7 @@ async def run():
                             idp.other_email, idp.other_old)
                 case("CR-A10-target-scoped-service-denies-unrelated-user",
                      idp_http=403, unrelated_old_password_accepted=True,
-                     product_gate_closed=True)
+                     product_gate_closed=True, immutable_policy_rejection=True)
 
                 CURRENT = "CR-A11-fgap-denied-profile-update"
                 from controlled_reset import admin_request
@@ -462,10 +516,16 @@ async def run():
                                   "Ut8!" + secrets.token_urlsafe(19), fault)
                     assert result.observed_result == "REMOTE_UNKNOWN"
                     assert result.remote_http_status is None
+                    assert result.persisted_remote_outcome is True
+                    row=product.attempt_rows(fail_owner)
+                    assert len(row)==1 and row[0]["outcome"]==reset_idp_attempt.UNKNOWN
+                    assert row[0]["outcome_code"]==(
+                        "TIMEOUT" if kind=="injected_timeout" else "DISCONNECT")
                     assert fault.calls == 1
                     expect_pending(product, fail_owner, fail_cap)
                     case(label, injected_transport_failure=True,
-                         one_attempt=True, durable_outcome=False,
+                         one_attempt=True, durable_outcome=True,
+                         recorded_outcome_unknown=True,
                          product_gate_closed=True, no_auto_retry=True)
 
                 # The 007 lookup is a snapshot, not a lock: mutate Product
@@ -588,8 +648,14 @@ async def run():
                 lost = once(product, loss_cap, lost_pw, lost_transport)
                 assert lost.observed_result == "REMOTE_UNKNOWN"
                 assert lost.remote_http_status is None
+                assert lost.persisted_remote_outcome is True
+                assert lost.committed_attempt is True
                 assert lost_transport.calls == 1 and lost_transport.responses == [204]
                 expect_pending(product, loss_owner, loss_cap)
+                lost_rows=product.attempt_rows(loss_owner)
+                assert len(lost_rows)==1
+                assert lost_rows[0]["outcome"]==reset_idp_attempt.UNKNOWN
+                assert lost_rows[0]["outcome_code"]=="DISCONNECT"
                 await login(idp.e, browser, cb, idp.oidc,
                             loss_email, loss_old,
                             expect_failure=True)
@@ -610,7 +676,219 @@ async def run():
                      real_new_credential_accepted=True,
                      real_prior_credential_denied=True,
                      product_gate_closed=True,
-                     zero_retries=True, durable_idp_result=False)
+                     zero_retries=True, durable_local_unknown=True,
+                     durable_idp_password_proof=False)
+
+                CURRENT = "CR-C02-real-rollback-of-attempt-sql-and-psycopg"
+                for label,kind in (
+                    ("CR-C02A-normal-attempt-rollback","ordinary"),
+                    ("CR-C02B-swallowed-psycopg-rollback","swallowed"),
+                ):
+                    rb_owner,rb_uid,rb_email,rb_old=fresh_mapped_identity(
+                        product,idp,"attemptnormal" if kind=="ordinary" else "attemptsoft")
+                    product.session(rb_owner)
+                    rb_cap=product.authorization(rb_owner,rb_uid)
+                    rb_remote=transport(idp)  # NO observer or blocker
+                    def roll_back_attempt():
+                        if kind=="ordinary":
+                            raise RuntimeError("CI_ATTEMPT_ROLLBACK_INJECTED")
+                        raise psycopg.Rollback()
+                    try:
+                        once(product,rb_cap,"Ar8!"+secrets.token_urlsafe(18),
+                             rb_remote,before_attempt_commit_hook=roll_back_attempt)
+                        raise AssertionError("UNCOMMITTED_ATTEMPT_DISPATCHED")
+                    except C1Rejected:
+                        pass
+                    assert rb_remote.calls==0
+                    expect_pending(product,rb_owner,rb_cap)
+                    assert product.attempt_rows(rb_owner)==[]
+                    assert product.state(rb_owner,rb_cap)["consumed"] is True
+                    case(label,one_c1_committed=True,real_attempt_rollback=True,
+                         no_attempt_row=True,gate_closed=True,remote_calls=0,
+                         no_second_attempt_authorized=True)
+
+                CURRENT = "CR-C03-stop-after-attempt-commit-before-network"
+                stop2_owner,stop2_uid,_,_=fresh_mapped_identity(
+                    product,idp,"attemptstop")
+                product.session(stop2_owner)
+                stop2=product.authorization(stop2_owner,stop2_uid)
+                stop2_remote=transport(idp)
+                def stop_after_attempt():
+                    raise RuntimeError("CI_STOP_AFTER_ATTEMPT_COMMIT")
+                try:
+                    once(product,stop2,"Aa8!"+secrets.token_urlsafe(19),
+                         stop2_remote,after_attempt_commit_hook=stop_after_attempt)
+                    raise AssertionError("POST_ATTEMPT_STOP_DISPATCHED")
+                except C1Rejected:
+                    pass
+                assert stop2_remote.calls==0
+                expect_pending(product,stop2_owner,stop2)
+                stopped=product.attempt_rows(stop2_owner)
+                assert len(stopped)==1
+                assert stopped[0]["outcome"] is None and stopped[0]["finalized_at"] is None
+                assert reject_without_executor(product,stop2,transport(idp))
+                case("CR-C03-post-attempt-stop-keeps-no-outcome-no-retry",
+                     attempt_committed=True, no_outcome_recorded=True,
+                     zero_network_calls=True, same_authority_rejected=True)
+
+                CURRENT = "CR-C04-ambiguous-attempt-commit-ack"
+                unclear_owner,unclear_uid,_,_=fresh_mapped_identity(
+                    product,idp,"attemptunclear")
+                product.session(unclear_owner)
+                unclear=product.authorization(unclear_owner,unclear_uid)
+                unclear_remote=transport(idp)
+                def ambiguous_attempt_ack():
+                    raise TimeoutError("CI_LOST_ATTEMPT_COMMIT_ACK")
+                try:
+                    once(product,unclear,"Au8!"+secrets.token_urlsafe(19),
+                         unclear_remote,after_attempt_commit_hook=ambiguous_attempt_ack)
+                    raise AssertionError("UNKNOWN_ATTEMPT_ACK_DISPATCHED")
+                except C1Rejected:
+                    pass
+                assert unclear_remote.calls==0
+                expect_pending(product,unclear_owner,unclear)
+                unknown_ack=product.attempt_rows(unclear_owner)
+                assert len(unknown_ack)==1 and unknown_ack[0]["outcome"] is None
+                case("CR-C04-ambiguous-attempt-commit-no-dispatch",
+                     simulated_ack_loss_after_real_commit=True,
+                     durable_attempt_may_exist=True, idp_calls=0,
+                     gate_closed=True, no_auto_retry=True)
+
+                CURRENT = "CR-C05-actual-connection-close-before-attempt-commit"
+                cut_owner,cut_uid,_,_=fresh_mapped_identity(
+                    product,idp,"attemptcut")
+                product.session(cut_owner)
+                cut=product.authorization(cut_owner,cut_uid)
+                cut_remote=transport(idp)
+                recorder_conn=product.connect("auth_reset_idp_recorder")
+                def sever_attempt_conn():
+                    recorder_conn.close()   # actual PG session aborts TX
+                try:
+                    once(product,cut,"Ac8!"+secrets.token_urlsafe(19),
+                         cut_remote,
+                         recorder_connection_override=lambda:recorder_conn,
+                         before_attempt_commit_hook=sever_attempt_conn)
+                    raise AssertionError("CLOSED_CONNECTION_DISPATCHED")
+                except C1Rejected:
+                    pass
+                assert cut_remote.calls==0 and product.attempt_rows(cut_owner)==[]
+                expect_pending(product,cut_owner,cut)
+                case("CR-C05-real-recorder-connection-failure-before-commit",
+                     session_closed_mid_transaction=True,
+                     attempt_not_committed=True, idp_calls=0,
+                     c1_and_gate_still_committed=True)
+
+                CURRENT = "CR-C06-outcome-commit-failure-after-real-idp-204"
+                out_owner,out_uid,out_email,out_old=fresh_mapped_identity(
+                    product,idp,"outcomefail")
+                out_token=provision_exact_user_service(
+                    idp.root,out_uid,"c1-outcome-fail-svc",
+                    [idp.target_id,idp.other_id,race_uid])
+                product.session(out_owner)
+                out_cap=product.authorization(out_owner,out_uid)
+                out_remote=transport(idp,token=out_token,
+                                      observer=observer(product,out_owner,out_cap))
+                out_new="Oc8!"+secrets.token_urlsafe(18)
+                def fail_outcome_commit():
+                    raise RuntimeError("CI_ROLLBACK_OUTCOME_AFTER_HTTP")
+                observed_out=once(product,out_cap,out_new,out_remote,
+                                  before_outcome_commit_hook=fail_outcome_commit)
+                assert observed_out.observed_result=="OBSERVED_REMOTE_SUCCESS"
+                assert observed_out.persisted_remote_outcome is False
+                assert out_remote.calls==1
+                saved_out=product.attempt_rows(out_owner)
+                assert len(saved_out)==1 and saved_out[0]["outcome"] is None
+                expect_pending(product,out_owner,out_cap)
+                await login(idp.e,browser,cb,idp.oidc,
+                            out_email,out_old,expect_failure=True)
+                await login(idp.e,browser,cb,idp.oidc,out_email,out_new)
+                assert reject_without_executor(product,out_cap,transport(idp))
+                case("CR-C06-real-idp-write-outcome-rollback-not-durable",
+                     real_remote_reset_http=204, observed_success=True,
+                     local_outcome_not_committed=True,
+                     old_password_denied=True,new_password_accepted=True,
+                     no_redispatch=True,gate_closed=True)
+
+                CURRENT = "CR-C07-lost-outcome-commit-ack"
+                ack_owner,ack_uid,_,_=fresh_mapped_identity(
+                    product,idp,"outcomeack")
+                product.session(ack_owner)
+                ack_cap=product.authorization(ack_owner,ack_uid)
+                ack_remote=transport(idp,fault="injected_5xx")
+                def lose_outcome_ack():
+                    raise TimeoutError("CI_OUTCOME_ACK_NOT_OBSERVED")
+                ack=once(product,ack_cap,"At8!"+secrets.token_urlsafe(19),
+                         ack_remote,after_outcome_commit_hook=lose_outcome_ack)
+                assert ack.observed_result=="REMOTE_UNKNOWN"
+                assert ack.persisted_remote_outcome is False
+                assert ack_remote.calls==1
+                ack_rows=product.attempt_rows(ack_owner)
+                assert len(ack_rows)==1 and ack_rows[0]["outcome"]==reset_idp_attempt.UNKNOWN
+                assert ack_rows[0]["outcome_code"]=="REMOTE_5XX"
+                expect_pending(product,ack_owner,ack_cap)
+                case("CR-C07-lost-outcome-commit-ack-never-claims-persistence",
+                     injected_503=True, simulated_ack_loss=True,
+                     durable_flag_false_despite_row=True,
+                     idp_calls=1, no_second_call=True,gate_closed=True)
+
+                CURRENT = "CR-C08-outcome-psycopg-rollback-after-http"
+                rbo_owner,rbo_uid,_,_=fresh_mapped_identity(
+                    product,idp,"outcomerollback")
+                product.session(rbo_owner)
+                rbo_cap=product.authorization(rbo_owner,rbo_uid)
+                rbo_remote=transport(idp,fault="injected_401")
+                def rolled_back_outcome():
+                    raise psycopg.Rollback()
+                rbo=once(product,rbo_cap,"Ot8!"+secrets.token_urlsafe(19),
+                         rbo_remote,before_outcome_commit_hook=rolled_back_outcome)
+                assert rbo.observed_result=="REMOTE_UNKNOWN"
+                assert rbo.persisted_remote_outcome is False
+                rbo_rows=product.attempt_rows(rbo_owner)
+                assert len(rbo_rows)==1 and rbo_rows[0]["outcome"] is None
+                expect_pending(product,rbo_owner,rbo_cap)
+                case("CR-C08-psycopg-outcome-rollback-no-durable-result",
+                     unexpected_401_classified_unknown=True,
+                     local_outcome_rollback=True, idp_calls=1,
+                     no_retry=True,gate_closed=True)
+
+                CURRENT = "CR-C09-recorder-role-mismatch-after-c1"
+                role_owner,role_uid,_,_=fresh_mapped_identity(
+                    product,idp,"recorderrole")
+                product.session(role_owner)
+                role_cap=product.authorization(role_owner,role_uid)
+                role_remote=transport(idp)
+                try:
+                    once(product,role_cap,"Rr8!"+secrets.token_urlsafe(19),
+                         role_remote,recorder_connection_override=lambda:
+                         product.connect("auth_reset_executor"))
+                    raise AssertionError("WRONG_RECORDER_ROLE_DISPATCHED")
+                except C1Rejected:
+                    pass
+                assert role_remote.calls==0 and product.attempt_rows(role_owner)==[]
+                expect_pending(product,role_owner,role_cap)
+                case("CR-C09-no-executor-or-admin-recorder-fallback",
+                     c1_committed=True, wrong_recorder_role_denied=True,
+                     idp_calls=0, gate_closed=True)
+
+                CURRENT = "CR-C10-duplicate-operation-attempt-denied"
+                with product.connect("auth_reset_idp_recorder") as recorder:
+                    try:
+                        with recorder.transaction():
+                            reset_idp_attempt.record_attempt(
+                                recorder,bound.authorization.opaque,
+                                owner_id=owner,kind=bound.authorization.kind,
+                                revoked_epoch=observed.revoked_epoch,
+                                operation_id=observed.operation_id,
+                                attempt_id=uuid4())
+                        raise AssertionError("SECOND_ATTEMPT_ACCEPTED")
+                    except psycopg.errors.UniqueViolation:
+                        pass
+                assert len(product.attempt_rows(owner))==1
+                assert remote.calls==1 and observed.committed_attempt is True
+                case("CR-C10-immutable-one-attempt-unique-operation",
+                     unique_operation_constraint_enforced=True,
+                     attempt_rows=1, idp_calls=1,
+                     existing_outcome_unchanged=True)
 
                 CURRENT = "CR-A16-nonsecret-ledger-and-no-gate-opening"
                 # The DB stores a one-way capability digest, operation UUID,
@@ -644,18 +922,40 @@ async def run():
                         "SELECT column_name FROM information_schema.columns "
                         "WHERE table_schema='auth_l1' AND "
                         "table_name IN ('reset_c1_authorizations',"
-                        "'reset_c1_operations')",
+                        "'reset_c1_operations','reset_idp_attempts')",
                     ).fetchall()
                     names = {x["column_name"] for x in columns}
                     assert not names.intersection({
                         "password", "new_password", "raw_token", "recovery_link",
                         "email_url", "idp_response_body",
                     })
+                    totals=conn.execute(
+                        "SELECT count(*) AS all_attempts,"
+                        "count(*) FILTER (WHERE outcome IS NULL) AS unfinalized,"
+                        "count(*) FILTER (WHERE outcome='UNKNOWN') AS unknowns,"
+                        "count(*) FILTER (WHERE outcome='OBSERVED_REMOTE_SUCCESS') "
+                        "AS observed_success,"
+                        "count(*) FILTER (WHERE outcome='DEFINITIVE_REJECTION') "
+                        "AS definitive "
+                        "FROM auth_l1.reset_idp_attempts"
+                    ).fetchone()
+                    assert totals["all_attempts"] < counts
+                    assert totals["unfinalized"] >= 4
+                    assert totals["unknowns"] >= 3
+                    assert totals["observed_success"] >= 2
+                    assert totals["definitive"] >= 1
+                    assert totals["all_attempts"] == (
+                        totals["unfinalized"] + totals["unknowns"]
+                        + totals["observed_success"] + totals["definitive"])
                 case("CR-A16-only-c1-ledger-every-gate-closed",
                      persisted_active_ops=counts, pending_gates=gates,
                      independent_revoker_only_gates=revoked_without_c1,
                      all_pending_gates_accounted_for=True,
-                     persisted_idp_outcomes=0,
+                     persisted_idp_outcomes_locally_recorded=True,
+                     unfinished_attempts=totals["unfinalized"],
+                     unknown_outcomes=totals["unknowns"],
+                     observed_success_outcomes=totals["observed_success"],
+                     definitive_rejections=totals["definitive"],
                      no_credential_payload_columns=True)
 
                 # Positive capability control on B's SEPARATE scoped token,
@@ -689,13 +989,13 @@ def safe_report(ok):
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
-        "mission": "CR-API-03A",
-        "source": "accepted Migration 006 + clean Keycloak FGAP V2",
+        "mission": "CR-API-03C",
+        "source": "accepted 006 C1 + 007 lookup + 008 Attempt/Outcome and clean Keycloak FGAP",
         "overall": "PASS" if ok else "FAIL",
         "stage": CURRENT,
         "cases": STAGES,
         "facts": FACTS,
-        "result_note": "observed IdP responses are NOT persistent outcomes",
+        "result_note": "008 stores bounded local observations, not IdP password proof or C2",
     }, indent=2, sort_keys=True), encoding="utf-8")
 
 
