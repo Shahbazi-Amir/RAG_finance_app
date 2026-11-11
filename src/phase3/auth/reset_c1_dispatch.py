@@ -15,7 +15,7 @@ import psycopg
 from psycopg.pq import TransactionStatus
 from requests.exceptions import RequestException
 
-from src.phase3.storage.postgres import reset_c1
+from src.phase3.storage.postgres import reset_c1, reset_identity_lookup
 
 
 @dataclass(frozen=True, repr=False)
@@ -56,16 +56,18 @@ def dispatch_after_committed_c1(
     new_password: str,
     transport: ScopedResetTransport,
     *,
-    resolve_identity: Callable[[str], tuple[str, str] | None],
+    lookup_connection: Callable[[], psycopg.Connection],
     trusted_issuer: str,
+    after_lookup_hook: Callable[[], None] | None = None,
     operation_id: UUID | None = None,
     before_commit_hook: Callable[[], None] | None = None,
     after_commit_hook: Callable[[], None] | None = None,
 ) -> DispatchObservation:
     """One C1 transaction, then at most one IdP request; NEVER retry.
 
-    Only a real successful outer PostgreSQL COMMIT grants dispatch. The CI
-    hooks inject rollback, a pending commit or a post-commit process stop.
+    Only a real successful outer PostgreSQL COMMIT grants dispatch. The accepted
+    scoped 007 lookup is read-only; its result alone never authorizes dispatch.
+    CI hooks inject rollback, stale Lookup, or post-commit process stop.
     Hooks are trusted test-only injection points, not authorization paths.
     Existing C1 consumed proof / active operation denies another dispatch.
     """
@@ -77,28 +79,47 @@ def dispatch_after_committed_c1(
         raise C1Rejected("RESET_C1_INVALID_TRUSTED_INPUT")
     if not isinstance(bound.target_idp_user, str) or not bound.target_idp_user:
         raise C1Rejected("RESET_C1_MISSING_TARGET_BINDING")
-    if not callable(resolve_identity) or not isinstance(
+    if not callable(lookup_connection) or not isinstance(
         trusted_issuer, str
     ) or not trusted_issuer:
-        raise C1Rejected("RESET_C1_TRUSTED_IDENTITY_RESOLVER_MISSING")
+        raise C1Rejected("RESET_C1_SCOPED_LOOKUP_REQUIRED")
 
-    # The caller's target hint is NOT authority. Derive the real IdP subject
-    # from the independent, trusted Product owner→(issuer,subject) mapping.
-    # The resolver is a different trusted server component, NEVER the
-    # auth_reset_executor role (which cannot SELECT the Owner mapping).
-    # Production use requires a separately reviewed narrow DB read interface;
-    # current implementation has only a CI-private privileged read fixture.
+    # Accepted 007 interface, NOT the former privileged Fixture identity
+    # query. SAME raw synthetic proof, Owner, kind, epoch, server issuer as C1.
+    # Reject accidental superuser/admin role. No fallback to another role.
     authority = bound.authorization
     try:
-        identity = resolve_identity(authority.owner_id)
+        with lookup_connection() as lookup_conn:
+            if not lookup_conn.autocommit or (
+                lookup_conn.info.transaction_status != TransactionStatus.IDLE
+            ):
+                raise C1Rejected("RESET_C1_LOOKUP_CONNECTION_NOT_IDLE")
+            role = lookup_conn.execute("SELECT current_user AS role").fetchone()["role"]
+            if role != "auth_reset_lookup":
+                raise C1Rejected("RESET_C1_SCOPED_LOOKUP_ROLE_REQUIRED")
+            identity = reset_identity_lookup.resolve(
+                lookup_conn, authority.opaque,
+                trusted_owner_id=authority.owner_id,
+                kind=authority.kind,
+                expected_epoch=authority.expected_epoch,
+                expected_issuer=trusted_issuer,
+            )
     except Exception:
-        raise C1Rejected("RESET_C1_IDENTITY_LOOKUP_DENIED") from None
-    if (not isinstance(identity, tuple) or len(identity) != 2
-        or not all(isinstance(v, str) and v for v in identity)
-        or identity[0] != trusted_issuer
-        or identity[1] != bound.target_idp_user):
+        raise C1Rejected("RESET_C1_SCOPED_LOOKUP_DENIED") from None
+    if (not isinstance(identity, dict)
+        or set(identity) != {"issuer", "subject"}
+        or identity["issuer"] != trusted_issuer
+        or not isinstance(identity["subject"], str)
+        or not identity["subject"]
+        or identity["subject"] != bound.target_idp_user):
         raise C1Rejected("RESET_C1_IDP_OWNER_MISMATCH")
-    verified_target_idp_user = identity[1]
+    verified_target_idp_user = identity["subject"]
+
+    # Trusted CI-only interleaving injection: the successful read-only 007
+    # observation is not a reservation; 006 MUST independently recheck C1.
+    if after_lookup_hook is not None:
+        after_lookup_hook()
+
     op = operation_id if operation_id is not None else uuid4()
     if not isinstance(op, UUID):
         raise C1Rejected("RESET_C1_INVALID_OPERATION_REFERENCE")

@@ -1,8 +1,8 @@
-name: CR-API-03A — C1 commit before one Keycloak reset dispatch (isolated)
+name: CR-API-03B — scoped 007 lookup then C1 and Keycloak dispatch (isolated)
 
 on:
   push:
-    branches: [agent/api-reset-c1-dispatch]
+    branches: [agent/api-scoped-reset-lookup]
     paths:
       - 'src/phase3/auth/reset_c1_dispatch.py'
       - 'tests/phase3/integration/api/reset_c1_fixture.py'
@@ -27,15 +27,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: cr-api-reset-c1-${{ github.ref }}
+  group: cr-api-scoped-reset-lookup-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  commit-before-idp:
+  scoped-lookup-commit-before-idp:
     if: >-
       github.event_name == 'push' ||
       (github.event_name == 'pull_request' &&
-       github.event.pull_request.head.ref == 'agent/api-reset-c1-dispatch' &&
+       github.event.pull_request.head.ref == 'agent/api-scoped-reset-lookup' &&
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 30

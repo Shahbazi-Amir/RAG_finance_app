@@ -26,7 +26,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests/phase3/integration/auth_idp"))
 
 from src.phase3.auth.reset_c1_dispatch import BoundSyntheticReset
-from src.phase3.storage.postgres import auth_session, reset_c1
+from src.phase3.storage.postgres import auth_session, reset_c1, reset_identity_lookup
 from controlled_reset import (initialize_clean_realm, create_user, issue_service,
                               clean_fgap_permission, _cb_paged_authz)
 from evaluate import new_page, fill_login
@@ -174,7 +174,7 @@ def setup_clean_idp() -> SyntheticIdp:
 
 
 class ProductFixture:
-    """Creates dedicated non-BYPASSRLS issuer/executor roles and 003–006 schema."""
+    """Creates four separated CI roles and unchanged 003–007 Product schema."""
 
     def __init__(self):
         if os.environ.get("CI") != "true" or os.environ.get(
@@ -204,7 +204,7 @@ class ProductFixture:
     def bootstrap(self):
         roles = ("auth_mapper", "auth_sessions", "auth_revoker",
                  "auth_reauth", "auth_trust_api", "auth_replay_cleaner",
-                 "auth_reset_issuer", "auth_reset_executor")
+                 "auth_reset_issuer", "auth_reset_executor", "auth_reset_lookup")
         with self.admin() as conn:
             conn.execute("CREATE ROLE auth_migrator NOLOGIN BYPASSRLS NOSUPERUSER")
             conn.execute("GRANT CREATE ON DATABASE product_ci TO auth_migrator")
@@ -223,6 +223,7 @@ class ProductFixture:
                 "004_session_aware_fence.up.sql",
                 "005_service_assertion_replay.up.sql",
                 "006_atomic_reset_c1.up.sql",
+                "007_scoped_reset_identity_lookup.up.sql",
             ):
                 # Each versioned, UNMODIFIED migration runs in its own TX as
                 # the same restricted CI BYPASSRLS definer used by DB tests.
@@ -244,12 +245,36 @@ class ProductFixture:
                   has_function_privilege(
                     'auth_reset_issuer',
                     'auth_l1.execute_reset_c1(text,text,text,text,bigint,uuid)',
-                    'EXECUTE') AS issuer_executor
+                    'EXECUTE') AS issuer_executor,
+                  has_function_privilege(
+                    'auth_reset_lookup',
+                    'auth_l1.resolve_reset_identity(text,text,text,text,bigint,text)',
+                    'EXECUTE') AS lookup_allowed,
+                  has_function_privilege(
+                    'auth_reset_lookup',
+                    'auth_l1.execute_reset_c1(text,text,text,text,bigint,uuid)',
+                    'EXECUTE') AS lookup_c1,
+                  has_function_privilege(
+                    'auth_reset_executor',
+                    'auth_l1.resolve_reset_identity(text,text,text,text,bigint,text)',
+                    'EXECUTE') AS executor_lookup,
+                  has_function_privilege(
+                    'auth_reset_lookup',
+                    'auth_l1.issue_reset_c1_authorization(text,text,text,text,bigint,bigint,text,integer)',
+                    'EXECUTE') AS lookup_issuer,
+                  has_table_privilege(
+                    'auth_reset_lookup','auth_l1.identity_links','SELECT'
+                  ) AS lookup_direct_identity
             """).fetchone()
             assert privileges == {
                 "executor_yes": True,
                 "executor_issuer": False,
                 "issuer_executor": False,
+                "lookup_allowed": True,
+                "lookup_c1": False,
+                "executor_lookup": False,
+                "lookup_issuer": False,
+                "lookup_direct_identity": False,
             }, "RESET_DB_ROLE_SPLIT_UNPROVEN"
 
     def owner(self, issuer: str, subject: str):
@@ -259,24 +284,45 @@ class ProductFixture:
         with self.connect("auth_mapper") as conn:
             with conn.transaction():
                 rec = auth_session.map_identity(conn, issuer, subject)
-        assert self.resolve_identity(rec["owner_id"]) == (issuer, subject)
+        # Only fixture preparation verifies this via privileged observation.
+        # The adapter itself MUST use 007 with auth_reset_lookup, never admin.
+        assert self.inspect_identity_fixture_only(rec["owner_id"]) == (issuer, subject)
         return rec["owner_id"]
 
-    def resolve_identity(self, owner_id: str):
-        # The accepted 003/006 executor has NO reverse identity read
-        # function. CI-only *trusted separate* admin connection reads
-        # immutable identity_links, deliberately read-only, BEFORE C1.
-        # This is NOT permission added to auth_reset_executor and is
-        # NOT a production-ready reverse-lookup interface.
+    def inspect_identity_fixture_only(self, owner_id: str):
+        # Privileged ONLY as fixture preparation/independent observation.
+        # There is no use of this function in the Adapter's Resolve path.
         with self.admin() as conn:
             with conn.transaction():
                 conn.execute("SET TRANSACTION READ ONLY")
                 rows=conn.execute(
                     "SELECT issuer,subject FROM auth_l1.identity_links "
                     "WHERE owner_id=%s",(owner_id,)).fetchall()
-        if len(rows)!=1:
-            return None
+        assert len(rows)==1
         return rows[0]["issuer"],rows[0]["subject"]
+
+    def lookup_scoped_for_test(self, bound, *, expected_issuer=None):
+        # Independent test observation uses the real non-BYPASSRLS 007 role,
+        # NOT the privileged ProductFixture.admin() connector.
+        auth=bound.authorization
+        with self.connect("auth_reset_lookup") as conn:
+            return reset_identity_lookup.resolve(
+                conn,auth.opaque,trusted_owner_id=auth.owner_id,
+                kind=auth.kind,expected_epoch=auth.expected_epoch,
+                expected_issuer=(self.trusted_issuer if expected_issuer is None
+                                 else expected_issuer))
+
+    def expire_authorization_fixture_only(self, bound):
+        # Test-only fault injection, never an Adapter lookup fallback.
+        with self.admin() as conn:
+            with conn.transaction():
+                conn.execute(
+                    "UPDATE auth_l1.reset_c1_authorizations "
+                    "SET expires_at=clock_timestamp()-interval '1 second' "
+                    "WHERE authorization_sha256=%s",
+                    (reset_c1.digest_authorization(
+                        bound.authorization.opaque),))
+        # This privileged mutation is forbidden in Product runtime.
 
     def session(self, owner):
         with self.connect("auth_sessions") as conn:
