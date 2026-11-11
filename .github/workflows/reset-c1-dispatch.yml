@@ -1,0 +1,178 @@
+name: CR-API-03A — C1 commit before one Keycloak reset dispatch (isolated)
+
+on:
+  push:
+    branches: [agent/api-reset-c1-dispatch]
+    paths:
+      - 'src/phase3/auth/reset_c1_dispatch.py'
+      - 'tests/phase3/integration/api/reset_c1_fixture.py'
+      - 'tests/phase3/integration/api/test_reset_c1_dispatch.py'
+      - 'infra/auth-ci/compose.reset-c1.yml'
+      - 'infra/auth-ci/Dockerfile.reset-c1-runner'
+      - '.github/workflows/reset-c1-dispatch.yml'
+      - 'coordination/tasks/AGENT-API-AUTH-BOUNDARY-01.md'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'src/phase3/auth/reset_c1_dispatch.py'
+      - 'tests/phase3/integration/api/reset_c1_fixture.py'
+      - 'tests/phase3/integration/api/test_reset_c1_dispatch.py'
+      - 'infra/auth-ci/compose.reset-c1.yml'
+      - 'infra/auth-ci/Dockerfile.reset-c1-runner'
+      - '.github/workflows/reset-c1-dispatch.yml'
+      - 'coordination/tasks/AGENT-API-AUTH-BOUNDARY-01.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cr-api-reset-c1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  commit-before-idp:
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.ref == 'agent/api-reset-c1-dispatch' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: 'true'
+      COMPOSE_PROJECT_NAME: authidpci
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout exact source with no persisted Git credentials
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Set up Python 3.13 for static checking
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Build pinned standalone runner before egress isolation
+        run: |
+          set -euo pipefail
+          docker build --pull -f infra/auth-ci/Dockerfile.test-runner -t auth-idp-runner:ci infra/auth-ci
+          docker build -f infra/auth-ci/Dockerfile.reset-c1-runner -t reset-c1-runner:ci infra/auth-ci
+          python -m compileall -q src/phase3/auth/reset_c1_dispatch.py tests/phase3/integration/api/reset_c1_fixture.py tests/phase3/integration/api/test_reset_c1_dispatch.py
+      - name: Generate disposable secrets in runner temp (never in Git)
+        run: |
+          set -euo pipefail
+          umask 077
+          python - <<'PY'
+          import os, secrets
+          from pathlib import Path
+          p=Path(os.environ["RUNNER_TEMP"])/"reset-c1-ci.env"
+          p.write_text("\n".join(
+              name+"="+secrets.token_hex(32)
+              for name in ("IDP_DB_PASSWORD","IDP_ADMIN_PASSWORD","RESET_DB_PASSWORD")
+          )+"\n",encoding="ascii")
+          p.chmod(0o600)
+          (Path(os.environ["RUNNER_TEMP"])/"reset-c1-evidence").mkdir(mode=0o700)
+          PY
+      - name: Start independently pinned Keycloak Identity DB and Product DB
+        run: |
+          set -euo pipefail
+          docker compose --env-file "$RUNNER_TEMP/reset-c1-ci.env" \
+            -f infra/auth-ci/compose.yml -f infra/auth-ci/compose.reset-c1.yml up -d
+          docker run --rm --network authidpci_authisolated \
+            --entrypoint python reset-c1-runner:ci -c '
+          import socket,sys,time,urllib.request
+          for n in range(90):
+              try:
+                  for host in ("product-db","identity-db"):
+                      with socket.create_connection((host,5432),timeout=2): pass
+                  for url in ("http://keycloak:8080/realms/master/.well-known/openid-configuration",
+                              "http://mailpit:8025/api/v1/info"):
+                      with urllib.request.urlopen(url,timeout=2) as r:
+                          assert r.status==200
+                  print("SEPARATE_POSTGRES_AND_IDP_INTERNAL_READY"); sys.exit(0)
+              except Exception: time.sleep(2)
+          print("INTERNAL_RESET_HARNESS_NOT_READY"); sys.exit(1)
+          '
+      - name: Prove four pinned containers, zero exposed ports and real egress denial
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, subprocess
+          def d(*args): return subprocess.check_output(["docker",*args],text=True)
+          network=json.loads(d("network","inspect","authidpci_authisolated"))[0]
+          assert network["Internal"] is True
+          ids=d("ps","--filter","label=com.docker.compose.project=authidpci",
+                "--format","{{.ID}}").split()
+          assert len(ids)==4
+          allowed={"identity-db":"postgres:17.11",
+                   "product-db":"postgres:17.11",
+                   "keycloak":"quay.io/keycloak/keycloak:26.8.2",
+                   "mailpit":"ghcr.io/axllent/mailpit:v1.32.0"}
+          found=set()
+          for container in json.loads(d("inspect",*ids)):
+              label=container["Config"]["Labels"]["com.docker.compose.service"]
+              assert label in allowed and label not in found
+              found.add(label)
+              assert container["Config"]["Image"]==allowed[label]
+              assert set(container["NetworkSettings"]["Networks"])=={"authidpci_authisolated"}
+              assert not (container["HostConfig"].get("PortBindings") or {})
+          assert found==set(allowed)
+          print("FOUR_PINNED_SERVICES_ONLY_INTERNAL_NETWORK_NO_PORTS")
+          PY
+          for svc in identity-db product-db; do
+            if docker compose --env-file "$RUNNER_TEMP/reset-c1-ci.env" \
+                -f infra/auth-ci/compose.yml -f infra/auth-ci/compose.reset-c1.yml \
+                exec -T "$svc" bash -c \
+                  'timeout 5 bash -c "echo probe >/dev/tcp/1.1.1.1/443" >/dev/null 2>&1'; then
+              echo 'POSTGRES_EGRESS_DENIAL_BROKEN'; exit 1
+            fi
+          done
+          if docker run --rm --network authidpci_authisolated \
+              --entrypoint python reset-c1-runner:ci \
+              -c 'import socket;socket.create_connection(("1.1.1.1",443),3)' \
+              >/dev/null 2>&1; then
+            echo 'RUNNER_EGRESS_DENIAL_BROKEN'; exit 1
+          fi
+          echo 'NETWORK_GUARD_PASS'
+      - name: Real C1 Product PG commit then limited FGAP Keycloak dispatch
+        run: |
+          set -euo pipefail
+          docker run --rm --init --shm-size=1g --cap-drop=ALL \
+            --security-opt=no-new-privileges --user "$(id -u):$(id -g)" \
+            --network authidpci_authisolated \
+            -e CI=true -e COMPOSE_PROJECT_NAME=authidpci \
+            -e RUNNER_TEMP=/run -e IDP_ENV_FILE=/run/idp.env \
+            -e IDP_REPORT=/evidence/reset_dispatch.json \
+            -e RESET_REPORT=/evidence/reset_dispatch.json \
+            -e RESET_DISPATCH_MODE=isolated \
+            -v "$GITHUB_WORKSPACE:/suite:ro" \
+            -v "$RUNNER_TEMP/reset-c1-ci.env:/run/idp.env:ro" \
+            -v "$RUNNER_TEMP/reset-c1-evidence:/evidence" \
+            reset-c1-runner:ci \
+            python /suite/tests/phase3/integration/api/test_reset_c1_dispatch.py
+      - name: Unconditionally destroy both PostgreSQL volumes and transient secrets
+        if: always()
+        run: |
+          set +e
+          if test -f "$RUNNER_TEMP/reset-c1-ci.env"; then
+            docker compose --env-file "$RUNNER_TEMP/reset-c1-ci.env" \
+              -f infra/auth-ci/compose.yml -f infra/auth-ci/compose.reset-c1.yml \
+              down --volumes --remove-orphans --timeout 15 >/dev/null 2>&1
+          fi
+          docker network rm authidpci_authisolated >/dev/null 2>&1
+          rm -f "$RUNNER_TEMP/reset-c1-ci.env"
+          test ! -e "$RUNNER_TEMP/reset-c1-ci.env" || exit 1
+          if docker network inspect authidpci_authisolated >/dev/null 2>&1; then exit 1; fi
+          if test -n "$(docker ps -aq --filter label=com.docker.compose.project=authidpci)"; then
+            echo 'RESET_C1_CONTAINERS_REMAIN'; exit 1
+          fi
+          echo 'C1_PRODUCT_AND_IDP_DISPOSABLE_TEARDOWN_PASS'
+      - name: Upload sanitized case IDs and measured outcomes only
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: reset-c1-dispatch-sanitized-${{ github.run_id }}
+          path: ${{ runner.temp }}/reset-c1-evidence/reset_dispatch.json
+          if-no-files-found: warn
+          retention-days: 3
