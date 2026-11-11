@@ -11,7 +11,7 @@ validate and consume the same proof/Owner/epoch at its own transactional commit.
 """
 from __future__ import annotations
 
-from reset_c1 import digest_authorization, PURPOSE, KIND_RECOVERY, KIND_AUTHENTICATED
+from .reset_c1 import digest_authorization, PURPOSE, KIND_RECOVERY, KIND_AUTHENTICATED
 
 
 def resolve(

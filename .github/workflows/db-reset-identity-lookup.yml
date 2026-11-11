@@ -244,6 +244,29 @@ jobs:
           test "$(psql -d reset_lookup_seeded_ci -Aqt -c "SELECT count(*) FROM auth_l1.reset_c1_operations")" = "0"
           test "$(psql -d reset_lookup_seeded_ci -Aqt -c "SELECT session_epoch=0 AND reset_gate='open' FROM auth_l1.owners WHERE owner_id='synthetic_lkp_seeded'")" = "t"
           echo '007 empty+seeded UP/DOWN/UP PASS, 003/006 authorization and identity data preserved'
+      - name: Verify clean repository-root package import in independent Python process
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          unset PYTHONPATH
+          python - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+          repo = Path.cwd().resolve()
+          internal = (repo / "src/phase3/storage/postgres").resolve()
+          assert not os.environ.get("PYTHONPATH"), "PYTHONPATH must be unset"
+          before = tuple(sys.path)
+          assert all(Path(p or os.getcwd()).resolve() != internal for p in before), "postgres injected before import"
+          from src.phase3.storage.postgres import reset_identity_lookup
+          from src.phase3.storage.postgres import reset_c1
+          assert reset_identity_lookup.__name__ == "src.phase3.storage.postgres.reset_identity_lookup"
+          assert Path(reset_identity_lookup.__file__).resolve() == internal / "reset_identity_lookup.py"
+          assert reset_identity_lookup.digest_authorization is reset_c1.digest_authorization
+          assert tuple(sys.path) == before, "import altered sys.path"
+          assert all(Path(p or os.getcwd()).resolve() != internal for p in sys.path), "postgres injected after import"
+          print("CLEAN_ROOT_PACKAGE_IMPORT_PASS")
+          PY
       - name: Run real PostgreSQL synthetic History HDB, Auth BND, Replay RPL and C1 CR tests
         run: |
           set -euo pipefail

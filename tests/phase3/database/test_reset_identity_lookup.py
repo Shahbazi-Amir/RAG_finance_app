@@ -4,22 +4,18 @@ Only synthetic credentials; no API, IdP calls, real Recovery, email or C2.
 Existing 66 DB regressions including real 006 rollback races must still run.
 """
 import os
-import sys
 import uuid
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 import psycopg
 from psycopg.conninfo import conninfo_to_dict
 from psycopg.errors import InsufficientPrivilege
 from psycopg.rows import dict_row
 
-ROOT=Path(__file__).resolve().parents[3]
-sys.path.insert(0,str(ROOT/"src/phase3/storage/postgres"))
-import reset_identity_lookup as lookup
-import reset_c1 as reset
-import auth_session as auth
+from src.phase3.storage.postgres import reset_identity_lookup
+from src.phase3.storage.postgres import reset_c1 as reset
+from src.phase3.storage.postgres import auth_session as auth
 from test_auth_session import db, owner, issue, digest
 from test_reset_c1 import mint, reset_db, run, states
 
@@ -45,7 +41,7 @@ def linked_owner():
     return oid,identity
 
 def scoped(c,cap,oid,issuer,*,kind=None,epoch=None):
-    return lookup.resolve(c,cap.opaque,trusted_owner_id=oid,
+    return reset_identity_lookup.resolve(c,cap.opaque,trusted_owner_id=oid,
         kind=cap.kind if kind is None else kind,
         expected_epoch=cap.expected_epoch if epoch is None else epoch,
         expected_issuer=issuer)
@@ -282,7 +278,7 @@ class ScopedResetIdentityLookup(unittest.TestCase):
         with lookup_db() as c:
             for opaque in ("","raw-too-short",None):
                 with self.assertRaises(ValueError):
-                    lookup.resolve(c,opaque,trusted_owner_id=oid,
+                    reset_identity_lookup.resolve(c,opaque,trusted_owner_id=oid,
                         kind=reset.KIND_RECOVERY,expected_epoch=0,
                         expected_issuer=ident["issuer"])
             for unauthorized_digest in (reset.digest_authorization(str(uuid.uuid4())),"c"*64):
