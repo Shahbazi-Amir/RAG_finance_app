@@ -114,7 +114,9 @@ class DurableIdpAttempt(unittest.TestCase):
         with recorder_db() as c:
             for o,proof,operation,epoch,kind in invalid:
                 with self.subTest(owner=o,epoch=epoch,kind=kind,op=operation):
-                    with self.assertRaises(psycopg.Error):
+                    # Python explicitly rejects nonpositive post-C1 epochs;
+                    # other wrong scopes reach PostgreSQL and are denied there.
+                    with self.assertRaises((psycopg.Error,ValueError)):
                         with c.transaction(): claim(c,o,proof,operation,epoch=epoch,kind=kind)
             with self.assertRaisesRegex(psycopg.Error,"RESET_IDP_ATTEMPT_DENIED"):
                 with c.transaction():
