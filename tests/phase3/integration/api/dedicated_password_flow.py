@@ -213,6 +213,134 @@ async def _no_code_with_old_sso(old_ctx,cb,server,f,*,prompt=None,max_age=None):
     finally:
         await page.close()
 
+async def exercise_transient_drift(idp,product,cb,old_ctx,server,case):
+    """Real transient rebind AFTER challenge starts, restore BEFORE verification.
+
+    Crucially all auth requests use the SAME dedicated client, state, nonce,
+    S256 PKCE and original pre-reset SSO browser. No password is entered.
+    The client configuration is restored regardless of test outcome.
+    """
+    root=idp.root
+    # This check is the verifier's actual trusted CI readback at issuance.
+    verify_dedicated(root,server.normal_before)
+    f=server.start()
+    original=root.client(CLIENT_PROOF)
+    dedicated_id=_flow(root)["id"]
+    assert original["authenticationFlowBindingOverrides"]["browser"]==dedicated_id
+    default=[v for v in root.call("GET","/authentication/flows").json()
+             if v.get("alias")=="browser"]
+    assert len(default)==1 and default[0]["id"]!=dedicated_id
+    # Inspect the actual server-side SSO alternative, not a guessed alias.
+    browser_ex=root.call("GET","/authentication/flows/browser/executions").json()
+    has_cookie=any(x.get("providerId")=="auth-cookie"
+                   and x.get("requirement")=="ALTERNATIVE"
+                   for x in browser_ex)
+    assert has_cookie, "DEFAULT_BROWSER_SSO_COOKIE_NOT_VERIFIED"
+    # The injected drift differs ONLY in the binding UUID. We do not alter
+    # ordinary client, flow executions, realm policy or Product metadata.
+    changed=dict(original)
+    changed["authenticationFlowBindingOverrides"]={"browser":default[0]["id"]}
+    request_callback=None
+    signed_token=None
+    exchanged=False
+    no_password_entry=True
+    mutated_readback=False
+    unsafe_rejected_by_guard=False
+    root.call("PUT","/clients/"+original["id"],json=changed,expect_status=204)
+    try:
+        during=root.client(CLIENT_PROOF)
+        mutated_readback=(
+            (during.get("authenticationFlowBindingOverrides") or {}).get("browser")
+            ==default[0]["id"]
+        )
+        assert mutated_readback,"TRANSIENT_BINDING_NOT_PERSISTED"
+        try:
+            verify_dedicated(root,server.normal_before)
+        except Denied:
+            unsafe_rejected_by_guard=True
+        assert unsafe_rejected_by_guard, "UNSAFE_BINDING_NOT_DETECTED_DURING_DRIFT"
+        # There is NO second challenge. Use exactly the f issued while the
+        # REQUIRED password-only flow was configured and read back.
+        page=await _navigate(old_ctx,server.url(f,prompt="none"))
+        try:
+            await page.wait_for_url(CALLBACK+"*",timeout=15000)
+            request_callback=cb.next()
+            assert request_callback.get("state")==[f.state]
+            if request_callback.get("code"):
+                real=_tokens(idp.oidc,request_callback,f,client=CLIENT_PROOF)
+                assert real.status_code==200,"TRANSIENT_REAL_CODE_EXCHANGE_DENIED"
+                signed_token=real.json()["id_token"]  # RAM only, never logs
+                exchanged=True
+            else:
+                assert request_callback.get("error") in (
+                    ["login_required"],["interaction_required"])
+        finally:
+            await page.close()
+    finally:
+        # Restore and re-read BEFORE invoking any callback verifier.
+        root.call("PUT","/clients/"+original["id"],json=original,
+                  expect_status=204)
+    assert verify_dedicated(root,server.normal_before)
+    assert root.client(CLIENT_PROOF)==original,"RESTORED_CLIENT_DRIFT_REMAINS"
+    assert not f.used and no_password_entry
+    case("CR-T00-transient-client-flow-drift-bracketed-by-correct-readbacks",
+         initial_readback_password_only=True,
+         actual_intermediate_binding_cookie_flow=mutated_readback,
+         default_browser_cookie_alternative_verified=has_cookie,
+         unsafe_flow_detected_during_window=unsafe_rejected_by_guard,
+         final_readback_restored=True,
+         same_dedicated_client_and_challenge=True,
+         no_browser_password_entry=True)
+
+    if not exchanged:
+        case("CR-T01-no-auth-code-during-transient-sso-flow",
+             issued_dedicated_code=False,exchanged_real_code=False,
+             transient_bypass_reproduced=False,
+             verdict="NOT_REPRODUCED_IN_THIS_RUN")
+        return {"issued":False,"accepted":False,
+                "verdict":"NOT_REPRODUCED_IN_THIS_RUN"}
+
+    # A signed token from the REAL target Keycloak is presented to the
+    # UNCHANGED original verifier. Readbacks are currently both correct.
+    accepted=False
+    rejection="NONE"
+    try:
+        claims=server.check(f,request_callback,signed_token)
+        assert claims["sub"]==idp.target_id
+        accepted=True
+    except Denied:
+        rejection="ORIGINAL_VERIFIER_REJECTED"
+    if accepted:
+        # Preserve the existing single-use rule even under this exploit.
+        try:
+            server.check(f,request_callback,signed_token)
+            raise AssertionError("TRANSIENT_CHALLENGE_REPLAY_ALLOWED")
+        except Denied:
+            pass
+    case("CR-T01-real-dedicated-code-after-temporary-sso-flow",
+         dedicated_code_issued=True,real_keycloak_exchange_http_200=True,
+         token_not_fabricated=True,client_id_unchanged=True,
+         same_state_nonce_pkce=True,no_password_entry=True,
+         policy_restored_before_callback_verification=True)
+    case("CR-T02-original-verifier-tested-after-restored-readback",
+         original_verifier_accepted=accepted,
+         original_verifier_rejected=not accepted,
+         rejection_classification=rejection,
+         transient_bypass_reproduced=accepted,
+         finding="SECURITY_BYPASS_TRANSIENT_FLOW" if accepted else
+                 "TRANSIENT_TOKEN_DENIED_BY_VERIFIER",
+         no_c2=True,product_gate_still_closed=(
+             product.state(server.bound.owner,server.bound.auth)["gate"]
+             =="pending_reauth"))
+    assert product.state(server.bound.owner,server.bound.auth)[
+        "gate"]=="pending_reauth"
+    assert product.state(server.bound.owner,server.bound.auth)[
+        "sessions"].get("active",0)==0
+    return {"issued":True,"accepted":accepted,
+            "verdict":"SECURITY_BYPASS_REPRODUCED" if accepted else
+                      "ORIGINAL_VERIFIER_DENIED"}
+
+
 async def exercise(e,browser,cb,idp,product,bound_server,old_ctx,
                    normal_id_token,old_password,new_password,case):
     """Run after real 007→C1→008→Keycloak and prior 02A tests (unchanged)."""
@@ -269,6 +397,10 @@ async def exercise(e,browser,cb,idp,product,bound_server,old_ctx,
         pass
     case("CR-D06-old-normal-client-token-denied",
          signed_normal_token_not_dedicated=True,scope_cannot_be_selected=True)
+
+    # Crucially run this BEFORE the positive new-password login in this old
+    # browser, so its SSO Cookie is truly from BEFORE Product C1/IdP reset.
+    drift=await exercise_transient_drift(idp,product,cb,old_ctx,server,case)
 
     # Dedicated password: old credential must be rejected, new accepted,
     # even in the SAME OLD SSO browser. Separate challenge per attempt.
@@ -337,4 +469,5 @@ async def exercise(e,browser,cb,idp,product,bound_server,old_ctx,
          freshness_evidence="CONFIGURATION_PLUS_DEDICATED_AUDIENCE_BOUNDED_CI",
          keycloak_method_signed_per_operation=False,
          no_product_session_issued=True,no_c2=True,gate_closed=True)
+    results["transient"] = drift
     return results

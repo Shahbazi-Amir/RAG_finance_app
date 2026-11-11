@@ -50,6 +50,8 @@ FACTS = {
     "fresh_auth_c2_and_product_session": "NOT_IMPLEMENTED",
     "dedicated_password_flow_behavior": "CI_PENDING",
     "dedicated_password_factor_claim": "NOT_PROVEN",
+    "transient_flow_drift_verdict": "NOT_RUN",
+    "c2_evidence": "NOT_PROVEN",
     "accepted": "NONE",
 }
 CURRENT = "bootstrap"
@@ -363,10 +365,14 @@ async def run():
                     idp.e,browser,cb,idp,product,owner,bound,observed,
                     idp.target_old,next_password,old_sso_ctx,pre_reset_cb,case)
                 assert assert_no_c2_or_session(product,owner,bound)
-                CURRENT="CR-D-dedicated-keycloak-password-only"
-                await exercise_dedicated_password(
+                CURRENT="CR-T-transient-client-flow-drift-under-old-sso"
+                dedicated_observations=await exercise_dedicated_password(
                     idp.e,browser,cb,idp,product,fresh_server,old_sso_ctx,
                     signed_login["id_token"],idp.target_old,next_password,case)
+                drift=dedicated_observations["transient"]
+                FACTS["transient_flow_drift_verdict"]=drift["verdict"]
+                FACTS["transient_flow_drift_code_issued"]=drift["issued"]
+                FACTS["transient_flow_drift_original_verifier_accepted"]=drift["accepted"]
                 FACTS["dedicated_password_flow_behavior"]="PROVEN_BOUNDED_CI_ONLY"
                 # A signed method-per-operation claim is still not available
                 # without a separately reviewed Keycloak attestation contract.
@@ -1043,17 +1049,19 @@ def safe_report(ok):
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
-        "mission": "CR-IDP-02B",
-        "source": "accepted real 007-006-008-IdP sequence + original 02A + isolated dedicated client required-password readback",
+        "mission": "CR-IDP-02C",
+        "source": "unchanged 007-006-008-IdP and all 02A/02B regressions plus actual transient Keycloak Client Browser Flow rebind during the same challenge",
         "overall": "PASS" if ok else "FAIL",
         "stage": CURRENT,
         "cases": STAGES,
         "facts": FACTS,
-        "result_note": "Dedicated password-only flow and audience are tested against live readback and old SSO; no signed password-method-per-operation event or production C2. No Product Session.",
+        "result_note": "Two correct live readbacks do not prove uninterrupted password-only policy; report real interim Keycloak Code exchange and the ORIGINAL callback verifier result. No C2, Gate change or Product Session.",
         "fresh_auth_verdict": "NOT_PROVEN",
         "operation_bound_oidc_candidate": "PROVEN_BOUNDED_CI_ONLY",
         "dedicated_flow_behavior_verdict": FACTS["dedicated_password_flow_behavior"],
         "per_operation_signed_password_factor": "NOT_PROVEN",
+        "transient_flow_drift_verdict": FACTS["transient_flow_drift_verdict"],
+        "c2_evidence_verdict": "NOT_PROVEN",
     }, indent=2, sort_keys=True), encoding="utf-8")
 
 

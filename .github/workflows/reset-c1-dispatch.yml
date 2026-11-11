@@ -1,8 +1,8 @@
-name: CR-IDP-02B — dedicated Keycloak password-only client in old SSO (isolated)
+name: CR-IDP-02C — transient dedicated-flow drift under old SSO (isolated)
 
 on:
   push:
-    branches: [agent/reset-dedicated-reauth]
+    branches: [agent/reset-transient-flow-drift]
     paths:
       - 'src/phase3/auth/reset_c1_dispatch.py'
       - 'tests/phase3/integration/api/dedicated_password_flow.py'
@@ -27,15 +27,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: cr-idp-dedicated-password-${{ github.ref }}
+  group: cr-idp-transient-drift-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  dedicated-password-only:
+  transient-flow-drift:
     if: >-
       github.event_name == 'push' ||
       (github.event_name == 'pull_request' &&
-       github.event.pull_request.head.ref == 'agent/reset-dedicated-reauth' &&
+       github.event.pull_request.head.ref == 'agent/reset-transient-flow-drift' &&
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -135,7 +135,7 @@ jobs:
             echo 'RUNNER_EGRESS_DENIAL_BROKEN'; exit 1
           fi
           echo 'NETWORK_GUARD_PASS'
-      - name: Real C1 008 plus dedicated Keycloak required-password challenge
+      - name: Real Keycloak transient browser-flow switch during bound challenge
         run: |
           set -euo pipefail
           docker run --rm --init --shm-size=1g --cap-drop=ALL \
