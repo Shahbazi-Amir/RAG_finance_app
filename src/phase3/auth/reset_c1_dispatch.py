@@ -1,9 +1,9 @@
-"""CR-API-03A — internal C1-commit-before-IdP dispatch; synthetic authority only.
+"""CR-API-03C — accepted 007 → 006 C1 → durable 008 attempt → one IdP call.
 
-No public endpoint, real recovery, worker, retry, durable IdP outcome, C2 or
-Product Auth integration. This module never issues reset authorization. A
-separate CI-only fixture owns the issuer role. Sensitive capabilities and the
-new password must remain in short-lived trusted caller memory.
+Synthetic proof only. 008 can record a committed, bounded *local observation*
+of HTTP outcomes; it is NEVER IdP password-change assurance or C2 permission.
+No public endpoint, real recovery, reconciliation, retry, worker, C2, Product
+Auth, or Gate-open. Short-lived caller memory only for passwords and proofs.
 """
 from __future__ import annotations
 
@@ -13,9 +13,10 @@ from uuid import UUID, uuid4
 
 import psycopg
 from psycopg.pq import TransactionStatus
-from requests.exceptions import RequestException
+from requests.exceptions import (RequestException, Timeout as HTTPTimeout,
+                                 ConnectionError as HTTPConnectionError)
 
-from src.phase3.storage.postgres import reset_c1, reset_identity_lookup
+from src.phase3.storage.postgres import reset_c1, reset_identity_lookup, reset_idp_attempt
 
 
 @dataclass(frozen=True, repr=False)
@@ -30,12 +31,17 @@ class BoundSyntheticReset:
 
 @dataclass(frozen=True, repr=False)
 class DispatchObservation:
-    """Ephemeral, in-process only. NEVER a persisted Keycloak outcome."""
+    """Local adapter receipt: persisted flag means 008 local CAS confirmed,
+    never durable verification of actual IdP credential state.
+    """
     operation_id: UUID
     revoked_epoch: int
     observed_result: str
     remote_http_status: int | None
     persisted_remote_outcome: bool = False
+    attempt_id: UUID | None = None
+    committed_attempt: bool = False
+    outcome_code: str | None = None
 
     def __repr__(self) -> str:
         return "DispatchObservation(<redacted>)"
@@ -57,19 +63,23 @@ def dispatch_after_committed_c1(
     transport: ScopedResetTransport,
     *,
     lookup_connection: Callable[[], psycopg.Connection],
+    recorder_connection: Callable[[], psycopg.Connection],
     trusted_issuer: str,
     after_lookup_hook: Callable[[], None] | None = None,
     operation_id: UUID | None = None,
     before_commit_hook: Callable[[], None] | None = None,
     after_commit_hook: Callable[[], None] | None = None,
+    before_attempt_commit_hook: Callable[[], None] | None = None,
+    after_attempt_commit_hook: Callable[[], None] | None = None,
+    before_outcome_commit_hook: Callable[[], None] | None = None,
+    after_outcome_commit_hook: Callable[[], None] | None = None,
 ) -> DispatchObservation:
-    """One C1 transaction, then at most one IdP request; NEVER retry.
+    """007 Lookup → committed 006 C1 → committed 008 Attempt → one IdP PUT
+    → separately committed 008 Outcome. No automatic retries.
 
-    Only a real successful outer PostgreSQL COMMIT grants dispatch. The accepted
-    scoped 007 lookup is read-only; its result alone never authorizes dispatch.
-    CI hooks inject rollback, stale Lookup, or post-commit process stop.
-    Hooks are trusted test-only injection points, not authorization paths.
-    Existing C1 consumed proof / active operation denies another dispatch.
+    No DB transaction survives into send_reset(). SQL receipts, swallowed
+    psycopg.Rollback and unknown COMMIT outcome NEVER license dispatch.
+    All injected hooks are private, CI-only fault controls.
     """
     if not isinstance(bound, BoundSyntheticReset) or not isinstance(
         bound.authorization, reset_c1.SyntheticAuthorization
@@ -79,7 +89,7 @@ def dispatch_after_committed_c1(
         raise C1Rejected("RESET_C1_INVALID_TRUSTED_INPUT")
     if not isinstance(bound.target_idp_user, str) or not bound.target_idp_user:
         raise C1Rejected("RESET_C1_MISSING_TARGET_BINDING")
-    if not callable(lookup_connection) or not isinstance(
+    if not callable(lookup_connection) or not callable(recorder_connection) or not isinstance(
         trusted_issuer, str
     ) or not trusted_issuer:
         raise C1Rejected("RESET_C1_SCOPED_LOOKUP_REQUIRED")
@@ -161,21 +171,127 @@ def dispatch_after_committed_c1(
     if after_commit_hook is not None:
         after_commit_hook()
 
-    # This is ONE call, with no automatic retry on any response or error.
+    # CR-API-03C: Record a durable, one-time intent AFTER C1 is committed,
+    # but BEFORE any external HTTP. Receipt inside a transaction is NOT an ACK.
+    # A different auth_reset_idp_recorder connection is mandatory.
+    attempt_id = uuid4()
+    try:
+        with recorder_connection() as recorder:
+            if not recorder.autocommit or (
+                recorder.info.transaction_status != TransactionStatus.IDLE
+            ):
+                raise C1Rejected("RESET_IDP_RECORDER_CONNECTION_NOT_IDLE")
+            role = recorder.execute("SELECT current_user AS role").fetchone()["role"]
+            if role != "auth_reset_idp_recorder":
+                raise C1Rejected("RESET_IDP_RECORDER_ROLE_REQUIRED")
+            with recorder.transaction():
+                try:
+                    attempt_receipt = reset_idp_attempt.record_attempt(
+                        recorder, authority.opaque,
+                        owner_id=authority.owner_id, kind=authority.kind,
+                        revoked_epoch=receipt["revoked_epoch"],
+                        operation_id=op, attempt_id=attempt_id,
+                    )
+                    if before_attempt_commit_hook is not None:
+                        before_attempt_commit_hook()
+                except psycopg.Rollback:
+                    # Psycopg silently swallows Rollback at transaction exit.
+                    # Convert to a normal raised exception *inside* the TX.
+                    raise C1Rejected("RESET_IDP_ATTEMPT_ROLLBACK_NO_DISPATCH") from None
+        # The recorder connection and transaction are now CLOSED; failure or
+        # ambiguous COMMIT above cannot be interpreted as a successful attempt.
+        if (attempt_receipt["attempt_id"] != str(attempt_id)
+            or attempt_receipt["operation_id"] != str(op)
+            or attempt_receipt["status"] != reset_idp_attempt.NO_OUTCOME_RECORDED):
+            raise C1Rejected("RESET_IDP_ATTEMPT_UNVERIFIED_NO_DISPATCH")
+        if after_attempt_commit_hook is not None:
+            # Inject a lost/ambiguous COMMIT acknowledgement or process stop:
+            # even if the row DID commit, do NOT send a remote request.
+            after_attempt_commit_hook()
+    except (psycopg.Error, RuntimeError, ValueError, TimeoutError, OSError):
+        raise C1Rejected("RESET_IDP_ATTEMPT_COMMIT_NOT_CONFIRMED_NO_DISPATCH") from None
+
+    # The sole IdP call is strictly *after* known C1 and Attempt commits and
+    # connection close. No recorder/executor/lookup locks survive this call.
+    status: int | None = None
+    observed: str = "REMOTE_UNKNOWN"
+    code = "UNVERIFIABLE"
+    durable_outcome = reset_idp_attempt.UNKNOWN
     try:
         status = transport.send_reset(verified_target_idp_user, new_password)
-    except (RequestException, TimeoutError, OSError):
-        return DispatchObservation(op, receipt["revoked_epoch"],
-                                   "REMOTE_UNKNOWN", None)
-    if type(status) is not int:
-        return DispatchObservation(op, receipt["revoked_epoch"],
-                                   "REMOTE_UNKNOWN", None)
-    if status == 204:
-        return DispatchObservation(op, receipt["revoked_epoch"],
-                                   "OBSERVED_REMOTE_SUCCESS", status)
-    if status in (400, 401, 403, 404):
-        # Definitive HTTP rejection observed; does not reverse Product C1.
-        return DispatchObservation(op, receipt["revoked_epoch"],
-                                   "REMOTE_REJECTED", status)
-    return DispatchObservation(op, receipt["revoked_epoch"],
-                               "REMOTE_UNKNOWN", status)
+    except HTTPTimeout:
+        code = "TIMEOUT"
+    except TimeoutError:
+        code = "TIMEOUT"
+    except HTTPConnectionError:
+        code = "DISCONNECT"
+    except OSError:
+        code = "DISCONNECT"
+    except RequestException:
+        code = "UNVERIFIABLE"
+    else:
+        if type(status) is not int:
+            status = None
+            code = "UNVERIFIABLE"
+        elif status == 204:
+            observed = "OBSERVED_REMOTE_SUCCESS"
+            durable_outcome = reset_idp_attempt.OBSERVED_REMOTE_SUCCESS
+            code = "REMOTE_2XX_OBSERVED"
+        elif status == 403:
+            observed = "REMOTE_REJECTED"
+            durable_outcome = reset_idp_attempt.DEFINITIVE_REJECTION
+            code = "POLICY_REJECTED"
+        elif status == 404:
+            observed = "REMOTE_REJECTED"
+            durable_outcome = reset_idp_attempt.DEFINITIVE_REJECTION
+            code = "ACCOUNT_REJECTED"
+        elif 500 <= status <= 599:
+            code = "REMOTE_5XX"
+        else:
+            # 400/401/other and unexpected 2xx are not independently
+            # documented as *definitive no-change* responses.
+            code = "OTHER_UNKNOWN"
+
+    # Record the bounded local observation in a NEW, short, explicit TX.
+    # A failed/ambiguous outcome COMMIT never becomes a durable claim.
+    persisted = False
+    try:
+        with recorder_connection() as recorder:
+            if not recorder.autocommit or (
+                recorder.info.transaction_status != TransactionStatus.IDLE
+            ):
+                raise C1Rejected("RESET_IDP_OUTCOME_CONNECTION_NOT_IDLE")
+            role = recorder.execute("SELECT current_user AS role").fetchone()["role"]
+            if role != "auth_reset_idp_recorder":
+                raise C1Rejected("RESET_IDP_OUTCOME_RECORDER_ROLE_REQUIRED")
+            with recorder.transaction():
+                try:
+                    result = reset_idp_attempt.record_outcome(
+                        recorder, authority.opaque,
+                        owner_id=authority.owner_id, kind=authority.kind,
+                        revoked_epoch=receipt["revoked_epoch"],
+                        operation_id=op, attempt_id=attempt_id,
+                        outcome=durable_outcome, code=code,
+                    )
+                    if before_outcome_commit_hook is not None:
+                        before_outcome_commit_hook()
+                except psycopg.Rollback:
+                    raise C1Rejected("RESET_IDP_OUTCOME_ROLLBACK") from None
+        if (result["attempt_id"] != str(attempt_id)
+            or result["outcome"] != durable_outcome
+            or result["code"] != code):
+            raise C1Rejected("RESET_IDP_OUTCOME_UNVERIFIED")
+        if after_outcome_commit_hook is not None:
+            after_outcome_commit_hook()
+        persisted = True
+    except (psycopg.Error, RuntimeError, ValueError, TimeoutError, OSError):
+        # We cannot distinguish failed from acknowledged-but-lost COMMIT.
+        # Never resend to IdP, and never claim persisted IDP_CONFIRMED.
+        persisted = False
+
+    return DispatchObservation(
+        operation_id=op, revoked_epoch=receipt["revoked_epoch"],
+        observed_result=observed, remote_http_status=status,
+        persisted_remote_outcome=persisted, attempt_id=attempt_id,
+        committed_attempt=True, outcome_code=code if persisted else None,
+    )

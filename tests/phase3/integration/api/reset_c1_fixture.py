@@ -26,7 +26,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests/phase3/integration/auth_idp"))
 
 from src.phase3.auth.reset_c1_dispatch import BoundSyntheticReset
-from src.phase3.storage.postgres import auth_session, reset_c1, reset_identity_lookup
+from src.phase3.storage.postgres import auth_session, reset_c1, reset_identity_lookup, reset_idp_attempt
 from controlled_reset import (initialize_clean_realm, create_user, issue_service,
                               clean_fgap_permission, _cb_paged_authz)
 from evaluate import new_page, fill_login
@@ -174,7 +174,7 @@ def setup_clean_idp() -> SyntheticIdp:
 
 
 class ProductFixture:
-    """Creates four separated CI roles and unchanged 003–007 Product schema."""
+    """Creates separate CI principals and untouched 003–008 Product schema."""
 
     def __init__(self):
         if os.environ.get("CI") != "true" or os.environ.get(
@@ -204,7 +204,8 @@ class ProductFixture:
     def bootstrap(self):
         roles = ("auth_mapper", "auth_sessions", "auth_revoker",
                  "auth_reauth", "auth_trust_api", "auth_replay_cleaner",
-                 "auth_reset_issuer", "auth_reset_executor", "auth_reset_lookup")
+                 "auth_reset_issuer", "auth_reset_executor", "auth_reset_lookup",
+                 "auth_reset_idp_recorder")
         with self.admin() as conn:
             conn.execute("CREATE ROLE auth_migrator NOLOGIN BYPASSRLS NOSUPERUSER")
             conn.execute("GRANT CREATE ON DATABASE product_ci TO auth_migrator")
@@ -224,6 +225,7 @@ class ProductFixture:
                 "005_service_assertion_replay.up.sql",
                 "006_atomic_reset_c1.up.sql",
                 "007_scoped_reset_identity_lookup.up.sql",
+                "008_durable_idp_attempt_outcome.up.sql",
             ):
                 # Each versioned, UNMODIFIED migration runs in its own TX as
                 # the same restricted CI BYPASSRLS definer used by DB tests.
@@ -264,7 +266,37 @@ class ProductFixture:
                     'EXECUTE') AS lookup_issuer,
                   has_table_privilege(
                     'auth_reset_lookup','auth_l1.identity_links','SELECT'
-                  ) AS lookup_direct_identity
+                  ) AS lookup_direct_identity,
+                  has_function_privilege(
+                    'auth_reset_idp_recorder',
+                    'auth_l1.record_reset_idp_attempt(text,text,text,text,bigint,uuid,uuid)',
+                    'EXECUTE') AS recorder_attempt,
+                  has_function_privilege(
+                    'auth_reset_idp_recorder',
+                    'auth_l1.record_reset_idp_outcome(text,text,text,text,bigint,uuid,uuid,text,text)',
+                    'EXECUTE') AS recorder_outcome,
+                  has_function_privilege(
+                    'auth_reset_idp_recorder',
+                    'auth_l1.execute_reset_c1(text,text,text,text,bigint,uuid)',
+                    'EXECUTE') AS recorder_c1,
+                  has_function_privilege(
+                    'auth_reset_idp_recorder',
+                    'auth_l1.resolve_reset_identity(text,text,text,text,bigint,text)',
+                    'EXECUTE') AS recorder_lookup,
+                  has_function_privilege(
+                    'auth_reset_executor',
+                    'auth_l1.record_reset_idp_attempt(text,text,text,text,bigint,uuid,uuid)',
+                    'EXECUTE') AS executor_recorder,
+                  has_function_privilege(
+                    'auth_reset_lookup',
+                    'auth_l1.record_reset_idp_attempt(text,text,text,text,bigint,uuid,uuid)',
+                    'EXECUTE') AS lookup_recorder,
+                  has_table_privilege(
+                    'auth_reset_idp_recorder','auth_l1.reset_idp_attempts','SELECT'
+                  ) AS recorder_direct_select,
+                  has_table_privilege(
+                    'auth_reset_idp_recorder','auth_l1.identity_links','SELECT'
+                  ) AS recorder_identity_select
             """).fetchone()
             assert privileges == {
                 "executor_yes": True,
@@ -275,6 +307,14 @@ class ProductFixture:
                 "executor_lookup": False,
                 "lookup_issuer": False,
                 "lookup_direct_identity": False,
+                "recorder_attempt": True,
+                "recorder_outcome": True,
+                "recorder_c1": False,
+                "recorder_lookup": False,
+                "executor_recorder": False,
+                "lookup_recorder": False,
+                "recorder_direct_select": False,
+                "recorder_identity_select": False,
             }, "RESET_DB_ROLE_SPLIT_UNPROVEN"
 
     def owner(self, issuer: str, subject: str):
@@ -323,6 +363,28 @@ class ProductFixture:
                     (reset_c1.digest_authorization(
                         bound.authorization.opaque),))
         # This privileged mutation is forbidden in Product runtime.
+
+    def attempt_rows(self, owner):
+        # CI-only privileged observation; runtime Recorder itself lacks
+        # direct table SELECT. Never print UUIDs, digests or raw JSON.
+        with self.admin() as conn:
+            return conn.execute(
+                "SELECT attempt_id,operation_id,owner_id,revoked_epoch,"
+                "outcome,outcome_code,recorded_at,finalized_at "
+                "FROM auth_l1.reset_idp_attempts WHERE owner_id=%s",
+                (owner,)).fetchall()
+
+    def assert_no_network_role_transactions(self):
+        # Called by transport observer AFTER committed Attempt, directly
+        # before the Keycloak PUT. Neither Lookup, Executor nor Recorder
+        # may hold open *any* primary PostgreSQL transaction at that point.
+        with self.admin() as conn:
+            n=conn.execute(
+                "SELECT count(*) AS n FROM pg_stat_activity WHERE "
+                "usename=ANY(%s) AND xact_start IS NOT NULL",
+                (["auth_reset_lookup","auth_reset_executor",
+                  "auth_reset_idp_recorder"],)).fetchone()["n"]
+            assert n==0, "REMOTE_STARTED_WITH_OPEN_PRODUCT_DB_TX"
 
     def session(self, owner):
         with self.connect("auth_sessions") as conn:
@@ -388,6 +450,12 @@ class ScopedIdpTransport:
             self.calls += 1
         if self.observer is not None:
             self.observer()  # independent second PG connection proves COMMIT
+        if self.fault == "injected_5xx":
+            self.responses.append(503)
+            return 503
+        if self.fault == "injected_401":
+            self.responses.append(401)
+            return 401
         if self.fault == "injected_timeout":
             raise ReadTimeout("sanitized injected timeout")
         if self.fault == "injected_disconnect":
