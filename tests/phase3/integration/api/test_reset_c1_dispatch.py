@@ -625,8 +625,21 @@ async def run():
                         "SELECT count(*) AS n FROM auth_l1.owners "
                         "WHERE reset_gate='pending_reauth'",
                     ).fetchone()["n"]
-                    assert counts == gates
+                    # B03 intentionally exercised the *independent*
+                    # accepted 003 auth_revoker (no 006 operation). Account
+                    # for that real committed Gate without mislabeling it
+                    # as a C1 operation or weakening the original invariant.
+                    revoked_without_c1=conn.execute(
+                        "SELECT count(*) AS n FROM auth_l1.owners o "
+                        "WHERE o.reset_gate='pending_reauth' AND NOT EXISTS ("
+                        "SELECT 1 FROM auth_l1.reset_c1_operations op "
+                        "WHERE op.owner_id=o.owner_id AND op.active)"
+                    ).fetchone()["n"]
+                    assert revoked_without_c1==1
+                    assert counts + revoked_without_c1 == gates
                     assert counts >= 6
+                    assert product.state(drift_owner,drift_cap)[
+                        "gate"]=="pending_reauth"
                     columns = conn.execute(
                         "SELECT column_name FROM information_schema.columns "
                         "WHERE table_schema='auth_l1' AND "
@@ -640,6 +653,8 @@ async def run():
                     })
                 case("CR-A16-only-c1-ledger-every-gate-closed",
                      persisted_active_ops=counts, pending_gates=gates,
+                     independent_revoker_only_gates=revoked_without_c1,
+                     all_pending_gates_accounted_for=True,
                      persisted_idp_outcomes=0,
                      no_credential_payload_columns=True)
 
