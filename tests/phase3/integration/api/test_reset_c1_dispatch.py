@@ -364,7 +364,7 @@ async def run():
                     idp.target_old,next_password,old_sso_ctx,pre_reset_cb,case)
                 assert assert_no_c2_or_session(product,owner,bound)
                 CURRENT="CR-D-dedicated-keycloak-password-only"
-                await exercise_dedicated(
+                await exercise_dedicated_password(
                     idp.e,browser,cb,idp,product,fresh_server,old_sso_ctx,
                     signed_login["id_token"],idp.target_old,next_password,case)
                 FACTS["dedicated_password_flow_behavior"]="PROVEN_BOUNDED_CI_ONLY"
