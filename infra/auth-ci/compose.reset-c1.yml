@@ -1,0 +1,19 @@
+# CR-API-03A: overlays the UNCHANGED existing auth-ci Keycloak/identity PG.
+# Adds a separate product PostgreSQL 17.11 with no host port exposure.
+services:
+  product-db:
+    image: postgres:17.11
+    environment:
+      POSTGRES_DB: product_ci
+      POSTGRES_USER: product_ci
+      POSTGRES_PASSWORD: ${RESET_DB_PASSWORD:?ephemeral product DB password required}
+    networks: [authisolated]
+    volumes:
+      - reset_product_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U product_ci -d product_ci"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+volumes:
+  reset_product_data:

@@ -1,0 +1,6 @@
+# Reuse the prebuilt pinned, isolated, browser-capable IdP CI runner.
+# Build both images while downloads are permitted; runtime uses only the
+# internal, outbound-denied compose network. No product API or deployment.
+FROM auth-idp-runner:ci
+RUN python -m pip install --no-cache-dir --disable-pip-version-check \
+    'psycopg[binary]==3.2.13'
