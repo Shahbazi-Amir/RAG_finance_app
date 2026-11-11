@@ -376,13 +376,22 @@ async def run_bound_case(e,browser,cb,idp,product,owner,bound,observed,
     # incorrect code_verifier is rejected by token endpoint, not by a stub.
     pkce_flow=server.start("interactive")
     print("CR-F08-real-pkce-negative-start: STAGE",flush=True)
-    pkce_cb=await _drive(fresh_ctx,cb,server,pkce_flow,idp.target_email,new_password)
-    bad_verifier=secrets.token_urlsafe(45)
-    assert bad_verifier!=pkce_flow.pkce
-    assert (await asyncio.to_thread(exchange,idp.oidc,
-           pkce_cb["code"][0],bad_verifier,400)) is None
-    case("CR-F08-actual-keycloak-pkce-wrong-verifier-rejected",
-         real_code_wrong_verifier_http_400=True)
+    # Use a new context rather than one with a just-established SSO cookie.
+    # This is a *separate* actual Keycloak Authorization Code+S256 request.
+    pkce_ctx,pkce_unused=await e.new_page(browser)
+    await pkce_unused.close()
+    try:
+        pkce_cb=await _drive(pkce_ctx,cb,server,pkce_flow,
+                             idp.target_email,new_password)
+        print("CR-F08-real-code-obtained: STAGE",flush=True)
+        bad_verifier=secrets.token_urlsafe(45)
+        assert bad_verifier!=pkce_flow.pkce
+        assert (await asyncio.to_thread(exchange,idp.oidc,
+               pkce_cb["code"][0],bad_verifier,400)) is None
+        case("CR-F08-actual-keycloak-pkce-wrong-verifier-rejected",
+             real_code_wrong_verifier_http_400=True)
+    finally:
+        await pkce_ctx.close()
     await fresh_ctx.close()
 
     # Here OIDC binding is server-checkable but password factor is only
