@@ -159,8 +159,13 @@ def dispatch_after_committed_c1(
                     # Convert it *inside* the context into a denial so no
                     # successful exit/receipt is mistaken for a COMMIT.
                     raise C1Rejected("RESET_C1_ROLLBACK_NO_DISPATCH") from None
-            # The block above must COMMIT, not merely return a SQL receipt,
-            # before execution ever reaches the network call.
+            # A user hook may close the connection while SQL is pending.
+            # psycopg may exit its Transaction context without a successful
+            # COMMIT acknowledgement on an already-closed connection.
+            if conn.closed or conn.info.transaction_status != TransactionStatus.IDLE:
+                raise C1Rejected("RESET_C1_CONNECTION_COMMIT_UNVERIFIED")
+            # A receipt alone, without a confirmed transaction exit, is not
+            # permission to advance to Recorder or IdP.
     except (psycopg.Error, ValueError, RuntimeError) as exc:
         if isinstance(exc, C1Rejected):
             raise
@@ -198,6 +203,10 @@ def dispatch_after_committed_c1(
                     # Psycopg silently swallows Rollback at transaction exit.
                     # Convert to a normal raised exception *inside* the TX.
                     raise C1Rejected("RESET_IDP_ATTEMPT_ROLLBACK_NO_DISPATCH") from None
+            if recorder.closed or (
+                recorder.info.transaction_status != TransactionStatus.IDLE
+            ):
+                raise C1Rejected("RESET_IDP_ATTEMPT_CONNECTION_COMMIT_UNVERIFIED")
         # The recorder connection and transaction are now CLOSED; failure or
         # ambiguous COMMIT above cannot be interpreted as a successful attempt.
         if (attempt_receipt["attempt_id"] != str(attempt_id)
@@ -277,6 +286,10 @@ def dispatch_after_committed_c1(
                         before_outcome_commit_hook()
                 except psycopg.Rollback:
                     raise C1Rejected("RESET_IDP_OUTCOME_ROLLBACK") from None
+            if recorder.closed or (
+                recorder.info.transaction_status != TransactionStatus.IDLE
+            ):
+                raise C1Rejected("RESET_IDP_OUTCOME_CONNECTION_COMMIT_UNVERIFIED")
         if (result["attempt_id"] != str(attempt_id)
             or result["outcome"] != durable_outcome
             or result["code"] != code):
