@@ -7,6 +7,7 @@ outcome. Only case labels/HTTP statuses/booleans go to the sanitized artifact.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
@@ -79,15 +80,35 @@ def transport(idp, *, token=None, **kw):
         idp.root.realm_name, token if token is not None else idp.scoped_token, **kw)
 
 
-def once(product, bound, value, remote, **kw):
-    # Authz/target hint comes from caller. The verified target only comes
-    # from a separate trusted Product identity resolver, NOT the executor.
+def once(product, bound, value, remote, *,
+         executor_connection_override=None, lookup_connection_override=None,
+         trusted_issuer_override=None, **kw):
+    # The normal path uses only the non-BYPASSRLS 007 lookup principal.
+    # Overrides are CI-only adversarial probes, never Product inputs.
     return dispatch_after_committed_c1(
-        lambda: product.connect("auth_reset_executor"),
+        executor_connection_override or
+        (lambda: product.connect("auth_reset_executor")),
         bound, value, remote,
-        resolve_identity=product.resolve_identity,
-        trusted_issuer=product.trusted_issuer, **kw,
+        lookup_connection=(lookup_connection_override or
+                           (lambda: product.connect("auth_reset_lookup"))),
+        trusted_issuer=(product.trusted_issuer if trusted_issuer_override is None
+                        else trusted_issuer_override), **kw,
     )
+
+
+def reject_without_executor(product,bound,remote,**kw):
+    entered=[]
+    def executor_forbidden():
+        entered.append(True)
+        raise AssertionError("EXECUTOR_REACHED_AFTER_INVALID_LOOKUP")
+    try:
+        once(product,bound,"Nt8!"+secrets.token_urlsafe(19),remote,
+             executor_connection_override=executor_forbidden,**kw)
+        raise AssertionError("INVALID_LOOKUP_WAS_ACCEPTED")
+    except C1Rejected:
+        pass
+    assert not entered and remote.calls==0
+    return True
 
 
 def fresh_mapped_identity(product, idp, label):
@@ -136,7 +157,7 @@ async def run():
                     audience=CLIENT,issuer=idp.oidc["issuer"])
                 assert verified_claims["sub"] == idp.target_id
                 owner = product.owner(idp.oidc["issuer"], verified_claims["sub"])
-                assert product.resolve_identity(owner) == (
+                assert product.inspect_identity_fixture_only(owner) == (
                     idp.oidc["issuer"], idp.target_id)
                 case("CR-A02A-real-oidc-subject-to-immutable-product-owner",
                      actual_signed_subject=True,
@@ -149,6 +170,47 @@ async def run():
                 CURRENT = "CR-A02B-owner-a-target-b-mismatch-before-c1"
                 ses1, ses2 = product.session(owner), product.session(owner)
                 bound = product.authorization(owner,idp.target_id)
+                CURRENT = "CR-B00-real-scoped-007-lookup-and-separated-roles"
+                with product.connect("auth_reset_lookup") as lookup:
+                    assert lookup.execute("SELECT current_user AS role").fetchone()[
+                        "role"] == "auth_reset_lookup"
+                    try:
+                        lookup.execute("SELECT 1 FROM auth_l1.identity_links")
+                        raise AssertionError("LOOKUP_DIRECT_SELECT_UNEXPECTED")
+                    except psycopg.errors.InsufficientPrivilege:
+                        pass
+                assert product.lookup_scoped_for_test(bound)=={
+                    "issuer":idp.oidc["issuer"],"subject":idp.target_id}
+                assert_precommit(product,owner,bound,active_sessions=2)
+                case("CR-B00-scoped-role-007-pair-without-state-mutation",
+                     lookup_role_is_scoped=True, direct_table_read_denied=True,
+                     executor_lookup_grant=False, lookup_c1_grant=False,
+                     accepted_007_package_import=True,
+                     no_privileged_connection_in_adapter=True)
+
+                CURRENT = "CR-B01-invalid-proof-and-wrong-issuer-lookup-denials"
+                invalid=BoundSyntheticReset(
+                    replace(bound.authorization,opaque=secrets.token_urlsafe(32)),
+                    idp.target_id)
+                invalid_remote=transport(idp)
+                reject_without_executor(product,invalid,invalid_remote)
+                wrong_issuer_remote=transport(idp)
+                reject_without_executor(
+                    product,bound,wrong_issuer_remote,
+                    trusted_issuer_override="https://wrong-issuer.invalid/realm")
+                wrong_kind_remote=transport(idp)
+                wrong_kind=BoundSyntheticReset(
+                    replace(bound.authorization,kind="AUTHENTICATED_PASSWORD_CHANGE"),
+                    idp.target_id)
+                reject_without_executor(product,wrong_kind,wrong_kind_remote)
+                assert invalid_remote.calls==wrong_issuer_remote.calls==wrong_kind_remote.calls==0
+                assert_precommit(product,owner,bound,active_sessions=2)
+                case("CR-B01-invalid-proof-kind-and-issuer-deny-before-c1",
+                     invalid_proof_no_c1=True, wrong_kind_no_c1=True,
+                     mismatched_server_issuer_no_c1=True,
+                     all_network_calls_zero=True, no_admin_fallback=True)
+
+                CURRENT = "CR-A02B-owner-a-target-b-mismatch-before-c1"
                 mismatched = BoundSyntheticReset(
                     bound.authorization,idp.other_id)
                 mismatch_remote = transport(
@@ -306,6 +368,14 @@ async def run():
                 case("CR-A08-operation-id-and-consumed-proof-deny-redispatch",
                      redispatch_attempts=0, original_epoch_preserved=True)
 
+                CURRENT = "CR-B02-consumed-authority-is-denied-at-lookup"
+                consumed_remote=transport(idp)
+                assert reject_without_executor(product,bound,consumed_remote)
+                expect_pending(product,owner,bound,revoked_count=2)
+                case("CR-B02-consumed-proof-lookup-denied-before-any-c1",
+                     scoped_lookup_failed=True, executor_connections=0,
+                     idp_calls=0, original_epoch_preserved=True)
+
                 # Two actual executor connections race the SAME authority.
                 CURRENT = "CR-A09-two-concurrent-executors"
                 race_owner,race_uid,race_email,race_old=fresh_mapped_identity(
@@ -397,6 +467,80 @@ async def run():
                     case(label, injected_transport_failure=True,
                          one_attempt=True, durable_outcome=False,
                          product_gate_closed=True, no_auto_retry=True)
+
+                # The 007 lookup is a snapshot, not a lock: mutate Product
+                # epoch AFTER successful lookup, before the 006 C1 call.
+                CURRENT = "CR-B03-epoch-changes-between-lookup-and-c1"
+                drift_owner,drift_uid,drift_email,drift_old=fresh_mapped_identity(
+                    product,idp,"epochdrift")
+                drift_session=product.session(drift_owner)
+                drift_cap=product.authorization(drift_owner,drift_uid)
+                assert product.lookup_scoped_for_test(drift_cap)["subject"]==drift_uid
+                drift_remote=transport(idp)  # NO Observer hides the bug
+                drift_hooks=[]
+                def bump_epoch_after_lookup():
+                    drift_hooks.append("lookup_completed")
+                    with product.connect("auth_revoker") as c:
+                        assert auth_session.revoke_all(c,drift_owner,0)==1
+                try:
+                    once(product,drift_cap,"Ew8!"+secrets.token_urlsafe(19),
+                         drift_remote,after_lookup_hook=bump_epoch_after_lookup)
+                    raise AssertionError("STALE_EPOCH_AFTER_LOOKUP_DISPATCHED")
+                except C1Rejected:
+                    pass
+                assert drift_hooks==["lookup_completed"]
+                assert drift_remote.calls==0
+                drift_state=product.state(drift_owner,drift_cap)
+                assert drift_state["epoch"]==1 and drift_state["gate"]=="pending_reauth"
+                assert drift_state["operations"]==0 and not drift_state["consumed"]
+                assert drift_state["sessions"]=={"revoked":1}
+                case("CR-B03-epoch-drift-after-lookup-rejected-by-c1",
+                     lookup_succeeded_before_mutation=True,
+                     independent_revoke_changed_epoch=True,
+                     c1_operation_absent=True, capability_not_consumed=True,
+                     idp_calls=0, product_gate_pending=True)
+
+                CURRENT = "CR-B04-expiry-between-lookup-and-c1"
+                exp_owner,exp_uid,exp_email,exp_old=fresh_mapped_identity(
+                    product,idp,"expdrift")
+                product.session(exp_owner)
+                exp_cap=product.authorization(exp_owner,exp_uid)
+                assert product.lookup_scoped_for_test(exp_cap)["subject"]==exp_uid
+                exp_remote=transport(idp)
+                exp_hooks=[]
+                def expire_after_lookup():
+                    exp_hooks.append("lookup_completed")
+                    product.expire_authorization_fixture_only(exp_cap)
+                try:
+                    once(product,exp_cap,"Ex8!"+secrets.token_urlsafe(19),
+                         exp_remote,after_lookup_hook=expire_after_lookup)
+                    raise AssertionError("EXPIRED_PROOF_AFTER_LOOKUP_DISPATCHED")
+                except C1Rejected:
+                    pass
+                assert exp_hooks==["lookup_completed"] and exp_remote.calls==0
+                assert_precommit(product,exp_owner,exp_cap)
+                case("CR-B04-expired-after-lookup-rejected-by-independent-c1",
+                     lookup_succeeded_before_expiry=True,
+                     fixture_forced_expiry=True,
+                     c1_operations_zero=True,
+                     product_epoch_unchanged=True,
+                     idp_calls=0)
+
+                CURRENT = "CR-B05-wrong-db-role-must-not-fallback"
+                wrongrole_owner,wrongrole_uid,_,_=fresh_mapped_identity(
+                    product,idp,"wrongrole")
+                product.session(wrongrole_owner)
+                wrongrole_cap=product.authorization(wrongrole_owner,wrongrole_uid)
+                wrongrole_remote=transport(idp)
+                reject_without_executor(
+                    product,wrongrole_cap,wrongrole_remote,
+                    lookup_connection_override=lambda:product.connect(
+                        "auth_reset_executor"))
+                assert_precommit(product,wrongrole_owner,wrongrole_cap)
+                case("CR-B05-executor-role-is-not-a-lookup-fallback",
+                     attempted_wrong_role_denied=True,
+                     executor_connections_after_lookup=0,
+                     idp_calls=0, privileged_fallback_absent=True)
 
                 # Actual commit followed by simulated process death BEFORE
                 # calling IdP; next invocation cannot re-use C1 capability.
