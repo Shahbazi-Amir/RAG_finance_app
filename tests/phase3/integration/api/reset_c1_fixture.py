@@ -117,6 +117,9 @@ class ProductFixture:
         with self.admin() as conn:
             conn.execute("CREATE ROLE auth_migrator NOLOGIN BYPASSRLS NOSUPERUSER")
             conn.execute("GRANT CREATE ON DATABASE product_ci TO auth_migrator")
+            # Unmodified 003 explicitly REVOKEs table rights from history_app.
+            # The role is a NOLOGIN, unprivileged placeholder in this CI DB.
+            conn.execute("CREATE ROLE history_app NOLOGIN NOSUPERUSER NOBYPASSRLS")
             for name in roles:
                 password = secrets.token_hex(28)
                 self.roles[name] = password
