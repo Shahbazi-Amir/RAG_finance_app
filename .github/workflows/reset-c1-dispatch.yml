@@ -1,11 +1,11 @@
-name: CR-API-03C — committed 008 Attempt before scoped Keycloak dispatch (isolated)
+name: CR-IDP-02A — operation-bound fresh authentication candidate after reset (isolated)
 
 on:
   push:
-    branches: [agent/api-durable-idp-attempt]
+    branches: [agent/reset-fresh-auth-proof]
     paths:
       - 'src/phase3/auth/reset_c1_dispatch.py'
-      - 'tests/phase3/integration/api/reset_c1_fixture.py'
+      - 'tests/phase3/integration/api/fresh_reset_proof.py'
       - 'tests/phase3/integration/api/test_reset_c1_dispatch.py'
       - 'infra/auth-ci/compose.reset-c1.yml'
       - 'infra/auth-ci/Dockerfile.reset-c1-runner'
@@ -16,7 +16,7 @@ on:
     branches: [main]
     paths:
       - 'src/phase3/auth/reset_c1_dispatch.py'
-      - 'tests/phase3/integration/api/reset_c1_fixture.py'
+      - 'tests/phase3/integration/api/fresh_reset_proof.py'
       - 'tests/phase3/integration/api/test_reset_c1_dispatch.py'
       - 'infra/auth-ci/compose.reset-c1.yml'
       - 'infra/auth-ci/Dockerfile.reset-c1-runner'
@@ -27,15 +27,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: cr-api-durable-idp-attempt-${{ github.ref }}
+  group: cr-idp-fresh-operation-bound-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  durable-attempt-before-idp:
+  bound-reauth-candidate:
     if: >-
       github.event_name == 'push' ||
       (github.event_name == 'pull_request' &&
-       github.event.pull_request.head.ref == 'agent/api-durable-idp-attempt' &&
+       github.event.pull_request.head.ref == 'agent/reset-fresh-auth-proof' &&
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -58,7 +58,7 @@ jobs:
           set -euo pipefail
           docker build --pull -f infra/auth-ci/Dockerfile.test-runner -t auth-idp-runner:ci infra/auth-ci
           docker build -f infra/auth-ci/Dockerfile.reset-c1-runner -t reset-c1-runner:ci infra/auth-ci
-          python -m compileall -q src/phase3/auth/reset_c1_dispatch.py tests/phase3/integration/api/reset_c1_fixture.py tests/phase3/integration/api/test_reset_c1_dispatch.py
+          python -m compileall -q tests/phase3/integration/api/fresh_reset_proof.py tests/phase3/integration/api/test_reset_c1_dispatch.py
       - name: Generate disposable secrets in runner temp (never in Git)
         run: |
           set -euo pipefail
@@ -135,7 +135,7 @@ jobs:
             echo 'RUNNER_EGRESS_DENIAL_BROKEN'; exit 1
           fi
           echo 'NETWORK_GUARD_PASS'
-      - name: Real C1 Product PG commit then limited FGAP Keycloak dispatch
+      - name: Real scoped C1 and 008 before operation-bound fresh OIDC candidate
         run: |
           set -euo pipefail
           docker run --rm --init --shm-size=1g --cap-drop=ALL \

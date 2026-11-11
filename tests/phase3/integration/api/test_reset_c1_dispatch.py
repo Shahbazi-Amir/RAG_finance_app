@@ -28,6 +28,9 @@ from src.phase3.auth.reset_c1_dispatch import (
 )
 from src.phase3.storage.postgres import auth_session, reset_idp_attempt
 from controlled_reset import login
+from fresh_reset_proof import (establish_pre_reset_sso, run_bound_case,
+                               reject_unqualified, reject_stale_epoch_with_real_callback,
+                               assert_no_c2_or_session)
 from support import BASE, CLIENT, CallbackServer, request
 
 STAGES = {}
@@ -41,6 +44,9 @@ FACTS = {
     "recovery": "NOT_IMPLEMENTED",
     "product_auth": "NOT_IMPLEMENTED",
     "durable_idp_attempt_outcome": "SYNTHETIC_008_LOCAL_OBSERVATION_ONLY",
+    "fresh_auth_operation_bound_oidc_candidate": "PROVEN_BOUNDED_CI_ONLY",
+    "fresh_password_server_verifiable_assurance": "NOT_PROVEN",
+    "fresh_auth_c2_and_product_session": "NOT_IMPLEMENTED",
     "accepted": "NONE",
 }
 CURRENT = "bootstrap"
@@ -184,6 +190,12 @@ async def run():
                 case("CR-A02A-real-oidc-subject-to-immutable-product-owner",
                      actual_signed_subject=True,
                      db_owner_mapping_exact=True, executor_has_no_mapping_read=True)
+                CURRENT="CR-F-pre-reset-existing-sso-and-actual-stale-callback"
+                old_sso_ctx,pre_reset_cb=await establish_pre_reset_sso(
+                    idp.e,browser,cb,idp)
+                case("CR-F-pre-reset-sso-and-stale-callback-captured",
+                     genuine_keycloak_sso_before_reset=True,
+                     callback_existed_before_c1=True, no_product_session_issued=True)
 
                 # Critical adversarial test: service B has a genuinely
                 # persisted target-B reset permission (tested separately),
@@ -343,6 +355,11 @@ async def run():
                 case("CR-A06-old-credential-denied-new-accepted-real-oidc",
                      old_denied=True, new_accepted=True,
                      gate_still_pending=True)
+                CURRENT="CR-F-operation-bound-post-008-oidc-candidate"
+                fresh_server=await run_bound_case(
+                    idp.e,browser,cb,idp,product,owner,bound,observed,
+                    idp.target_old,next_password,old_sso_ctx,pre_reset_cb,case)
+                assert assert_no_c2_or_session(product,owner,bound)
 
                 # Simulated rollback aborts DB before commit; accepted C1
                 # wrapper rolls back authority consumption and session bump.
@@ -678,6 +695,15 @@ async def run():
                      product_gate_closed=True,
                      zero_retries=True, durable_local_unknown=True,
                      durable_idp_password_proof=False)
+                CURRENT="CR-F12-real-password-change-unknown-not-eligible"
+                assert reject_unqualified(
+                    fresh_server,product,loss_owner,loss_cap,
+                    lost.operation_id,lost.attempt_id,lost.revoked_epoch)
+                case("CR-F12-unknown-outcome-not-upgraded-by-correct-password",
+                     actual_new_password_login_successful=True,
+                     durable_record_unknown=True,
+                     no_fresh_challenge_allowed=True,
+                     no_gate_open=True)
 
                 CURRENT = "CR-C02-real-rollback-of-attempt-sql-and-psycopg"
                 for label,kind in (
@@ -730,6 +756,14 @@ async def run():
                 case("CR-C03-post-attempt-stop-keeps-no-outcome-no-retry",
                      attempt_committed=True, no_outcome_recorded=True,
                      zero_network_calls=True, same_authority_rejected=True)
+                CURRENT="CR-F11-unfinalized-008-not-eligible"
+                assert reject_unqualified(
+                    fresh_server,product,stop2_owner,stop2,
+                    stopped[0]["operation_id"],stopped[0]["attempt_id"],
+                    stopped[0]["revoked_epoch"])
+                case("CR-F11-unfinalized-attempt-never-eligible",
+                     real_committed_attempt=True, outcome_absent=True,
+                     zero_new_challenges=True, no_c2=True)
 
                 CURRENT = "CR-C04-ambiguous-attempt-commit-ack"
                 unclear_owner,unclear_uid,_,_=fresh_mapped_identity(
@@ -978,6 +1012,14 @@ async def run():
                      b_new_password_accepted=True,
                      b_service_has_no_broad_role=True,
                      negative_owner_mismatch_was_pre_c1=True)
+                CURRENT="CR-F10-real-epoch-change-after-bound-oidc"
+                try:
+                    await reject_stale_epoch_with_real_callback(
+                        idp.e,browser,cb,idp,fresh_server,product,case,
+                        next_password)
+                finally:
+                    await old_sso_ctx.close()
+                assert assert_no_c2_or_session(product,owner,bound)
 
             finally:
                 await browser.close()
@@ -989,13 +1031,15 @@ def safe_report(ok):
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
-        "mission": "CR-API-03C",
-        "source": "accepted 006 C1 + 007 lookup + 008 Attempt/Outcome and clean Keycloak FGAP",
+        "mission": "CR-IDP-02A",
+        "source": "accepted real 007-006-008-IdP sequence then server-bound OIDC challenge; prior reset regressions preserved",
         "overall": "PASS" if ok else "FAIL",
         "stage": CURRENT,
         "cases": STAGES,
         "facts": FACTS,
-        "result_note": "008 stores bounded local observations, not IdP password proof or C2",
+        "result_note": "Bound server OIDC candidate only; fresh password assurance NOT_PROVEN without IdP-signed password-factor evidence. No C2 or Product Session.",
+        "fresh_auth_verdict": "NOT_PROVEN",
+        "operation_bound_oidc_candidate": "PROVEN_BOUNDED_CI_ONLY",
     }, indent=2, sort_keys=True), encoding="utf-8")
 
 
