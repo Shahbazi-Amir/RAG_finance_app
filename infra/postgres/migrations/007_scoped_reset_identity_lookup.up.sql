@@ -32,29 +32,29 @@ BEGIN
  SELECT link.issuer,link.subject INTO identity_row
  FROM auth_l1.identity_links AS link
  JOIN auth_l1.owners AS own ON own.owner_id=link.owner_id
- JOIN auth_l1.reset_c1_authorizations AS authorization
-   ON authorization.owner_id=own.owner_id
- WHERE authorization.authorization_sha256=p_authorization_sha256
+ JOIN auth_l1.reset_c1_authorizations AS authz
+   ON authz.owner_id=own.owner_id
+ WHERE authz.authorization_sha256=p_authorization_sha256
    AND own.owner_id=p_owner
    AND own.state='active'
    AND own.reset_gate='open'
    AND own.session_epoch=p_expected_epoch
-   AND authorization.expected_epoch=p_expected_epoch
-   AND authorization.kind=p_kind
-   AND authorization.purpose=p_purpose
-   AND authorization.consumed_at IS NULL
-   AND authorization.consumed_operation_id IS NULL
-   AND authorization.expires_at>clock_timestamp()
+   AND authz.expected_epoch=p_expected_epoch
+   AND authz.kind=p_kind
+   AND authz.purpose=p_purpose
+   AND authz.consumed_at IS NULL
+   AND authz.consumed_operation_id IS NULL
+   AND authz.expires_at>clock_timestamp()
    -- Authenticated kind carries a specific 006 Session digest/generation.
    -- Observe its current validity without locking; 006 C1 still re-admits.
    AND (
-     authorization.kind='RECOVERY'
+     authz.kind='RECOVERY'
      OR EXISTS (
        SELECT 1 FROM auth_l1.sessions AS session_row
-       WHERE session_row.digest_sha256=authorization.session_digest_sha256
+       WHERE session_row.digest_sha256=authz.session_digest_sha256
          AND session_row.owner_id=own.owner_id
          AND session_row.session_epoch=p_expected_epoch
-         AND session_row.generation=authorization.session_generation
+         AND session_row.generation=authz.session_generation
          AND session_row.status='active'
          AND session_row.idle_expires_at>clock_timestamp()
          AND session_row.absolute_expires_at>clock_timestamp()
