@@ -549,3 +549,59 @@ class InitialLoginBinding009(unittest.TestCase):
         with conn("BOOT") as c:
             with self.assertRaises(psycopg.Error):claim(c,x)
             with self.assertRaises(psycopg.Error):claim(c,y)
+
+    def _race_ack_abort(self,first_action):
+        x,receipt,raw=ready()
+        first_ready=threading.Event()
+        release=threading.Event()
+        witness={}
+        label="login009_"+first_action+"_versus_"+uuid.uuid4().hex[:8]
+        def first_worker():
+            with conn("BIND") as c:
+                with c.transaction():
+                    witness["pid"]=c.info.backend_pid
+                    if first_action=="ACK":
+                        self.assertTrue(ack(c,x,receipt["receipt_id"]))
+                    else:
+                        self.assertTrue(abort(c,x,receipt["receipt_id"]))
+                    first_ready.set()
+                    if not release.wait(12):
+                        raise AssertionError("ACK/ABORT first transaction timed out")
+                return first_action
+        def second_worker():
+            with conn("BIND") as c:
+                c.execute("SELECT set_config('application_name',%s,false)",(label,))
+                if first_action=="ACK":
+                    with self.assertRaisesRegex(psycopg.Error,"LOGIN_ABORT_CONFLICT"):
+                        with c.transaction():
+                            abort(c,x,receipt["receipt_id"])
+                else:
+                    with self.assertRaisesRegex(psycopg.Error,"LOGIN_ACK_STALE_OR_REVOKED"):
+                        with c.transaction():
+                            ack(c,x,receipt["receipt_id"])
+                return "CONFLICT_DENIED"
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            winner=pool.submit(first_worker)
+            self.assertTrue(first_ready.wait(10))
+            loser=pool.submit(second_worker)
+            try:
+                observation=wait_for_blocker(label,witness["pid"])
+                self.assertIn(witness["pid"],observation["blockers"])
+                self.assertFalse(loser.done(),"No verified competing TX wait")
+            finally:
+                release.set()
+            self.assertEqual(winner.result(timeout=12),first_action)
+            self.assertEqual(loser.result(timeout=12),"CONFLICT_DENIED")
+        saved=stored(x)
+        self.assertEqual(saved["state"],"ACTIVE" if first_action=="ACK" else "ABORTED")
+        self.assertEqual(saved["session_status"],"active" if first_action=="ACK" else "revoked")
+        with conn("SESSION") as c:
+            actual=auth_session.inspect(c,raw)
+            self.assertEqual(actual is not None,first_action=="ACK")
+        print("LOGIN009_ACK_ABORT_REAL_LOCK_"+first_action+"_FIRST",flush=True)
+
+    def test_DBL19_simultaneous_ack_first_abort_waits_and_denied(self):
+        self._race_ack_abort("ACK")
+
+    def test_DBL20_simultaneous_abort_first_ack_waits_and_denied(self):
+        self._race_ack_abort("ABORT")
