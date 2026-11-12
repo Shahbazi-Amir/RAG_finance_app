@@ -146,6 +146,134 @@ async def load_until(page, conversation_id: str):
             arg=before, timeout=10000)
     raise AssertionError("Conversation pagination exceeded fixture bound")
 
+async def assert_h1_session_loss(browser, c2: str, mobile: bool, folder: Path):
+    """Prove a previous A 200 cannot rehydrate History after any 401.
+
+    Tests *real* Chromium fetch ordering through Playwright-controlled fixture
+    responses, against the existing synthetic actor A loopback Next/API process.
+    No identity override, user selector or product Auth route is added.
+    """
+    label = "mobile" if mobile else "desktop"
+    context = await browser.new_context(
+        viewport={"width": 390, "height": 844} if mobile
+        else {"width": 1280, "height": 800}, is_mobile=mobile)
+    page = await context.new_page()
+    held_started, release_held, held_finished = (
+        asyncio.Event(), asyncio.Event(), asyncio.Event())
+    try:
+        await page.goto("http://127.0.0.1:3000/history")
+        menu = page.get_by_role("button", name="بازکردن منوی تاریخچه")
+        if mobile:
+            await menu.click()
+        await load_until(page, c2)
+        await page.get_by_test_id("conversation-" + c2).click()
+        await expect(page.get_by_text(QUESTIONS["two"], exact=True)).to_be_visible()
+
+        # Two distinct private, unsent drafts in this *same* page's memory.
+        draft_thread = "پیش‌نویس محرمانهٔ A برای گفت‌وگو"
+        draft_local = "پیش‌نویس محرمانهٔ A برای مکالمهٔ محلی"
+        await page.get_by_test_id("history-question").fill(draft_thread)
+        if mobile:
+            await menu.click()
+        await page.get_by_test_id("new-draft").click()
+        await page.get_by_test_id("history-question").fill(draft_local)
+        if mobile:
+            await menu.click()
+        await load_until(page, c2)
+        await page.get_by_test_id("conversation-" + c2).click()
+        await expect(page.get_by_test_id("history-question")).to_have_value(draft_thread)
+
+        # This is a valid 200 produced by the genuine A fixture before loss;
+        # delaying its *delivery* doesn't forge a DTO or inject identity.
+        held_path = ("conversations/" + c2 + "/messages?limit=2" if mobile
+                     else "conversations?limit=2")
+        held_url = "http://127.0.0.1:3000/api/history/" + held_path
+        real_reply = await page.request.get(held_url)
+        assert real_reply.status == 200, "A fixture must own the held success"
+        held_body = await real_reply.text()
+        assert held_body and held_body.startswith("{")
+
+        async def hold_previous_a_200(route):
+            held_started.set()
+            try:
+                await asyncio.wait_for(release_held.wait(), timeout=15)
+                await route.fulfill(status=200, content_type="application/json",
+                                    body=held_body)
+            finally:
+                held_finished.set()
+
+        async def lose_session(route):
+            await route.fulfill(status=401, content_type="application/json",
+                                body='{"detail":"synthetic fixture session loss"}')
+
+        hold_match = ("**/api/history/conversations/" + c2 + "/messages?**"
+                      if mobile else "**/api/history/conversations?**")
+        denial_match = ("**/api/history/conversations?**" if mobile
+                        else "**/api/history/conversations/" + c2 + "/messages?**")
+        await page.route(hold_match, hold_previous_a_200)
+        if mobile:
+            await menu.click()
+            await load_until(page, c2)
+            await page.get_by_test_id("conversation-" + c2).click()
+        else:
+            await page.get_by_test_id("refresh-history").click()
+        await asyncio.wait_for(held_started.wait(), timeout=10)
+
+        # The request starting later returns 401 while the older success has
+        # explicitly NOT been released. Test both orderings across viewports:
+        # desktop holds list/denies thread, mobile holds thread/denies list.
+        await page.route(denial_match, lose_session)
+        if mobile:
+            await menu.click()
+            await page.get_by_test_id("refresh-history").click()
+        else:
+            await page.get_by_test_id("conversation-" + c2).click()
+
+        async def assert_cleared():
+            await expect(page.get_by_test_id("history-login-required")).to_be_visible()
+            await expect(page.get_by_test_id("history-login-required")).to_contain_text(
+                "ورود معتبر")
+            await expect(page.get_by_test_id("history-state")).to_contain_text(
+                "ورود معتبر لازم")
+            await expect(page.locator('[data-testid^="conversation-"]')).to_have_count(0)
+            await expect(page.locator('[data-testid^="history-message-"]')).to_have_count(0)
+            await expect(page.locator('[data-testid^="pending-"]')).to_have_count(0)
+            await expect(page.get_by_test_id("history-question")).to_have_value("")
+            await expect(page.get_by_test_id("history-question")).to_be_disabled()
+            await expect(page.get_by_test_id("history-send")).to_be_disabled()
+            await expect(page.get_by_test_id("new-draft")).to_be_disabled()
+            await expect(page.get_by_test_id("refresh-history")).to_be_disabled()
+            await expect(page.get_by_text(QUESTIONS["two"], exact=True)).to_have_count(0)
+            assert not await page.get_by_text(draft_thread, exact=True).count()
+            assert not await page.get_by_text(draft_local, exact=True).count()
+
+        await assert_cleared()
+        assert not release_held.is_set(), "the 200 must remain held past 401"
+
+        # Observe the actual late response, not merely its Route callback;
+        # two browser animation frames let React commit any stale continuation.
+        async with page.expect_response(
+            lambda response: response.url.startswith(held_url)
+            and response.status == 200, timeout=10000) as late_response:
+            release_held.set()
+        delivered = await late_response.value
+        await delivered.finished()
+        await asyncio.wait_for(held_finished.wait(), timeout=10)
+        await page.evaluate(
+            "() => new Promise(resolve => requestAnimationFrame("
+            "() => requestAnimationFrame(resolve)))")
+        await assert_cleared()
+        await page.screenshot(
+            path=str(folder / ("history-h1-session-loss-" + label + ".png")),
+            full_page=True)
+        print("H1-UI: " + label +
+              " fixture A private drafts/list/thread cleared on 401, "
+              "older successful response ignored PASS")
+    finally:
+        release_held.set()
+        await context.close()
+
+
 async def run():
     assert_ci()
     folder = Path(os.environ["UI_HISTORY_SCREENSHOTS"])
@@ -476,6 +604,11 @@ async def run():
         await dialog.get_by_role("button", name="بستن منوی تاریخچه").click()
         await expect(menu_button).to_be_focused()
         print("E2E: mobile screenshot, HTTP 503 without Mock fallback PASS")
+
+        # Separate fresh desktop/mobile contexts prove an in-flight A success
+        # cannot revive private UI after a later, unrelated History 401.
+        await assert_h1_session_loss(browser, c2, mobile=False, folder=folder)
+        await assert_h1_session_loss(browser, c2, mobile=True, folder=folder)
 
         await mobile.close()
         await noauth.close()
