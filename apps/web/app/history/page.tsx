@@ -32,6 +32,24 @@ export default function HistoryPage(){
   const mobileCloseRef=useRef<HTMLButtonElement>(null);
   const mobileDialogRef=useRef<HTMLElement>(null);
   const epochs=useRef<Record<string,number>>({});
+  const authLostRef=useRef(false);
+  const [authLost,setAuthLost]=useState(false);
+  // Any History 401 invalidates this mounted view, not just its failing request.
+  // The synchronous ref fences all earlier promises, including a delayed 200.
+  // Only a fresh authenticated page lifecycle may reload private data.
+  const discardOnUnauthorized=useCallback((failure:unknown):boolean=>{
+    if(!(failure instanceof HistoryFailure&&failure.reason==='unauthorized'))return false;
+    if(!authLostRef.current){
+      authLostRef.current=true;
+      epochs.current={};
+      setAuthLost(true);
+      setList([]);setThreads({});setDrafts({});setPending({});setBusy({});
+      setSelected(null);setListCursor(null);setListMore(false);setListBusy(false);
+      setCreating(null);setMobileMenuOpen(false);
+      setListState('unauthorized');setError('');
+    }
+    return true;
+  },[]);
   useEffect(()=>{
     if(!mobileMenuOpen)return;
     const previousOverflow=document.body.style.overflow;
@@ -64,27 +82,35 @@ export default function HistoryPage(){
   }
 
   const loadList=useCallback(async (next=false,cursor:string|null=null)=>{
+    if(authLostRef.current)return;
     setListBusy(true);
     if(!next)setListState('loading');
     try{
       const page=await conversations(2,next?cursor:null);
-      setList(prev=>next?mergeUnique(prev,page.items,x=>x.id):page.items);
+      if(authLostRef.current)return;
+      setList(prev=>authLostRef.current?[]:
+        next?mergeUnique(prev,page.items,x=>x.id):page.items);
       setListCursor(page.next);setListMore(page.more);
       setListState(page.items.length===0&&!next?'empty':'loaded');
-      if(!next)setSelected(old=>old??(page.items[0]?.id??'draft:new'));
+      if(!next)setSelected(old=>authLostRef.current?null:
+        old??(page.items[0]?.id??'draft:new'));
       setError('');
     }catch(e){
-      setListState(e instanceof HistoryFailure&&e.reason==='unauthorized'?'unauthorized':'error');
+      if(discardOnUnauthorized(e)||authLostRef.current)return;
+      setListState('error');
       setError(failureLabel(e));
-    }finally{setListBusy(false);}
-  },[]);
+    }finally{if(!authLostRef.current)setListBusy(false);}
+  },[discardOnUnauthorized]);
   const loadThread=useCallback(async (id:string,next=false,cursor:string|null=null)=>{
+    if(authLostRef.current)return;
     const epoch=(epochs.current[id]??0)+1;epochs.current[id]=epoch;
-    setThreads(all=>({...all,[id]:{...(all[id]??emptyThread()),phase:'loading'}}));
+    setThreads(all=>authLostRef.current?{}:
+      {...all,[id]:{...(all[id]??emptyThread()),phase:'loading'}});
     try{
       const page=await messages(id,2,next?cursor:null);
-      if(epochs.current[id]!==epoch)return;
+      if(authLostRef.current||epochs.current[id]!==epoch)return;
       setThreads(all=>{
+        if(authLostRef.current)return {};
         const prior=all[id]??emptyThread();
         return {...all,[id]:{
           items:next?mergeUnique(prior.items,page.items,x=>x.id):page.items,
@@ -95,30 +121,33 @@ export default function HistoryPage(){
       });
       setError('');
     }catch(e){
-      if(epochs.current[id]!==epoch)return;
-      setThreads(all=>({...all,[id]:{...(all[id]??emptyThread()),
-        phase:e instanceof HistoryFailure&&e.reason==='unauthorized'?'unauthorized':'error'}}));
+      if(discardOnUnauthorized(e)||authLostRef.current||epochs.current[id]!==epoch)return;
+      setThreads(all=>({...all,[id]:{...(all[id]??emptyThread()),phase:'error'}}));
       setError(failureLabel(e));
     }
-  },[]);
+  },[discardOnUnauthorized]);
   useEffect(()=>{void loadList();},[loadList]);
   // Refresh selects the first server thread after the list arrives. Load its
   // messages even when the user has not clicked a list row yet.
   useEffect(()=>{
-    if(selected&&!selected.startsWith('draft:')&&!threads[selected])void loadThread(selected);
+    if(!authLostRef.current&&selected&&!selected.startsWith('draft:')&&!threads[selected])void loadThread(selected);
   },[selected,threads,loadThread]);
   function choose(id:string){
+    if(authLostRef.current)return;
     setSelected(id);setError('');
     if(!id.startsWith('draft:'))void loadThread(id);
     if(mobileMenuOpen)closeMobileMenu();
   }
-  function newDraft(){const id='draft:'+crypto.randomUUID();setDrafts(all=>({...all,[id]:''}));choose(id);}
+  function newDraft(){if(authLostRef.current)return;const id='draft:'+crypto.randomUUID();setDrafts(all=>({...all,[id]:''}));choose(id);}
   function mark(origin:string,key:string,patch:Partial<PendingSend>){
-    setPending(all=>({...all,[origin]:(all[origin]??[]).map(p=>
-      p.request.client_message_id===key?{...p,...patch}:p)}));
+    if(authLostRef.current)return;
+    setPending(all=>authLostRef.current?{}:{...all,[origin]:(all[origin]??[]).map(p=>
+      p.request.client_message_id===key?{...p,...patch}:p)});
   }
   function confirmed(origin:string,request:PendingSend['request'],id:string,messageId:string){
+    if(authLostRef.current)return;
     setPending(all=>{
+      if(authLostRef.current)return {};
       const prev=all[origin]??[];
       const updated=prev.map(p=>p.request.client_message_id===request.client_message_id
         ?{...p,phase:'persisted' as const,serverId:id,messageId}:p);
@@ -133,7 +162,7 @@ export default function HistoryPage(){
   async function submitMessage(event:FormEvent<HTMLFormElement>){
     event.preventDefault();
     const origin=selected;
-    if(!origin||busy[origin])return;
+    if(authLostRef.current||!origin||busy[origin])return;
     const question=(drafts[origin]??'').trim();
     if(!question)return;
     const originalId=origin.startsWith('draft:')?null:origin;
@@ -144,54 +173,66 @@ export default function HistoryPage(){
     setDrafts(all=>({...all,[origin]:''}));setError('');
     try{
       const receipt=await sendMessage(request);
+      if(authLostRef.current)return;
       confirmed(origin,request,receipt.id,receipt.messageId);
     }catch(e){
+      if(discardOnUnauthorized(e)||authLostRef.current)return;
       mark(origin,request.client_message_id,{
         phase:e instanceof HistoryFailure&&e.reason==='conflict'?'conflict'
           :e instanceof HistoryFailure&&e.reason==='unauthorized'?'unauthorized':'unknown'
       });
       setError(failureLabel(e));
-    }finally{setBusy(all=>({...all,[origin]:false}));}
+    }finally{if(!authLostRef.current)setBusy(all=>({...all,[origin]:false}));}
   }
   async function repeat(origin:string,item:PendingSend){
-    if(busy[origin])return;
+    if(authLostRef.current||busy[origin])return;
     setBusy(all=>({...all,[origin]:true}));
     mark(origin,item.request.client_message_id,{phase:'sending'});
     try{
       const receipt=await sendMessage(item.request); // original null/id/key/question unchanged
+      if(authLostRef.current)return;
       confirmed(origin,item.request,receipt.id,receipt.messageId);
     }catch(e){
+      if(discardOnUnauthorized(e)||authLostRef.current)return;
       mark(origin,item.request.client_message_id,{
         phase:e instanceof HistoryFailure&&e.reason==='conflict'?'conflict':'unknown'
       });
       setError(failureLabel(e));
-    }finally{setBusy(all=>({...all,[origin]:false}));}
+    }finally{if(!authLostRef.current)setBusy(all=>({...all,[origin]:false}));}
   }
   async function recover(origin:string,item:PendingSend){
+    if(authLostRef.current)return;
     try{
       const status=await recoverStatus(item.request); // one read, no polling loop or T2
+      if(authLostRef.current)return;
       if(status.status==='not_found'||!status.id||!status.messageId){
         mark(origin,item.request.client_message_id,{phase:'unconfirmed'});
         return;
       }
       confirmed(origin,item.request,status.id,status.messageId);
-    }catch(e){setError(failureLabel(e));}
+    }catch(e){
+      if(discardOnUnauthorized(e)||authLostRef.current)return;
+      setError(failureLabel(e));
+    }
   }
   async function performCreate(operation:PendingCreate){
-    if(creating?.phase==='submitting')return;
+    if(authLostRef.current||creating?.phase==='submitting')return;
     setCreating({...operation,phase:'submitting'});
     setError('');
     try{
       const id=await createConversation(operation.request);
+      if(authLostRef.current)return;
       setCreating(null);
       setSelected(now=>now===operation.origin?id:now);
       void loadList();void loadThread(id);
     }catch(e){
+      if(discardOnUnauthorized(e)||authLostRef.current)return;
       setCreating({...operation,phase:'unknown'});
       setError(failureLabel(e));
     }
   }
   function beginCreate(){
+    if(authLostRef.current)return;
     if(mobileMenuOpen)closeMobileMenu();
     const origin=selected?.startsWith('draft:')?selected:'draft:'+crypto.randomUUID();
     const operation={origin,request:newCreate('گفت‌وگوی جدید'),phase:'submitting' as const};
@@ -200,8 +241,8 @@ export default function HistoryPage(){
   }
   const active=selected??'draft:new';
   const selectedServer=!active.startsWith('draft:');
-  const data=selectedServer?threads[active]:undefined;
-  const localItems=pending[active]??[];
+  const data=authLost?undefined:selectedServer?threads[active]:undefined;
+  const localItems=authLost?[]:pending[active]??[];
   const renderedIds=new Set(data?.items.map(x=>x.id)??[]);
   const pendingVisible=localItems.filter(x=>!x.messageId||!renderedIds.has(x.messageId));
   const answersByMessage=new Map((data?.answers??[]).map(a=>[a.messageId,a.payload]));
@@ -220,8 +261,9 @@ export default function HistoryPage(){
         <strong>راگ مالی</strong></div>
       <div className="history-actions">
         <button className="nav-new-chat" data-testid="create-conversation" type="button"
-          disabled={creating?.phase==='submitting'} onClick={beginCreate}>ایجاد مکالمه</button>
-        <button className="secondary" data-testid="new-draft" type="button" onClick={newDraft}>شروع با پیام جدید</button>
+          disabled={authLost||creating?.phase==='submitting'} onClick={beginCreate}>ایجاد مکالمه</button>
+        <button className="secondary" data-testid="new-draft" type="button"
+          disabled={authLost} onClick={newDraft}>شروع با پیام جدید</button>
         {creating?.phase==='unknown'&&<button className="secondary" type="button"
           data-testid="retry-create" onClick={()=>void performCreate(creating)}>تلاش دوباره با همان شناسه</button>}
       </div>
@@ -233,7 +275,7 @@ export default function HistoryPage(){
           :listState==='unauthorized'?'ورود معتبر لازم است؛ ورود هنوز فراهم نیست.':''}
       </div>
       <nav aria-label="مکالمات ثبت‌شده" className="history-list">
-        {list.map(c=>{
+        {(authLost?[]:list).map(c=>{
           const title=c.title??'گفت‌وگوی بدون عنوان';
           // Only validated, already loaded message pages may supply a preview.
           // Do not fetch each conversation to populate navigation labels.
@@ -254,11 +296,11 @@ export default function HistoryPage(){
         })}
       </nav>
       {listMore&&<button type="button" className="secondary" data-testid="more-conversations"
-        disabled={listBusy} onClick={()=>void loadList(true,listCursor)}>
+        disabled={authLost||listBusy} onClick={()=>void loadList(true,listCursor)}>
         نمایش مکالمه‌های بیشتر
       </button>}
       <button type="button" className="secondary" data-testid="refresh-history"
-        disabled={listBusy} onClick={()=>void loadList()}>بازخوانی تاریخچه</button>
+        disabled={authLost||listBusy} onClick={()=>void loadList()}>بازخوانی تاریخچه</button>
       <div className="history-sidebar-bottom">
         <Link href="/" className="history-link" data-testid="mock-link">بازگشت به Mock مستقل</Link>
         <p className="nav-local-notice">Mock در پایگاه داده ثبت نمی‌شود.</p>
@@ -280,7 +322,10 @@ export default function HistoryPage(){
       </header>
       {error&&<p role="alert" data-testid="history-error" className="history-error">{error}</p>}
       <div className="history-messages" aria-live="polite">
-        {!selectedServer&&<p data-testid="draft-empty" className="history-empty">پرسش جدید را بنویسید یا مکالمه بسازید؛ شناسهٔ محلی، شناسهٔ سرور نیست.</p>}
+        {authLost&&<p role="status" data-testid="history-login-required" className="history-empty">
+          برای مشاهدهٔ تاریخچه نیاز به ورود معتبر است؛ ورود هنوز راه‌اندازی نشده است.
+        </p>}
+        {!authLost&&!selectedServer&&<p data-testid="draft-empty" className="history-empty">پرسش جدید را بنویسید یا مکالمه بسازید؛ شناسهٔ محلی، شناسهٔ سرور نیست.</p>}
         {selectedServer&&(!data||data.phase==='loading')&&<p data-testid="messages-loading">در حال بارگذاری پیام‌ها…</p>}
         {selectedServer&&data?.phase==='empty'&&<p data-testid="messages-empty">پیامی در این مکالمه ثبت نشده است.</p>}
         {selectedServer&&data?.phase==='error'&&<p data-testid="messages-error">دریافت پیام‌ها با خطا مواجه شد.</p>}
@@ -323,10 +368,11 @@ export default function HistoryPage(){
         <div className="composer">
           <textarea id="history-question" data-testid="history-question" rows={2}
             value={drafts[active]??''} placeholder="پرسش را اینجا بنویسید"
-            onChange={event=>setDrafts(all=>({...all,[active]:event.target.value}))}
-            disabled={listState==='unauthorized'} />
+            onChange={event=>{if(!authLostRef.current)
+              setDrafts(all=>authLostRef.current?{}:{...all,[active]:event.target.value});}}
+            disabled={authLost} />
           <button className="primary" data-testid="history-send" type="submit"
-            disabled={Boolean(busy[active])||listState==='unauthorized'||!(drafts[active]??'').trim()}>
+            disabled={authLost||Boolean(busy[active])||!(drafts[active]??'').trim()}>
             ثبت پیام
           </button>
         </div>

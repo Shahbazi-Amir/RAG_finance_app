@@ -2,7 +2,7 @@ name: UI History L1 — Next/Chromium/FastAPI/PostgreSQL
 
 on:
   push:
-    branches: [agent/ui-history-l1]
+    branches: [agent/ui-history-l1, agent/ui-history-h1-session-loss]
     paths:
       - '.github/workflows/ui-history.yml'
       - 'apps/web/**'
@@ -26,7 +26,8 @@ jobs:
     if: >-
       github.event_name == 'push'
       || (github.event_name == 'pull_request'
-          && github.event.pull_request.head.ref == 'agent/ui-history-l1'
+          && (github.event.pull_request.head.ref == 'agent/ui-history-l1'
+              || github.event.pull_request.head.ref == 'agent/ui-history-h1-session-loss')
           && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
