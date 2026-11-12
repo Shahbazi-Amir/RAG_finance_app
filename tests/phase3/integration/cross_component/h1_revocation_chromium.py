@@ -372,9 +372,14 @@ async def browser_scenario(ids):
                     }"""
                 )
             denied_response = await denied_ui.value
-            await denied_response.finished()
-            api_error = await denied_response.json()
-            assert api_error["error"]["code"] == "AUTH_REQUIRED"
+            assert denied_response.status == 401
+            # The separate direct API probe already verified JSON AUTH_REQUIRED
+            # and absence of a committed JTI. Playwright .finished() can await
+            # a browser network request indefinitely when an older LIST is
+            # intentionally held; the acceptance condition is the *real UI*
+            # auth-loss latch after this signed 401, not the tooling lifecycle.
+            assert await asyncio.to_thread(assert_denied_list_jti_not_consumed) >= 2
+            print("H1_PHASE_WAIT_REAL_UI_PURGE_AFTER_401", flush=True)
             await assert_cleared(a, atitle, btitle)
             assert not STATE.release_held.is_set()
             print("H1X05_REAL_API_LIST_401_PURGES_A_UI_WHILE_OLD_LIST_HELD_PASS",
@@ -386,8 +391,13 @@ async def browser_scenario(ids):
                 and r.status == 200, timeout=15000
             ) as late:
                 STATE.release_held.set()
-            await (await late.value).finished()
+            late_response = await late.value
+            assert late_response.status == 200
             assert await asyncio.to_thread(STATE.held_sent.wait, 10)
+            # A held 200 is only counted if the browser received its body.
+            # Bound the real response body read instead of open-ended finished.
+            old_payload = await asyncio.wait_for(late_response.body(), timeout=12)
+            assert old_payload and b'"conversation_page"' in old_payload
             await a.evaluate(
                 "() => new Promise(resolve => requestAnimationFrame("
                 "() => requestAnimationFrame(resolve)))")
@@ -402,7 +412,8 @@ async def browser_scenario(ids):
                 and r.status == 200, timeout=15000
             ) as fresh_b:
                 await b.get_by_test_id("refresh-history").click()
-            await (await fresh_b.value).finished()
+            b_response = await fresh_b.value
+            assert b_response.status == 200
             await expect(b.get_by_test_id("conversation-" + bid)).to_be_visible()
             await expect(b.get_by_text(atitle, exact=True)).to_have_count(0)
             await expect(b.get_by_text(btitle, exact=True)).to_be_visible()
