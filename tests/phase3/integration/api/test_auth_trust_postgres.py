@@ -748,3 +748,137 @@ class BFFTrustPostgres(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class InitialOIDCProductSession(unittest.TestCase):
+    """Actual temporary Keycloak 26.8.2 Code+S256 -> mapped Product sessions.
+
+    The tested route is a private server callback consumer, not public FastAPI
+    or production BFF. Keycloak uses independent ephemeral H2; accepted
+    unchanged PostgreSQL Migration 003 performs mapping/session issuance.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if (os.getenv("CI") != "true"
+                or os.getenv("GITHUB_ACTIONS") != "true"
+                or "history_ci" not in os.environ.get("AUTH_TRUST_MAP_DSN", "")
+                or "history_ci" not in os.environ.get("AUTH_TRUST_SESSION_DSN", "")):
+            raise RuntimeError("INITIAL_OIDC_CI_ONLY")
+        from initial_oidc_harness import DisposableKeycloak
+        cls.kc = DisposableKeycloak()
+        cls.kc.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.kc.stop()
+
+    @staticmethod
+    def count_sessions():
+        with db("MIG") as c:
+            return c.execute(
+                "SELECT count(*) AS n FROM auth_l1.sessions").fetchone()["n"]
+
+    @staticmethod
+    def count_mappings():
+        with db("MIG") as c:
+            return c.execute(
+                "SELECT count(*) AS n FROM auth_l1.identity_links").fetchone()["n"]
+
+    def accept(self, flow, callback):
+        from src.phase3.auth.initial_oidc_login import complete_initial_oidc
+        return complete_initial_oidc(
+            challenge=flow, callback=callback, oidc=self.kc.oidc,
+            client_id=self.kc.CLIENT_ID,
+            redirect_uri=self.kc.callback.url,
+            owner_connection=lambda: db("MAP"),
+            session_connection=lambda: db("SESSION"),
+        )
+
+    def test_INIT01_real_oidc_two_accounts_stable_owner_and_issued_sessions(self):
+        from src.phase3.storage.postgres import auth_session
+        observed = {}
+        original_count = self.count_sessions()
+        for label in ("A", "B", "A"):
+            flow, callback = self.kc.actual_login_callback(label)
+            result = self.accept(flow, callback)
+            self.assertEqual(result.issuer, self.kc.oidc["issuer"])
+            self.assertEqual(result.subject, self.kc.accounts[label]["sub"])
+            self.assertTrue(flow.used)
+            with db("MAP") as c:
+                stable = auth_session.map_identity(
+                    c, result.issuer, result.subject)
+            self.assertEqual(stable["owner_id"], result.owner_id)
+            self.assertEqual(stable["gate"], "open")
+            with db("SESSION") as c:
+                session = auth_session.inspect(c, result.issued.opaque)
+            self.assertIsNotNone(session)
+            self.assertEqual(session["owner_id"], result.owner_id)
+            self.assertEqual(session["epoch"], result.issued.epoch)
+            self.assertEqual(session["generation"], result.issued.generation)
+            self.assertNotEqual(result.issued.opaque, result.owner_id)
+            if label in observed:
+                self.assertEqual(observed[label], result.owner_id)
+            observed[label] = result.owner_id
+        self.assertNotEqual(observed["A"], observed["B"])
+        self.assertEqual(self.count_sessions(), original_count + 3)
+
+    def test_INIT02_invalid_or_missing_state_blocks_session_before_code_exchange(self):
+        from src.phase3.auth.initial_oidc_login import InitialOIDCRejected
+        flow, callback = self.kc.actual_login_callback("A")
+        original = self.count_sessions()
+        baseline_maps = self.count_mappings()
+        for corrupted in (
+            {**callback, "state": [secrets.token_urlsafe(32)]},
+            {k: v for k, v in callback.items() if k != "state"},
+            {**callback, "state": [flow.state, flow.state]},
+        ):
+            with self.assertRaises(InitialOIDCRejected):
+                self.accept(flow, corrupted)
+            self.assertFalse(flow.used)
+            self.assertEqual(self.count_sessions(), original)
+            self.assertEqual(self.count_mappings(), baseline_maps)
+        # The genuine unexchanged Code still works after the invalid
+        # state callbacks were correctly rejected before Token exchange.
+        correct = self.accept(flow, callback)
+        self.assertEqual(correct.subject, self.kc.accounts["A"]["sub"])
+        self.assertEqual(self.count_sessions(), original + 1)
+
+    def test_INIT03_invalid_nonce_rejects_real_signed_token_without_session(self):
+        from dataclasses import replace
+        from src.phase3.auth.initial_oidc_login import InitialOIDCRejected
+        flow, callback = self.kc.actual_login_callback("B")
+        original = self.count_sessions()
+        baseline_maps = self.count_mappings()
+        wrong = replace(flow, nonce=secrets.token_urlsafe(32))
+        with self.assertRaises(InitialOIDCRejected):
+            self.accept(wrong, callback)
+        # The real Code exchange was reached; token signature/issuer/audience
+        # was verified but its nonce failed the server challenge check.
+        self.assertTrue(wrong.used)
+        self.assertEqual(self.count_sessions(), original)
+        self.assertEqual(self.count_mappings(), baseline_maps)
+        # Code consumed at IdP; correct original flow cannot re-exchange it.
+        with self.assertRaises(InitialOIDCRejected):
+            self.accept(flow, callback)
+        self.assertEqual(self.count_sessions(), original)
+
+    def test_INIT04_wrong_pkce_and_reused_challenge_do_not_issue_sessions(self):
+        from dataclasses import replace
+        from src.phase3.auth.initial_oidc_login import InitialOIDCRejected
+        flow, callback = self.kc.actual_login_callback("B")
+        before = self.count_sessions()
+        wrong = replace(flow, code_verifier=secrets.token_urlsafe(48))
+        with self.assertRaises(InitialOIDCRejected):
+            self.accept(wrong, callback)
+        self.assertTrue(wrong.used)
+        self.assertEqual(self.count_sessions(), before)
+        # This is a distinct valid challenge: a second acceptance of the
+        # same callback is forbidden even before the token endpoint.
+        genuine, actual = self.kc.actual_login_callback("B")
+        first = self.accept(genuine, actual)
+        self.assertEqual(first.subject, self.kc.accounts["B"]["sub"])
+        committed_count = self.count_sessions()
+        with self.assertRaises(InitialOIDCRejected):
+            self.accept(genuine, actual)
+        self.assertEqual(self.count_sessions(), committed_count)
