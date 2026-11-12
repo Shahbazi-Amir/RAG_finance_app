@@ -260,7 +260,7 @@ class InitialBootstrap009(unittest.TestCase):
         r = {**base, "bff_attempt_id": str(uuid.uuid4()),
              "start_key": secrets.token_urlsafe(24)}
         status, response = self.bff.post("start", r)
-        self.assertEqual(status, 201, response)
+        self.assertEqual(status, 201, {"status": status, "state": response.get("state")})
         return base, response
 
     def challenge(self, start):
@@ -297,7 +297,7 @@ class InitialBootstrap009(unittest.TestCase):
         for label in ("A", "B"):
             base, start = self.new_start()
             status, pending = self.complete(base, start, self.callback(start, label))
-            self.assertEqual(status, 201, pending)
+            self.assertEqual(status, 201, {"status": status, "state": pending.get("state")})
             self.assertEqual(pending["state"], "ISSUED_PENDING_BINDING")
             self.assertEqual(self.db_count(base), 1)
             self.assertIsNone(self.inspect(pending["session_verifier"]))
@@ -345,7 +345,7 @@ class InitialBootstrap009(unittest.TestCase):
             return self.bff.post("complete", payload)
         with ThreadPoolExecutor(max_workers=2) as pool:
             answers = list(pool.map(work, range(2)))
-        self.assertEqual(sorted(x[0] for x in answers), [201, 409], answers)
+        self.assertEqual(sorted(x[0] for x in answers), [201, 409], [x[0] for x in answers])
         self.assertEqual(len(count), 1)
         self.assertEqual(self.db_count(base), 1)
 
@@ -354,7 +354,7 @@ class InitialBootstrap009(unittest.TestCase):
         try:
             base, start = self.new_start()
             response = self.complete(base, start, self.callback(start, "B", "openid email"))
-            self.assertEqual(response[0], 403, response)
+            self.assertEqual(response[0], 403, {"status": response[0]})
             self.assertEqual(self.db_count(base), 0)
         finally:
             self.keycloak.set_email_verified("B", True)
@@ -365,7 +365,7 @@ class InitialBootstrap009(unittest.TestCase):
         try:
             base, start = self.new_start()
             response = self.complete(base, start, self.callback(start, "A", "openid"))
-            self.assertEqual(response[0], 403, response)
+            self.assertEqual(response[0], 403, {"status": response[0]})
             self.assertEqual(self.db_count(base), 0)
         finally:
             self.keycloak.set_default_email_scope(True)
