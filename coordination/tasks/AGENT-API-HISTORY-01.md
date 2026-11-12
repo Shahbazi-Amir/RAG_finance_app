@@ -89,3 +89,23 @@
 Original DB role/004/005 tests, contracts and History HTTP suite must also remain green in that workflow. If CI or artifact not available, report NOT_RUN/NO_ARTIFACT rather than invent or reuse old evidence.
 
 **Implemented:** H1 code+five tests+checkpoint prepared on an independent Draft PR. **Tested:** NEW CI NOT_RUN until real run is independently inspected at exact code SHA. **Accepted:** NONE/SUPERVISOR_PENDING. **Limitations:** synthetic BFF proof does not establish OIDC, real signer's custody, secured transport, production role permissions, Reset/C2, UI or release Gate. No production History Auth wiring; test-only FastAPI dependency override is isolated. The source/test commit's exact SHA and CI job/artifact will be appended after real verification; do not confuse future checkpoint-only SHA with tested code SHA. **Next:** inspect CI, fix precise first failure without loosening tests, document actual result, stop at Draft.
+
+
+### APIH-H1-READ-FENCE-01 — independently verified real CI (2026-11-12)
+
+**Exact TESTED SOURCE SHA:** 99a917c2f2c519027d0e71643bbbf6973a6c8ac3. **Existing real GitHub PR Run:** [#43299642520](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/43299642520), job [131467050464](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/43299642520/job/131467050464), attempt 1, pull_request on that exact SHA, **COMPLETED/SUCCESS**. No retry/rerun. Separate History workflow Run 43299642454 is SKIPPED and was not counted as H1 proof.
+
+**Exact commands, temporary postgres:17.11, Ubuntu 24.04, Python 3.13; actual job log:**
+- python -m compileall -q src/phase3/auth tests/phase3/api tests/phase3/integration/api — PASS.
+- python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v — Ran 10, OK.
+- Four unchanged DB suites: test_auth_session.py Ran 12, OK; test_auth_null_fence.py Ran 3, OK; test_auth_session_fence.py Ran 10, OK; test_service_replay.py Ran 11, OK.
+- python -m unittest discover -s tests/phase3/integration/api -p 'test_auth_trust_postgres.py' -v — Ran 26, OK (21 preserved tests + 5 new H1 cases).
+- python -m unittest discover -s tests/phase3/contracts -p 'test_history.py' -v — Ran 17, OK.
+- python -m unittest discover -s tests/phase3/integration/api -p 'test_http_postgres.py' -v — Ran 20, OK.
+**Total 109/109 PASS.** All five independently inspected H1_01..H1_05 individual job log lines show OK. PostgreSQL migrations 001-005, role provisioning, role isolation and container shutdown steps also completed successfully.
+
+**Actual measured H1 outcomes:** H1_01 original History GET remains 401 without valid BFF assertion (also rejects spoofed owner header); H1_02 A and B only see their distinct synthetic owner rows, real Repository on the exact same connection with transaction status INTRANS after 005 replay consumption and 004 owner+session locks; H1_03 invalid RSA signature, raw-query mismatch and committed JTI replay denied; H1_04 fresh signed JTI for already explicitly revoked A Session denied before History read; H1_05 controlled error after successful admission plus real History read rolls back 005 JTI, then same unexpired assertion succeeds once and is denied on committed replay. No mocked DB, signing verifier or replay adapter. Original 21 Trust cases, 20 History HTTP cases and contract/DB suites unchanged and passing.
+
+**Artifact reality:** The pre-existing api-auth-trust workflow has no artifact upload step; direct Actions artifact listing for this run returned ZERO artifacts. The GitHub job log link above is the actual evidence, and no sanitized artifact ID/file is invented or reused.
+
+**Boundary:** Test-only FastAPI dependency override for the existing GET and ephemeral history_app EXECUTE grant on exact 004/005 functions, automatically revoked at teardown. Production default actor remains 401, production cross-role permissions and BFF integration NOT_INSTALLED, product session/Auth not claimed. Real OIDC, Reset/C2, UI, migration, infrastructure/CI workflow, Gate, Module acceptance, Merge and Deploy untouched. Historical baseline 58/58 and 21 trust cases not weakened. **Implemented:** isolated H1 read + durable transactional admission. **Tested:** GitHub 109/109 on exact tested source SHA above. **Accepted:** NONE / SUPERVISOR_PENDING. **Final SHA** of the documentation-only commit must be read live from Git, not inferred as tested SHA. Do not rerun for checkpoint only. **Delivery:** H1_ISOLATED_READ_VERIFIED / PR_DRAFT.
