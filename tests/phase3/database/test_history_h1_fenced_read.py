@@ -112,7 +112,11 @@ class HistoryH1DbFencedReadRace(unittest.TestCase):
             who=app.execute("""
                 SELECT current_user AS login, r.rolsuper,r.rolbypassrls,
                        has_table_privilege(current_user,'history_l1.conversations','SELECT') AS may_select,
-                       has_table_privilege(current_user,'auth_l1.sessions','SELECT') AS auth_table_read
+                       has_table_privilege(current_user,
+                           (SELECT c.oid FROM pg_class AS c JOIN pg_namespace AS n
+                              ON n.oid=c.relnamespace
+                            WHERE n.nspname='auth_l1' AND c.relname='sessions'),
+                           'SELECT') AS auth_table_read
                 FROM pg_roles AS r WHERE r.rolname=current_user
             """).fetchone()
             if (who["login"]!="history_app" or who["rolsuper"] or who["rolbypassrls"]
