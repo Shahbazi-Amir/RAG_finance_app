@@ -52,6 +52,12 @@ def cert_bundle(folder):
           .not_valid_before(now - timedelta(days=1))
           .not_valid_after(now + timedelta(days=1))
           .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+          .add_extension(x509.KeyUsage(digital_signature=True, content_commitment=False,
+                        key_encipherment=False, data_encipherment=False,
+                        key_agreement=False, key_cert_sign=True, crl_sign=True,
+                        encipher_only=False, decipher_only=False), critical=True)
+          .add_extension(x509.SubjectKeyIdentifier.from_public_key(
+                        ca_key.public_key()), critical=False)
           .sign(ca_key, hashes.SHA256()))
     def pem_cert(cert):
         return cert.public_bytes(serialization.Encoding.PEM)
@@ -69,7 +75,11 @@ def cert_bundle(folder):
                    .public_key(key.public_key()).serial_number(x509.random_serial_number())
                    .not_valid_before(now - timedelta(days=1))
                    .not_valid_after(now + timedelta(days=1))
-                   .add_extension(x509.ExtendedKeyUsage([eku]), critical=False))
+                   .add_extension(x509.ExtendedKeyUsage([eku]), critical=False)
+                   .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(
+                       ca_key.public_key()), critical=False)
+                   .add_extension(x509.SubjectKeyIdentifier.from_public_key(
+                       key.public_key()), critical=False))
         if kind == "server":
             builder = builder.add_extension(
                 x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]),
@@ -144,9 +154,13 @@ class BFFFixture:
     def post(self, op, payload, *, proof=None, cert=True, tamper=False):
         token = proof or self.proof(op, payload, tamper=tamper)
         try:
+            # HTTPX 0.28 + OpenSSL requires an explicit SSLContext to send
+            # the client certificate. The server always enforces CERT_REQUIRED.
+            tls = ssl.create_default_context(cafile=self.ca)
+            if cert:
+                tls.load_cert_chain(self.cert, self.key)
             with httpx.Client(
-                verify=self.ca, cert=(self.cert, self.key) if cert else None,
-                trust_env=False, timeout=22, follow_redirects=False,
+                verify=tls, trust_env=False, timeout=22, follow_redirects=False,
             ) as client:
                 res = client.post(self.url + PATH_ROOT + op,
                                   content=json.dumps(payload, sort_keys=True,
@@ -154,7 +168,7 @@ class BFFFixture:
                                   headers={"Authorization": "Bootstrap " + token,
                                            "Content-Type": "application/json"})
                 return res.status_code, res.json()
-        except httpx.ConnectError:
+        except (httpx.ConnectError, httpx.ReadError):
             return 0, {"error": "TLS_DENIED"}
 
     def create_alias(self, pending):
