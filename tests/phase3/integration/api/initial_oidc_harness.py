@@ -129,7 +129,7 @@ class DisposableKeycloak:
     def start(self):
         try:
             self.callback.start()
-            self.docker("network", "create", "--internal", "--driver",
+            self.docker("network", "create", "--driver",
                         "bridge", self.network, timeout=30)
             self.network_created = True
             self.docker(
@@ -143,6 +143,17 @@ class DisposableKeycloak:
                 self.IMAGE, "start-dev", timeout=260,
             )
             self.started = True
+            # Verify exactly one loopback binding and one disposable network.
+            inspected = json.loads(self.docker("inspect", self.container,
+                                               capture=True, timeout=30))[0]
+            bindings = inspected["HostConfig"]["PortBindings"]
+            if (set(bindings) != {"8080/tcp"}
+                    or len(bindings["8080/tcp"]) != 1
+                    or bindings["8080/tcp"][0]["HostIp"] != "127.0.0.1"
+                    or bindings["8080/tcp"][0]["HostPort"] != str(self.port)
+                    or set(inspected["NetworkSettings"]["Networks"])
+                       != {self.network}):
+                raise IsolatedOIDCFailure()
             with httpx.Client(trust_env=False, timeout=4) as client:
                 for _ in range(105):
                     try:
