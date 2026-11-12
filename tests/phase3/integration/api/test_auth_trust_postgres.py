@@ -748,3 +748,207 @@ class BFFTrustPostgres(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class HistoryH1FencedRead(unittest.TestCase):
+    """Actual GET /v1/conversations + same-connection 005/004 fence on temp PG."""
+
+    @classmethod
+    def setUpClass(cls):
+        from apps.api import history_api
+        cls.history = history_api
+        if os.getenv("CI") != "true" or os.getenv("GITHUB_ACTIONS") != "true":
+            raise RuntimeError("H1_CI_ONLY")
+        opts = conninfo_to_dict(os.environ["DB_APP_DSN"])
+        if (opts.get("host") != "127.0.0.1"
+                or opts.get("port") != "5432"
+                or opts.get("dbname") != "history_ci"
+                or opts.get("user") != "history_app"):
+            raise RuntimeError("H1_REQUIRES_EPHEMERAL_HISTORY_CI")
+        # Disposable test-only role bridge; never edit migrations or deploy.
+        # history_app already has owner-scoped History RLS/SELECT via 001.
+        with db("MIG") as c:
+            c.execute("GRANT USAGE ON SCHEMA auth_l1 TO history_app")
+            c.execute("GRANT EXECUTE ON FUNCTION "
+                      "auth_l1.consume_service_assertion(text,bigint) TO history_app")
+            c.execute("GRANT EXECUTE ON FUNCTION "
+                      "auth_l1.admit_session_fenced(text,text,bigint,integer) "
+                      "TO history_app")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.history.app.dependency_overrides.clear()
+        with db("MIG") as c:
+            c.execute("REVOKE EXECUTE ON FUNCTION "
+                      "auth_l1.consume_service_assertion(text,bigint) FROM history_app")
+            c.execute("REVOKE EXECUTE ON FUNCTION "
+                      "auth_l1.admit_session_fenced(text,text,bigint,integer) "
+                      "FROM history_app")
+            c.execute("REVOKE USAGE ON SCHEMA auth_l1 FROM history_app")
+
+    def conn(self):
+        return psycopg.connect(os.environ["DB_APP_DSN"], autocommit=True,
+                               row_factory=dict_row)
+
+    def setUp(self):
+        self.history.app.dependency_overrides.clear()
+        self.owner_a, self.session_a = new_fixture()
+        self.owner_b, self.session_b = new_fixture()
+        self.seed(self.owner_a, "h1-only-A")
+        self.seed(self.owner_b, "h1-only-B")
+        self.last_admission_conn = None
+        self.h1_client = TestClient(self.history.app, raise_server_exceptions=False)
+
+    def tearDown(self):
+        self.h1_client.close()
+        self.history.app.dependency_overrides.clear()
+
+    def seed(self, owner, title):
+        h = self.history
+        request = {"kind": "create_conversation_request",
+                   "contract_version": "product.v1",
+                   "client_conversation_id": h.uid(),
+                   "idempotency_key": "h1_" + uuid.uuid4().hex,
+                   "title": title}
+        with self.conn() as c:
+            h.create_conversation(c, owner, request, h.uid(), h.uid())
+
+    def h1_signed_session(self, request: Request):
+        from src.phase3.auth.transactional_admission import protected_transaction
+        h = self.history
+        try:
+            token = assertion_from_asgi_headers(request.scope)
+            method, path, query, body = wire_request(request.scope, b"")
+            with self.conn() as c:
+                with protected_transaction(
+                    c, verifier=VERIFIER, replay_store=STORE,
+                    compact_assertion=token, method=method, raw_path=path,
+                    raw_query=query, body=body,
+                ) as owner:
+                    self.last_admission_conn = c
+                    yield {"owner": owner, "conn": c,
+                           "request_id": h.uid(), "trace_id": h.uid()}
+        except TrustRejected:
+            raise h.ApiFailure(401, "AUTH_REQUIRED", "authorization") from None
+        except psycopg.Error:
+            raise h.ApiFailure(503, "TEMPORARILY_UNAVAILABLE") from None
+
+    def enable_h1(self):
+        # Original registered GET route; no production actor/header bypass.
+        self.history.app.dependency_overrides[self.history._session] = (
+            self.h1_signed_session)
+
+    def sign_get(self, session, *, query=b"", override=None, key=None):
+        claims = SIGNER.claims(
+            owner_id=session.owner_id, session_ref=session.opaque,
+            epoch=session.epoch, generation=session.generation,
+            method="GET", path=b"/v1/conversations", query=query, body=b"")
+        if override:
+            claims.update(override)
+        return SIGNER.sign(claims, key=key), claims
+
+    def http_get(self, token=None, *, path="/v1/conversations", headers=None):
+        h = {} if token is None else {"Authorization": "BFF-Assertion " + token}
+        if headers:
+            h.update(headers)
+        return self.h1_client.get(path, headers=h)
+
+    def consumed(self, claims):
+        p = SimpleNamespace(issuer=claims["iss"], jti=claims["jti"],
+                            expires_at=claims["exp"])
+        digest, _ = replay_db._digest_and_exp(p)
+        with db("MIG") as c:
+            return c.execute("SELECT count(*) AS n FROM "
+                             "auth_l1.service_assertion_replays "
+                             "WHERE issuer_jti_sha256=%s",
+                             (digest,)).fetchone()["n"]
+
+    def test_H1_01_ordinary_api_denies_anonymous_and_owner_headers(self):
+        self.assertEqual(self.http_get().status_code, 401)
+        self.enable_h1()
+        for headers in ({}, {"X-Owner-ID": self.owner_a}):
+            self.assertEqual(self.http_get(headers=headers).status_code, 401)
+        with self.conn() as c:
+            role = c.execute("SELECT rolname,rolsuper,rolbypassrls FROM "
+                             "pg_roles WHERE rolname=current_user").fetchone()
+            self.assertEqual(role["rolname"], "history_app")
+            self.assertFalse(role["rolsuper"])
+            self.assertFalse(role["rolbypassrls"])
+
+    def test_H1_02_owner_isolation_and_same_connection_transaction(self):
+        from psycopg.pq import TransactionStatus
+        from unittest.mock import patch
+        self.enable_h1()
+        original = self.history.list_conversations
+        seen = []
+        def checked(c, owner, **kwargs):
+            self.assertIs(c, self.last_admission_conn)
+            self.assertEqual(c.info.transaction_status, TransactionStatus.INTRANS)
+            data = original(c, owner, **kwargs)
+            self.assertEqual(c.execute("SELECT current_setting('app.owner_id', "
+                                       "true) AS owner").fetchone()["owner"], owner)
+            seen.append(owner)
+            return data
+        with patch.object(self.history, "list_conversations", side_effect=checked):
+            for sess, expected, foreign in (
+                (self.session_a, "h1-only-A", "h1-only-B"),
+                (self.session_b, "h1-only-B", "h1-only-A"),
+            ):
+                token, claims = self.sign_get(sess)
+                r = self.http_get(token)
+                self.assertEqual(r.status_code, 200, r.text)
+                doc = r.json()
+                self.assertEqual(doc["kind"], "conversation_page")
+                self.assertEqual(doc["scope_user_id"], sess.owner_id)
+                self.assertIn(expected, [x["title"] for x in doc["items"]])
+                self.assertNotIn(foreign, [x["title"] for x in doc["items"]])
+                self.assertTrue(all(x["owner_user_id"] == sess.owner_id
+                                    for x in doc["items"]))
+                self.assertEqual(self.consumed(claims), 1)
+        self.assertEqual(seen, [self.owner_a, self.owner_b])
+
+    def test_H1_03_invalid_BFF_signature_query_and_replay_denied(self):
+        from unittest.mock import patch
+        self.enable_h1()
+        token, claims = self.sign_get(self.session_a)
+        bogus = token[:-10] + ("A" if token[-10] != "A" else "B") + token[-9:]
+        wrong_query, _ = self.sign_get(self.session_a, query=b"limit=3")
+        with patch.object(self.history, "list_conversations",
+                          side_effect=AssertionError("unauthorized read")):
+            self.assertEqual(self.http_get(bogus).status_code, 401)
+            self.assertEqual(self.http_get(wrong_query).status_code, 401)
+        self.assertEqual(self.consumed(claims), 0)
+        self.assertEqual(self.http_get(token).status_code, 200)
+        self.assertEqual(self.consumed(claims), 1)
+        self.assertEqual(self.http_get(token).status_code, 401)
+
+    def test_H1_04_revoke_A_then_fresh_signed_proof_denied(self):
+        from unittest.mock import patch
+        self.enable_h1()
+        prior, _ = self.sign_get(self.session_a)
+        self.assertEqual(self.http_get(prior).status_code, 200)
+        with db("SESSION") as c:
+            self.assertTrue(auth.revoke_one(c, self.session_a.opaque, 0))
+        fresh, claim = self.sign_get(self.session_a)
+        with patch.object(self.history, "list_conversations",
+                          side_effect=AssertionError("revoked read")):
+            self.assertEqual(self.http_get(fresh).status_code, 401)
+        self.assertEqual(self.consumed(claim), 0)
+
+    def test_H1_05_rollback_after_admission_frees_durable_JTI(self):
+        from psycopg.pq import TransactionStatus
+        from unittest.mock import patch
+        self.enable_h1()
+        token, claim = self.sign_get(self.session_a)
+        original = self.history.list_conversations
+        def abort(c, owner, **kwargs):
+            self.assertIs(c, self.last_admission_conn)
+            self.assertEqual(c.info.transaction_status, TransactionStatus.INTRANS)
+            self.assertGreater(len(original(c, owner, **kwargs)["items"]), 0)
+            raise RuntimeError("CONTROLLED_H1_ROLLBACK")
+        with patch.object(self.history, "list_conversations", side_effect=abort):
+            self.assertEqual(self.http_get(token).status_code, 401)
+        self.assertEqual(self.consumed(claim), 0)
+        self.assertEqual(self.http_get(token).status_code, 200)
+        self.assertEqual(self.consumed(claim), 1)
+        self.assertEqual(self.http_get(token).status_code, 401)
