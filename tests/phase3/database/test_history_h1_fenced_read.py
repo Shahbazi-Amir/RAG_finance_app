@@ -98,7 +98,9 @@ def _observe_specific_revocation_wait(label,holding_pid):
             """,(label,)).fetchone()
             if row and holding_pid in row["blockers"]:
                 return {"wait_event_type":row["wait_event_type"],
-                        "blocker_pid":holding_pid,
+                        "reader_backend_pid":holding_pid,
+                        "revoker_backend_pid":row["pid"],
+                        "pg_blocking_pids":row["blockers"],
                         "wait_event":row["wait_event"]}
             observer.execute("SELECT pg_sleep(0.03)")
     raise AssertionError("H1_EXPECTED_REAL_REVOKER_BLOCKED_BY_READ_TRANSACTION")
@@ -197,6 +199,17 @@ class HistoryH1DbFencedReadRace(unittest.TestCase):
                     self.assertTrue(worker_started.wait(8))
                     wait=_observe_specific_revocation_wait(name,holding_pid)
                     self.assertEqual(wait["wait_event_type"],"Lock")
+                    self.assertEqual(wait["reader_backend_pid"],holding_pid)
+                    self.assertIn(holding_pid,wait["pg_blocking_pids"])
+                    print(
+                        "H1DB02_REAL_PG_BLOCKER"
+                        f" reader_backend_pid={holding_pid}"
+                        f" revoker_backend_pid={wait['revoker_backend_pid']}"
+                        f" pg_blocking_pids={wait['pg_blocking_pids']}"
+                        f" wait_event_type={wait['wait_event_type']}"
+                        f" wait_event={wait['wait_event']}",
+                        flush=True,
+                    )
                     self.assertFalse(pending.done(),
                         "revoke must not commit while admitted History TX holds lock")
                     # Read still succeeds inside the SAME already-admitted TX
