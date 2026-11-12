@@ -303,7 +303,7 @@ async def browser_scenario(ids):
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         ca = await browser.new_context(viewport={"width": 1280, "height": 800})
-        cb = await browser.new_context(viewport={"width": 390, "height": 844})
+        cb = await browser.new_context(viewport={"width": 1280, "height": 800})
         try:
             a = await ca.new_page()
             b = await cb.new_page()
@@ -392,12 +392,6 @@ async def browser_scenario(ids):
 
             # Independent session B is not revoked: real refresh and owner-only
             # DB-backed List through a NEW B proof must remain valid.
-            if await b.get_by_test_id("mobile-menu-trigger").count():
-                await b.get_by_test_id("mobile-menu-trigger").click()
-            else:
-                menu = b.get_by_role("button", name="بازکردن منوی تاریخچه")
-                if await menu.count():
-                    await menu.click()
             async with b.expect_response(
                 lambda r: "/api/history/conversations?limit=2" in r.url
                 and r.status == 200, timeout=15000
