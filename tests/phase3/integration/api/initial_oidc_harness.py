@@ -230,6 +230,7 @@ class DisposableKeycloak:
                     headers=headers,
                     json={"username": email, "email": email,
                           "enabled": True, "emailVerified": True,
+                          "firstName": "Synthetic", "lastName": "Initial",
                           "requiredActions": [],
                           "credentials": [{"type": "password",
                                            "temporary": False,
@@ -309,5 +310,16 @@ class DisposableKeycloak:
                     submitted = True
                     response = browser.post(action, data=data)
                 else:
+                    # Fixed-size diagnostics: never log URL, HTML, cookie,
+                    # email, token, form action, password or callback Code.
+                    body = response.text if response.status_code == 200 else ""
+                    print("INITIAL_OIDC_FORM_STAGE", json.dumps({
+                        "submitted": submitted,
+                        "http_status": response.status_code,
+                        "login_form": "kc-form-login" in body,
+                        "profile_form": "kc-update-profile-form" in body,
+                        "feedback_present": "kc-feedback-text" in body,
+                        "flow_step": "after_submit" if submitted else "before_submit",
+                    }), flush=True)
                     raise IsolatedOIDCFailure()
         raise IsolatedOIDCFailure()
