@@ -324,6 +324,13 @@ class DisposableKeycloak:
                         "error_page_client_word": "client" in body,
                         "auth_session_cookie_present": any("AUTH_SESSION" in name for name in names),
                         "cookie_count_nonsecret": len(names),
+                        "auth_session_cookie_is_secure": any(
+                            cookie.secure for cookie in browser.cookies.jar
+                            if "AUTH_SESSION" in cookie.name),
+                        "posted_cookie_header_present": bool(
+                            response.request.headers.get("cookie")),
+                        "posted_cookie_has_auth_session": (
+                            "AUTH_SESSION" in response.request.headers.get("cookie", "")),
                         "request_was_login_action": "/login-actions/authenticate" in str(response.request.url),
                         "submitted": submitted,
                         "http_status": response.status_code,
