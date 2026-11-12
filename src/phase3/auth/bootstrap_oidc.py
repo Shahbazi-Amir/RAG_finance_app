@@ -204,10 +204,15 @@ class BootstrapOIDC:
             # Replay 005 is a different DB connection/short COMMIT from 009.
             # Any retransmission needs a NEW service JTI; one login Attempt
             # never re-exchanges even with another valid new JTI.
-            with self._conn("replay") as c:
-                with c.transaction():
-                    if PostgresDurableReplayStore().consume(c, proof) is not True:
-                        raise BootstrapDenied()
+            try:
+                with self._conn("replay") as c:
+                    with c.transaction():
+                        if PostgresDurableReplayStore().consume(c, proof) is not True:
+                            raise BootstrapDenied()
+            except psycopg.errors.UniqueViolation:
+                # Durable 005 JTI collision is an invalid replayed service
+                # identity, not a retryable product operation conflict.
+                raise BootstrapDenied(401) from None
             operation = path.rsplit("/", 1)[1]
             return getattr(self, "_" + operation)(payload, proof)
         except BootstrapDenied:

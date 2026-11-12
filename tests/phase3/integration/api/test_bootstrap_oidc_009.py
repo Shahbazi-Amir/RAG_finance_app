@@ -358,10 +358,17 @@ class InitialBootstrap009(unittest.TestCase):
             self.assertEqual(self.db_count(base), 0)
         finally:
             self.keycloak.set_email_verified("B", True)
-        base, start = self.new_start()
-        response = self.complete(base, start, self.callback(start, "A", "openid"))
-        self.assertEqual(response[0], 403, response)
-        self.assertEqual(self.db_count(base), 0)
+        # Keycloak 26.8.2 assigns email as a default client scope. Merely
+        # requesting openid omits nothing until the default email mapper is
+        # explicitly removed for this negative, then restored unconditionally.
+        self.keycloak.set_default_email_scope(False)
+        try:
+            base, start = self.new_start()
+            response = self.complete(base, start, self.callback(start, "A", "openid"))
+            self.assertEqual(response[0], 403, response)
+            self.assertEqual(self.db_count(base), 0)
+        finally:
+            self.keycloak.set_default_email_scope(True)
 
     def test_BOOT05_unknown_transport_never_redeems_twice(self):
         base, start = self.new_start()

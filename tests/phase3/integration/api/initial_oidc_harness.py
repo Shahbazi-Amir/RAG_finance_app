@@ -391,3 +391,44 @@ class DisposableKeycloak:
                 json={"emailVerified": verified})
             if response.status_code != 204:
                 raise IsolatedOIDCFailure()
+
+
+    def set_default_email_scope(self, enabled):
+        """Actual ephemeral Keycloak client-scope assignment; restores in test.
+
+        The email mapper is a DEFAULT scope on Keycloak even for scope=openid.
+        Removing it (and requesting only openid) yields a genuinely signed
+        ID Token with no email_verified claim; never forge/edit a token.
+        """
+        if type(enabled) is not bool:
+            raise IsolatedOIDCFailure()
+        with httpx.Client(trust_env=False, timeout=20,
+                          follow_redirects=False) as client:
+            reply = client.post(
+                self.base + "/realms/master/protocol/openid-connect/token",
+                data={"grant_type": "password", "client_id": "admin-cli",
+                      "username": "ci-bootstrap", "password": self.password})
+            if reply.status_code != 200:
+                raise IsolatedOIDCFailure()
+            headers = {"Authorization": "Bearer " + reply.json()["access_token"]}
+            root = self.base + "/admin/realms/" + self.REALM
+            clients = client.get(root + "/clients",
+                                 headers=headers,
+                                 params={"clientId": self.CLIENT_ID})
+            if clients.status_code != 200 or len(clients.json()) != 1:
+                raise IsolatedOIDCFailure()
+            client_id = clients.json()[0]["id"]
+            scopes = client.get(root + "/client-scopes", headers=headers)
+            if scopes.status_code != 200:
+                raise IsolatedOIDCFailure()
+            email = [s for s in scopes.json() if s.get("name") == "email"]
+            if len(email) != 1:
+                raise IsolatedOIDCFailure()
+            target = (root + "/clients/" + client_id
+                      + "/default-client-scopes/" + email[0]["id"])
+            if enabled:
+                result = client.put(target, headers=headers)
+            else:
+                result = client.delete(target, headers=headers)
+            if result.status_code != 204:
+                raise IsolatedOIDCFailure()
