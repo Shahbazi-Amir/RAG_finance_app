@@ -8,6 +8,7 @@ No real OIDC/BFF integration, browser owner header or real user identity.
 from __future__ import annotations
 
 import asyncio
+import faulthandler
 from collections import Counter
 from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -309,9 +310,13 @@ async def browser_scenario(ids):
             b = await cb.new_page()
             aid, atitle = ids["A"]
             bid, btitle = ids["B"]
+            print("H1_PHASE_INITIAL_A_NAV", flush=True)
             await a.goto("http://127.0.0.1:3000/history", wait_until="domcontentloaded")
+            print("H1_PHASE_INITIAL_B_NAV", flush=True)
             await b.goto("http://127.0.0.1:3001/history", wait_until="domcontentloaded")
+            print("H1_PHASE_EXPECT_A", flush=True)
             await expect(a.get_by_test_id("conversation-" + aid)).to_be_visible(timeout=20000)
+            print("H1_PHASE_EXPECT_B", flush=True)
             await expect(b.get_by_test_id("conversation-" + bid)).to_be_visible(timeout=20000)
             await expect(a.get_by_text(atitle, exact=True)).to_be_visible()
             await expect(b.get_by_text(btitle, exact=True)).to_be_visible()
@@ -423,7 +428,11 @@ async def browser_scenario(ids):
 
 def main():
     guard()
+    faulthandler.enable()
+    faulthandler.dump_traceback_later(95, repeat=False)
+    print("H1_PHASE_CREATE_POSTGRES_FIXTURES",flush=True)
     ids = create_fixtures()
+    print("H1_PHASE_FIXTURES_READY",flush=True)
     history.app.dependency_overrides[history._session] = signed_session
     history.list_conversations = checked_real_history_list
     api = uvicorn.Server(uvicorn.Config(
@@ -440,6 +449,7 @@ def main():
         assert anonymous.status_code == 401
         for slot, port in (("A", A_PORT), ("B", B_PORT)):
             server = ThreadingHTTPServer(("127.0.0.1", port), gateway_class(slot))
+            server.daemon_threads = True
             thread = Thread(target=server.serve_forever, daemon=True)
             thread.start()
             servers.append((server, thread))
@@ -455,7 +465,8 @@ def main():
             processes.append(proc)
         wait_http("http://127.0.0.1:3000/history")
         wait_http("http://127.0.0.1:3001/history")
-        asyncio.run(browser_scenario(ids))
+        print("H1_PHASE_START_CHROMIUM",flush=True)
+        asyncio.run(asyncio.wait_for(browser_scenario(ids), timeout=85))
     finally:
         STATE.release_held.set()
         for proc in processes:
