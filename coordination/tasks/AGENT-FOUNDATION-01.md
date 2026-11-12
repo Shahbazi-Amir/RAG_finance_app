@@ -53,7 +53,7 @@
 - **Implemented:** foundation documentation only. **Checks:** structural Markdown, ID/link/Gate and Git tree checks (see PR description); product tests NOT_RUN. **Accepted:** specialist onboarding checklist revisions only; no activity executed, no Module 00 or Phase 2 Gate acceptance.
 - **Next:** submit the updated same Draft PR #1 for supervisor review. UI/DB executable work still awaits Foundation acceptance and separate specialist assignments.
 
-## Checkpoint C — FND-RECON-A, 2026-11-12
+## Checkpoint E — FND-RECON-A / PR #35 evidence alignment, 2026-11-12
 
 - **Source/baseline:** exact verified `Shahbazi-Amir/RAG_finance_app@main:d93dcf7cbf9290acd4cd3aa0164ef05689049da4`; mission `agent/foundation-p3-post13-evidence-sync`. Read AGENTS, ownership, open decisions, pinned master/Phase3 modular/operational roadmaps, existing specialist checkpoints and PR #13–#34. References unchanged.
 - **Subtask/canonical links:** FND-RECON-A, existing `P3M02/03/04/05/06/13/14/15/19/20`; 84 non-counting crosswalk references to original `P3Mxx-Ayy`; existing `P3OPxx-Ryy` unchanged.
@@ -62,3 +62,5 @@
 - **Security observations:** #13–#33 merged; #23 overall red transition; #33 CI68/68 reproduced SECURITY_BYPASS_REPRODUCED, so C2 NOT_PROVEN; #34 only Open/Draft and no new CI; do not credit C2 or any Module PASS.
 - **Error/correction:** commit metadata endpoint lacked tree SHA, used exact Git data tree `6cedf407e9c9b72fb5f506ba83272bf1cbaea5ca`. Two earlier code-generation attempts failed before any write; no previous ref update or product test.
 - **Independent state:** `implemented=documentation-only`; `tested=static invariant verification`; `accepted=NONE/SUPERVISOR_PENDING`. Separate UI/DB/API synthetic packages proposed, not authorized, and are independent of C2/NB23. C2 proof, accepted Phase2/NB23/Module00, ops and staging blocked. Next: supervisor Draft review; no merge/deploy/Gate.
+
+- **PR #35 clarification (documentation-only):** This Draft PR **only reconciles existing evidence** and makes no Product Auth, History, revocation, C2 or Gate acceptance. Ordinary first OIDC/BFF login, authenticated History and explicit session revoke are independent of C2, but must prove a valid Product session, secure Cookie/CSRF, trusted issuer/subject→owner binding and admission of that **same session/epoch** in the History SQL transaction. C2 applies **only** to accepted fresh authentication and Product Gate reopening **after Reset**. PR #33 negative `SECURITY_BYPASS_REPRODUCED` and `C2=NOT_PROVEN` remain. Unique Checkpoint E replaces only the duplicated new C heading; the historical Checkpoint C and D are preserved. Runtime/CI tests NOT_RUN in this documentation correction; supervisor acceptance pending.
