@@ -312,8 +312,19 @@ class DisposableKeycloak:
                 else:
                     # Fixed-size diagnostics: never log URL, HTML, cookie,
                     # email, token, form action, password or callback Code.
-                    body = response.text if response.status_code == 200 else ""
+                    body = response.text.lower() if response.status_code in (200, 400, 403) else ""
+                    names = {cookie.name for cookie in browser.cookies.jar}
                     print("INITIAL_OIDC_FORM_STAGE", json.dumps({
+                        "error_page_cookies_word": "cookie" in body,
+                        "error_page_invalid_word": "invalid" in body,
+                        "error_page_expired_word": "expired" in body,
+                        "error_page_session_word": "session" in body,
+                        "error_page_restart_word": "restart" in body,
+                        "error_page_https_word": "https" in body,
+                        "error_page_client_word": "client" in body,
+                        "auth_session_cookie_present": any("AUTH_SESSION" in name for name in names),
+                        "cookie_count_nonsecret": len(names),
+                        "request_was_login_action": "/login-actions/authenticate" in str(response.request.url),
                         "submitted": submitted,
                         "http_status": response.status_code,
                         "login_form": "kc-form-login" in body,
