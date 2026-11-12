@@ -1,0 +1,118 @@
+name: Foundation H1 cross-component Chromium / signed API / PostgreSQL
+on:
+  push:
+    branches: [agent/foundation-h1-cross-component-chromium]
+    paths: ['.github/workflows/foundation-h1-cross-component.yml', 'tests/phase3/integration/cross_component/**']
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths: ['.github/workflows/foundation-h1-cross-component.yml', 'tests/phase3/integration/cross_component/**']
+permissions:
+  contents: read
+jobs:
+  h1-cross-component:
+    name: H1 Chromium / signed GET / real PG revoke
+    if: >-
+      github.event_name == 'push'
+      || (github.event_name == 'pull_request'
+          && github.event.pull_request.head.ref == 'agent/foundation-h1-cross-component-chromium'
+          && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17.11
+        env: {POSTGRES_PASSWORD: synthetic_h1_ci_only}
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      CI: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: synthetic_h1_ci_only
+      API_CURSOR_KEY: synthetic-cross-component-ci-only-hmac-2026-fence
+      API_CURSOR_TTL_SECONDS: '300'
+      H1_APP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_app password=synthetic_h1_app connect_timeout=5
+      H1_AUTH_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_migrator password=synthetic_h1_migrator connect_timeout=5
+      H1_MAP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_mapper password=synthetic_h1_mapper connect_timeout=5
+      H1_SESSION_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_sessions password=synthetic_h1_sessions connect_timeout=5
+    steps:
+      - name: Checkout exact commit without persisted write credentials
+        uses: actions/checkout@v6
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v6
+        with: {python-version: '3.13'}
+      - uses: actions/setup-node@v6
+        with: {node-version: '24'}
+      - name: Pinned Python adapters and real Chromium / Next
+        run: |
+          set -euo pipefail
+          python -m pip install --no-cache-dir --index-url https://pypi.org/simple \
+            -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' \
+            'uvicorn==0.34.3' 'playwright==1.64.1'
+          python -m playwright install --with-deps chromium
+          (cd apps/web && npm ci --no-audit --no-fund && npm run build)
+          python --version
+          psql --version
+          psql -U postgres -d postgres -Aqt -c 'SHOW server_version'
+      - name: Bootstrap disposable restricted PostgreSQL 17 roles
+        run: |
+          set -euo pipefail
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE history_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_h1_history_mig';
+          CREATE ROLE history_app LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_h1_app';
+          CREATE ROLE auth_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_h1_migrator';
+          CREATE ROLE auth_mapper LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_h1_mapper';
+          CREATE ROLE auth_sessions LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_h1_sessions';
+          CREATE ROLE auth_revoker LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_h1_revoker';
+          CREATE ROLE auth_reauth LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_h1_reauth';
+          CREATE ROLE auth_trust_api LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_h1_trust';
+          CREATE ROLE auth_replay_cleaner LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_h1_cleaner';
+          CREATE DATABASE history_ci;
+          GRANT CONNECT,CREATE ON DATABASE history_ci TO history_migrator,auth_migrator;
+          GRANT CONNECT ON DATABASE history_ci TO history_app,auth_mapper,auth_sessions,auth_revoker,auth_reauth,auth_trust_api,auth_replay_cleaner;
+          SQL
+      - name: Original migrations 001-005 and CI-only mixed role function grants
+        run: |
+          set -euo pipefail
+          export PGUSER=history_migrator PGPASSWORD=synthetic_h1_history_mig
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_h1_migrator
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.up.sql
+          psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          GRANT USAGE ON SCHEMA auth_l1 TO history_app;
+          GRANT EXECUTE ON FUNCTION auth_l1.consume_service_assertion(text,bigint) TO history_app;
+          GRANT EXECUTE ON FUNCTION auth_l1.admit_session_fenced(text,text,bigint,integer) TO history_app;
+          SQL
+      - name: Real Chromium two owners + signed API 200/401 + late old 200
+        run: |
+          set -euo pipefail
+          mkdir -p tests/phase3/integration/cross_component/_evidence
+          python -m compileall -q apps/api src/phase3/auth tests/phase3/integration/cross_component
+          python -u tests/phase3/integration/cross_component/h1_revocation_chromium.py \
+            2>&1 | tee tests/phase3/integration/cross_component/_evidence/chromium-postgres.log
+      - name: Revoke temporary role bridge (ephemeral DB)
+        if: always()
+        run: |
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_h1_migrator
+          psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL' || true
+          REVOKE EXECUTE ON FUNCTION auth_l1.consume_service_assertion(text,bigint) FROM history_app;
+          REVOKE EXECUTE ON FUNCTION auth_l1.admit_session_fenced(text,text,bigint,integer) FROM history_app;
+          REVOKE USAGE ON SCHEMA auth_l1 FROM history_app;
+          SQL
+      - name: Upload sanitized bounded evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: foundation-h1-cross-component-evidence
+          path: tests/phase3/integration/cross_component/_evidence/
+          if-no-files-found: warn
+          retention-days: 3
