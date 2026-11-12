@@ -52,3 +52,13 @@
 - Marked illustrative SLO figures proposed/nonbinding inside the relevant checklist rows. Deletion remains independent of Export scope approval. Historical transfer/manifest notes explicitly labeled superseded.
 - **Implemented:** foundation documentation only. **Checks:** structural Markdown, ID/link/Gate and Git tree checks (see PR description); product tests NOT_RUN. **Accepted:** specialist onboarding checklist revisions only; no activity executed, no Module 00 or Phase 2 Gate acceptance.
 - **Next:** submit the updated same Draft PR #1 for supervisor review. UI/DB executable work still awaits Foundation acceptance and separate specialist assignments.
+
+## Checkpoint C — FND-RECON-A, 2026-11-12
+
+- **Source/baseline:** exact verified `Shahbazi-Amir/RAG_finance_app@main:d93dcf7cbf9290acd4cd3aa0164ef05689049da4`; mission `agent/foundation-p3-post13-evidence-sync`. Read AGENTS, ownership, open decisions, pinned master/Phase3 modular/operational roadmaps, existing specialist checkpoints and PR #13–#34. References unchanged.
+- **Subtask/canonical links:** FND-RECON-A, existing `P3M02/03/04/05/06/13/14/15/19/20`; 84 non-counting crosswalk references to original `P3Mxx-Ayy`; existing `P3OPxx-Ryy` unchanged.
+- **Implemented/files:** this same cumulative checkpoint and `coordination/phase3_checklist.md` evidence catalog, per-ID historical limited evidence/remaining test, dependency bins, 3 deliverables and owner/file/test boundaries. No other file, code, schema, source roadmap, approval, Gate or decision changed.
+- **Tested (static only):** compare original canonical P3M rows, Gate lines and P3OP rows byte-for-byte; 262 unique modular source activities/canonical rows, 26 unchecked Gates, 105 operational mappings, zero changed states and 0 checked. Linked CI is historical only; no actual API, DB, IdP, model, UI or workflow test was run now.
+- **Security observations:** #13–#33 merged; #23 overall red transition; #33 CI68/68 reproduced SECURITY_BYPASS_REPRODUCED, so C2 NOT_PROVEN; #34 only Open/Draft and no new CI; do not credit C2 or any Module PASS.
+- **Error/correction:** commit metadata endpoint lacked tree SHA, used exact Git data tree `6cedf407e9c9b72fb5f506ba83272bf1cbaea5ca`. Two earlier code-generation attempts failed before any write; no previous ref update or product test.
+- **Independent state:** `implemented=documentation-only`; `tested=static invariant verification`; `accepted=NONE/SUPERVISOR_PENDING`. Separate UI/DB/API synthetic packages proposed, not authorized, and are independent of C2/NB23. C2 proof, accepted Phase2/NB23/Module00, ops and staging blocked. Next: supervisor Draft review; no merge/deploy/Gate.
