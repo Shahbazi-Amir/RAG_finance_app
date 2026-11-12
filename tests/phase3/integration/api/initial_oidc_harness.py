@@ -258,6 +258,34 @@ class DisposableKeycloak:
                 if not self.oidc[field].startswith(issuer + "/"):
                     raise IsolatedOIDCFailure()
 
+    def same_origin_local_request(self, browser, method, url, **kwargs):
+        """CI HTTP-browser transport: preserve IdP Secure cookies on loopback.
+
+        Keycloak 26.8.2 sets AUTH_SESSION_ID with Secure even when using
+        ephemeral loopback HTTP. httpx does not transmit Secure cookies over
+        HTTP, unlike local browser secure-context exceptions. Re-send ONLY
+        cookies actually received from this same loopback origin and matching
+        their path. Never derive or forge an IdP cookie, expose it to callback,
+        or relax any OIDC server-side check. No non-loopback destinations.
+        """
+        target = urlsplit(url)
+        if (target.scheme != "http" or target.hostname != "127.0.0.1"
+                or target.port != self.port
+                or not target.path.startswith("/realms/" + self.REALM + "/")):
+            raise IsolatedOIDCFailure()
+        parts = []
+        for cookie in browser.cookies.jar:
+            if (cookie.domain not in ("127.0.0.1", ".127.0.0.1")
+                    or not target.path.startswith(cookie.path)):
+                continue
+            parts.append(cookie.name + "=" + cookie.value)
+        if parts:
+            options = dict(kwargs)
+            headers = dict(options.pop("headers", {}))
+            headers["Cookie"] = "; ".join(parts)
+            kwargs = {**options, "headers": headers}
+        return browser.request(method, url, **kwargs)
+
     def actual_login_callback(self, label):
         if label not in self.accounts or self.oidc is None:
             raise IsolatedOIDCFailure()
@@ -276,8 +304,8 @@ class DisposableKeycloak:
         # No SSO cookie reuse: a new isolated HTTP browser session per flow.
         with httpx.Client(trust_env=False, timeout=20,
                           follow_redirects=False) as browser:
-            response = browser.get(self.oidc["authorization_endpoint"],
-                                   params=params)
+            response = self.same_origin_local_request(
+                browser, "GET", self.oidc["authorization_endpoint"], params=params)
             submitted = False
             for _ in range(24):
                 if response.status_code in (301, 302, 303, 307, 308):
@@ -294,7 +322,7 @@ class DisposableKeycloak:
                     if not destination.startswith(
                             self.base + "/realms/" + self.REALM + "/"):
                         raise IsolatedOIDCFailure()
-                    response = browser.get(destination)
+                    response = self.same_origin_local_request(browser, "GET", destination)
                 elif response.status_code == 200 and not submitted:
                     form = LoginForm()
                     form.feed(response.text)
@@ -308,7 +336,7 @@ class DisposableKeycloak:
                     data.update(username=user["email"],
                                 password=user["password"])
                     submitted = True
-                    response = browser.post(action, data=data)
+                    response = self.same_origin_local_request(browser, "POST", action, data=data)
                 else:
                     # Fixed-size diagnostics: never log URL, HTML, cookie,
                     # email, token, form action, password or callback Code.
