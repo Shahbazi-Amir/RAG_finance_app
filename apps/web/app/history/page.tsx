@@ -126,7 +126,13 @@ export default function HistoryPage(){
       setError(failureLabel(e));
     }
   },[discardOnUnauthorized]);
-  useEffect(()=>{void loadList();},[loadList]);
+  useEffect(()=>{
+    // Schedule initial fetch after the Effect itself, avoiding a synchronous
+    // setState cascade and preserving the session-loss latch.
+    let mounted=true;
+    queueMicrotask(()=>{if(mounted)void loadList();});
+    return ()=>{mounted=false;};
+  },[loadList]);
   // Refresh selects the first server thread after the list arrives. Load its
   // messages even when the user has not clicked a list row yet.
   useEffect(()=>{
