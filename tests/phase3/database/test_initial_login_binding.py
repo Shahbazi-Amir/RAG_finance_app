@@ -576,7 +576,7 @@ class InitialLoginBinding009(unittest.TestCase):
                         with c.transaction():
                             abort(c,x,receipt["receipt_id"])
                 else:
-                    with self.assertRaisesRegex(psycopg.Error,"LOGIN_ACK_STALE_OR_REVOKED"):
+                    with self.assertRaisesRegex(psycopg.Error,"LOGIN_ACK_CONFLICT"):
                         with c.transaction():
                             ack(c,x,receipt["receipt_id"])
                 return "CONFLICT_DENIED"
