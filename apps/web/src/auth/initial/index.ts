@@ -7,3 +7,5 @@ export type {Init,Pending,Active} from '../server/initial-store.ts';
 export {INIT,SESSION,publicOrigin,secureBrowser,csrf,freshCookie,same,
   cookie,mutationAllowed,appendCookie,noStore,redirectLocal}
   from '../server/initial-browser.ts';
+
+export {productRequest} from '../server/product-session.ts';

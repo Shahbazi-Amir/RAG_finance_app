@@ -13,8 +13,15 @@ const server=createServer({
   delete headers['x-auth-ci-proxy-proof'];
   headers['x-auth-ci-proxy-proof']=process.env.AUTH_CI_PROXY_SECRET;
   headers.host='127.0.0.1:3000';
+  // API #50 pins /callback in both Code authorization and exchange.
+  // Map ONLY that exact CI loopback callback to Next's actual callback route.
+  const original=client.url??'';
+  const path=process.env.AUTH_CI_DEMO_MODE==='true'&&
+    (original==='/callback'||original.startsWith('/callback?'))
+    ?'/api/auth/callback'+original.slice('/callback'.length)
+    :original;
   const upstream=forward({host:'127.0.0.1',port:3000,method:client.method,
-    path:client.url,headers},reply=>{
+    path,headers},reply=>{
     response.writeHead(reply.statusCode??502,reply.headers);
     reply.pipe(response);
   });

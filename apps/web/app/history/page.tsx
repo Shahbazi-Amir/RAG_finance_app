@@ -14,6 +14,7 @@ const emptyThread=():ThreadData=>({items:[],answers:[],next:null,more:false,phas
 type PendingCreate={origin:string;request:CreateOperation;phase:'unknown'|'submitting'};
 
 export default function HistoryPage(){
+  const demoOnly=process.env.NEXT_PUBLIC_CI_DEMO_MODE==='true';
   // Nothing private is written to browser storage or log. Reload reads PostgreSQL.
   const [list,setList]=useState<ConversationView[]>([]);
   const [listState,setListState]=useState<ListState>('loading');
@@ -93,14 +94,14 @@ export default function HistoryPage(){
       setListCursor(page.next);setListMore(page.more);
       setListState(page.items.length===0&&!next?'empty':'loaded');
       if(!next)setSelected(old=>authLostRef.current?null:
-        old??(page.items[0]?.id??'draft:new'));
+        old??(demoOnly?'draft:new':page.items[0]?.id??'draft:new'));
       setError('');
     }catch(e){
       if(discardOnUnauthorized(e)||authLostRef.current)return;
       setListState('error');
       setError(failureLabel(e));
     }finally{if(!authLostRef.current)setListBusy(false);}
-  },[discardOnUnauthorized]);
+  },[discardOnUnauthorized,demoOnly]);
   const loadThread=useCallback(async (id:string,next=false,cursor:string|null=null)=>{
     if(authLostRef.current)return;
     const epoch=(epochs.current[id]??0)+1;epochs.current[id]=epoch;
@@ -267,9 +268,9 @@ export default function HistoryPage(){
         <strong>راگ مالی</strong></div>
       <div className="history-actions">
         <button className="nav-new-chat" data-testid="create-conversation" type="button"
-          disabled={authLost||creating?.phase==='submitting'} onClick={beginCreate}>ایجاد مکالمه</button>
+          disabled={demoOnly||authLost||creating?.phase==='submitting'} onClick={beginCreate}>ایجاد مکالمه</button>
         <button className="secondary" data-testid="new-draft" type="button"
-          disabled={authLost} onClick={newDraft}>شروع با پیام جدید</button>
+          disabled={demoOnly||authLost} onClick={newDraft}>شروع با پیام جدید</button>
         {creating?.phase==='unknown'&&<button className="secondary" type="button"
           data-testid="retry-create" onClick={()=>void performCreate(creating)}>تلاش دوباره با همان شناسه</button>}
       </div>
@@ -278,7 +279,7 @@ export default function HistoryPage(){
         {listState==='loading'?'در حال بارگذاری تاریخچه…'
           :listState==='empty'?'هنوز مکالمه‌ای ثبت نشده است.'
           :listState==='error'?'خطای دریافت تاریخچه'
-          :listState==='unauthorized'?'ورود معتبر لازم است؛ ورود هنوز فراهم نیست.':''}
+          :listState==='unauthorized'?'نشست معتبر نیست؛ دوباره وارد شوید.':''}
       </div>
       <nav aria-label="مکالمات ثبت‌شده" className="history-list">
         {(authLost?[]:list).map(c=>{
@@ -293,7 +294,7 @@ export default function HistoryPage(){
             className={'nav-thread'+(selected===c.id?' is-current':'')}
             aria-current={selected===c.id?'page':undefined}
             aria-label={'بازکردن '+title+'؛ شناسهٔ کامل '+c.id+(preview?'؛ پرسش: '+preview:'')}
-            onClick={()=>choose(c.id)}>
+            onClick={()=>{if(!demoOnly)choose(c.id)}} aria-disabled={demoOnly}>
             <span className="nav-thread-text history-thread-title">{title}</span>
             {marker&&<span className="history-thread-detail" data-testid={'history-marker-'+c.id}>
               {marker}
@@ -308,7 +309,10 @@ export default function HistoryPage(){
       <button type="button" className="secondary" data-testid="refresh-history"
         disabled={authLost||listBusy} onClick={()=>void loadList()}>بازخوانی تاریخچه</button>
       <div className="history-sidebar-bottom">
-        <Link href="/" className="history-link" data-testid="mock-link">بازگشت به Mock مستقل</Link>
+        {demoOnly&&<Link href="/login" className="history-link" data-testid="demo-account-link">
+          مدیریت حساب و خروج امن
+        </Link>}
+        {!demoOnly&&<Link href="/" className="history-link" data-testid="mock-link">بازگشت به Mock مستقل</Link>}
         <p className="nav-local-notice">Mock در پایگاه داده ثبت نمی‌شود.</p>
       </div>
     </aside>
@@ -324,14 +328,19 @@ export default function HistoryPage(){
         <span className="history-mobile-caption">تاریخچه</span>
       </header>
       <header className="history-heading">
-        <h1>تاریخچهٔ گفتگو</h1><p>فقط ثبت و بازیابی پیام؛ پاسخ‌گویی موتور هنوز فعال نیست.</p>
+        <h1>تاریخچهٔ گفتگو</h1><p>{demoOnly
+          ?'دموی فاز سوم؛ فهرست واقعی و خصوصی PostgreSQL، بدون اتصال موتور گفتگو.'
+          :'فقط ثبت و بازیابی پیام؛ پاسخ‌گویی موتور هنوز فعال نیست.'}</p>
       </header>
       {error&&<p role="alert" data-testid="history-error" className="history-error">{error}</p>}
       <div className="history-messages" aria-live="polite">
         {authLost&&<p role="status" data-testid="history-login-required" className="history-empty">
-          برای مشاهدهٔ تاریخچه نیاز به ورود معتبر است؛ ورود هنوز راه‌اندازی نشده است.
+          برای مشاهدهٔ تاریخچه نیاز به ورود معتبر است. نشست پایان یافته؛ دوباره وارد شوید.
         </p>}
-        {!authLost&&!selectedServer&&<p data-testid="draft-empty" className="history-empty">پرسش جدید را بنویسید یا مکالمه بسازید؛ شناسهٔ محلی، شناسهٔ سرور نیست.</p>}
+        {!authLost&&!selectedServer&&<p data-testid="draft-empty" className="history-empty">
+          {demoOnly?'برای این نمایش فقط فهرست خصوصی مکالمه‌های نمونه بارگذاری می‌شود؛ پاسخ موتور آماده نیست.'
+            :'پرسش جدید را بنویسید یا مکالمه بسازید؛ شناسهٔ محلی، شناسهٔ سرور نیست.'}
+        </p>}
         {selectedServer&&(!data||data.phase==='loading')&&<p data-testid="messages-loading">در حال بارگذاری پیام‌ها…</p>}
         {selectedServer&&data?.phase==='empty'&&<p data-testid="messages-empty">پیامی در این مکالمه ثبت نشده است.</p>}
         {selectedServer&&data?.phase==='error'&&<p data-testid="messages-error">دریافت پیام‌ها با خطا مواجه شد.</p>}
@@ -369,7 +378,7 @@ export default function HistoryPage(){
           disabled={data.phase==='loading'}
           onClick={()=>void loadThread(active,true,data.next)}>نمایش پیام‌های بیشتر</button>}
       </div>
-      <form className="history-compose" onSubmit={event=>void submitMessage(event)}>
+      {!demoOnly&&<form className="history-compose" onSubmit={event=>void submitMessage(event)}>
         <label htmlFor="history-question" className="sr-only">متن پرسش</label>
         <div className="composer">
           <textarea id="history-question" data-testid="history-question" rows={2}
@@ -383,7 +392,7 @@ export default function HistoryPage(){
           </button>
         </div>
         <p className="under-composer">فقط تاریخچه در PostgreSQL ثبت می‌شود؛ هیچ پرسشی به موتور ارسال نمی‌شود.</p>
-      </form>
+      </form>}
     </section>
   </main>;
 }

@@ -1,0 +1,332 @@
+name: UI-PHASE3-DEMO — Real Keycloak Login History Logout desktop/mobile (isolated)
+
+on:
+  push:
+    branches: [agent/ui-auth-bff-010-integration]
+    paths:
+      - 'apps/web/**'
+      - 'tests/phase3/integration/ui/**'
+      - 'coordination/tasks/AGENT-UI-01.md'
+      - '.github/workflows/ui-phase3-demo.yml'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'tests/phase3/integration/ui/**'
+      - 'coordination/tasks/AGENT-UI-01.md'
+      - '.github/workflows/ui-phase3-demo.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  phase3-demo:
+    if: >-
+      github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request'
+          && github.event.pull_request.head.ref == 'agent/ui-auth-bff-010-integration'
+          && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_PASSWORD: synthetic_ci_only_not_a_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: 'true'
+      PGPASSWORD: synthetic_ci_only_not_a_secret
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      AUTH_MAP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_mapper password=synthetic_mapper_only connect_timeout=5
+      AUTH_SESSION_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_sessions password=synthetic_session_only connect_timeout=5
+      AUTH_REVOKER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_revoker password=synthetic_revoker_only connect_timeout=5
+      AUTH_REAUTH_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reauth password=synthetic_reauth_only connect_timeout=5
+      AUTH_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_migrator password=synthetic_auth_migrator_only connect_timeout=5
+      AUTH_RESET_ISSUER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reset_issuer password=synthetic_reset_issuer_only connect_timeout=5
+      AUTH_RESET_EXEC_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reset_executor password=synthetic_reset_executor_only connect_timeout=5
+      AUTH_RESET_LOOKUP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reset_lookup password=synthetic_reset_lookup_only connect_timeout=5
+      AUTH_RESET_IDP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reset_idp_recorder password=synthetic_reset_idp_recorder_only connect_timeout=5
+      LOGIN_BOOTSTRAP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_bootstrap password=synthetic_login_bootstrap_only connect_timeout=5
+      LOGIN_CLAIM_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_claim_reader password=synthetic_login_claim_reader_only connect_timeout=5
+      LOGIN_ISSUER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_issuer password=synthetic_login_issuer_only connect_timeout=5
+      LOGIN_BINDER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_binder password=synthetic_login_binder_only connect_timeout=5
+      LOGIN_READER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_reader password=synthetic_login_reader_only connect_timeout=5
+      LOGIN_CLEANER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_cleaner password=synthetic_login_cleaner_only connect_timeout=5
+      REPLAY_API_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_trust_api password=synthetic_replay_api_only connect_timeout=5
+      REPLAY_CLEANER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_replay_cleaner password=synthetic_replay_clean_only connect_timeout=5
+      DB_APP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+      DB_SEEDED_APP_DSN: host=127.0.0.1 port=5432 dbname=history_seeded_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB_SEEDED_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_seeded_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+      DB_LEGACY_APP_DSN: host=127.0.0.1 port=5432 dbname=history_legacy_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB_LEGACY_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_legacy_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+    steps:
+      - name: Checkout exact commit (read only)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Stage exact tested #50 API from SHA (CI filesystem only)
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git 62d40f4b4ed254de0aa0dfc21c17d809e24423db
+          test "$(git rev-parse FETCH_HEAD)" = "62d40f4b4ed254de0aa0dfc21c17d809e24423db"
+          for path in src/phase3/auth/bootstrap_oidc.py apps/api/product_session_api.py; do
+            git show "62d40f4b4ed254de0aa0dfc21c17d809e24423db:$path" > "$path"
+          done
+      - name: Node 24 for real Next browser app
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Install and test Next, build isolated demo
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm run lint
+          npm test
+          NEXT_PUBLIC_CI_DEMO_MODE=true npm run build
+      - name: Stage exact tested #48 API workers/harness (CI filesystem only)
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git 1998b31c86155a972b11ea745d6bb37e09549392
+          test "$(git rev-parse FETCH_HEAD)" = "1998b31c86155a972b11ea745d6bb37e09549392"
+          for path in src/phase3/auth/initial_oidc_login.py tests/phase3/integration/api/bootstrap_010_worker.py tests/phase3/integration/api/initial_oidc_harness.py tests/phase3/integration/api/test_bootstrap_oidc_010.py; do
+            git show "1998b31c86155a972b11ea745d6bb37e09549392:$path" > "$path"
+          done
+      - name: Stage exact tested #36 transactional admission (CI filesystem only)
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git 99a917c2f2c519027d0e71643bbbf6973a6c8ac3
+          test "$(git rev-parse FETCH_HEAD)" = "99a917c2f2c519027d0e71643bbbf6973a6c8ac3"
+          git show "99a917c2f2c519027d0e71643bbbf6973a6c8ac3:src/phase3/auth/transactional_admission.py" > src/phase3/auth/transactional_admission.py
+      - name: Stage exact approved 009 SQL from #44 tested SHA (CI filesystem only)
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git 656604356dadea953031fcdb74650a5d42df4e9b
+          test "$(git rev-parse FETCH_HEAD)" = "656604356dadea953031fcdb74650a5d42df4e9b"
+          for kind in up down; do
+            git show "656604356dadea953031fcdb74650a5d42df4e9b:infra/postgres/migrations/009_initial_login_attempt_binding.$kind.sql" > "infra/postgres/migrations/009_initial_login_attempt_binding.$kind.sql"
+          done
+          test -s infra/postgres/migrations/009_initial_login_attempt_binding.up.sql
+          test -s infra/postgres/migrations/009_initial_login_attempt_binding.down.sql
+      - name: Stage exact DB-owned 010 from #47 tested SHA in CI only
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git 1678e87b7984094b74ec995383b8d4383e5f5ae7
+          test "$(git rev-parse FETCH_HEAD)" = "1678e87b7984094b74ec995383b8d4383e5f5ae7"
+          for kind in up down; do
+            git show "1678e87b7984094b74ec995383b8d4383e5f5ae7:infra/postgres/migrations/010_initial_login_claim_material.$kind.sql" > "infra/postgres/migrations/010_initial_login_claim_material.$kind.sql"
+          done
+          test -s infra/postgres/migrations/010_initial_login_claim_material.up.sql
+          test -s infra/postgres/migrations/010_initial_login_claim_material.down.sql
+      - name: Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install pinned CI-only Python adapters
+        run: python -m pip install --no-cache-dir --index-url https://pypi.org/simple -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.34.3'
+      - name: Verify only temporary loopback database and versions
+        run: |
+          set -euo pipefail
+          python --version
+          python -c "import psycopg,jsonschema; print('psycopg',psycopg.__version__); print('jsonschema',jsonschema.__version__)"
+          psql --version
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'SHOW server_version;'
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'SELECT inet_server_addr(),inet_server_port();'
+      - name: Bootstrap disposable DBs and separate least-privilege roles
+        run: |
+          set -euo pipefail
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE history_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_mig_only';
+          CREATE ROLE history_app LOGIN PASSWORD 'synthetic_app_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_auth_migrator_only' NOSUPERUSER;
+          GRANT pg_read_all_stats TO auth_migrator;
+          CREATE ROLE auth_mapper LOGIN PASSWORD 'synthetic_mapper_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_sessions LOGIN PASSWORD 'synthetic_session_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_revoker LOGIN PASSWORD 'synthetic_revoker_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reauth LOGIN PASSWORD 'synthetic_reauth_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_trust_api LOGIN PASSWORD 'synthetic_replay_api_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_replay_cleaner LOGIN PASSWORD 'synthetic_replay_clean_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_issuer LOGIN PASSWORD 'synthetic_reset_issuer_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_executor LOGIN PASSWORD 'synthetic_reset_executor_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_lookup LOGIN PASSWORD 'synthetic_reset_lookup_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_idp_recorder LOGIN PASSWORD 'synthetic_reset_idp_recorder_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_bootstrap LOGIN PASSWORD 'synthetic_login_bootstrap_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_claim_reader LOGIN PASSWORD 'synthetic_login_claim_reader_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_issuer LOGIN PASSWORD 'synthetic_login_issuer_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_binder LOGIN PASSWORD 'synthetic_login_binder_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_reader LOGIN PASSWORD 'synthetic_login_reader_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_cleaner LOGIN PASSWORD 'synthetic_login_cleaner_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE DATABASE history_ci;
+          CREATE DATABASE history_legacy_ci;
+          CREATE DATABASE history_seeded_ci;
+          CREATE DATABASE history_rollback_ci;
+          CREATE DATABASE auth_rollback_ci;
+          CREATE DATABASE auth_empty_ci;
+          CREATE DATABASE reset_c1_empty_ci;
+          CREATE DATABASE reset_c1_seeded_ci;
+          CREATE DATABASE reset_c1_issue_commit_ci;
+          CREATE DATABASE reset_c1_issue_abort_ci;
+          CREATE DATABASE reset_c1_exec_commit_ci;
+          CREATE DATABASE reset_c1_exec_abort_ci;
+          CREATE DATABASE reset_c1_down_first_ci;
+          CREATE DATABASE reset_lookup_empty_ci;
+          CREATE DATABASE reset_lookup_seeded_ci;
+          CREATE DATABASE reset_idp_empty_ci;
+          CREATE DATABASE reset_idp_seeded_ci;
+          CREATE DATABASE reset_idp_race_attempt_commit_ci;
+          CREATE DATABASE reset_idp_race_attempt_abort_ci;
+          CREATE DATABASE reset_idp_race_outcome_ci;
+          CREATE DATABASE reset_idp_race_down_first_ci;
+          CREATE DATABASE login_009_empty_ci;
+          CREATE DATABASE login_009_evidence_ci;
+          GRANT CONNECT,CREATE ON DATABASE history_ci TO history_migrator;
+          GRANT CONNECT,CREATE ON DATABASE history_legacy_ci TO history_migrator;
+          GRANT CONNECT,CREATE ON DATABASE history_seeded_ci TO history_migrator;
+          GRANT CONNECT,CREATE ON DATABASE history_rollback_ci TO history_migrator;
+          GRANT CONNECT ON DATABASE history_ci TO history_app;
+          GRANT CONNECT ON DATABASE history_legacy_ci TO history_app;
+          GRANT CONNECT ON DATABASE history_seeded_ci TO history_app;
+          GRANT CONNECT ON DATABASE history_rollback_ci TO history_app;
+          GRANT CONNECT,CREATE ON DATABASE history_ci TO auth_migrator;
+          GRANT CONNECT,CREATE ON DATABASE login_009_empty_ci,login_009_evidence_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE login_009_empty_ci,login_009_evidence_ci
+            TO auth_login_bootstrap,auth_login_issuer,auth_login_binder,
+               auth_login_reader,auth_login_cleaner,auth_mapper;
+          GRANT CONNECT,CREATE ON DATABASE auth_rollback_ci TO auth_migrator;
+          GRANT CONNECT,CREATE ON DATABASE auth_empty_ci TO auth_migrator;
+          GRANT CONNECT,CREATE ON DATABASE reset_c1_empty_ci,reset_c1_seeded_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE reset_c1_seeded_ci TO auth_reset_issuer,auth_reset_executor;
+          GRANT CONNECT,CREATE ON DATABASE
+            reset_c1_issue_commit_ci,reset_c1_issue_abort_ci,reset_c1_exec_commit_ci,
+            reset_c1_exec_abort_ci,reset_c1_down_first_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE
+            reset_c1_issue_commit_ci,reset_c1_issue_abort_ci,reset_c1_exec_commit_ci,
+            reset_c1_exec_abort_ci,reset_c1_down_first_ci
+            TO auth_reset_issuer,auth_reset_executor;
+          GRANT CONNECT ON DATABASE history_ci TO auth_mapper,auth_sessions,auth_revoker,auth_reauth;
+          GRANT CONNECT ON DATABASE history_ci TO auth_trust_api,auth_replay_cleaner;
+          GRANT CONNECT ON DATABASE history_ci TO auth_reset_issuer,auth_reset_executor,auth_reset_lookup,auth_reset_idp_recorder;
+          GRANT CONNECT ON DATABASE history_ci TO
+            auth_login_bootstrap,auth_login_claim_reader,auth_login_issuer,auth_login_binder,
+            auth_login_reader,auth_login_cleaner;
+          GRANT CONNECT,CREATE ON DATABASE reset_idp_empty_ci,reset_idp_seeded_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE reset_idp_seeded_ci TO auth_reset_issuer,auth_reset_executor,auth_reset_idp_recorder;
+          GRANT CONNECT ON DATABASE reset_idp_empty_ci TO auth_reset_idp_recorder;
+          GRANT CONNECT,CREATE ON DATABASE
+            reset_idp_race_attempt_commit_ci,reset_idp_race_attempt_abort_ci,
+            reset_idp_race_outcome_ci,reset_idp_race_down_first_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE
+            reset_idp_race_attempt_commit_ci,reset_idp_race_attempt_abort_ci,
+            reset_idp_race_outcome_ci,reset_idp_race_down_first_ci
+            TO auth_reset_issuer,auth_reset_executor,auth_reset_idp_recorder;
+          GRANT CONNECT,CREATE ON DATABASE reset_lookup_empty_ci,reset_lookup_seeded_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE reset_lookup_empty_ci,reset_lookup_seeded_ci TO auth_reset_lookup,auth_reset_issuer;
+          SQL
+      - name: Apply versioned History base, and 003 on data-bearing product DB
+        run: |
+          set -euo pipefail
+          export PGUSER=history_migrator PGPASSWORD=synthetic_mig_only
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          psql -d history_legacy_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          # Separate synthetic chain seed: 001 first; acceptance test applies 002.
+          psql -d history_seeded_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          # Pre-existing synthetic History rows before new product auth migration 003.
+          PGUSER=history_app PGPASSWORD=synthetic_app_only psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          SELECT set_config('app.owner_id','synthetic_auth_migration',true);
+          INSERT INTO history_l1.conversations(owner_id,id)
+            VALUES('synthetic_auth_migration','synthetic_auth_preexisting_history');
+          COMMIT;
+          SQL
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          psql -d auth_empty_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          # Data-bearing product DB before 004: synthetic session chain, never a real user.
+          psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO auth_l1.owners(owner_id) VALUES('synthetic_fence_preexisting');
+          INSERT INTO auth_l1.identity_links(issuer,subject,owner_id)
+            VALUES('https://synthetic.invalid/bnd02','synthetic_fence_subject','synthetic_fence_preexisting');
+          INSERT INTO auth_l1.sessions(digest_sha256,owner_id,session_epoch,generation,status,
+              created_at,last_activity_at,idle_expires_at,absolute_expires_at,idle_seconds)
+            VALUES(repeat('b',64),'synthetic_fence_preexisting',0,0,'active',
+              clock_timestamp(),clock_timestamp(),
+              clock_timestamp()+interval '15 minutes',
+              clock_timestamp()+interval '1 hour',900);
+          SQL
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.up.sql
+          psql -d history_ci -1 -v ON_ERROR_STOP=1 -f infra/postgres/migrations/006_atomic_reset_c1.up.sql
+          psql -d history_ci -1 -v ON_ERROR_STOP=1 -f infra/postgres/migrations/007_scoped_reset_identity_lookup.up.sql
+          psql -d history_ci -1 -v ON_ERROR_STOP=1 -f infra/postgres/migrations/008_durable_idp_attempt_outcome.up.sql
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/009_initial_login_attempt_binding.up.sql
+          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/010_initial_login_claim_material.up.sql
+          # Separate synthetic protected SQL table: CI ONLY, INSERT role, no History grants.
+          psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA service_replay_ci;
+          REVOKE ALL ON SCHEMA service_replay_ci FROM PUBLIC;
+          CREATE TABLE service_replay_ci.protected_actions(marker text PRIMARY KEY);
+          GRANT USAGE ON SCHEMA service_replay_ci TO auth_trust_api;
+          GRANT INSERT ON service_replay_ci.protected_actions TO auth_trust_api;
+          SQL
+          test "$(psql -d history_ci -Aqt -c "SELECT count(*) FROM auth_l1.sessions WHERE owner_id='synthetic_fence_preexisting'")" = "1"
+          # Only disposable CI Harness role may insert synthetic protected markers.
+          # NO History or Auth table grants to auth_sessions are added.
+          psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA auth_fence_ci;
+          REVOKE ALL ON SCHEMA auth_fence_ci FROM PUBLIC;
+          CREATE TABLE auth_fence_ci.protected_actions(
+            owner_id text NOT NULL,marker text PRIMARY KEY);
+          GRANT USAGE ON SCHEMA auth_fence_ci TO auth_sessions;
+          GRANT INSERT ON auth_fence_ci.protected_actions TO auth_sessions;
+          SQL
+          # Verify History persistence using its OWN migrator; auth_migrator has zero History grants.
+          PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -d history_ci -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'"
+          test "$(PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -d history_ci -Aqt -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'")" = "1"
+      - name: Compile and real Keycloak mTLS two-process 009+010 Claim material tests
+        run: |
+          set -euo pipefail
+          python -m compileall -q src/phase3/auth tests/phase3/integration/api
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_bootstrap_oidc_010.py' -v
+      - name: Real HTTPS Callback plus Product-session API 005 004 History/revoke tests
+        run: |
+          set -euo pipefail
+          python -m compileall -q apps/api/product_session_api.py src/phase3/auth tests/phase3/integration/api/test_product_session_011.py
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_product_session_011.py' -v
+      - name: Install Playwright real Chromium pinned to isolated CI
+        run: |
+          set -euo pipefail
+          python -m pip install --no-cache-dir --index-url https://pypi.org/simple 'playwright==1.64.1'
+          python -m playwright install --with-deps chromium
+      - name: Real browser demo — Keycloak A/B, same Cookie, private History, committed Logout
+        run: |
+          set -euo pipefail
+          python -m compileall -q tests/phase3/integration/ui/phase3_auth_demo.py
+          python -u tests/phase3/integration/ui/phase3_auth_demo.py
+      - name: Upload synthetic-only desktop/mobile demonstration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase3-demo-chromium-${{ github.run_id }}
+          path: ${{ runner.temp }}/phase3-demo-evidence/*.png
+          if-no-files-found: ignore
+          retention-days: 2
+      - name: Show bounded SQL permissions and container status
+        if: always()
+        run: |
+          echo 'DEMO_EPHEMERAL_NO_PRODUCTION_GRANTS'
+          echo 'BROWSER_COOKIE_REAL_NEXT_TEST_FIXTURE_NO_RESET_C2'
