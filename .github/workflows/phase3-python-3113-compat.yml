@@ -1,0 +1,189 @@
+name: Phase 3 exact Python 3.11.3 compatibility / Docker PG / Node24 Chromium
+
+on:
+  push:
+    branches: [compat/phase3-python-3.11]
+    paths:
+      - 'scripts/phase3-demo/**'
+      - 'tests/phase3/integration/cross_component/python311_compat_matrix.py'
+      - '.github/workflows/phase3-python-3113-compat.yml'
+      - '.python-version'
+      - 'coordination/tasks/AGENT-FOUNDATION-01.md'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'scripts/phase3-demo/**'
+      - 'tests/phase3/integration/cross_component/python311_compat_matrix.py'
+      - '.github/workflows/phase3-python-3113-compat.yml'
+      - '.python-version'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-python-3113:
+    name: Linux Ubuntu22 exact CPython 3.11.3 (no 3.13 coverage removed)
+    if: >-
+      github.event_name == 'push'
+      || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request'
+          && github.event.pull_request.head.ref == 'compat/phase3-python-3.11'
+          && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 55
+    env:
+      CI: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout exactly the compatibility branch commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Map the exact checked-out commit to the local compatibility branch
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git switch -c compat/phase3-python-3.11
+          test "$(git branch --show-current)" = "compat/phase3-python-3.11"
+          echo "COMPAT_EXACT_CHECKOUT_SHA=$(git rev-parse HEAD)"
+
+      - name: Exact Python 3.11.3 (not 3.11.x) in supported Ubuntu22 toolcache
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11.3'
+
+      - name: Node 24 kept on Node; no substitution by Python
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Fresh Python 3.11.3 venv and pinned dependency install
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import sys,platform
+          print('COMPAT_HOST_OS=' + platform.platform())
+          print('COMPAT_HOST_MACHINE=' + platform.machine())
+          print('COMPAT_EXACT_PYTHON=' + sys.version.split()[0])
+          assert sys.version_info[:3] == (3,11,3), 'NOT_EXACT_PYTHON_3_11_3'
+          PY
+          python -m venv "$RUNNER_TEMP/phase3-3113-fresh-venv"
+          echo "$RUNNER_TEMP/phase3-3113-fresh-venv/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/phase3-3113-fresh-venv/bin/python" -m pip install \
+            --no-cache-dir -r apps/api/requirements-ci.txt \
+            -r tests/phase3/contracts/requirements.txt \
+            'PyJWT[crypto]==2.15.1' 'uvicorn==0.34.3' 'playwright==1.64.1'
+          "$RUNNER_TEMP/phase3-3113-fresh-venv/bin/python" - <<'PY'
+          from importlib.metadata import version
+          import sys
+          assert sys.version_info[:3] == (3,11,3)
+          for p in ['fastapi','httpx','psycopg','psycopg-binary',
+                    'jsonschema','PyJWT','cryptography','uvicorn','playwright']:
+              print('COMPAT_FRESH_VENV_' + p.replace('-','_') + '=' + version(p))
+          print('COMPAT_FRESH_VENV_PINNED_INSTALL_PASS')
+          PY
+          echo "COMPAT_NODE_VERSION=$(node -v)"
+          echo "COMPAT_NPM_VERSION=$(npm -v)"
+          docker info --format 'COMPAT_DOCKER_SERVER={{.ServerVersion}}'
+
+      - name: Chromium OS dependencies on disposable Linux host
+        run: |
+          set -euo pipefail
+          python -m playwright install --with-deps chromium
+
+      - name: Compile source, pure API service proof and public History contracts
+        run: |
+          set -euo pipefail
+          python -m compileall -q src/phase3/auth apps/api scripts/phase3-demo \
+            tests/phase3/api tests/phase3/contracts tests/phase3/integration/cross_component
+          python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
+          echo 'COMPAT_HOST_API_PURE_PY3113_PASS'
+          python -m unittest discover -s tests/phase3/contracts -p 'test_history.py' -v
+          echo 'COMPAT_HOST_HISTORY_CONTRACT_PY3113_PASS'
+
+      - name: Exact local launcher preflight and foreign port protection
+        run: |
+          set -euo pipefail
+          python --version
+          python - <<'PY'
+          import sys
+          assert sys.version_info[:3] == (3,11,3)
+          PY
+          bash scripts/phase3-demo/demo.sh preflight
+          python - <<'PY'
+          import socket,subprocess
+          with socket.socket() as s:
+              s.bind(("127.0.0.1",3443))
+              p=subprocess.run(["bash","scripts/phase3-demo/demo.sh","preflight"],
+                               capture_output=True,text=True)
+              assert p.returncode and "PORT_CONFLICT" in p.stderr
+          print("COMPAT_FOREIGN_PORT_PROTECTION_PASS")
+          PY
+
+      - name: Launch pinned #49 actual stack, Postgres 001-010, API/Next/real Chromium A-B History Logout
+        timeout-minutes: 38
+        run: |
+          set -euo pipefail
+          bash scripts/phase3-demo/demo.sh start
+          bash scripts/phase3-demo/demo.sh status
+          python - <<'PY'
+          import importlib.util
+          spec=importlib.util.spec_from_file_location("local_compat_launcher","scripts/phase3-demo/launcher.py")
+          module=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          log=module.LOG.read_text()
+          for marker in ("LOCAL_DEMO_REAL_A_B_HISTORY_REVOKE_CHROMIUM_PASS",
+                         "DEMO_DESKTOP_REAL_LOGOUT_COMMITTED_RECEIPT_PASS",
+                         "DEMO_MOBILE_B_SESSION_STILL_PRIVATE_PASS"):
+              assert marker in log, "MISSING_BROWSER_MARKER_" + marker
+              print("COMPAT_UI_" + marker)
+          assert module.READY.exists()
+          assert module.read_json(module.READY)["checks"]=="PASS"
+          v=module.STATE/"venv"/"bin"/"python"
+          import subprocess
+          result=subprocess.check_output([str(v),"-c","import sys;print(sys.version.split()[0])"],text=True).strip()
+          assert result=="3.11.3"
+          print("COMPAT_LOCAL_LAUNCHER_VENV_PYTHON_3_11_3_PASS")
+          PY
+
+      - name: Run shared existing API History plus DB Session 004 005 matrix on ephemeral PG
+        timeout-minutes: 14
+        run: |
+          set -euo pipefail
+          python -u tests/phase3/integration/cross_component/python311_compat_matrix.py
+
+      - name: Reset only labelled demo DB, re-run real Chromium and validate new A/B identities
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          old=$(bash scripts/phase3-demo/demo.sh credentials | python -c 'import sys,json; print(json.load(sys.stdin)["A"]["email"])')
+          bash scripts/phase3-demo/demo.sh reset
+          fresh=$(bash scripts/phase3-demo/demo.sh credentials | python -c 'import sys,json; print(json.load(sys.stdin)["A"]["email"])')
+          test "$old" != "$fresh"
+          bash scripts/phase3-demo/demo.sh status
+          echo 'COMPAT_RESET_FRESH_POSTGRES_KEYCLOAK_A_B_CHROMIUM_PASS'
+          curl --silent --show-error --fail --insecure --max-time 9 \
+            https://127.0.0.1:3443/login | grep -q 'راگ مالی'
+          echo 'COMPAT_NODE24_NEXT_LOCAL_BROWSER_URL_READY_PASS'
+
+      - name: Cleanup ONLY this repo-labelled temporary launcher
+        if: always()
+        run: |
+          set +e
+          bash scripts/phase3-demo/demo.sh stop
+          bash scripts/phase3-demo/demo.sh status
+          echo 'COMPAT_EPHEMERAL_STOP_REPORTED'
+
+      - name: Post-test provenance
+        if: always()
+        run: |
+          echo "COMPAT_RUN_SHA=$GITHUB_SHA"
+          echo 'COMPAT_MAC_INTEL_12_7_6_NOT_RUN_EXTERNAL_MACHINE'
+          echo 'COMPAT_NODE24_OFFICIAL_MACOS_MINIMUM_13_5'
+          echo 'COMPAT_3_13_HISTORICAL_COVERAGE_UNCHANGED'
