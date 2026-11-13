@@ -19,6 +19,10 @@ import signal
 import socket
 import stat
 import subprocess
+import tarfile
+import tempfile
+import urllib.request
+import urllib.parse
 import sys
 import time
 import venv
@@ -33,6 +37,11 @@ SQL009 = "656604356dadea953031fcdb74650a5d42df4e9b"
 SQL010 = "1678e87b7984094b74ec995383b8d4383e5f5ae7"
 POSTGRES_IMAGE = "postgres:17.11"
 KEYCLOAK_IMAGE = "quay.io/keycloak/keycloak:26.8.2"
+NODE_RELEASE = "v22.16.0"
+# Official Node 22.16.0 SHA256 from nodejs.org, binaries target macOS >=11.
+NODE_MAC_SHA256 = {"x64": "838d400f7e66c804e5d11e2ecb61d6e9e878611146baff69d6a2def3cc23f4ac",
+                  "arm64": "1d7f34ec4c03e12d8b33481e5c4560432d7dc31a0ef3ff5a4d9a8ada7cf6ecc9"}
+NODE_CACHE = Path.home() / ".cache" / "rag-phase3-demo-node"
 ROOT_HASH = hashlib.sha256(str(REPO.resolve()).encode()).hexdigest()[:16]
 STATE = Path("/tmp") / ("rag-phase3-local-" + ROOT_HASH)
 SOURCE = STATE / "source"
@@ -68,22 +77,105 @@ def check_repo():
     if Path(root).resolve() != REPO.resolve():
         raise RuntimeError("EXPECTED_THIS_REPOSITORY_CLONE")
     branch = run(["git", "branch", "--show-current"], cwd=REPO, capture=True).strip()
-    if branch != BRANCH:
-        raise RuntimeError(f"WRONG_BRANCH: {branch!r}; use {BRANCH}")
+    if branch == BRANCH:
+        return
+    if branch == "":
+        # Accept only detached HEAD at the fetched #49 branch tip.
+        head = run(["git", "rev-parse", "HEAD"], cwd=REPO, capture=True).strip()
+        tracked = subprocess.run(["git", "rev-parse", "--verify",
+            "refs/remotes/origin/" + BRANCH], cwd=REPO, capture_output=True, text=True)
+        if tracked.returncode == 0 and tracked.stdout.strip() == head:
+            return
+        raise RuntimeError("DETACHED_DEMO_NOT_AT_PR49_TIP: git fetch origin " + BRANCH +
+                           " && git switch --detach origin/" + BRANCH)
+    raise RuntimeError(f"WRONG_BRANCH: {branch!r}; use {BRANCH}")
+
+
+def compatible_node():
+    node = shutil.which("node")
+    if not node or not shutil.which("npm"):
+        return False
+    result = subprocess.run([node, "-v"], capture_output=True, text=True, timeout=12)
+    if result.returncode:
+        return False
+    parts = result.stdout.strip().lstrip("v").split(".")
+    try:
+        major, minor = int(parts[0]), int(parts[1])
+    except (ValueError, IndexError):
+        return False
+    return major == 24 or (major == 22 and minor >= 12)
+
+
+def ensure_node():
+    if compatible_node():
+        print("Node runtime:", run(["node", "-v"], capture=True).strip(), flush=True)
+        return
+    if sys.platform != "darwin":
+        raise RuntimeError("Node 22.12+ or Node 24 with npm required on this non-macOS host")
+    arch = {"x86_64": "x64", "arm64": "arm64"}.get(platform.machine().lower(), "")
+    if arch not in NODE_MAC_SHA256:
+        raise RuntimeError("UNSUPPORTED_MAC_NODE_ARCH: " + platform.machine())
+    if NODE_CACHE.is_symlink():
+        raise RuntimeError("UNSAFE_NODE_CACHE_SYMLINK")
+    NODE_CACHE.mkdir(parents=True, mode=0o700, exist_ok=True)
+    if NODE_CACHE.stat().st_uid != os.getuid():
+        raise RuntimeError("UNSAFE_NODE_CACHE_OWNER")
+    base = "node-" + NODE_RELEASE + "-darwin-" + arch
+    target = NODE_CACHE / base
+    if target.is_symlink():
+        raise RuntimeError("UNSAFE_NODE_BINARY_SYMLINK")
+    if not (target / "bin/node").is_file():
+        if target.exists():
+            raise RuntimeError("INCOMPLETE_NODE_CACHE: " + str(target))
+        archive_name = base + ".tar.gz"
+        url = "https://nodejs.org/dist/" + NODE_RELEASE + "/" + archive_name
+        print("در حال دریافت خودکار Node " + NODE_RELEASE + " از nodejs.org ...", flush=True)
+        request = urllib.request.Request(url, headers={"User-Agent": "rag-phase3-demo/1"})
+        with urllib.request.urlopen(request, timeout=90) as reply:
+            if urllib.parse.urlsplit(reply.geturl()).hostname != "nodejs.org":
+                raise RuntimeError("NODE_UNEXPECTED_DOWNLOAD_HOST")
+            raw = reply.read(90_000_000)
+        if len(raw) >= 90_000_000:
+            raise RuntimeError("NODE_DOWNLOAD_SIZE_LIMIT")
+        if hashlib.sha256(raw).hexdigest() != NODE_MAC_SHA256[arch]:
+            raise RuntimeError("NODE_ARCHIVE_CHECKSUM_MISMATCH")
+        stage = Path(tempfile.mkdtemp(prefix="node-verified-", dir=NODE_CACHE))
+        try:
+            archive = stage / archive_name
+            archive.write_bytes(raw)
+            with tarfile.open(archive, "r:gz") as bundle:
+                for member in bundle.getmembers():
+                    name = Path(member.name)
+                    if (name.is_absolute() or ".." in name.parts
+                            or not (member.name == base or member.name.startswith(base + "/"))):
+                        raise RuntimeError("NODE_UNSAFE_TAR_ENTRY")
+                    if member.issym() or member.islnk():
+                        target_link = (stage / name.parent / member.linkname).resolve()
+                        if not target_link.is_relative_to(stage.resolve()):
+                            raise RuntimeError("NODE_UNSAFE_TAR_LINK")
+                bundle.extractall(stage)
+            extracted = stage / base
+            if not (extracted / "bin/node").is_file():
+                raise RuntimeError("NODE_EXTRACTION_INCOMPLETE")
+            extracted.rename(target)
+        finally:
+            shutil.rmtree(stage, ignore_errors=True)
+    os.environ["PATH"] = str(target / "bin") + os.pathsep + os.environ.get("PATH", "")
+    if not compatible_node():
+        raise RuntimeError("NODE_BINARY_CANNOT_RUN_ON_THIS_MAC")
+    print("Node isolated cache:", run(["node", "-v"], capture=True).strip(), flush=True)
 
 
 def check_runtime():
-    if sys.version_info[:2] != (3, 13):
-        raise RuntimeError("Python 3.13 required (brew install python@3.13)")
-    if not shutil.which("git") or not shutil.which("docker") or not shutil.which("npm"):
-        raise RuntimeError("Missing git / docker / npm; install Docker Desktop and Node 24")
-    version = run(["node", "-v"], capture=True).strip()
-    if not version.startswith("v24."):
-        raise RuntimeError(f"Node 24 required, found {version}")
-    if not sys.platform.startswith(("darwin", "linux")):
-        raise RuntimeError("Supported: macOS host; Linux only for isolated test")
+    if not ((3, 11) <= sys.version_info[:2] <= (3, 13)):
+        raise RuntimeError("Python 3.11–3.13 required; existing Python 3.11.3 is accepted")
+    if not shutil.which("git") or not shutil.which("docker"):
+        raise RuntimeError("Missing Git or Docker CLI; Docker Desktop must be running")
+    if sys.platform not in ("darwin", "linux"):
+        raise RuntimeError("Supported: macOS; Linux isolated test only")
     run(["docker", "info", "--format", "{{.ServerVersion}}"], capture=True, timeout=15)
     check_repo()
+    ensure_node()
 
 
 def free_ports():
