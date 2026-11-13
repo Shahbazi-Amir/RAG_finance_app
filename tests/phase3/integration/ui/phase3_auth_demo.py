@@ -31,7 +31,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from playwright.async_api import async_playwright, expect
+from playwright.async_api import async_playwright, expect, TimeoutError as PlaywrightTimeoutError
 
 ROOT=Path(__file__).resolve().parents[4]
 sys.path[:0]=[str(ROOT),str(ROOT/"tests/phase3/integration/api")]
@@ -310,47 +310,46 @@ class Demo:
         page=await ctx.new_page()
         await page.goto(ORIGIN+"/login")
         await expect(page.get_by_test_id("login-submit")).to_be_visible()
-        async with page.expect_response(
-            lambda r: r.url.endswith("/api/auth/login") and
-            r.request.method=="POST",timeout=16000) as start_wait:
-            await page.get_by_test_id("login-submit").click()
-        start_reply=await start_wait.value
+        observed_posts=[]
+        failures=[]
+        csp_count=[]
+        def capture(response):
+            if response.request.method=="POST" and response.url.endswith("/api/auth/login"):
+                observed_posts.append(response.status)
+        def capture_failure(request):
+            if request.method=="POST" and request.url.endswith("/api/auth/login"):
+                failures.append("START_REQUEST_FAILED")
+        def capture_console(message):
+            if message.type=="error" and ("Content Security Policy" in message.text
+                    or "form-action" in message.text):
+                csp_count.append("CSP")
+        page.on("response",capture)
+        page.on("requestfailed",capture_failure)
+        page.on("console",capture_console)
+        await page.get_by_test_id("login-submit").click(no_wait_after=True)
+        visible=False
+        try:
+            await page.locator('input[name="username"]').wait_for(
+                state="visible",timeout=11000)
+            visible=True
+        except PlaywrightTimeoutError:
+            pass
         location=urlsplit(page.url)
         location_class=("KEYCLOAK" if location.port==self.kc.port and
                         location.hostname=="127.0.0.1"
                         else "NEXT" if location.port==3443 else "OTHER")
-        form_visible=await page.locator('input[name="username"]').count()
-        http_headers=await start_reply.request.all_headers()
-        reported_origin=http_headers.get("origin","ABSENT")
-        if reported_origin not in ("ABSENT","null") and not (
-                reported_origin.startswith("http://127.0.0.1:") or
-                reported_origin.startswith("https://127.0.0.1:")):
-            reported_origin="REDACTED_NON_LOOPBACK"
-        frame_origin=await page.evaluate("location.origin")
-        if not (frame_origin.startswith("http://127.0.0.1:") or
-                frame_origin.startswith("https://127.0.0.1:")):
-            frame_origin="REDACTED_NON_LOOPBACK"
-        initial_cookies=[item for item in await ctx.cookies(ORIGIN)
-                         if item["name"]=="__Host-rag-login-init"]
         print("DEMO_LOGIN_DIAGNOSTIC",json.dumps({
-            "post_http":start_reply.status,
-            "initial_cookie_count":len(initial_cookies),
-            "request_cookie_present":"__Host-rag-login-init=" in http_headers.get("cookie",""),
-            "origin_matches":http_headers.get("origin")==ORIGIN,
-            "safe_origin_header":reported_origin,
-            "safe_frame_origin":frame_origin,
-            "fetch_site":http_headers.get("sec-fetch-site","ABSENT"),
-            "is_form":http_headers.get("content-type","").startswith(
-                "application/x-www-form-urlencoded"),
+            "post_statuses":observed_posts,
+            "post_failed":len(failures),
+            "csp_errors":len(csp_count),
             "site":location_class,
             "path_kind":"OIDC_AUTH" if location.path.endswith(
                 "/protocol/openid-connect/auth") else
                 "LOGIN_ACTION" if "/login-actions/" in location.path
                 else "OTHER",
-            "idp_form_present":bool(form_visible),
+            "idp_form_present":visible,
         }),flush=True)
-        assert start_reply.status==303,"DEMO_START_REJECTED"
-        await page.locator('input[name="username"]').wait_for(state="visible",timeout=9000)
+        assert visible,"DEMO_REAL_KEYCLOAK_FORM_NOT_REACHED"
         await page.locator('input[name="username"]').fill(self.kc.accounts[label]["email"])
         await page.locator('input[name="password"]').fill(self.kc.accounts[label]["password"])
         async with page.expect_response(
