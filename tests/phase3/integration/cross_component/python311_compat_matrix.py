@@ -81,7 +81,16 @@ def main() -> None:
     container = manifest["postgres_id"]
 
     # The original CI-only DB suites require these two fixture schemas.
-    postgres_sql(container, """CREATE SCHEMA auth_fence_ci;
+    from psycopg.conninfo import conninfo_to_dict
+    migrator_pw = conninfo_to_dict(env["AUTH_MIG_DSN"])["password"]
+    # This separate NEGATIVE role suite uses the unchanged narrow grants
+    # from 003-005, not the demo's temporary 004/005 history_app bridge.
+    # Browser A/B and initial logout have already passed before this point.
+    postgres_sql(container, """REVOKE EXECUTE ON FUNCTION
+auth_l1.admit_session_fenced(text,text,bigint,integer) FROM history_app,auth_revoker;
+REVOKE EXECUTE ON FUNCTION
+auth_l1.consume_service_assertion(text,bigint) FROM history_app,auth_revoker;
+CREATE SCHEMA auth_fence_ci;
 REVOKE ALL ON SCHEMA auth_fence_ci FROM PUBLIC;
 CREATE TABLE auth_fence_ci.protected_actions(owner_id text NOT NULL, marker text PRIMARY KEY);
 GRANT USAGE ON SCHEMA auth_fence_ci TO auth_sessions;
@@ -91,7 +100,8 @@ REVOKE ALL ON SCHEMA service_replay_ci FROM PUBLIC;
 CREATE TABLE service_replay_ci.protected_actions(marker text PRIMARY KEY);
 GRANT USAGE ON SCHEMA service_replay_ci TO auth_trust_api;
 GRANT INSERT ON service_replay_ci.protected_actions TO auth_trust_api;
-""", database="history_ci")
+""", user="auth_migrator", password=migrator_pw, database="history_ci")
+    print("COMPAT_DB_NEGATIVE_ROLE_ISOLATION_RESTORED")
     print("COMPAT_DB_SYNTHETIC_TEST_SCHEMAS_READY")
 
     # History HTTP tests demand their OWN exact-named disposable database.
