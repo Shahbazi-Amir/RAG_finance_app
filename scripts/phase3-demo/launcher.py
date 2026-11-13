@@ -298,7 +298,7 @@ def init_db(manifest, postgres_password):
         GRANT EXECUTE ON FUNCTION auth_l1.admit_session_fenced(text,text,bigint,integer)
           TO history_app,auth_revoker;
         GRANT EXECUTE ON FUNCTION auth_l1.revoke_one(text,bigint) TO auth_revoker;
-    """)
+    """, database="history_ci")
     env = {"CI": "true", "RAG_PHASE3_DEMO_LOCAL": "true",
            "TMPDIR": "/tmp", "GITHUB_ACTIONS": ""}
     for role, key in (
