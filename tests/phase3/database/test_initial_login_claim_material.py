@@ -373,3 +373,54 @@ class InitialLoginClaimMaterial010(unittest.TestCase):
         self.assertEqual(state_of(a)["state"],"EXCHANGE_STARTED")
         self.assertIsNone(state_of(a)["session_digest"])
         # Real BFF alias/ACK/browser delivery and IdP cryptography are NOT_RUN.
+
+    def _concurrent_old_and_new(self, old_first):
+        a=make_attempt()
+        ready=threading.Event()
+        release=threading.Event()
+        pid_box={}
+        label="pkce010_old_new_"+uuid.uuid4().hex[:8]
+        first_role="BOOT" if old_first else "CLAIM"
+        second_role="CLAIM" if old_first else "BOOT"
+        def first():
+            with checked_conn(first_role) as c:
+                with c.transaction():
+                    result=old_claim(c,a) if old_first else claim(c,a)
+                    pid_box["pid"]=c.info.backend_pid
+                    ready.set()
+                    if not release.wait(11):
+                        raise AssertionError("legacy-vs-material holder timing out")
+                return result
+        def second():
+            with checked_conn(second_role) as c:
+                c.execute("SELECT set_config('application_name',%s,false)",(label,))
+                with self.assertRaisesRegex(psycopg.Error,"LOGIN_CLAIM_DENIED"):
+                    with c.transaction():
+                        if old_first:
+                            claim(c,a)
+                        else:
+                            old_claim(c,a)
+                return "LOSER_DENIED"
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            winner=pool.submit(first)
+            self.assertTrue(ready.wait(9))
+            loser=pool.submit(second)
+            try:
+                blocked=observe_actual_blocker(label,pid_box["pid"])
+                self.assertIn(pid_box["pid"],blocked["blockers"])
+                self.assertFalse(loser.done())
+            finally:
+                release.set()
+            outcome=winner.result(timeout=12)
+            self.assertTrue(outcome if old_first else bytes(outcome["pkce_envelope"])==a["pkce"])
+            self.assertEqual(loser.result(timeout=12),"LOSER_DENIED")
+        self.assertEqual(state_of(a)["state"],"EXCHANGE_STARTED")
+        self.assertEqual(state_of(a)["state_version"],1)
+        print("PKCE010_LEGACY_NEW_CONCURRENT_"+
+              ("LEGACY_FIRST" if old_first else "MATERIAL_FIRST")+"_PASS",flush=True)
+
+    def test_PKCE15_concurrent_legacy_first_material_returns_no_data(self):
+        self._concurrent_old_and_new(True)
+
+    def test_PKCE16_concurrent_new_first_legacy_cannot_reclaim(self):
+        self._concurrent_old_and_new(False)
