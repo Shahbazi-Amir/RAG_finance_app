@@ -251,7 +251,7 @@ class BootstrapOIDC:
                 or data.get("kind") != kind
                 or not isinstance(data.get("value"), str)
                 or not 32 <= len(data["value"]) <= 256
-                or any(data.get(k) != v for k, v in ctx.items())
+                or any(data.get(k) != v for k, v in ctx.items() if k != "expires_at")
                 or data["expires_at"] <= int(time.time())):
             raise BootstrapDenied(409)
         if abs(row["expires_at"].timestamp()-data["expires_at"]) > 5:
