@@ -108,9 +108,12 @@ jobs:
 
 
   macos-node-autoinstall:
-    # Only checks the authentic macOS Intel automatic dependency bootstrap.
-    # MacBook macOS 12 + Docker cannot be simulated by the hosted macOS 15 runner.
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    # Verify native Intel pip tags and Node without claiming macOS 12 E2E.
+    if: >-
+      github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request'
+          && github.event.pull_request.head.ref == 'agent/ui-auth-bff-010-integration'
+          && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: macos-15-intel
     timeout-minutes: 15
     steps:
@@ -118,6 +121,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: User's Python version family
         uses: actions/setup-python@v5
         with:
