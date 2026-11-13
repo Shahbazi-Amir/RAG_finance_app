@@ -11,6 +11,7 @@ from base64 import urlsafe_b64encode, urlsafe_b64decode
 from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
+from urllib.parse import urlsplit
 from tempfile import TemporaryDirectory
 import json
 import os
@@ -329,6 +330,7 @@ class Demo:
             "idp_form_present":bool(form_visible),
         }),flush=True)
         assert start_reply.status==303,"DEMO_START_REJECTED"
+        await page.locator('input[name="username"]').wait_for(state="visible",timeout=9000)
         await page.locator('input[name="username"]').fill(self.kc.accounts[label]["email"])
         await page.locator('input[name="password"]').fill(self.kc.accounts[label]["password"])
         async with page.expect_response(
