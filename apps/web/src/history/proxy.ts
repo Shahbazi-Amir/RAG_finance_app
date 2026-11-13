@@ -4,6 +4,8 @@
  * The core limits application-collected bytes, not upstream Node/proxy buffers.
  */
 import { boundedJsonBody } from './bounded-body.ts';
+import {SESSION,cookie,secureBrowser,noStore} from '../auth/server/initial-browser.ts';
+import {getActive} from '../auth/server/initial-store.ts';
 
 const allowed=(parts:string[],method:string):boolean=>
   (parts.length===1&&parts[0]==='conversations'&&['GET','POST'].includes(method))||
@@ -14,6 +16,17 @@ const allowed=(parts:string[],method:string):boolean=>
 
 export async function forwardHistoryProxy(request:Request,path:string[]):Promise<Response>{
   if(!allowed(path,request.method))return new Response(null,{status:404});
+  // The new initial-login fixture must NEVER fall back to the historical
+  // actor-selected CI proxy. #39 signed only GET /v1/conversations through
+  // a test-only dependency override; a Product API History route is absent.
+  if(process.env.AUTH_CI_LOGIN_MODE==='true'){
+    if(!secureBrowser(request))return new Response(null,{status:503,headers:noStore});
+    const handle=cookie(request,SESSION);
+    if(!handle||!await getActive(handle))
+      return Response.json({error:'AUTH_REQUIRED'},{status:401,headers:noStore});
+    return Response.json({error:'SIGNED_HISTORY_API_NOT_WIRED'},
+      {status:503,headers:noStore});
+  }
   const fixed=process.env.HISTORY_UPSTREAM_ORIGIN;
   // No browser-specified upstream or identity. Closed outside isolated CI.
   if(process.env.CI!=='true'||!fixed||
