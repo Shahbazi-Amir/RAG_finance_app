@@ -28,10 +28,15 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - name: Checkout demo launcher branch
+      - name: Checkout exact source branch (not GitHub's synthetic PR merge)
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Fetch exact PR branch for detached-worktree trust check
+        run: |
+          git fetch --no-tags origin "refs/heads/agent/ui-auth-bff-010-integration:refs/remotes/origin/agent/ui-auth-bff-010-integration"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse refs/remotes/origin/agent/ui-auth-bff-010-integration)"
       - name: Python 3.11 (match macOS presentation host)
         uses: actions/setup-python@v5
         with:
@@ -100,3 +105,40 @@ jobs:
         run: |
           bash scripts/phase3-demo/demo.sh stop
           bash scripts/phase3-demo/demo.sh status
+
+
+  macos-node-autoinstall:
+    # Only checks the authentic macOS Intel automatic dependency bootstrap.
+    # MacBook macOS 12 + Docker cannot be simulated by the hosted macOS 15 runner.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+    steps:
+      - name: Checkout the exact launcher code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: User's Python version family
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download official checksum-pinned Node 22 from macOS Terminal only
+        run: |
+          set -euo pipefail
+          python - <<'PYTEST'
+          import importlib.util, os, pathlib, platform, subprocess
+          target=pathlib.Path("scripts/phase3-demo/launcher.py")
+          spec=importlib.util.spec_from_file_location("mac_launcher",target)
+          launcher=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(launcher)
+          assert platform.system()=="Darwin" and platform.machine()=="x86_64"
+          # Exclude hosted runner's preinstalled node: exercise the real
+          # one-command download instead of silently falling back.
+          os.environ["PATH"]="/usr/bin:/bin"
+          launcher.ensure_node()
+          version=subprocess.check_output(["node","-v"],text=True).strip()
+          assert version=="v22.16.0", version
+          npm=subprocess.check_output(["npm","-v"],text=True).strip()
+          assert launcher.compatible_node()
+          print("MACOS_NATIVE_PY311_VERIFIED_NODE22_AUTODOWNLOAD_PASS",version,npm)
+          PYTEST
