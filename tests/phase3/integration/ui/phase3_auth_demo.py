@@ -309,7 +309,26 @@ class Demo:
         page=await ctx.new_page()
         await page.goto(ORIGIN+"/login")
         await expect(page.get_by_test_id("login-submit")).to_be_visible()
-        await page.get_by_test_id("login-submit").click()
+        async with page.expect_response(
+            lambda r: r.url.endswith("/api/auth/login") and
+            r.request.method=="POST",timeout=16000) as start_wait:
+            await page.get_by_test_id("login-submit").click()
+        start_reply=await start_wait.value
+        location=urlsplit(page.url)
+        location_class=("KEYCLOAK" if location.port==self.kc.port and
+                        location.hostname=="127.0.0.1"
+                        else "NEXT" if location.port==3443 else "OTHER")
+        form_visible=await page.locator('input[name="username"]').count()
+        print("DEMO_LOGIN_DIAGNOSTIC",json.dumps({
+            "post_http":start_reply.status,
+            "site":location_class,
+            "path_kind":"OIDC_AUTH" if location.path.endswith(
+                "/protocol/openid-connect/auth") else
+                "LOGIN_ACTION" if "/login-actions/" in location.path
+                else "OTHER",
+            "idp_form_present":bool(form_visible),
+        }),flush=True)
+        assert start_reply.status==303,"DEMO_START_REJECTED"
         await page.locator('input[name="username"]').fill(self.kc.accounts[label]["email"])
         await page.locator('input[name="password"]').fill(self.kc.accounts[label]["password"])
         async with page.expect_response(
