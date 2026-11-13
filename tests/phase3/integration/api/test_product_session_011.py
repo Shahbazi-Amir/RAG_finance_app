@@ -196,7 +196,9 @@ class RealProductSession011(unittest.TestCase):
                               timeout=12, follow_redirects=False) as c:
                 return c.request(method, self.url + path + query, content=body,
                                  headers=h)
-        except httpx.ConnectError:
+        except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError):
+            # OpenSSL/uvicorn may abort the mTLS handshake before HTTP,
+            # which HTTPX reports as ConnectError OR RemoteProtocolError.
             if not cert:
                 return None
             raise
@@ -310,8 +312,11 @@ class RealProductSession011(unittest.TestCase):
         op=str(uuid.uuid4())
         body=json.dumps({"operation_id":op}).encode()
         token,_=self.signed(a, "POST", REVOKE, body)
+        # Valid differently signed JSON has matching schema, but bytes
+        # differ from the RSA-bound body: deny proof, not a schema 422.
+        tampered = json.dumps({"operation_id":str(uuid.uuid4())}).encode()
         self.assertEqual(self.request("POST", REVOKE, token,
-                                     body=b'{"operation_id":"fake"}').status_code, 401)
+                                     body=tampered).status_code, 401)
         with psycopg.connect(os.environ["AUTH_REVOKER_DSN"],
                              autocommit=True, row_factory=dict_row) as c:
             self.assertFalse(c.execute("SELECT has_table_privilege("
