@@ -30,12 +30,14 @@ async def check(browser, mobile, images):
         assert initiators[0]["sameSite"] == "Lax"
         assert not await page.locator('[data-testid^="history-message-"]').count()
 
-        # Browser-origin POST, but forged CSRF. Real Next route must 403.
-        bad = await page.evaluate("""async () => {
-          const r=await fetch('/api/auth/login',{method:'POST',credentials:'include',
-            body:new URLSearchParams({csrf:'wrong-value'})});
-          return r.status;
-        }""")
+        # Real browser form submission (not an injected fetch). The strict
+        # login-page CSP intentionally forbids fetch but permits self forms.
+        await page.locator('input[name="csrf"]').fill("wrong-value")
+        async with page.expect_response(
+            lambda response: response.url.endswith("/api/auth/login")
+            and response.request.method == "POST") as awaited:
+            await page.get_by_test_id("login-submit").click()
+        bad = (await awaited.value).status
         assert bad == 403, ("LOGIN_CSRF_DENY", bad)
         print("UIA010_" + name.upper() + "_LOGIN_CSRF_403_PASS", flush=True)
 
@@ -57,11 +59,16 @@ async def check(browser, mobile, images):
             "secure": True,
             "sameSite": "Lax",
         }])
-        bad_logout = await page.evaluate("""async () => {
-          const r=await fetch('/api/auth/logout',{method:'POST',
-            credentials:'include',body:new URLSearchParams({csrf:'bad'})});
-          return r.status;
-        }""")
+        # Use the actual browser navigation/form channel under strict CSP.
+        await page.goto(ORIGIN + "/login")
+        await page.locator("form").evaluate(
+            """form => {form.action='/api/auth/logout';
+               form.querySelector('input[name=csrf]').value='wrong-value';}""")
+        async with page.expect_response(
+            lambda response: response.url.endswith("/api/auth/logout")
+            and response.request.method == "POST") as awaited_logout:
+            await page.get_by_test_id("login-submit").click()
+        bad_logout = (await awaited_logout.value).status
         assert bad_logout == 403, ("LOGOUT_CSRF_DENY", bad_logout)
         print("UIA010_" + name.upper() + "_LOGOUT_CSRF_403_PASS", flush=True)
         await ctx.clear_cookies()
