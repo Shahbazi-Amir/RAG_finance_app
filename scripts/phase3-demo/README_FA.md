@@ -6,9 +6,9 @@
 
 - macOS با Docker Desktop روشن و امکان دریافت تصاویر `postgres:17.11` و `quay.io/keycloak/keycloak:26.8.2`؛ Docker باید به‌اندازهٔ کافی حافظه داشته باشد.
 - Git با دسترسی خواندن به `Shahbazi-Amir/RAG_finance_app` و SHAهای #48/#50/#36 و Migrationهای 009/010.
-- Python **3.13** با `venv`، Node.js **24**، `npm` و اینترنت برای نصب اولین‌بارهٔ وابستگی‌ها و Chromium Playwright.
+- Python **3.11.3** نصب‌شده روی مک کافی است؛ Node.js سازگار (نسخهٔ 22.16.0 برای macOS 12 Intel/ARM)، npm، کتابخانه‌های Python و Chromium در صورت نیاز با همین راه‌انداز دانلود و فقط در فضای ایزوله نصب می‌شوند. اینترنت برای بار نخست لازم است.
 - پورت‌های `127.0.0.1:5432`، `127.0.0.1:3000` و `127.0.0.1:3443` باید آزاد باشند. اگر اشغال باشند راه‌انداز **متوقف می‌شود**؛ سرویس، DB یا کانتینر دیگری را خاموش نمی‌کند. پورت Keycloak و APIها به‌شکل تصادفی فقط روی loopback انتخاب می‌شوند.
-- نمونهٔ راهنمای نصب ابزارهای اصلی با Homebrew: `brew install git python@3.13 node@24`؛ پس از نصب، نسخه‌ها را با `python3.13 --version` و `node -v` بررسی کنید. اگر `node@24` خارج از PATH بود مسیر موردنظر را به PATH خودتان بیفزایید. Docker Desktop جداگانه نصب و اجرا می‌شود.
+- نیازی به نصب دستی Python 3.13، Node 24 یا Homebrew نیست. راه‌انداز اگر Node مناسب پیدا نکند، باینری رسمی Node 22.16.0 با SHA-256 ثابت را در `~/.cache/rag-phase3-demo-node/` ذخیره می‌کند و به PATH فقط همین فرآیند می‌افزاید. Node 22.16.0 طبق مرجع رسمی برای macOS 11 به بالا ساخته شده است؛ Node 24 روی macOS 12 گزینهٔ مناسبی نیست. Docker Desktop باید جداگانه از قبل نصب و روشن باشد؛ منابع پروژه‌های دیگر دست‌نخورده می‌مانند.
 
 ## Clone تازه و یک فرمان Start
 
@@ -73,3 +73,19 @@ bash scripts/phase3-demo/demo.sh reset
 دوتغییر کوچک سازگاری صرفاً در **Worktree موقت** اجرا می‌شوند: جایگزینی قفل `GITHUB_ACTIONS` با `RAG_PHASE3_DEMO_LOCAL` برای Demo Harness و API درحالی‌که نقش/پایگاه جدا بررسی شده، و استفاده از Docker image موجود با pull-on-missing برای Keycloak. هیچ SHA پین‌شده‌ای در خود مخزن تغییر داده نمی‌شود. این یک محیط آزمون محلی، نه Production یا مجوز دائمی DB، است.
 
 **نکتهٔ صداقت آزمون:** CI قبلی مسیر کامل را با واقعیات DB/Keycloak در Runner تأیید کرده است. این Launcher جدید فقط وقتی در مک ارائه نیز اجرا و تست کامل روی همان مک تمام شود، محلی READY می‌دهد؛ تا آن زمان آماده بودن روی آن مک ادعا نمی‌شود.
+
+## ادامه از Worktree موجود شما (بدون ساخت دوباره)
+
+همین حالا که در `RAG_finance_app_demo` هستید، این دستور را از Terminal داخل VS Code اجرا کنید:
+
+```bash
+git status --short
+git fetch origin agent/ui-auth-bff-010-integration
+git switch --detach origin/agent/ui-auth-bff-010-integration
+bash scripts/phase3-demo/demo.sh preflight
+bash scripts/phase3-demo/demo.sh start
+```
+
+این دستور کد راه‌انداز تازه را دریافت می‌کند، بدون حذف Python 3.11 یا دست‌زدن به Docker پروژه‌های دیگر. `preflight` ممکن است Node سازگار را خودکار دانلود کند. `start` بقیهٔ وابستگی‌ها و تصاویر Docker را خودش می‌گیرد، محیط جدا می‌سازد، هر دو حساب و دادهٔ نمونه را آماده می‌کند و آزمون مرورگری را اجرا می‌کند. فقط پس از مشاهدهٔ `READY`، آدرس `https://127.0.0.1:3443/login` قابل استفاده است. مشخصات A/B: `bash scripts/phase3-demo/demo.sh credentials`، توقف و Reset: `stop` و `reset`. اگر `git switch` به علت تغییرات محلی متوقف شد، آن تغییرات را حذف نکنید و علت را بررسی کنید.
+
+**محدودهٔ اثبات:** اجرای Ubuntu با Python 3.11 و Node 22 را جداگانه در GitHub Actions می‌آزماییم. امکان تأیید macOS 12 واقعی بدون اجرای دستور روی دستگاه شما وجود ندارد.

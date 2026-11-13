@@ -8,5 +8,5 @@ fi
 if command -v python3 >/dev/null 2>&1; then
   exec python3 "$root/scripts/phase3-demo/launcher.py" "$@"
 fi
-printf 'Python 3.13 is required (brew install python@3.13)\n' >&2
+printf 'Python 3.11-3.13 is required for the isolated demo\n' >&2
 exit 1
