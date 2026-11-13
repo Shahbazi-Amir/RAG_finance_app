@@ -345,35 +345,62 @@ class BootstrapOIDC:
         return claims["iss"], claims["sub"]
 
     def _complete(self, p, proof):
-        _fields(p, {"attempt_id", "initiator_sha256", "continuation",
+        _fields(p, {"attempt_id", "initiator_sha256", "bff_attempt_id",
                     "state", "code"}, {"callback_issuer"})
-        ctx = self._unseal(p, proof)
-        if (p["state"] != ctx["state"] or not isinstance(p["code"], str)
-                or not p["code"] or len(p["code"]) > 2048
+        if (not isinstance(p["state"], str) or not 1 <= len(p["state"]) <= 512
+                or not isinstance(p["code"], str) or not 1 <= len(p["code"]) <= 2048
                 or p.get("callback_issuer", self.oidc["issuer"]) != self.oidc["issuer"]):
             raise BootstrapDenied()
-        self._call("bootstrap", """SELECT auth_l1.claim_initial_login_exchange(
-          %s,%s,%s,%s) AS value""", (
-            _uuid(proof.attempt_id), proof.principal, proof.initiator_sha256,
-            _digest(ctx["state"].encode())))
-        # The claim above COMMITS before any IdP request. No DB TX spans HTTP.
+        bff_id = str(_uuid(p["bff_attempt_id"]))
         try:
-            reply = self.exchange(p["code"], ctx["code_verifier"])
+            claim = self._claim_material(p, proof)
+        except BootstrapDenied:
+            raise
+        except (psycopg.Error, OSError, TimeoutError):
+            # A lost or uncertain COMMIT acknowledgement MUST NOT send Code.
+            # Never try the claim a second time on this attempt.
+            raise BootstrapDenied(503) from None
+        ctx = {
+            "version": 1, "attempt_id": proof.attempt_id,
+            "bff_principal": proof.principal, "bff_attempt_id": bff_id,
+            "initiator_sha256": proof.initiator_sha256,
+            "state_sha256": _digest(p["state"].encode("ascii")),
+            "issuer": claim["expected_issuer"], "client_id": self.client_id,
+            "redirect_uri": self.redirect_uri,
+            "authorization_endpoint": self.oidc["authorization_endpoint"],
+            "token_endpoint": self.oidc["token_endpoint"],
+            "jwks_uri": self.oidc["jwks_uri"],
+            "expires_at": int(claim["expires_at"].timestamp()),
+        }
+        if (claim["expected_issuer"] != self.oidc["issuer"]
+                or type(claim["claim_version"]) is not int
+                or claim["claim_version"] != 1):
+            raise BootstrapDenied(409)
+        try:
+            verifier = self._open_material(claim["pkce_envelope"], "pkce", ctx, claim)
+            nonce = self._open_material(claim["nonce_envelope"], "nonce", ctx, claim)
+        except BootstrapDenied:
+            # The Claim remains consumed even if material cannot be decrypted.
+            self._call("bootstrap", """SELECT auth_l1.mark_initial_login_unknown(
+                 %s,%s,%s) AS value""", (
+                _uuid(proof.attempt_id), proof.principal, proof.initiator_sha256))
+            raise
+        # The 010 transaction has committed. NO PG transaction spans IdP HTTP.
+        try:
+            reply = self.exchange(p["code"], verifier)
         except (httpx.HTTPError, OSError, TimeoutError):
             self._call("bootstrap", """SELECT auth_l1.mark_initial_login_unknown(
                 %s,%s,%s) AS value""", (
                 _uuid(proof.attempt_id), proof.principal, proof.initiator_sha256))
             return 202, {"state": "UNKNOWN_RECONCILIATION_REQUIRED"}
         try:
-            issuer, sub = self._validate_idp(reply, ctx["nonce"])
+            issuer, sub = self._validate_idp(reply, nonce)
         except (jwt.PyJWTError, ValueError, KeyError, TypeError):
             raise BootstrapDenied(403) from None
         with self._conn("mapper") as c:
             mapped = auth_session.map_identity(c, issuer, sub)
         if (mapped.get("gate") != "open" or type(mapped.get("epoch")) is not int):
             raise BootstrapDenied(403)
-        # 009 verifies the exact immutable IdP (iss,sub) -> mapped Owner and
-        # Owner epoch/gate AGAIN under Owner FOR UPDATE, before pending issue.
         opaque = secrets.token_urlsafe(32)
         issued = self._call("issuer", """SELECT auth_l1.issue_initial_login_pending(
           %s,%s,%s,%s,%s,%s,%s,%s,%s,%s) AS value""", (
