@@ -356,6 +356,13 @@ class BootstrapOIDC:
             claim = self._claim_material(p, proof)
         except BootstrapDenied:
             raise
+        except psycopg.errors.RaiseException as exc:
+            # 010's deterministic, transaction-rolled-back denial is NOT a
+            # lost COMMIT acknowledgement. Map only the exact documented
+            # SQL error. All other outcomes remain unknown/fail-closed.
+            if exc.diag.message_primary == "LOGIN_CLAIM_DENIED":
+                raise BootstrapDenied(409) from None
+            raise BootstrapDenied(503) from None
         except (psycopg.Error, OSError, TimeoutError):
             # A lost or uncertain COMMIT acknowledgement MUST NOT send Code.
             # Never try the claim a second time on this attempt.

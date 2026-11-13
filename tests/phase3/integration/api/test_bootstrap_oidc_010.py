@@ -549,8 +549,19 @@ class InitialBootstrap010(unittest.TestCase):
         self.keycloak.set_default_email_scope(False)
         try:
             ids, start = self.new_start("b")
-            self.assertEqual(self.complete("c", ids, start,
-                                          self.callback(start, "A"))[0], 403)
+            # Even after removing Keycloak's default email client scope,
+            # asking explicitly for scope=email enables the optional mapper.
+            # Request only openid for this signed missing-claim negative.
+            from urllib.parse import urlsplit, parse_qsl, urlencode, urlunsplit
+            raw = urlsplit(start["authorize_url"])
+            query = [(k, "openid" if k == "scope" else v)
+                     for k, v in parse_qsl(raw.query)]
+            public_url = urlunsplit((raw.scheme, raw.netloc, raw.path,
+                                     urlencode(query), raw.fragment))
+            callback = self.keycloak.actual_login_callback(
+                "A", authorize_url=public_url)[1]
+            self.assertIn("code", callback)
+            self.assertEqual(self.complete("c", ids, start, callback)[0], 403)
             self.assertEqual(self.count(ids), 0)
         finally:
             self.keycloak.set_default_email_scope(True)
