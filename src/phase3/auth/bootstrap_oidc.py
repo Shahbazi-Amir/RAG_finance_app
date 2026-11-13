@@ -228,29 +228,64 @@ class BootstrapOIDC:
                 UnicodeError, json.JSONDecodeError):
             raise BootstrapDenied(409) from None
 
+    def _seal_material(self, kind, value, ctx):
+        kid = self.active_material_kid
+        data = {**ctx, "kind": kind, "value": value}
+        return b"v1." + kid.encode() + b"." + self.material_keys[kid].encrypt(_json(data))
+
+    def _open_material(self, envelope, kind, ctx, row):
+        if not isinstance(envelope, bytes) or len(envelope) > 4096:
+            raise BootstrapDenied(409)
+        try:
+            v, kid, blob = envelope.split(b".", 2)
+            if v != b"v1" or not re.fullmatch(rb"[A-Za-z0-9_-]{1,32}", kid):
+                raise ValueError()
+            key = self.material_keys.get(kid.decode("ascii"))
+            if key is None:
+                raise BootstrapDenied(409)
+            data = json.loads(key.decrypt(blob, ttl=190))
+        except (ValueError, TypeError, UnicodeError, InvalidToken):
+            raise BootstrapDenied(409) from None
+        if (not isinstance(data, dict)
+                or set(data) != set(ctx) | {"kind", "value"}
+                or data.get("kind") != kind
+                or not isinstance(data.get("value"), str)
+                or not 32 <= len(data["value"]) <= 256
+                or any(data.get(k) != v for k, v in ctx.items())
+                or data["expires_at"] <= int(time.time())):
+            raise BootstrapDenied(409)
+        if abs(row["expires_at"].timestamp()-data["expires_at"]) > 5:
+            raise BootstrapDenied(409)
+        return data["value"]
+
     def _start(self, p, proof):
-        _fields(p, {"attempt_id", "initiator_sha256", "bff_attempt_id",
-                    "start_key"})
-        _uuid(p["bff_attempt_id"])
+        _fields(p, {"attempt_id", "initiator_sha256", "bff_attempt_id", "start_key"})
+        bff_id = str(_uuid(p["bff_attempt_id"]))
         if not isinstance(p["start_key"], str) or not 1 <= len(p["start_key"]) <= 128:
             raise BootstrapDenied(422)
         state = secrets.token_urlsafe(32)
         nonce = secrets.token_urlsafe(32)
         verifier = secrets.token_urlsafe(48)
-        ctx = {"attempt_id": proof.attempt_id, "principal": proof.principal,
-               "initiator_sha256": proof.initiator_sha256, "state": state,
-               "nonce": nonce, "code_verifier": verifier, "issuer": self.oidc["issuer"],
-               "expires_at": int(time.time()) + 180}
-        continuation = self.seal.encrypt(_json(ctx)).decode("ascii")
-        pkce = base64.urlsafe_b64encode(sha256(verifier.encode("ascii")).digest()
-                                       ).decode("ascii").rstrip("=")
+        state_hash = _digest(state.encode("ascii"))
+        context = {
+            "version": 1, "attempt_id": proof.attempt_id,
+            "bff_principal": proof.principal, "bff_attempt_id": bff_id,
+            "initiator_sha256": proof.initiator_sha256, "state_sha256": state_hash,
+            "issuer": self.oidc["issuer"], "client_id": self.client_id,
+            "redirect_uri": self.redirect_uri,
+            "authorization_endpoint": self.oidc["authorization_endpoint"],
+            "token_endpoint": self.oidc["token_endpoint"],
+            "jwks_uri": self.oidc["jwks_uri"],
+            "expires_at": int(time.time()) + 180,
+        }
+        pkce = base64.urlsafe_b64encode(sha256(verifier.encode("ascii")).digest()).decode("ascii").rstrip("=")
         saved = self._call("bootstrap", """SELECT auth_l1.start_initial_login_attempt(
           %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) AS value""", (
-            _uuid(proof.attempt_id), proof.principal, _uuid(p["bff_attempt_id"]),
-            p["start_key"], _digest(_json(p)), _digest(state.encode()),
-            proof.initiator_sha256, self.oidc["issuer"],
-            self.seal.encrypt(verifier.encode()), self.seal.encrypt(nonce.encode()),
-            180))
+            _uuid(proof.attempt_id), proof.principal, _uuid(bff_id), p["start_key"],
+            _digest(_json(p)), state_hash, proof.initiator_sha256,
+            self.oidc["issuer"],
+            self._seal_material("pkce", verifier, context),
+            self._seal_material("nonce", nonce, context), 180))
         if saved is not True:
             raise BootstrapDenied(409)
         from urllib.parse import urlencode
@@ -259,26 +294,25 @@ class BootstrapOIDC:
                   "state": state, "nonce": nonce,
                   "code_challenge": pkce, "code_challenge_method": "S256",
                   "prompt": "login"}
+        # nonce and public S256 challenge necessarily appear in IdP authorize URL.
+        # No raw PKCE verifier, stored nonce envelope or BFF continuation exists.
         return 201, {"attempt_id": proof.attempt_id, "state": state,
-                     "continuation": continuation,
-                     "authorize_url": self.oidc["authorization_endpoint"]
-                     + "?" + urlencode(params)}
+                     "authorize_url": self.oidc["authorization_endpoint"] + "?" + urlencode(params)}
 
-    def _unseal(self, p, proof):
-        token = p.get("continuation")
-        if not isinstance(token, str) or len(token) > 2048:
-            raise BootstrapDenied(422)
-        try:
-            ctx = json.loads(self.seal.decrypt(token.encode("ascii"), ttl=190))
-        except (InvalidToken, ValueError, UnicodeError):
-            raise BootstrapDenied() from None
-        if (ctx.get("attempt_id") != proof.attempt_id
-                or ctx.get("principal") != proof.principal
-                or ctx.get("initiator_sha256") != proof.initiator_sha256
-                or ctx.get("issuer") != self.oidc["issuer"]
-                or int(time.time()) >= ctx.get("expires_at", 0)):
-            raise BootstrapDenied()
-        return ctx
+    def _claim_material(self, p, proof):
+        """No IdP HTTP permitted before the same 010 Claim COMMIT succeeds."""
+        with self._conn("claim_reader") as c:
+            with c.transaction():
+                row = c.execute("""SELECT * FROM
+                  auth_l1.claim_initial_login_exchange_material(
+                  %s,%s,%s,%s,%s)""", (
+                    _uuid(proof.attempt_id), proof.principal,
+                    _uuid(p["bff_attempt_id"]), proof.initiator_sha256,
+                    _digest(p["state"].encode("ascii")))).fetchone()
+                if row is None:
+                    raise BootstrapDenied(409)
+            # This return is reached only after COMMIT acknowledgement.
+            return row
 
     def _redeem(self, code, verifier):
         with httpx.Client(timeout=15, trust_env=False, follow_redirects=False) as c:
