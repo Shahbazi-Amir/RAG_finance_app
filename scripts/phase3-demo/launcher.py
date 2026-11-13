@@ -90,6 +90,10 @@ def free_ports():
     for port in (5432, 3000, 3443):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                # Node/HTTPS may leave harmless TCP TIME_WAIT sockets after
+                # stop. Reuse the *address* (never SO_REUSEPORT) so reset can
+                # bind again, while an actual listening service still blocks.
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 sock.bind(("127.0.0.1", port))
         except OSError as exc:
             raise RuntimeError(f"PORT_CONFLICT 127.0.0.1:{port}: {exc}; no service was stopped") from exc
