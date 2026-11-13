@@ -10,6 +10,22 @@
 - پورت‌های `127.0.0.1:5432`، `127.0.0.1:3000` و `127.0.0.1:3443` باید آزاد باشند. اگر اشغال باشند راه‌انداز **متوقف می‌شود**؛ سرویس، DB یا کانتینر دیگری را خاموش نمی‌کند. پورت Keycloak و APIها به‌شکل تصادفی فقط روی loopback انتخاب می‌شوند.
 - نیازی به نصب دستی Python 3.13، Node 24 یا Homebrew نیست. راه‌انداز اگر Node مناسب پیدا نکند، باینری رسمی Node 22.16.0 با SHA-256 ثابت را در `~/.cache/rag-phase3-demo-node/` ذخیره می‌کند و به PATH فقط همین فرآیند می‌افزاید. Node 22.16.0 طبق مرجع رسمی برای macOS 11 به بالا ساخته شده است؛ Node 24 روی macOS 12 گزینهٔ مناسبی نیست. Docker Desktop باید جداگانه از قبل نصب و روشن باشد؛ منابع پروژه‌های دیگر دست‌نخورده می‌مانند.
 
+## وضعیت مانع PyPI در مک Intel (۱۴ نوامبر ۲۰۲۶)
+
+**محدودیت تأییدشده:** از نسخهٔ 49 به بعد، cryptography فایل wheel رسمی برای macOS Intel / x86_64 منتشر نمی‌کند. نسخهٔ اصلاح‌شدهٔ امنیتی 50.0.2 با Python 3.11 سازگار است، اما wheel مخصوص Intel ندارد؛ بنابراین ارتقای pip به‌تنهایی مشکل را حل نمی‌کند. maturin نسخهٔ 1.14.1 در PyPI wheel رسمی x86_64 دارد؛ علت دقیق شکست آن در Terminal مالک بدون لاگ کامل pip مشخص نیست.
+
+نسخهٔ 48.0.1 wheel رسمی universal2 دارد، اما به‌ترتیب با GHSA-g6cj-pr64-35w5، GHSA-m2h6-j472-rp4c و GHSA-jwv3-5hgf-82ww آسیب‌پذیر شناخته شده است؛ downgrade خودکار به آن ممنوع است. اکنون روی Mac Intel راه‌انداز pip را فقط داخل venv موقت ارتقا می‌دهد و نصب فقط-باینری cryptography==50.0.2 را امتحان می‌کند. با نبود wheel مناسب خطای MAC_INTEL_OFFICIAL_SECURE_CRYPTO_WHEEL_UNAVAILABLE می‌دهد و READY جعلی اعلام نمی‌کند.
+
+**جایگزین فقط با انتخاب آگاهانهٔ مالک:** اگر Rust toolchain و Xcode Command Line Tools از قبل روی همان Mac حاضر باشند، می‌توان فقط برای venv موقت ساخت از سورس رسمی نسخهٔ امن را با فرمان زیر صریحاً مجاز کرد. این روش پیش‌فرض نیست، به دریافت/کامپایل Rust و ابزارهای سیستم نیاز دارد و هنوز روی macOS 12.7.6 مالک آزمایش نشده؛ ممکن است باز هم روی maturin متوقف شود.
+
+~~~bash
+RAG_PHASE3_DEMO_ALLOW_CRYPTO_SOURCE=1 bash scripts/phase3-demo/demo.sh start
+~~~
+
+تا عبور واقعی از نصب امن و سپس Chromium، وضعیت دستگاه مالک BLOCKED / NOT_READY است؛ خروجی قبلی Ubuntu/CI به‌جای آزمون مک محسوب نمی‌شود.
+
+منابع: https://cryptography.io/en/stable/changelog/ ؛ https://pypi.org/project/cryptography/50.0.2/ ؛ https://pypi.org/project/cryptography/48.0.1/ ؛ https://pypi.org/project/maturin/1.14.1/ ؛ https://github.com/advisories/GHSA-g6cj-pr64-35w5 ؛ https://github.com/advisories/GHSA-m2h6-j472-rp4c ؛ https://github.com/advisories/GHSA-jwv3-5hgf-82ww .
+
 ## Clone تازه و یک فرمان Start
 
 در VS Code، از **Terminal همان مک**:

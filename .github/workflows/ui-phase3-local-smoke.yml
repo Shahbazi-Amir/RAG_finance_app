@@ -142,3 +142,37 @@ jobs:
           assert launcher.compatible_node()
           print("MACOS_NATIVE_PY311_VERIFIED_NODE22_AUTODOWNLOAD_PASS",version,npm)
           PYTEST
+      - name: Compare real macOS Intel pip wheel tags to official PyPI
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/phase3-pypi-wheel-tags"
+          "$RUNNER_TEMP/phase3-pypi-wheel-tags/bin/python" - <<'PYTEST'
+          import json, platform, sys, urllib.request
+          from pip._vendor.packaging.tags import sys_tags
+          from pip._vendor.packaging.utils import parse_wheel_filename
+          assert platform.system() == "Darwin" and platform.machine() == "x86_64"
+          supported = set(sys_tags())
+          def matching(name, version):
+              url = "https://pypi.org/pypi/" + name + "/" + version + "/json"
+              with urllib.request.urlopen(url, timeout=25) as response:
+                  files = json.load(response)["urls"]
+              found = []
+              for item in files:
+                  if item["packagetype"] != "bdist_wheel":
+                      continue
+                  filename = item["filename"]
+                  if supported.intersection(parse_wheel_filename(filename)[3]):
+                      found.append(filename)
+              return found
+          old = matching("cryptography", "48.0.1")
+          secure = matching("cryptography", "50.0.2")
+          maturin = matching("maturin", "1.14.1")
+          assert any("universal2" in filename for filename in old), old
+          assert not secure, secure
+          assert maturin, "maturin's Mac Intel wheels should be recognized"
+          print("MACOS_INTEL_PYPI_48_UNIVERSAL2_COMPATIBLE_BUT_VULNERABLE_PASS")
+          print("MACOS_INTEL_PYPI_SECURE_50_NO_COMPATIBLE_WHEEL_CONFIRMED")
+          print("MACOS_INTEL_PYPI_MATURIN_COMPATIBLE_WHEEL_PASS")
+          print("INTERPRETER", sys.version.split()[0], "ARCH", platform.machine())
+          print("PIP", __import__("pip").__version__, "FIRST_PIP_TAG", next(iter(sys_tags())))
+          PYTEST

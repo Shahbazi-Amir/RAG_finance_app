@@ -289,9 +289,38 @@ def stage_source():
 def prepare_packages():
     run([sys.executable, "-m", "venv", str(STATE / "venv")])
     py = str(STATE / "venv" / "bin" / "python")
-    run([py, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir",
-         "-r", str(SOURCE / "apps/api/requirements-ci.txt"),
-         "PyJWT[crypto]==2.15.1", "uvicorn==0.34.3", "playwright==1.64.1"],timeout=480)
+    # pyca/cryptography >=49 dropped official macOS Intel wheels. The older
+    # 48.0.1 universal2 wheel is affected by 2026 security advisories. Never
+    # silently downgrade or attempt an unapproved Rust source build on Intel.
+    mac_intel = sys.platform == "darwin" and platform.machine().lower() == "x86_64"
+    explicit_source = os.environ.get("RAG_PHASE3_DEMO_ALLOW_CRYPTO_SOURCE") == "1"
+    if mac_intel:
+        # Upgrade only the disposable demo venv; never modify the Mac's Python.
+        run([py, "-m", "pip", "install", "--disable-pip-version-check",
+             "--no-cache-dir", "--upgrade", "pip"], timeout=180)
+    install = [py, "-m", "pip", "install", "--disable-pip-version-check",
+               "--no-cache-dir"]
+    if mac_intel and not explicit_source:
+        install.append("--only-binary=cryptography")
+    install += ["-r", str(SOURCE / "apps/api/requirements-ci.txt"),
+                "PyJWT[crypto]==2.15.1", "uvicorn==0.34.3", "playwright==1.64.1"]
+    if mac_intel:
+        # Known-fixed for CVE-2026-69247/69248/69249; its official PyPI
+        # distributions currently have no x86_64/universal2 macOS wheel.
+        install.append("cryptography==50.0.2")
+    try:
+        run(install, timeout=480)
+    except RuntimeError as exc:
+        if mac_intel and not explicit_source:
+            raise RuntimeError(
+                "MAC_INTEL_OFFICIAL_SECURE_CRYPTO_WHEEL_UNAVAILABLE: "
+                "cryptography 50.0.2 has no official PyPI macOS x86_64 wheel. "
+                "pip was upgraded only inside the temporary demo venv; "
+                "no vulnerable 48.0.1 downgrade or Rust source build was used. "
+                "See scripts/phase3-demo/README_FA.md for the explicit "
+                "source-build opt-in and its prerequisites."
+            ) from exc
+        raise
     run([py, "-m", "playwright", "install", "chromium"],timeout=480)
     run(["npm", "ci", "--no-audit", "--no-fund"], cwd=SOURCE / "apps/web", timeout=480)
     env = dict(os.environ, NEXT_PUBLIC_CI_DEMO_MODE="true", CI="true")
