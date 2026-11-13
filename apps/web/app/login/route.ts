@@ -44,6 +44,15 @@ export async function GET(request:Request):Promise<Response>{
         'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'"}});
     }
     const init=freshCookie();
+    // A native same-origin form POST obtains a 303 to this precise IdP.
+    // CSP form-action also checks the redirect target, not only POST /api/auth/login.
+    // Allow ONLY the statically provisioned loopback Keycloak origin in this
+    // isolated CI demo; never accept a query/body-selected origin.
+    const idpOrigin=process.env.AUTH_CI_IDP_AUTHORIZATION_ORIGIN??'';
+    const match=/^http:\/\/127\.0\.0\.1:([0-9]{1,5})$/.exec(idpOrigin);
+    const port=match?Number(match[1]):0;
+    if(!match||port<1||port>65535)throw new Error('CI_PINNED_IDP_REQUIRED');
+    const formPolicy="default-src 'none'; style-src 'unsafe-inline'; form-action 'self' "+idpOrigin+"; base-uri 'none'";
     const reason=new URL(request.url).searchParams.get('reason');
     const result=reason==='logged_out'
       ?'<p class="success" data-testid="logout-success">خروج با ابطال تأییدشدهٔ نشست انجام شد.</p>'
@@ -56,7 +65,7 @@ export async function GET(request:Request):Promise<Response>{
       '<input type="hidden" name="csrf" value="'+csrf(init)+'">'+
       '<button type="submit" data-testid="login-submit">ورود</button></form>');
     const response=new Response(text,{headers:{...noStore,'Referrer-Policy':'same-origin','Content-Type':'text/html; charset=utf-8',
-      'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'"}});
+      'Content-Security-Policy':formPolicy}});
     appendCookie(response,INIT,init,180);
     return response;
   }catch{
