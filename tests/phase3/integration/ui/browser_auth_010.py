@@ -32,7 +32,8 @@ async def check(browser, mobile, images):
 
         # Real browser form submission (not an injected fetch). The strict
         # login-page CSP intentionally forbids fetch but permits self forms.
-        await page.locator('input[name="csrf"]').fill("wrong-value")
+        await page.locator('input[name="csrf"]').evaluate(
+            """field => {field.value='wrong-value';}""")
         async with page.expect_response(
             lambda response: response.url.endswith("/api/auth/login")
             and response.request.method == "POST") as awaited:
