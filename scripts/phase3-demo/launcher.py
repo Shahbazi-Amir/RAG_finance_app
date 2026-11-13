@@ -21,8 +21,6 @@ import stat
 import subprocess
 import tarfile
 import tempfile
-import urllib.request
-import urllib.parse
 import sys
 import time
 import venv
@@ -130,19 +128,21 @@ def ensure_node():
         archive_name = base + ".tar.gz"
         url = "https://nodejs.org/dist/" + NODE_RELEASE + "/" + archive_name
         print("در حال دریافت خودکار Node " + NODE_RELEASE + " از nodejs.org ...", flush=True)
-        request = urllib.request.Request(url, headers={"User-Agent": "rag-phase3-demo/1"})
-        with urllib.request.urlopen(request, timeout=90) as reply:
-            if urllib.parse.urlsplit(reply.geturl()).hostname != "nodejs.org":
-                raise RuntimeError("NODE_UNEXPECTED_DOWNLOAD_HOST")
-            raw = reply.read(90_000_000)
-        if len(raw) >= 90_000_000:
-            raise RuntimeError("NODE_DOWNLOAD_SIZE_LIMIT")
-        if hashlib.sha256(raw).hexdigest() != NODE_MAC_SHA256[arch]:
-            raise RuntimeError("NODE_ARCHIVE_CHECKSUM_MISMATCH")
         stage = Path(tempfile.mkdtemp(prefix="node-verified-", dir=NODE_CACHE))
         try:
             archive = stage / archive_name
-            archive.write_bytes(raw)
+            # macOS's system curl uses the system trust store. Python.org's
+            # framework Python 3.11 may not have its optional cert bundle set up.
+            # HTTPS-only, fail on HTTP errors; the pinned SHA256 is mandatory.
+            run(["curl", "--fail", "--location", "--retry", "2", "--proto", "=https",
+                 "--connect-timeout", "20", "--max-time", "300",
+                 "--output", str(archive), url], capture=True, timeout=360)
+            if archive.stat().st_size >= 90_000_000:
+                raise RuntimeError("NODE_DOWNLOAD_SIZE_LIMIT")
+            with archive.open("rb") as stream:
+                digest = hashlib.file_digest(stream, "sha256").hexdigest()
+            if digest != NODE_MAC_SHA256[arch]:
+                raise RuntimeError("NODE_ARCHIVE_CHECKSUM_MISMATCH")
             with tarfile.open(archive, "r:gz") as bundle:
                 for member in bundle.getmembers():
                     name = Path(member.name)
