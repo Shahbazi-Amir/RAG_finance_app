@@ -320,8 +320,17 @@ class Demo:
                         location.hostname=="127.0.0.1"
                         else "NEXT" if location.port==3443 else "OTHER")
         form_visible=await page.locator('input[name="username"]').count()
+        http_headers=await start_reply.request.all_headers()
+        initial_cookies=[item for item in await ctx.cookies(ORIGIN)
+                         if item["name"]=="__Host-rag-login-init"]
         print("DEMO_LOGIN_DIAGNOSTIC",json.dumps({
             "post_http":start_reply.status,
+            "initial_cookie_count":len(initial_cookies),
+            "request_cookie_present":"__Host-rag-login-init=" in http_headers.get("cookie",""),
+            "origin_matches":http_headers.get("origin")==ORIGIN,
+            "fetch_site":http_headers.get("sec-fetch-site","ABSENT"),
+            "is_form":http_headers.get("content-type","").startswith(
+                "application/x-www-form-urlencoded"),
             "site":location_class,
             "path_kind":"OIDC_AUTH" if location.path.endswith(
                 "/protocol/openid-connect/auth") else
