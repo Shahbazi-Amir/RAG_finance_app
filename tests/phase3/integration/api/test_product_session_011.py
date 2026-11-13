@@ -322,8 +322,11 @@ class RealProductSession011(unittest.TestCase):
             self.assertFalse(c.execute("SELECT has_table_privilege("
                "current_user,'auth_l1.sessions','SELECT') AS allowed"
             ).fetchone()["allowed"])
-            self.assertFalse(c.execute("SELECT has_table_privilege("
-               "current_user,'history_l1.conversations','SELECT') AS allowed"
+            # The restricted revoker lacks even USAGE of history_l1;
+            # directly resolving its table name raises InsufficientPrivilege.
+            # Test the stronger schema boundary without granting USAGE.
+            self.assertFalse(c.execute("SELECT has_schema_privilege("
+                "current_user,'history_l1','USAGE') AS allowed"
             ).fetchone()["allowed"])
         print("API011_REVOKE_PROOF_BODY_OWNER_AND_RESTRICTED_ROLE_PASS", flush=True)
 
