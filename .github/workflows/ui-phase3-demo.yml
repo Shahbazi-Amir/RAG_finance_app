@@ -79,7 +79,7 @@ jobs:
           set -euo pipefail
           git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git 62d40f4b4ed254de0aa0dfc21c17d809e24423db
           test "$(git rev-parse FETCH_HEAD)" = "62d40f4b4ed254de0aa0dfc21c17d809e24423db"
-          for path in src/phase3/auth/bootstrap_oidc.py apps/api/product_session_api.py; do
+          for path in src/phase3/auth/bootstrap_oidc.py apps/api/product_session_api.py tests/phase3/integration/api/test_product_session_011.py; do
             git show "62d40f4b4ed254de0aa0dfc21c17d809e24423db:$path" > "$path"
           done
       - name: Node 24 for real Next browser app
