@@ -40,15 +40,32 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '24'
-      - name: Verify real Docker engine and isolated host loopback ports
+      - name: Verify actual Docker engine and safe port-conflict refusal
         run: |
           set -euo pipefail
           docker info --format '{{.ServerVersion}}'
           bash scripts/phase3-demo/demo.sh preflight
+          python - <<'PYTEST'
+          import socket,subprocess
+          with socket.socket() as port:
+              port.bind(('127.0.0.1', 3443))
+              blocked=subprocess.run(['bash','scripts/phase3-demo/demo.sh','preflight'],
+                                     capture_output=True,text=True)
+              assert blocked.returncode != 0 and 'PORT_CONFLICT' in blocked.stderr
+          print('LOCAL_DEMO_REFUSES_FOREIGN_PORT_PASS')
+          PYTEST
       - name: Start the EXACT same interactive launcher from an isolated Git clone
         run: |
           set -euo pipefail
           bash scripts/phase3-demo/demo.sh start
+      - name: Reset only owned local stack and verify new synthetic identities
+        run: |
+          set -euo pipefail
+          old=$(bash scripts/phase3-demo/demo.sh credentials | python -c 'import sys,json;print(json.load(sys.stdin)["A"]["email"])')
+          bash scripts/phase3-demo/demo.sh reset
+          fresh=$(bash scripts/phase3-demo/demo.sh credentials | python -c 'import sys,json;print(json.load(sys.stdin)["A"]["email"])')
+          test "$old" != "$fresh"
+          echo LOCAL_DEMO_RESET_FRESH_USERS_PASS
       - name: Real Chromium A/B and revoked-commit checks from persistent host services
         run: |
           set -euo pipefail
