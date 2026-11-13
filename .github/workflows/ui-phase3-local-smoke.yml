@@ -1,0 +1,75 @@
+name: UI Phase 3 Local Launcher — isolated host process smoke
+
+on:
+  push:
+    branches: [agent/ui-auth-bff-010-integration]
+    paths:
+      - 'scripts/phase3-demo/**'
+      - '.github/workflows/ui-phase3-local-smoke.yml'
+      - 'coordination/tasks/AGENT-UI-01.md'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'scripts/phase3-demo/**'
+      - '.github/workflows/ui-phase3-local-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-host-launcher:
+    if: >-
+      github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request'
+          && github.event.pull_request.head.ref == 'agent/ui-auth-bff-010-integration'
+          && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout demo launcher branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Verify real Docker engine and isolated host loopback ports
+        run: |
+          set -euo pipefail
+          docker info --format '{{.ServerVersion}}'
+          bash scripts/phase3-demo/demo.sh preflight
+      - name: Start the EXACT same interactive launcher from an isolated Git clone
+        run: |
+          set -euo pipefail
+          bash scripts/phase3-demo/demo.sh start
+      - name: Real Chromium A/B and revoked-commit checks from persistent host services
+        run: |
+          set -euo pipefail
+          bash scripts/phase3-demo/demo.sh status
+          bash scripts/phase3-demo/demo.sh credentials | python -c 'import json,sys; x=json.load(sys.stdin); assert x["A"]["email"]!=x["B"]["email"]; assert x["A"]["password"] and x["B"]["password"]; print("LOCAL_DEMO_TWO_PRIVATE_ACCOUNT_CREDENTIALS_EXISTS_PASS")'
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location("launcher", "scripts/phase3-demo/launcher.py")
+          module=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          logs=module.LOG.read_text()
+          assert "LOCAL_DEMO_REAL_A_B_HISTORY_REVOKE_CHROMIUM_PASS" in logs
+          assert "DEMO_DESKTOP_REAL_LOGOUT_COMMITTED_RECEIPT_PASS" in logs
+          assert "DEMO_MOBILE_B_SESSION_STILL_PRIVATE_PASS" in logs
+          print("LOCAL_LAUNCHER_PERSISTENT_BROWSER_E2E_GREEN")
+          PY
+          curl --silent --show-error --fail --insecure --max-time 6 https://127.0.0.1:3443/login | grep -q 'راگ مالی'
+          echo 'LOCAL_LAUNCHER_BROWSER_URL_READY_PASS'
+      - name: Stop ONLY own Docker/Postgres and Keycloak objects
+        if: always()
+        run: |
+          bash scripts/phase3-demo/demo.sh stop
+          bash scripts/phase3-demo/demo.sh status
