@@ -24,7 +24,7 @@ import time
 import venv
 
 REPO = Path(__file__).resolve().parents[2]
-BRANCH = "agent/ui-auth-bff-010-integration"
+BRANCH = "compat/phase3-python-3.11"
 UI = "fee20cc0992f4c26f76757e670cd6425400441cc"
 API50 = "62d40f4b4ed254de0aa0dfc21c17d809e24423db"
 API48 = "1998b31c86155a972b11ea745d6bb37e09549392"
@@ -73,8 +73,8 @@ def check_repo():
 
 
 def check_runtime():
-    if sys.version_info[:2] != (3, 13):
-        raise RuntimeError("Python 3.13 required (brew install python@3.13)")
+    if sys.version_info[:3] != (3, 11, 3) and sys.version_info[:2] != (3, 13):
+        raise RuntimeError("Python 3.11.3 (exact compatibility test) or existing 3.13 required; set RAG_PHASE3_PYTHON")
     if not shutil.which("git") or not shutil.which("docker") or not shutil.which("npm"):
         raise RuntimeError("Missing git / docker / npm; install Docker Desktop and Node 24")
     version = run(["node", "-v"], capture=True).strip()
