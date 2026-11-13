@@ -321,6 +321,15 @@ class Demo:
                         else "NEXT" if location.port==3443 else "OTHER")
         form_visible=await page.locator('input[name="username"]').count()
         http_headers=await start_reply.request.all_headers()
+        reported_origin=http_headers.get("origin","ABSENT")
+        if reported_origin not in ("ABSENT","null") and not (
+                reported_origin.startswith("http://127.0.0.1:") or
+                reported_origin.startswith("https://127.0.0.1:")):
+            reported_origin="REDACTED_NON_LOOPBACK"
+        frame_origin=await page.evaluate("location.origin")
+        if not (frame_origin.startswith("http://127.0.0.1:") or
+                frame_origin.startswith("https://127.0.0.1:")):
+            frame_origin="REDACTED_NON_LOOPBACK"
         initial_cookies=[item for item in await ctx.cookies(ORIGIN)
                          if item["name"]=="__Host-rag-login-init"]
         print("DEMO_LOGIN_DIAGNOSTIC",json.dumps({
@@ -328,6 +337,8 @@ class Demo:
             "initial_cookie_count":len(initial_cookies),
             "request_cookie_present":"__Host-rag-login-init=" in http_headers.get("cookie",""),
             "origin_matches":http_headers.get("origin")==ORIGIN,
+            "safe_origin_header":reported_origin,
+            "safe_frame_origin":frame_origin,
             "fetch_site":http_headers.get("sec-fetch-site","ABSENT"),
             "is_form":http_headers.get("content-type","").startswith(
                 "application/x-www-form-urlencoded"),
