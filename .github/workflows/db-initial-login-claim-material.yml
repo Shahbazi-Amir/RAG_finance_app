@@ -1,0 +1,111 @@
+name: DB-PKCE-010 — atomic encrypted claim material (disposable PostgreSQL)
+on:
+  push:
+    branches: [agent/db-initial-login-010-claim]
+    paths:
+      - '.github/workflows/db-initial-login-claim-material.yml'
+      - 'infra/postgres/migrations/010_initial_login_claim_material.up.sql'
+      - 'infra/postgres/migrations/010_initial_login_claim_material.down.sql'
+      - 'tests/phase3/database/test_initial_login_claim_material.py'
+permissions:
+  contents: read
+jobs:
+  claim-material-postgres:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/agent/db-initial-login-010-claim'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_PASSWORD: synthetic_ci_only_not_a_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: 'true'
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGPASSWORD: synthetic_ci_only_not_a_secret
+      AUTH_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_migrator password=synthetic_auth_migrator_only connect_timeout=5
+      LOGIN_BOOTSTRAP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_bootstrap password=synthetic_login_bootstrap_only connect_timeout=5
+      LOGIN_CLAIM_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_claim_reader password=synthetic_login_claim_reader_only connect_timeout=5
+      LOGIN_READER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_reader password=synthetic_login_reader_only connect_timeout=5
+      LOGIN_ISSUER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_issuer password=synthetic_login_issuer_only connect_timeout=5
+    steps:
+      - name: Checkout exact 010 source without write credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install pinned DB driver
+        run: python -m pip install --no-cache-dir --index-url https://pypi.org/simple 'psycopg[binary]==3.3.8'
+      - name: Verify real disposable PostgreSQL 17.11
+        run: |
+          set -euo pipefail
+          python --version
+          psql --version
+          psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -c "SHOW server_version;"
+          psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -c "SELECT inet_server_addr(),inet_server_port();"
+      - name: Retrieve immutable 009 SQL from exact tested #44 SHA (CI workspace ONLY)
+        run: |
+          set -euo pipefail
+          PINNED_009=656604356dadea953031fcdb74650a5d42df4e9b
+          git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git "$PINNED_009"
+          git show "$PINNED_009:infra/postgres/migrations/009_initial_login_attempt_binding.up.sql" > infra/postgres/migrations/009_initial_login_attempt_binding.up.sql
+          git show "$PINNED_009:infra/postgres/migrations/009_initial_login_attempt_binding.down.sql" > infra/postgres/migrations/009_initial_login_attempt_binding.down.sql
+          test "$(git hash-object infra/postgres/migrations/009_initial_login_attempt_binding.up.sql)" = "2a694f871bf45aa5540b458bcaea1b2bd343036d"
+          test "$(git hash-object infra/postgres/migrations/009_initial_login_attempt_binding.down.sql)" = "3bf47d1b4021fec916a4ad93f3b0c40b0a6638ff"
+          echo 'PINNED_009_TESTED_SOURCE_BLOBS_VERIFIED'
+      - name: Create disposable roles and isolated databases (no Production grants)
+        run: |
+          set -euo pipefail
+          psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE auth_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_auth_migrator_only' NOSUPERUSER;
+          GRANT pg_read_all_stats TO auth_migrator;
+          CREATE ROLE history_app LOGIN PASSWORD 'synthetic_history_app_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_mapper LOGIN PASSWORD 'synthetic_mapper_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_sessions LOGIN PASSWORD 'synthetic_session_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_revoker LOGIN PASSWORD 'synthetic_revoker_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reauth LOGIN PASSWORD 'synthetic_reauth_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_trust_api LOGIN PASSWORD 'synthetic_replay_api_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_replay_cleaner LOGIN PASSWORD 'synthetic_replay_clean_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_issuer LOGIN PASSWORD 'synthetic_reset_issuer_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_executor LOGIN PASSWORD 'synthetic_reset_executor_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_lookup LOGIN PASSWORD 'synthetic_reset_lookup_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_idp_recorder LOGIN PASSWORD 'synthetic_reset_idp_recorder_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_bootstrap LOGIN PASSWORD 'synthetic_login_bootstrap_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_issuer LOGIN PASSWORD 'synthetic_login_issuer_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_binder LOGIN PASSWORD 'synthetic_login_binder_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_reader LOGIN PASSWORD 'synthetic_login_reader_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_cleaner LOGIN PASSWORD 'synthetic_login_cleaner_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_claim_reader LOGIN PASSWORD 'synthetic_login_claim_reader_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE DATABASE history_ci;
+          CREATE DATABASE login_010_empty_ci;
+          CREATE DATABASE login_010_evidence_ci;
+          GRANT CONNECT,CREATE ON DATABASE history_ci,login_010_empty_ci,login_010_evidence_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE history_ci,login_010_empty_ci,login_010_evidence_ci
+            TO auth_login_bootstrap,auth_login_claim_reader,auth_login_reader,auth_login_issuer;
+          SQL
+      - name: Apply unchanged 003–008, exact tested 009 and candidate 010 to temporary PG17
+        run: |
+          set -euo pipefail
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
+          for database in history_ci login_010_empty_ci login_010_evidence_ci; do
+            for migration in 003_auth_session 004_session_aware_fence 005_service_assertion_replay 006_atomic_reset_c1 007_scoped_reset_identity_lookup 008_durable_idp_attempt_outcome 009_initial_login_attempt_binding 010_initial_login_claim_material; do
+              psql -X -d "$database" -v ON_ERROR_STOP=1 -f "infra/postgres/migrations/$migration.up.sql"
+            done
+            test "$(psql -X -d "$database" -Aqt -c 'SELECT count(*) FROM auth_l1.initial_login_attempts')" = "0"
+          done
+          echo '010_UP_ON_THREE_PG17_DATABASES_WITH_PINNED_009_PASS'
+      - name: Run focused real PostgreSQL PKCE DB matrix
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/database -p 'test_initial_login_claim_material.py' -v
