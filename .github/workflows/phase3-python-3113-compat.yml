@@ -43,6 +43,15 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Map the exact checked-out commit to the local compatibility branch
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git switch -c compat/phase3-python-3.11
+          test "$(git branch --show-current)" = "compat/phase3-python-3.11"
+          echo "COMPAT_EXACT_CHECKOUT_SHA=$(git rev-parse HEAD)"
 
       - name: Exact Python 3.11.3 (not 3.11.x) in supported Ubuntu22 toolcache
         uses: actions/setup-python@v6
