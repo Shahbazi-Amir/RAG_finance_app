@@ -28,7 +28,7 @@ async function settings(){
   const paths=['AUTH_CI_BOOTSTRAP_SIGN_KEY','AUTH_CI_BOOTSTRAP_CA',
     'AUTH_CI_BOOTSTRAP_CERT','AUTH_CI_BOOTSTRAP_KEY'] as const;
   const values=await Promise.all(paths.map(p=>{
-    const path=process.env[p];
+    const path=process.env[p]??'';
     if(!path||!path.startsWith('/tmp/'))reject();
     return readFile(path,'utf8');
   }));

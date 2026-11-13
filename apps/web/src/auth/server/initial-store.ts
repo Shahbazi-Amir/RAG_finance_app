@@ -9,7 +9,7 @@ import {join} from 'node:path';
 const fail=():never=>{throw new Error('AUTH_STORE_UNAVAILABLE');};
 function config():{root:string;key:Buffer}{
   if(process.env.CI!=='true'||!process.env.AUTH_CI_SHARED_STORE_DIR)fail();
-  const root=process.env.AUTH_CI_SHARED_STORE_DIR;
+  const root=process.env.AUTH_CI_SHARED_STORE_DIR??'';
   if(!root.startsWith('/tmp/')||root.includes('..'))fail();
   const key=Buffer.from(process.env.AUTH_CI_ALIAS_AES_KEY??'','base64url');
   if(key.length!==32)fail();
