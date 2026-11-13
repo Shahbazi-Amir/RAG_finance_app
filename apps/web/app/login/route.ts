@@ -40,7 +40,7 @@ export async function GET(request:Request):Promise<Response>{
         '<form method="post" action="/api/auth/logout">'+
         '<input type="hidden" name="csrf" value="'+csrf(current!)+'">'+
         '<button type="submit" data-testid="logout-submit">خروج امن از حساب</button></form>');
-      return new Response(content,{headers:{...noStore,'Content-Type':'text/html; charset=utf-8',
+      return new Response(content,{headers:{...noStore,'Referrer-Policy':'same-origin','Content-Type':'text/html; charset=utf-8',
         'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'"}});
     }
     const init=freshCookie();
@@ -55,7 +55,7 @@ export async function GET(request:Request):Promise<Response>{
       '<form method="post" action="/api/auth/login">'+
       '<input type="hidden" name="csrf" value="'+csrf(init)+'">'+
       '<button type="submit" data-testid="login-submit">ورود</button></form>');
-    const response=new Response(text,{headers:{...noStore,'Content-Type':'text/html; charset=utf-8',
+    const response=new Response(text,{headers:{...noStore,'Referrer-Policy':'same-origin','Content-Type':'text/html; charset=utf-8',
       'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'"}});
     appendCookie(response,INIT,init,180);
     return response;
