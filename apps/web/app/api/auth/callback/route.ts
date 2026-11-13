@@ -1,8 +1,8 @@
-import {bootstrap} from '../../../../src/auth/server/initial-bootstrap.ts';
+import {bootstrap} from '../../../../src/auth/initial/index.ts';
 import {findInitForState,claimInit,digest,equals,fresh,writePending,
-  activate,revokeAlias} from '../../../../src/auth/server/initial-store.ts';
+  activate,revokeAlias} from '../../../../src/auth/initial/index.ts';
 import {INIT,SESSION,cookie,secureBrowser,appendCookie,noStore,
-  redirectLocal} from '../../../../src/auth/server/initial-browser.ts';
+  redirectLocal} from '../../../../src/auth/initial/index.ts';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';

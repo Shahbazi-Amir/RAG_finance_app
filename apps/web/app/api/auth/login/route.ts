@@ -1,8 +1,8 @@
 import {randomUUID} from 'node:crypto';
-import {bootstrap} from '../../../../src/auth/server/initial-bootstrap.ts';
-import {digest,saveInit,fresh} from '../../../../src/auth/server/initial-store.ts';
+import {bootstrap} from '../../../../src/auth/initial/index.ts';
+import {digest,saveInit,fresh} from '../../../../src/auth/initial/index.ts';
 import {INIT,cookie,csrf,mutationAllowed,noStore} from
-  '../../../../src/auth/server/initial-browser.ts';
+  '../../../../src/auth/initial/index.ts';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';

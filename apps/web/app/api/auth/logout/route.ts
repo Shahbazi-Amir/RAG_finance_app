@@ -4,8 +4,8 @@
  * A successful Logout route is intentionally NOT manufactured here.
  */
 import {SESSION,cookie,csrf,mutationAllowed,noStore} from
-  '../../../../src/auth/server/initial-browser.ts';
-import {getActive} from '../../../../src/auth/server/initial-store.ts';
+  '../../../../src/auth/initial/index.ts';
+import {getActive} from '../../../../src/auth/initial/index.ts';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
 export async function POST(request:Request):Promise<Response>{

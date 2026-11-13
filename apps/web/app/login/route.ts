@@ -1,6 +1,6 @@
 import {cookie,csrf,freshCookie,INIT,SESSION,secureBrowser,appendCookie,noStore,
-  publicOrigin} from '../../src/auth/server/initial-browser.ts';
-import {getActive} from '../../src/auth/server/initial-store.ts';
+  publicOrigin} from '../../src/auth/initial/index.ts';
+import {getActive} from '../../src/auth/initial/index.ts';
 export const dynamic='force-dynamic';
 export const runtime='nodejs';
 function html(content:string){
