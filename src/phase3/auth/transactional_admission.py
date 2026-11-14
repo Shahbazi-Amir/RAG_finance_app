@@ -20,6 +20,10 @@ from .service_proof import BFFServiceVerifier, TrustRejected, VerifiedServicePro
 T = TypeVar("T")
 
 
+class AdmissionSerializationUnavailable(Exception):
+    """Sanitized, non-auth PostgreSQL retryable-transaction failure (no retry)."""
+
+
 class ReplayStore(Protocol):
     """Must atomically consume a JTI on THE SAME transaction/connection."""
 
@@ -105,10 +109,19 @@ def protected_transaction(
                 # One outer rollback removes the pending JTI INSERT as well.
                 raise TrustRejected() from None
             yield assertion.owner_id
-    except (psycopg.Error, ValueError, RuntimeError, TypeError):
-        # DB-owned adapter can raise ValueError/RuntimeError for rejected
-        # inputs or bad TX, plus psycopg.Error for UNIQUE/SQL/connection.
-        # None of these details may leak to HTTP response or logs.
+    except psycopg.Error as exc:
+        # 40001 (serialization) and 40P01 (deadlock) are transaction failures,
+        # NOT evidence of an invalid/revoked BFF proof or Product Session.
+        # psycopg's outer transaction context has already rolled back 005 JTI
+        # and any nested T1/T2 writes before this exception handler runs.
+        # No retry and no PostgreSQL details propagate to an HTTP caller.
+        if exc.sqlstate in {"40001", "40P01"}:
+            raise AdmissionSerializationUnavailable() from None
+        # Preserve the existing 005 replay-UNIQUE and absent-grant fail-closed
+        # 401 behavior; these do not authorize a protected action.
+        raise TrustRejected() from None
+    except (ValueError, RuntimeError, TypeError):
+        # Existing invalid adapter/proof and unavailable-connection behavior.
         raise TrustRejected() from None
 
 

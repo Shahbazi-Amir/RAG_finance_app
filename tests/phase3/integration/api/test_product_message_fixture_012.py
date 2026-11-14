@@ -63,13 +63,15 @@ class SignedFixtureTest(unittest.TestCase):
                          lambda c: auth_session.issue(c, identity["owner_id"], identity["epoch"],
                                                       idle_seconds=900, absolute_seconds=3600))
 
-    def call(self, session, method, path, *, body=None, query="", signed_body=None):
+    def call(self, session, method, path, *, body=None, query="", signed_body=None,
+             jti=None):
         raw = json.dumps(body, ensure_ascii=False).encode() if body is not None else b""
         bound = signed_body if signed_body is not None else raw
         now = int(time.time())
         claims = {
             "iss": ISSUER, "aud": AUDIENCE, "iat": now, "nbf": now, "exp": now + 25,
-            "jti": secrets.token_urlsafe(24), "method": method,
+            "jti": jti if jti is not None else secrets.token_urlsafe(24),
+            "method": method,
             "raw_path_sha256": sha256(path.encode()).hexdigest(),
             "raw_query_sha256": sha256(query.encode()).hexdigest(),
             "body_sha256": sha256(bound).hexdigest(), "body_len": len(bound),
@@ -201,3 +203,98 @@ class SignedFixtureTest(unittest.TestCase):
             self.assertEqual(response.status_code, 401, response.text)
             engine.assert_not_called()
         self.assertEqual(self.status(self.a, message).status_code, 404)
+
+
+    def test_real_signed_rr_40001_maps_503_rolls_back_jti_then_revoked_401(self):
+        """Real PG 17 RR conflict via independent committed revoke, not a fake SQL exception."""
+        seed = self.call(self.a, "POST", SEND, body=self.message())
+        self.assertEqual(seed.status_code, 202, seed.status_code)
+        conversation = seed.json()["resolved_conversation_id"]
+        private_path = f"/v1/conversations/{conversation}/messages"
+        raced_jti = secrets.token_urlsafe(24)
+        original_fence = api.auth_session.admit_session_fenced
+        original_consume = api._REPLAY.consume
+        witnessed = {"jti_committed_to_open_tx": 0, "revoke_committed": 0,
+                     "real_sqlstates": []}
+
+        def observe_real_005(conn, verified):
+            self.assertEqual(verified.jti, raced_jti)
+            self.assertEqual(conn.isolation_level, psycopg.IsolationLevel.REPEATABLE_READ)
+            self.assertTrue(original_consume(conn, verified))
+            self.assertEqual(conn.info.transaction_status,
+                             psycopg.pq.TransactionStatus.INTRANS)
+            witnessed["jti_committed_to_open_tx"] += 1
+            return True
+
+        def revoke_between_005_snapshot_and_004_lock(conn, ref, owner, epoch, generation):
+            self.assertEqual(ref, self.a.opaque)
+            self.assertEqual(owner, self.a.owner_id)
+            self.assertEqual(epoch, self.a.epoch)
+            self.assertEqual(generation, self.a.generation)
+            self.assertEqual(witnessed["jti_committed_to_open_tx"], 1)
+            # The independent physical auth_sessions connection actually commits
+            # a real 003 revoke_one AFTER 005 fixed the reader's RR snapshot.
+            # 004 then takes FOR SHARE of the modified PG row and raises 40001.
+            with psycopg.connect(os.environ["AUTH_SESSION_DSN"], autocommit=True,
+                                 row_factory=dict_row) as revoker:
+                self.assertTrue(auth_session.revoke_one(
+                    revoker, self.a.opaque, self.a.epoch))
+            witnessed["revoke_committed"] += 1
+            try:
+                return original_fence(conn, ref, owner, epoch, generation)
+            except psycopg.errors.SerializationFailure as exc:
+                witnessed["real_sqlstates"].append(exc.sqlstate)
+                raise
+
+        with patch.object(api._REPLAY, "consume", side_effect=observe_real_005), \
+             patch.object(api.auth_session, "admit_session_fenced",
+                          side_effect=revoke_between_005_snapshot_and_004_lock):
+            conflicted = self.call(
+                self.a, "GET", private_path, jti=raced_jti)
+        self.assertEqual(conflicted.status_code, 503, conflicted.status_code)
+        payload = conflicted.json()
+        self.assertEqual(payload["kind"], "error_response")
+        self.assertEqual(payload["error"]["code"], "TEMPORARILY_UNAVAILABLE")
+        self.assertEqual(payload["error"]["category"], "technical")
+        self.assertEqual(payload["error"]["message"], "History unavailable.")
+        self.assertTrue(conflicted.headers["Cache-Control"] == "no-store")
+        self.assertFalse(set(payload).intersection({"items", "answers", "owner_user_id"}))
+        self.assertNotIn(self.a.owner_id, conflicted.text)
+        self.assertNotIn(self.a.opaque, conflicted.text)
+        self.assertNotIn(raced_jti, conflicted.text)
+        self.assertNotIn("40001", conflicted.text)
+        self.assertNotIn("SerializationFailure", conflicted.text)
+        self.assertNotIn(conversation, conflicted.text)
+        self.assertEqual(witnessed["jti_committed_to_open_tx"], 1)
+        self.assertEqual(witnessed["revoke_committed"], 1)
+        self.assertEqual(witnessed["real_sqlstates"], ["40001"])
+        issuer_jti_digest = sha256((ISSUER + "\x00" + raced_jti).encode()).hexdigest()
+        with psycopg.connect(os.environ["AUTH_MIG_DSN"], autocommit=True,
+                             row_factory=dict_row) as admin:
+            row = admin.execute(
+                "SELECT count(*) AS n FROM auth_l1.service_assertion_replays "
+                "WHERE issuer_jti_sha256=%s", (issuer_jti_digest,)).fetchone()
+        self.assertEqual(row["n"], 0, "failed outer TX must rollback 005 JTI")
+        # A fresh, independently signed JWT for the REVOKED session is a
+        # genuine 401, NOT a technical 503 or a replay rejection.
+        revoked = self.call(self.a, "GET", private_path)
+        self.assertEqual(revoked.status_code, 401, revoked.status_code)
+        self.assertEqual(revoked.json()["error"]["code"], "AUTH_REQUIRED")
+        # B remains authenticated and can read only its own data.
+        b_seed = self.call(self.b, "POST", SEND, body=self.message())
+        self.assertEqual(b_seed.status_code, 202, b_seed.status_code)
+        b_page = self.call(self.b, "GET", "/v1/conversations")
+        self.assertEqual(b_page.status_code, 200, b_page.status_code)
+        self.assertEqual(b_page.json()["scope_user_id"], self.b.owner_id)
+        self.assertNotIn(conversation, b_page.text)
+        print("API52_REAL_SIGNED_RR_PG40001_HTTP503_JTI_ROLLBACK_REVOKED401", flush=True)
+
+    def test_real_committed_005_jti_replay_stays_401_not_503(self):
+        jti = secrets.token_urlsafe(24)
+        first = self.call(self.b, "GET", "/v1/conversations", jti=jti)
+        self.assertEqual(first.status_code, 200, first.status_code)
+        # Freshly signed proof but identical durable issuer+JTI cannot pass 005.
+        second = self.call(self.b, "GET", "/v1/conversations", jti=jti)
+        self.assertEqual(second.status_code, 401, second.status_code)
+        self.assertEqual(second.json()["error"]["code"], "AUTH_REQUIRED")
+        print("API52_COMMITTED_005_JTI_REPLAY_AUTH401_PRESERVED", flush=True)

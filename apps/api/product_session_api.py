@@ -25,7 +25,9 @@ from apps.api.product_message_fixture import answer_from_fixture
 from src.phase3.auth.service_proof import (
     BFFServiceVerifier, TrustRejected, assertion_from_asgi_headers, wire_request,
 )
-from src.phase3.auth.transactional_admission import protected_transaction
+from src.phase3.auth.transactional_admission import (
+    AdmissionSerializationUnavailable, protected_transaction,
+)
 from src.phase3.storage.postgres import auth_session
 # Use the same repository module as History, including its exception classes.
 from repository import finalize_t3, mark_attempt, start_t2
@@ -114,6 +116,9 @@ def _signed_history(request, raw_body, expected_path, action, *, coherent_read=F
 
 
 def _history_error(exc):
+    if isinstance(exc, AdmissionSerializationUnavailable):
+        return history._safe_error(503, "TEMPORARILY_UNAVAILABLE", "technical",
+                                   "History unavailable.")
     if isinstance(exc, TrustRejected):
         return history._safe_error(401, "AUTH_REQUIRED", "authorization",
                                    "Authentication required.")
@@ -121,7 +126,8 @@ def _history_error(exc):
     return history._safe_error(status, code, category, "History unavailable.")
 
 
-_HISTORY_ERRORS = (TrustRejected, history.ApiFailure, history.NotFound,
+_HISTORY_ERRORS = (AdmissionSerializationUnavailable, TrustRejected,
+                   history.ApiFailure, history.NotFound,
                    history.Conflict, history.IntegrityAnomaly, ValidationError,
                    psycopg.Error, RuntimeError, OSError, TypeError)
 
@@ -290,6 +296,9 @@ async def session_revoke_one(request: Request):
                 headers={"Cache-Control": "no-store"})
     except TrustRejected:
         return _err(401, "AUTH_DENIED")
+    except AdmissionSerializationUnavailable:
+        # No committed revoke is proven by a failed/unknown DB transaction.
+        return _err(503, "REVOKE_OUTCOME_UNKNOWN")
     except (json.JSONDecodeError, UnicodeError, ValueError, KeyError):
         return _err(422, "INVALID_REQUEST")
     except (psycopg.Error, RuntimeError, OSError, TypeError):
