@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import stat
+from contextlib import contextmanager
 import time
 from pathlib import Path
 
@@ -62,11 +63,19 @@ class NoDispatchLedger:
                 updated_at INTEGER NOT NULL
             )""")
 
+    @contextmanager
     def _connect(self):
         conn = sqlite3.connect(str(self.filepath), timeout=10)
-        conn.execute("PRAGMA synchronous=FULL")
-        conn.execute("PRAGMA busy_timeout=10000")
-        return conn
+        try:
+            conn.execute("PRAGMA synchronous=FULL")
+            conn.execute("PRAGMA busy_timeout=10000")
+            yield conn
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     @staticmethod
     def _valid_owner(owner_id):
