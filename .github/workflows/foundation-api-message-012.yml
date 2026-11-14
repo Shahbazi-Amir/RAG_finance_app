@@ -103,12 +103,13 @@ jobs:
           for path in src/phase3/auth/initial_oidc_login.py tests/phase3/integration/api/bootstrap_010_worker.py tests/phase3/integration/api/initial_oidc_harness.py tests/phase3/integration/api/test_bootstrap_oidc_010.py; do
             git show "1998b31c86155a972b11ea745d6bb37e09549392:$path" > "$path"
           done
-      - name: Stage exact tested #36 transactional admission (CI filesystem only)
+      - name: Preserve exact #52 admission code and verify its Git blob (no #36 overwrite)
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git 99a917c2f2c519027d0e71643bbbf6973a6c8ac3
-          test "$(git rev-parse FETCH_HEAD)" = "99a917c2f2c519027d0e71643bbbf6973a6c8ac3"
-          git show "99a917c2f2c519027d0e71643bbbf6973a6c8ac3:src/phase3/auth/transactional_admission.py" > src/phase3/auth/transactional_admission.py
+          test "$(git rev-parse HEAD)" = "825b3c731b7cc4c53f4ba322b8c2c18ca0c82c54"
+          test "$(git hash-object src/phase3/auth/transactional_admission.py)" = "0b95a0392a1808d7ca7d821222ee329447cab79d"
+          python -c 'from src.phase3.auth.transactional_admission import AdmissionSerializationUnavailable; print("FND_API012_NEW_ADMISSION_IMPORT_PASS")'
+          echo FND_API012_825_SOURCE_ADMISSION_BLOB_VERIFIED
       - name: Stage exact approved 009 SQL from #44 tested SHA (CI filesystem only)
         run: |
           set -euo pipefail
