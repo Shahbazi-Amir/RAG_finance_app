@@ -21,6 +21,7 @@ from test_auth_session import db as auth_db, owner as make_owner, issue as issue
 from test_history_l1 import db as history_db, create_req
 
 FENCE_SIG = "auth_l1.admit_session_fenced(text,text,bigint,integer)"
+REPLAY_SIG = "auth_l1.consume_service_assertion(text,bigint)"
 
 
 def _trusted_ci_scope():
@@ -130,12 +131,16 @@ class HistoryH1DbFencedReadRace(unittest.TestCase):
             admin.execute("GRANT USAGE ON SCHEMA auth_l1 TO history_app")
             admin.execute(
                 "GRANT EXECUTE ON FUNCTION "+FENCE_SIG+" TO history_app")
+            admin.execute(
+                "GRANT EXECUTE ON FUNCTION "+REPLAY_SIG+" TO history_app")
         cls._fixture_granted = True
 
     @classmethod
     def tearDownClass(cls):
         if getattr(cls,"_fixture_granted",False):
             with auth_db("MIG") as admin:
+                admin.execute(
+                    "REVOKE EXECUTE ON FUNCTION "+REPLAY_SIG+" FROM history_app")
                 admin.execute(
                     "REVOKE EXECUTE ON FUNCTION "+FENCE_SIG+" FROM history_app")
                 admin.execute("REVOKE USAGE ON SCHEMA auth_l1 FROM history_app")
@@ -260,3 +265,95 @@ class HistoryH1DbFencedReadRace(unittest.TestCase):
                     self.assertTrue(row["relrowsecurity"])
                     self.assertTrue(row["relforcerowsecurity"])
         print("H1DB03_HISTORY_APP_NO_BYPASSRLS_OWNER_A_ONLY")
+
+    def test_H1DB04_repeatable_read_revoke_after_replay_snapshot_serialization_40001(self):
+        """Real PG serialization 40001 must abort the 005 JTI insert and forbid reads.
+
+        The revoker COMMIT is strictly AFTER the first RR snapshot (005 INSERT)
+        but BEFORE 004's FOR SHARE row locks. This is not a mock SQL exception.
+        """
+        a,b,token_a,token_b,title_a,title_b,_,_=_fixture()
+        jti_digest=digest("synthetic_h1_rr_replay_"+uuid.uuid4().hex)
+        with history_db() as reader:
+            reader.isolation_level=psycopg.IsolationLevel.REPEATABLE_READ
+            with self.assertRaises(psycopg.errors.SerializationFailure) as failure:
+                with reader.transaction():
+                    consumed=reader.execute(
+                        "SELECT auth_l1.consume_service_assertion(%s,%s) AS accepted",
+                        (jti_digest,int(time.time())+22)).fetchone()
+                    self.assertTrue(consumed["accepted"])
+                    # 005's INSERT has fixed this transaction's MVCC snapshot.
+                    with auth_db("SESSION") as revoker:
+                        self.assertTrue(auth_session.revoke_one(
+                            revoker,token_a.opaque,token_a.epoch))
+                    # 004 now sees the pre-commit snapshot but must lock
+                    # the updated owner/session and raises real 40001.
+                    auth_session.admit_session_fenced(
+                        reader,token_a.opaque,a,token_a.epoch,token_a.generation)
+            self.assertEqual(failure.exception.sqlstate,"40001")
+            self.assertEqual(reader.info.transaction_status,
+                             psycopg.pq.TransactionStatus.IDLE)
+        with auth_db("MIG") as admin:
+            n=admin.execute("""SELECT count(*) AS n
+                FROM auth_l1.service_assertion_replays
+                WHERE issuer_jti_sha256=%s""",(jti_digest,)).fetchone()["n"]
+            self.assertEqual(n,0,"rolled-back RR authorization must not consume 005 JTI")
+        with history_db() as afterwards:
+            admitted,page=_admit_and_list(afterwards,a,token_a)
+            self.assertFalse(admitted)
+            self.assertIsNone(page)
+            admitted_b,page_b=_admit_and_list(afterwards,b,token_b)
+            self.assertTrue(admitted_b)
+            _assert_exact_owner(self,page_b,b,title_b,title_a)
+        print("H1DB04_REAL_PG17_RR_40001_FULL_005_ROLLBACK_A_DENIED_B_ONLY",flush=True)
+
+    def test_H1DB05_repeatable_read_005_004_then_history_revoke_waits(self):
+        """Actual 005 write, RR 004 admission and owner-scoped History in one TX."""
+        a,b,token_a,token_b,title_a,title_b,_,_=_fixture()
+        jti_digest=digest("synthetic_h1_rr_read_"+uuid.uuid4().hex)
+        started=threading.Event()
+        app_name="h1_rr_revoker_"+uuid.uuid4().hex[:9]
+        def revoke():
+            with auth_db("SESSION") as revoker:
+                revoker.execute(
+                    "SELECT set_config('application_name',%s,false)",(app_name,))
+                revoker.execute("SET statement_timeout='11000ms'")
+                started.set()
+                return auth_session.revoke_one(revoker,token_a.opaque,token_a.epoch)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            with history_db() as reader:
+                reader.isolation_level=psycopg.IsolationLevel.REPEATABLE_READ
+                holding_pid=reader.info.backend_pid
+                with reader.transaction():
+                    self.assertTrue(reader.execute(
+                        "SELECT auth_l1.consume_service_assertion(%s,%s) AS accepted",
+                        (jti_digest,int(time.time())+22)).fetchone()["accepted"])
+                    self.assertTrue(auth_session.admit_session_fenced(
+                        reader,token_a.opaque,a,token_a.epoch,token_a.generation))
+                    page1=history.list_conversations(reader,a)
+                    _assert_exact_owner(self,page1,a,title_a,title_b)
+                    pending=pool.submit(revoke)
+                    self.assertTrue(started.wait(8))
+                    witness=_observe_specific_revocation_wait(app_name,holding_pid)
+                    self.assertIn(holding_pid,witness["pg_blocking_pids"])
+                    self.assertFalse(pending.done())
+                    page2=history.list_conversations(reader,a)
+                    _assert_exact_owner(self,page2,a,title_a,title_b)
+                    self.assertEqual(page1["items"],page2["items"])
+                    print(
+                        "H1DB05_REAL_PG_RR_LOCK"
+                        f" reader_pid={holding_pid}"
+                        f" revoker_pid={witness['revoker_backend_pid']}"
+                        f" pg_blocking_pids={witness['pg_blocking_pids']}"
+                        f" wait_event={witness['wait_event']}",flush=True)
+            self.assertTrue(pending.result(timeout=12))
+        with auth_db("MIG") as admin:
+            self.assertEqual(admin.execute("""SELECT count(*) AS n
+                FROM auth_l1.service_assertion_replays
+                WHERE issuer_jti_sha256=%s""",(jti_digest,)).fetchone()["n"],1)
+        with history_db() as later:
+            self.assertFalse(_admit_and_list(later,a,token_a)[0])
+            admitted,page=_admit_and_list(later,b,token_b)
+            self.assertTrue(admitted)
+            _assert_exact_owner(self,page,b,title_b,title_a)
+        print("H1DB05_REAL_PG17_RR_005_004_HISTORY_REVOKE_COMMIT_BOUNDARY",flush=True)
