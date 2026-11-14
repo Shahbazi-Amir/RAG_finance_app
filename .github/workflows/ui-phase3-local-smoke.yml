@@ -155,6 +155,36 @@ jobs:
               with patch.object(launcher.subprocess, "run",
                                 return_value=subprocess.CompletedProcess(["node", "-v"], 0, stdout="v24.19.0")):
                   assert launcher.compatible_node(), "node24 supported on macOS13.5+"
+          # No unsupported Chromium download on macOS12. Chrome on that OS
+          # is EOL; reuse an installed app only after an explicit local opt-in.
+          import tempfile
+          from unittest.mock import patch
+          with tempfile.TemporaryDirectory() as temporary:
+              chrome=pathlib.Path(temporary)/"Google Chrome"
+              chrome.write_bytes(b"fake macOS executable used for path-only test")
+              chrome.chmod(0o700)
+              with patch.object(launcher.platform, "mac_ver", return_value=("12.7.6", ("", "", ""), "")), \
+                   patch.object(launcher, "MAC_CHROME_EXECUTABLES", (chrome,)):
+                  with patch.dict(os.environ, {"RAG_PHASE3_DEMO_ALLOW_LEGACY_CHROME":"1"}):
+                      assert launcher.browser_launch_options() == {"executable_path":str(chrome)}
+                  with patch.dict(os.environ, {"RAG_PHASE3_DEMO_ALLOW_LEGACY_CHROME":""}):
+                      try:
+                          launcher.browser_launch_options()
+                      except RuntimeError as exc:
+                          assert "MACOS_LEGACY_BROWSER_OPT_IN_REQUIRED" in str(exc)
+                      else:
+                          raise AssertionError("legacy browser must require opt-in")
+                  chrome.unlink()
+                  with patch.dict(os.environ, {"RAG_PHASE3_DEMO_ALLOW_LEGACY_CHROME":"1"}):
+                      try:
+                          launcher.browser_launch_options()
+                      except RuntimeError as exc:
+                          assert "MACOS_LEGACY_CHROME_NOT_INSTALLED" in str(exc)
+                      else:
+                          raise AssertionError("legacy browser must exist")
+          with patch.object(launcher.platform, "mac_ver", return_value=("15.0", ("", "", ""), "")):
+              assert launcher.browser_launch_options()=={}
+          print("MACOS12_CHROME_EXPLICIT_OPTIN_AND_FAILFAST_PASS")
           print("MACOS12_REJECT_NODE24_AUTO_SELECT_NODE22_PASS")
           print("MACOS_NATIVE_PY311_VERIFIED_NODE22_AUTODOWNLOAD_PASS",version,npm)
           PYTEST

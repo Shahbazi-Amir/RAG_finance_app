@@ -175,6 +175,42 @@ def ensure_node():
     print("Node isolated cache:", run(["node", "-v"], capture=True).strip(), flush=True)
 
 
+# Playwright 1.64 does not distribute its Chromium for macOS 12. Chrome 150
+# is the last Google release for that OS and no longer gets security updates.
+# Reuse ONLY an existing official Chrome app, with an explicit local-demo
+# opt-in. Never fetch an old browser or run an unverified executable from PATH.
+MAC_CHROME_EXECUTABLES = (
+    Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+    Path.home() / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+)
+
+
+def browser_launch_options():
+    if sys.platform != "darwin":
+        return {}
+    try:
+        mac = tuple(int(part) for part in platform.mac_ver()[0].split(".")[:2])
+    except ValueError as exc:
+        raise RuntimeError("MACOS_VERSION_UNKNOWN_FOR_BROWSER") from exc
+    if not mac or mac >= (15, 0):
+        return {}
+    if os.environ.get("RAG_PHASE3_DEMO_ALLOW_LEGACY_CHROME") != "1":
+        raise RuntimeError(
+            "MACOS_LEGACY_BROWSER_OPT_IN_REQUIRED: Playwright 1.64 does not "
+            "ship Chromium for macOS <15. If official Google Chrome is already "
+            "installed, opt into using it ONLY for the loopback synthetic demo "
+            "with RAG_PHASE3_DEMO_ALLOW_LEGACY_CHROME=1; older Chrome on "
+            "macOS12 no longer receives security updates."
+        )
+    for executable in MAC_CHROME_EXECUTABLES:
+        if executable.is_file() and os.access(executable, os.X_OK):
+            return {"executable_path": str(executable)}
+    raise RuntimeError(
+        "MACOS_LEGACY_CHROME_NOT_INSTALLED: expected /Applications/Google "
+        "Chrome.app; no downloads, browser replacements or system changes."
+    )
+
+
 def check_runtime():
     if not ((3, 11) <= sys.version_info[:2] <= (3, 13)):
         raise RuntimeError("Python 3.11–3.13 required; existing Python 3.11.3 is accepted")
@@ -185,6 +221,7 @@ def check_runtime():
     run(["docker", "info", "--format", "{{.ServerVersion}}"], capture=True, timeout=15)
     check_repo()
     ensure_node()
+    browser_launch_options()  # Fail early before downloading/building packages.
 
 
 def free_ports():
@@ -330,7 +367,10 @@ def prepare_packages():
                 "source-build opt-in and its prerequisites."
             ) from exc
         raise
-    run([py, "-m", "playwright", "install", "chromium"],timeout=480)
+    if not browser_launch_options():
+        run([py, "-m", "playwright", "install", "chromium"], timeout=480)
+    else:
+        print("MACOS_LEGACY_CHROME_EXISTING_APP_SELECTED (synthetic loopback only)", flush=True)
     run(["npm", "ci", "--no-audit", "--no-fund"], cwd=SOURCE / "apps/web", timeout=480)
     env = dict(os.environ, NEXT_PUBLIC_CI_DEMO_MODE="true", CI="true")
     run(["npm", "run", "typecheck"], cwd=SOURCE / "apps/web", env=env)
@@ -584,7 +624,7 @@ def serve():
         })
         async def smoke():
             async with async_playwright() as p:
-                browser = await p.chromium.launch()
+                browser = await p.chromium.launch(**browser_launch_options())
                 try:
                     out = STATE / "browser-check"
                     await demo.scenario(browser, False, out)
