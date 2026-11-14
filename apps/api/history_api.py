@@ -91,10 +91,11 @@ def _session(actor=Depends(get_trusted_actor)):
         raise ApiFailure(503, "TEMPORARILY_UNAVAILABLE") from None
 
 
-def _safe_error(status: int, code: str, category: str, message: str):
+def _safe_error(status: int, code: str, category: str, message: str, *,
+                request_id=None, trace_id=None):
     response = {
         "kind": "error_response", "contract_version": API_VERSION,
-        "request_id": uid(), "trace_id": uid(),
+        "request_id": request_id or uid(), "trace_id": trace_id or uid(),
         "error": {"category": category, "code": code, "message": message},
     }
     VALIDATOR.validate(response)
@@ -115,7 +116,7 @@ def _exception_code(exc):
     return 503, "TEMPORARILY_UNAVAILABLE", "technical"
 
 
-async def _read_body(request: Request, kind: str):
+async def _read_body(request: Request, kind: str, *, include_raw: bool = False):
     length = request.headers.get("content-length")
     if length and (not length.isdecimal() or int(length) > MAX_JSON_BYTES):
         raise ApiFailure(413, "REQUEST_TOO_LARGE", "validation")
@@ -155,7 +156,7 @@ async def _read_body(request: Request, kind: str):
             raise ApiFailure(413, "REQUEST_TOO_LARGE", "validation")
     except (UnicodeError, json.JSONDecodeError, ValueError, ValidationError, KeyError):
         raise ApiFailure(422, "INVALID_REQUEST", "validation") from None
-    return body
+    return (body, raw) if include_raw else body
 
 
 def _query(request: Request, kind: str, **values):
@@ -414,7 +415,8 @@ def messages(conversation_id: str, request: Request, ctx=Depends(_session)):
     if not query["cursor"]:
         anchor = _initial_anchor(ctx["conn"], ctx["owner"], "messages", conversation_id)
     response = list_messages(ctx["conn"], ctx["owner"], conversation_id,
-                             limit=limit, anchor=anchor, last=last)
+                             limit=limit, anchor=anchor, last=last,
+                             session_transaction=ctx.get("session_transaction", False))
     return _page("conversation_messages_page", ctx, response, limit, anchor,
                  "messages", conversation_id)
 
@@ -424,7 +426,8 @@ def messages(conversation_id: str, request: Request, ctx=Depends(_session)):
 def status(request: Request, ctx=Depends(_session)):
     query = _query(request, "message_request_status_query")
     response = read_status(ctx["conn"], ctx["owner"], query,
-                           ctx["request_id"], ctx["trace_id"])
+                           ctx["request_id"], ctx["trace_id"],
+                           session_transaction=ctx.get("session_transaction", False))
     if response["owner_user_id"] != ctx["owner"]:
         raise IntegrityAnomaly("OWNER_MISMATCH")
     return _send_success(response, 200)
