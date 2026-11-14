@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 
 import psycopg
-from fastapi import FastAPI, Request
+from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.responses import JSONResponse
 from jsonschema import ValidationError
 from starlette.concurrency import run_in_threadpool
@@ -22,6 +22,8 @@ from psycopg.rows import dict_row
 
 from apps.api import history_api as history
 from apps.api.product_message_fixture import answer_from_fixture
+from src.phase3.rag_runtime.staging_no_dispatch import prepare_post_commit_no_dispatch
+from src.phase3.rag_runtime.staging_preflight import PreflightDenied
 from src.phase3.auth.service_proof import (
     BFFServiceVerifier, TrustRejected, assertion_from_asgi_headers, wire_request,
 )
@@ -36,6 +38,9 @@ from src.phase3.storage.postgres.service_replay import PostgresDurableReplayStor
 app = FastAPI(title="Product Session API H1 isolated", docs_url=None,
               redoc_url=None, openapi_url=None)
 _REPLAY = PostgresDurableReplayStore()
+# Server-injected only after Ops verifies runner CLI/digest and DB authority.
+# An environment toggle alone NEVER installs or authorizes this handler.
+_SERVER_NO_DISPATCH_TASK = None
 _REVOKE_PATH = b"/internal/auth/session/v1/revoke-one"
 _HISTORY_PATH = b"/v1/conversations"
 _SEND_PATH = b"/v1/messages"
@@ -219,14 +224,64 @@ def _run_fixture_send(request, raw_body, payload):
     return history._send_success(receipt, 202)
 
 
+def _run_server_no_dispatch_send(request, raw_body, payload, background_tasks):
+    """Signed #52 T1 -> T2 COMMIT, promptly 202, read-only async Runner.
+
+    No T3, no user-selected Runner/Owner. Exact Runner handler is missing
+    until reviewed CLI/schema and DB dispatch authority are supplied.
+    """
+    if _SERVER_NO_DISPATCH_TASK is None:
+        return history._safe_error(
+            503, "ENGINE_NOT_CONFIGURED", "technical",
+            "History unavailable.")
+
+    def committed_operation():
+        def reserve(ctx):
+            conn, owner = ctx["conn"], ctx["owner"]
+            receipt = history.send_t1(
+                conn, owner, payload, ctx["request_id"], ctx["trace_id"])
+            if receipt["disposition"] == "replayed":
+                return receipt, None
+            attempt = start_t2(
+                conn, owner, payload["requested_conversation_id"],
+                payload["client_message_id"], payload["idempotency_key"],
+                history.uid(), ctx["trace_id"])
+            return receipt, attempt
+
+        # _signed_history's outer transaction must EXIT and COMMIT before
+        # this function returns to prepare_post_commit_no_dispatch.
+        _, value = _signed_history(request, raw_body, _SEND_PATH, reserve)
+        return value
+
+    def enqueue(binding, question):
+        # Register task AFTER outer PG COMMIT. Never wait ~82 seconds in HTTP.
+        # A browser Poll only invokes the existing signed Status GET.
+        background_tasks.add_task(_SERVER_NO_DISPATCH_TASK, binding, question)
+
+    receipt, stage = prepare_post_commit_no_dispatch(
+        committed_operation, enqueue, payload["question"])
+    return history._send_success(receipt, 200 if stage.is_replay else 202)
+
+
 @app.post("/v1/messages")
-async def session_send_message(request: Request):
+async def session_send_message(request: Request, background_tasks: BackgroundTasks):
     try:
         if request.scope.get("query_string") or len(request.headers.getlist("content-length")) > 1:
             raise history.ApiFailure(422, "INVALID_REQUEST", "validation")
         payload, raw_body = await history._read_body(
             request, "send_message_request", include_raw=True)
-        response = await run_in_threadpool(_run_fixture_send, request, raw_body, payload)
+        if os.getenv("API_RUNNER_EXECUTION_MODE") == "NO_DISPATCH_ONLY":
+            # Server-only feature gate, not browser-supplied. Without an
+            # approved handler this returns 503 BEFORE any DB write.
+            response = await run_in_threadpool(
+                _run_server_no_dispatch_send,
+                request, raw_body, payload, background_tasks)
+        else:
+            response = await run_in_threadpool(
+                _run_fixture_send, request, raw_body, payload)
+    except PreflightDenied:
+        response = history._safe_error(
+            503, "ENGINE_NOT_CONFIGURED", "technical", "History unavailable.")
     except _HISTORY_ERRORS as exc:
         response = _history_error(exc)
     response.headers["Cache-Control"] = "no-store"
