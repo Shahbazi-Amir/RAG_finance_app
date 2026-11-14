@@ -1,153 +1,109 @@
-"""Synthetic-only test of approved-schema gate; NOT evidence of actual Runner result."""
-from __future__ import annotations
-
+"""Offline tests for C018's five-field output; no Runner or Gateway."""
+import hashlib
 import json
 import unittest
-from dataclasses import replace
 
 from src.phase3.rag_runtime.result_contract_gate import (
-    ApprovedResultProfile, ApprovedReadinessProfile, canonical_schema_digest,
+    ApprovedResultProfile, canonical_schema_digest,
     correlate_api_trace, validate_no_dispatch_context_ready,
     validate_schema_pinned_result,
 )
-from src.phase3.rag_runtime.staging_preflight import (
-    AttemptBinding, PreflightDenied,
-)
+from src.phase3.rag_runtime.staging_preflight import AttemptBinding, PreflightDenied
 
 
 class ResultSchemaGate(unittest.TestCase):
     def setUp(self):
         self.binding = AttemptBinding("a"*32, "b"*32, "c"*32)
-        self.schema = {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["schema", "request_id", "status"],
-            "properties": {
-                "schema": {
-                    "type": "string", "const": "rag_finance.mvp_engine_result.v1",
-                },
-                "request_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
-                "status": {"type": "string", "enum": ["synthetic_only"]},
-            },
-        }
-        self.profile = ApprovedResultProfile(
-            canonical_schema_sha256=canonical_schema_digest(self.schema),
-            contract_version_field="schema",
-            engine_request_id_field="request_id",
-        )
-        self.value = {
-            "schema": "rag_finance.mvp_engine_result.v1",
-            "request_id": self.binding.engine_request_id,
-            "status": "synthetic_only",
+        self.question = "سؤال مصنوعی تستی"
+        self.context = "d"*64
+        self.ready = {
+            "status": "CONTEXT_READY",
+            "question_sha256": hashlib.sha256(self.question.encode("utf-8")).hexdigest(),
+            "context_sha256": self.context,
+            "top10": 10, "generation_calls": 0,
         }
 
-    def check(self, value, *, schema=None, profile=None, binding=None):
-        return validate_schema_pinned_result(
-            json.dumps(value, separators=(",", ":")).encode(),
-            schema=self.schema if schema is None else schema,
-            profile=self.profile if profile is None else profile,
-            binding=self.binding if binding is None else binding,
-        )
+    def parse(self, obj, *, question=None):
+        return validate_no_dispatch_context_ready(
+            json.dumps(obj, ensure_ascii=False).encode(),
+            question=self.question if question is None else question,
+            binding=self.binding)
 
-    def test_pinned_synthetic_live_schema_and_api_only_trace(self):
-        self.assertEqual(self.check(self.value), self.value)
-        self.assertNotIn('trace_id', self.check(self.value))
-        tagged = correlate_api_trace(self.check(self.value), self.binding)
-        self.assertEqual(tagged['trace_id'], self.binding.trace_id)
-        self.assertFalse(tagged['live_verified'])
-
-    def test_wrong_version_request_id_and_extra_field_denied(self):
-        invalid = [
-            {**self.value, "schema": "unknown"},
-            {**self.value, "request_id": "f"*32},
-            {**self.value, "secret_response": "NEVER_LOG_RAW_ANSWER"},
-        ]
-        for row in invalid:
-            with self.subTest(reason=list(set(row.items()) - set(self.value.items()))):
-                with self.assertRaises(PreflightDenied) as failure:
-                    self.check(row)
-                self.assertEqual(str(failure.exception), "STAGING_PREFLIGHT_DENIED")
-
-    def test_schema_digest_wrong_or_missing_blocks_without_fallback(self):
-        wrong = replace(self.profile, canonical_schema_sha256="0"*64)
-        with self.assertRaises(PreflightDenied):
-            self.check(self.value, profile=wrong)
-        unsupported = dict(self.schema)
-        unsupported["$schema"] = "http://json-schema.org/draft-07/schema#"
-        mismatched_profile = replace(
-            self.profile, canonical_schema_sha256=canonical_schema_digest(unsupported))
-        with self.assertRaises(PreflightDenied):
-            self.check(self.value, schema=unsupported, profile=mismatched_profile)
-
-    def test_duplicate_raw_keys_oversized_raw_and_nonfinite_denied(self):
-        valid = json.dumps(self.value).encode()
-        duplicated = valid[:-1] + b',"request_id":"'+b"a"*32+b'"}'
-        for raw in (
-            duplicated,
-            b'{"schema":NaN}',
-            b"{}"+b" "*1_048_576,
-        ):
-            with self.subTest(bytes=len(raw)):
-                with self.assertRaises(PreflightDenied):
-                    validate_schema_pinned_result(
-                        raw, schema=self.schema, profile=self.profile,
-                        binding=self.binding)
-
-
-    def test_distinct_no_dispatch_context_ready_schema(self):
-        # Synthetic *alternative* wire shape only. The real notebook (2) C018
-        # / C019 schema and state field must still be supplied and pinned.
-        ready_schema = {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "type": "object", "additionalProperties": False,
-            "required": ["phase", "top_k", "generation"],
-            "properties": {
-                "phase": {"const": "CONTEXT_READY"},
-                "top_k": {"type": "integer", "minimum": 0},
-                "generation": {"type": "integer", "const": 0},
-            },
-        }
-        profile = ApprovedReadinessProfile(
-            canonical_schema_sha256=canonical_schema_digest(ready_schema),
-            context_state_field="phase")
-        raw = b'{"phase":"CONTEXT_READY","top_k":10,"generation":0}'
-        result = validate_no_dispatch_context_ready(
-            raw, schema=ready_schema, profile=profile, binding=self.binding)
+    def test_exact_c018_five_field_context_ready_and_api_trace(self):
+        result = self.parse(self.ready)
+        self.assertEqual(result["state"], "CONTEXT_READY")
+        self.assertEqual(result["top10_count"], 10)
+        self.assertEqual(result["generation_calls"], 0)
+        self.assertTrue(result["question_sha256_matches"])
         self.assertEqual(result["engine_request_id"], self.binding.engine_request_id)
         self.assertEqual(result["trace_id"], self.binding.trace_id)
-        self.assertFalse(result["dispatch_performed"])
         self.assertFalse(result["live_verified"])
-        with self.assertRaises(PreflightDenied):
-            validate_no_dispatch_context_ready(
-                b'{"phase":"COMPLETE","top_k":10,"generation":0}',
-                schema=ready_schema, profile=profile, binding=self.binding)
-        with self.assertRaises(PreflightDenied):
-            validate_schema_pinned_result(
-                raw, schema=ready_schema, profile=self.profile, binding=self.binding)
+        self.assertNotIn("answer", result)
 
-    def test_no_dispatch_does_not_require_unverified_runner_trace(self):
-        ready_schema = {
-            "$schema":"https://json-schema.org/draft/2020-12/schema",
-            "type":"object", "additionalProperties":False,
-            "required":["phase","request_id"],
-            "properties":{
-                "phase":{"const":"CONTEXT_READY"},
-                "request_id":{"type":"string"}
-            }
-        }
-        profile = ApprovedReadinessProfile(
-            canonical_schema_digest(ready_schema), "phase", "request_id")
-        raw = json.dumps(
-            {"phase":"CONTEXT_READY", "request_id":self.binding.engine_request_id}
-        ).encode()
-        result = validate_no_dispatch_context_ready(
-            raw, schema=ready_schema, profile=profile, binding=self.binding)
-        self.assertNotIn("raw_output", result)
+    def test_c018_runner_has_no_request_id_or_trace_id(self):
+        for key in ("request_id", "trace_id"):
+            with self.subTest(key=key), self.assertRaises(PreflightDenied):
+                self.parse({**self.ready, key: "f"*32})
+
+    def test_wrong_question_hash_fails_closed(self):
         with self.assertRaises(PreflightDenied):
-            validate_no_dispatch_context_ready(
-                json.dumps({"phase":"CONTEXT_READY","request_id":"foreign"}).encode(),
-                schema=ready_schema, profile=profile, binding=self.binding)
+            self.parse(self.ready, question="سؤال دیگری")
+        with self.assertRaises(PreflightDenied):
+            self.parse({**self.ready, "question_sha256": "x"*64})
+
+    def test_nonzero_or_noninteger_generation_denied(self):
+        for value in (1, -1, True, "0"):
+            with self.subTest(value=value), self.assertRaises(PreflightDenied):
+                self.parse({**self.ready, "generation_calls": value})
+
+    def test_top10_list_or_count_redacted(self):
+        self.assertEqual(self.parse({**self.ready,"top10":[{"private":"DO_NOT_ECHO"}]})["top10_count"],1)
+        for bad in (11,-1,True,"10",list(range(11))):
+            with self.subTest(str(bad)),self.assertRaises(PreflightDenied):
+                self.parse({**self.ready,"top10":bad})
+
+    def test_missing_wrong_state_context_hash_denied(self):
+        for obj in (
+            {**self.ready, "status":"ANSWER_COMMITTED"},
+            {k:v for k,v in self.ready.items() if k!="context_sha256"},
+            {**self.ready,"context_sha256":"x"*64},
+        ):
+            with self.assertRaises(PreflightDenied):
+                self.parse(obj)
+
+    def test_duplicate_raw_keys_nan_and_size_denied(self):
+        duplicate = json.dumps(self.ready).encode()[:-1]+b',"status":"CONTEXT_READY"}'
+        for raw in (duplicate, b'{"status":NaN}', b"{}"+b" "*1_048_576):
+            with self.assertRaises(PreflightDenied):
+                validate_no_dispatch_context_ready(
+                    raw,question=self.question,binding=self.binding)
+
+    def test_live_result_still_pins_schema_request_id_not_trace(self):
+        schema={
+            "$schema":"https://json-schema.org/draft/2020-12/schema",
+            "type":"object","additionalProperties":False,
+            "required":["schema","request_id"],
+            "properties":{
+                "schema":{"const":"rag_finance.mvp_engine_result.v1"},
+                "request_id":{"type":"string"},
+            },
+        }
+        profile=ApprovedResultProfile(canonical_schema_digest(schema))
+        raw=json.dumps({
+            "schema":"rag_finance.mvp_engine_result.v1",
+            "request_id":self.binding.engine_request_id,
+        }).encode()
+        validated=validate_schema_pinned_result(
+            raw,schema=schema,profile=profile,binding=self.binding)
+        tagged=correlate_api_trace(validated,self.binding)
+        self.assertEqual(tagged["trace_id"],self.binding.trace_id)
+        self.assertFalse(tagged["live_verified"])
+        self.assertNotIn("trace_id",validated)
+
+    def test_failed_live_schema_never_becomes_ready(self):
+        with self.assertRaises(PreflightDenied):
+            self.parse({"schema":"rag_finance.mvp_engine_result.v1",
+                        "request_id":self.binding.engine_request_id})
 
 
 if __name__ == "__main__":

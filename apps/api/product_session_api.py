@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sqlite3
 from pathlib import Path
 
 import psycopg
@@ -23,6 +24,7 @@ from psycopg.rows import dict_row
 from apps.api import history_api as history
 from apps.api.product_message_fixture import answer_from_fixture
 from src.phase3.rag_runtime.staging_no_dispatch import prepare_post_commit_no_dispatch
+from src.phase3.rag_runtime.no_dispatch_handler import NoDispatchHandler
 from src.phase3.rag_runtime.staging_preflight import PreflightDenied
 from src.phase3.auth.service_proof import (
     BFFServiceVerifier, TrustRejected, assertion_from_asgi_headers, wire_request,
@@ -45,6 +47,7 @@ _REVOKE_PATH = b"/internal/auth/session/v1/revoke-one"
 _HISTORY_PATH = b"/v1/conversations"
 _SEND_PATH = b"/v1/messages"
 _STATUS_PATH = b"/v1/message-requests/status"
+_ENGINE_STATUS_PATH = b"/v1/message-requests/engine-status"
 _CONVERSATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 _SESSION_ROLES = {"history": "history_app", "revoke": "auth_revoker"}
@@ -121,6 +124,10 @@ def _signed_history(request, raw_body, expected_path, action, *, coherent_read=F
 
 
 def _history_error(exc):
+    if isinstance(exc, (PreflightDenied, sqlite3.Error)):
+        return history._safe_error(
+            503, "ENGINE_STATUS_UNAVAILABLE", "technical",
+            "History unavailable.")
     if isinstance(exc, AdmissionSerializationUnavailable):
         return history._safe_error(503, "TEMPORARILY_UNAVAILABLE", "technical",
                                    "History unavailable.")
@@ -131,7 +138,8 @@ def _history_error(exc):
     return history._safe_error(status, code, category, "History unavailable.")
 
 
-_HISTORY_ERRORS = (AdmissionSerializationUnavailable, TrustRejected,
+_HISTORY_ERRORS = (PreflightDenied, sqlite3.Error,
+                   AdmissionSerializationUnavailable, TrustRejected,
                    history.ApiFailure, history.NotFound,
                    history.Conflict, history.IntegrityAnomaly, ValidationError,
                    psycopg.Error, RuntimeError, OSError, TypeError)
@@ -167,6 +175,57 @@ def session_messages(conversation_id: str, request: Request):
 def session_message_status(request: Request):
     return _signed_read(request, _STATUS_PATH,
                         lambda ctx: history.status(request, ctx), coherent_read=True)
+
+
+def install_server_no_dispatch_handler(handler: NoDispatchHandler) -> None:
+    """Ops-controlled startup injection, not a client or env-controlled grant.
+
+    The CI-only Auth/DSN guards are intentionally unchanged. A real staging
+    ASGI deployment requires separately reviewed session trust/role profile.
+    """
+    if not isinstance(handler, NoDispatchHandler):
+        raise PreflightDenied()
+    global _SERVER_NO_DISPATCH_TASK
+    _SERVER_NO_DISPATCH_TASK = handler
+
+
+@app.get("/v1/message-requests/engine-status")
+def session_engine_status(request: Request):
+    """Separate authenticated technical status; NEVER a Product Answer.
+
+    BFF must sign exact new path/query/body, same verified session+Owner,
+    and use the same original status query keys as product.v1 Status.
+    """
+    def read(ctx):
+        if _SERVER_NO_DISPATCH_TASK is None:
+            raise PreflightDenied()
+        query = history._query(request, "message_request_status_query")
+        doc = history.read_status(
+            ctx["conn"], ctx["owner"], query, ctx["request_id"], ctx["trace_id"],
+            session_transaction=True)
+        if doc["owner_user_id"] != ctx["owner"]:
+            raise TrustRejected()
+        attempt_id = doc["attempt_id"]
+        data = (_SERVER_NO_DISPATCH_TASK.read(ctx["owner"], attempt_id)
+                if attempt_id else {
+                    "state": "NOT_STARTED", "top10_count": None,
+                    "generation_calls": None, "question_hash_match": None})
+        return JSONResponse(status_code=200, content={
+            "kind": "no_dispatch_execution_status",
+            "contract_version": "api.no_dispatch_status.v1",
+            "request_id": doc["request_id"],
+            "trace_id": doc["trace_id"],
+            "attempt_id": attempt_id,
+            "attempt_trace_id": doc["attempt_trace_id"],
+            "product_status": doc["status"],
+            "preflight_state": data["state"],
+            "question_sha256_matches": data["question_hash_match"],
+            "top10_count": data["top10_count"],
+            "generation_calls": data["generation_calls"],
+            "dispatch_performed": False,
+            "answer": None,
+        }, headers={"Cache-Control": "no-store"})
+    return _signed_read(request, _ENGINE_STATUS_PATH, read, coherent_read=True)
 
 
 def _run_fixture_send(request, raw_body, payload):
@@ -235,6 +294,9 @@ def _run_server_no_dispatch_send(request, raw_body, payload, background_tasks):
             503, "ENGINE_NOT_CONFIGURED", "technical",
             "History unavailable.")
 
+    accepted_owner = {"id": None}
+    handler = _SERVER_NO_DISPATCH_TASK
+
     def committed_operation():
         def reserve(ctx):
             conn, owner = ctx["conn"], ctx["owner"]
@@ -250,13 +312,17 @@ def _run_server_no_dispatch_send(request, raw_body, payload, background_tasks):
 
         # _signed_history's outer transaction must EXIT and COMMIT before
         # this function returns to prepare_post_commit_no_dispatch.
-        _, value = _signed_history(request, raw_body, _SEND_PATH, reserve)
+        proof, value = _signed_history(request, raw_body, _SEND_PATH, reserve)
+        accepted_owner["id"] = proof.owner_id
         return value
 
     def enqueue(binding, question):
-        # Register task AFTER outer PG COMMIT. Never wait ~82 seconds in HTTP.
-        # A browser Poll only invokes the existing signed Status GET.
-        background_tasks.add_task(_SERVER_NO_DISPATCH_TASK, binding, question)
+        # A durable, per-Owner single-host operational reservation is written
+        # only AFTER PG COMMIT. Even if process crashes, retries cannot
+        # automatically re-run the engine (they replay #52 send receipt).
+        owner = accepted_owner["id"]
+        if handler.reserve(owner, binding):
+            background_tasks.add_task(handler, owner, binding, question)
 
     receipt, stage = prepare_post_commit_no_dispatch(
         committed_operation, enqueue, payload["question"])

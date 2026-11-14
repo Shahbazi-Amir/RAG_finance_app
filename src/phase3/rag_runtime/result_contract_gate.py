@@ -8,6 +8,7 @@ No raw output/secret/answer is logged, stored, or included in exceptions.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 from dataclasses import dataclass
 from typing import Mapping
@@ -34,18 +35,6 @@ class ApprovedResultProfile:
     canonical_schema_sha256: str
     contract_version_field: str = "schema"
     engine_request_id_field: str = "request_id"
-
-
-@dataclass(frozen=True)
-class ApprovedReadinessProfile:
-    """Separately approved shape of the offline CONTEXT_READY response.
-
-    This shape need not have LIVE result 'schema' or 'request_id'. The
-    caller must pin every field/path to the inspected C018/C019 implementation.
-    """
-    canonical_schema_sha256: str
-    context_state_field: str
-    engine_request_id_field: str | None = None
 
 
 def correlate_api_trace(validated_runner_result: Mapping,
@@ -145,31 +134,59 @@ def validate_schema_pinned_result(
 
 
 def validate_no_dispatch_context_ready(
-    raw_result: bytes, *, schema: Mapping, profile: ApprovedReadinessProfile,
-    binding: AttemptBinding,
+    raw_result: bytes, *, question: str, binding: AttemptBinding,
 ) -> dict:
-    """Distinct offline shape; NEVER interpret it as a generated answer.
+    """NB23.C018 no-dispatch shape: exactly five fields, no IDs.
 
-    The actual key carrying CONTEXT_READY must be sourced from NB23 C018/C019
-    and configured in the trusted profile. No default or shape guessing.
+    No generated Answer. The stored API Attempt owns request_id and trace_id.
+    Validate the private question only as a hash; never reflect question,
+    content or raw retrieved top10 in the response/History.
     """
-    if (not isinstance(profile, ApprovedReadinessProfile)
-            or not isinstance(binding, AttemptBinding)
-            or not _safe_field(profile.context_state_field)
-            or not _safe_field(profile.engine_request_id_field, optional=True)
-            or profile.context_state_field == profile.engine_request_id_field):
+    if (not isinstance(raw_result, bytes)
+            or not 0 < len(raw_result) <= MAX_ENGINE_RESULT_BYTES
+            or not isinstance(question, str) or not question.strip()
+            or not isinstance(binding, AttemptBinding)):
         raise PreflightDenied()
-    result = _decode_and_validate(
-        raw_result, schema, profile.canonical_schema_sha256)
-    if result.get(profile.context_state_field) != "CONTEXT_READY":
+    try:
+        value = json.loads(
+            raw_result.decode("utf-8"),
+            object_pairs_hook=_unique_object, parse_constant=_reject_constant)
+    except (ValueError, UnicodeError, TypeError):
+        raise PreflightDenied() from None
+    if (not isinstance(value, dict)
+            or set(value) != {
+                "status", "question_sha256", "context_sha256",
+                "top10", "generation_calls"
+            }
+            or value["status"] != "CONTEXT_READY"
+            or type(value["generation_calls"]) is not int
+            or value["generation_calls"] != 0):
         raise PreflightDenied()
-    if (profile.engine_request_id_field is not None
-            and result.get(profile.engine_request_id_field)
-                != binding.engine_request_id):
+    def hex_digest(v):
+        return isinstance(v, str) and len(v) == 64 and all(
+            c in "0123456789abcdef" for c in v)
+    if (not hex_digest(value["question_sha256"])
+            or not hex_digest(value["context_sha256"])):
         raise PreflightDenied()
-    # Return only operational readiness, not answer text or Citations.
-    return {"state": "CONTEXT_READY",
-            "engine_request_id": binding.engine_request_id,
-            "trace_id": binding.trace_id,
-            "dispatch_performed": False,
-            "live_verified": False}
+    actual = hashlib.sha256(question.encode("utf-8")).hexdigest()
+    if not hmac.compare_digest(actual, value["question_sha256"]):
+        raise PreflightDenied()
+    top10 = value["top10"]
+    # The user-supplied C018 contract gives the field name, not element type.
+    # Permit only a bounded count or a bounded list; never echo list content.
+    if type(top10) is int and 0 <= top10 <= 10:
+        top10_count = top10
+    elif isinstance(top10, list) and 0 <= len(top10) <= 10:
+        top10_count = len(top10)
+    else:
+        raise PreflightDenied()
+    return {
+        "state": "CONTEXT_READY",
+        "engine_request_id": binding.engine_request_id,
+        "trace_id": binding.trace_id,
+        "question_sha256_matches": True,
+        "top10_count": top10_count,
+        "generation_calls": 0,
+        "dispatch_performed": False,
+        "live_verified": False,
+    }

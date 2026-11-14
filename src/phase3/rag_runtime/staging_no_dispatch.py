@@ -27,11 +27,10 @@ MAX_OUTPUT_BYTES = 1_048_576
 class ApprovedNoDispatchCLI:
     """Server-side only, from vetted Runner source, NEVER browser-provided.
 
-    input bytes must follow that same vetted source, not guessed by the API.
-    stdout format and options are likewise unverified pending C018/C019.
+    C018 confirms --repo-root, --artifacts-root, --request-id, --question.
+    The exact actual Runner file digest must still be pinned from Ops.
     """
     runner_file_sha256: str
-    argv_tokens: tuple[str, ...]
     max_seconds: int = 180
 
 
@@ -92,26 +91,22 @@ def _matches_exact_file_sha(path: Path, expected: str) -> bool:
 
 
 def _safe_approved_argv(profile: ApprovedNoDispatchCLI,
-                        binding: AttemptBinding) -> tuple[str, ...]:
+                        binding: AttemptBinding, layout: RunnerLayout,
+                        question: str) -> tuple[str, ...]:
     if (not isinstance(profile, ApprovedNoDispatchCLI)
             or not 1 <= profile.max_seconds <= 300
-            or not isinstance(profile.argv_tokens, tuple)
-            or not 1 <= len(profile.argv_tokens) <= 32
-            or any(not isinstance(t, str) or not t
-                   or len(t) > 4096 or "\x00" in t
-                   for t in profile.argv_tokens)):
+            or not isinstance(question, str) or not question.strip()
+            or "\x00" in question or len(question.encode("utf-8")) > 8192):
         raise PreflightDenied()
-    args = profile.argv_tokens
-    if args.count("--request-id") != 1:
-        raise PreflightDenied()
-    i = args.index("--request-id")
-    if i + 1 >= len(args) or args[i + 1] != binding.engine_request_id:
-        raise PreflightDenied()
-    # No --dispatch; the CLI default behavior still requires actual source
-    # approval before constructing ApprovedNoDispatchCLI in staging.
-    if any(t == "--dispatch" or t.startswith("--dispatch=") for t in args):
-        raise PreflightDenied()
-    return args
+    # NB23.C018: ONLY these four arguments, no stdin, no --dispatch.
+    # Values are from the server's pinned layout and trusted T2 Attempt,
+    # NEVER from user-supplied argv or browser-chosen request-id.
+    return (
+        "--repo-root", str(layout.repo),
+        "--artifacts-root", str(layout.artifacts),
+        "--request-id", binding.engine_request_id,
+        "--question", question,
+    )
 
 
 def invoke_pinned_no_dispatch(
@@ -119,21 +114,19 @@ def invoke_pinned_no_dispatch(
     layout: RunnerLayout,
     profile: ApprovedNoDispatchCLI,
     binding: AttemptBinding,
-    input_bytes: bytes,
+    question: str,
     environment: Mapping[str, str],
 ) -> bytes:
     """One bounded subprocess only, with no Gateway credentials in child env.
 
-    CLI options and stdin protocol must be read from actual notebook source
-    before this function is called in staging. Raw stdout stays in memory,
+    Uses C018 --question CLI (stdin is unsupported). Raw stdout stays in memory,
     for later independently approved schema validation, never in History.
     """
     if (not isinstance(layout, RunnerLayout)
             or not isinstance(binding, AttemptBinding)
-            or not isinstance(input_bytes, bytes)
-            or not 0 < len(input_bytes) <= 64 * 1024):
+            or not isinstance(question, str)):
         raise PreflightDenied()
-    argv = _safe_approved_argv(profile, binding)
+    argv = _safe_approved_argv(profile, binding, layout, question)
     try:
         root = layout.artifacts.resolve(strict=True)
         path = layout.runner().resolve(strict=True)
@@ -153,13 +146,16 @@ def invoke_pinned_no_dispatch(
         }
         proc = subprocess.run(
             [str(layout.python), str(path), *argv],
-            input=input_bytes, cwd=str(layout.repo), env=allowed_env,
+            stdin=subprocess.DEVNULL, cwd=str(layout.repo), env=allowed_env,
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             timeout=profile.max_seconds, check=False,
         )
         if proc.returncode != 0 or not 0 < len(proc.stdout) <= MAX_OUTPUT_BYTES:
             raise PreflightDenied()
         return proc.stdout
+    except subprocess.TimeoutExpired:
+        # A launched process may have progressed despite timeout.
+        # Preserve UNKNOWN and NEVER retry automatically.
+        raise TimeoutError() from None
     except (OSError, ValueError, subprocess.SubprocessError):
-        # Uncertain outcomes NEVER retried automatically.
         raise PreflightDenied() from None

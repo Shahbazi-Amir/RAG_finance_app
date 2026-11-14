@@ -1,0 +1,42 @@
+name: API53 C018 exact no-dispatch CLI and persistent status (offline only)
+
+on:
+  push:
+    branches: [agent/api-staging-pinned-runner-preflight]
+    paths:
+      - 'src/phase3/rag_runtime/**'
+      - 'apps/api/product_session_api.py'
+      - 'tests/phase3/api/test_staging_*.py'
+      - '.github/workflows/api53-no-dispatch-c018-offline.yml'
+  pull_request:
+    branches: [agent/api-product-message-fixture-012]
+    paths:
+      - 'src/phase3/rag_runtime/**'
+      - 'apps/api/product_session_api.py'
+      - 'tests/phase3/api/test_staging_*.py'
+      - '.github/workflows/api53-no-dispatch-c018-offline.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  no-dispatch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Dependencies (no Gateway, no model, no PostgreSQL)
+        run: |
+          python -m pip install --no-cache-dir --index-url https://pypi.org/simple 'jsonschema==4.26.0'
+      - name: Compile API-owned no-dispatch adapter
+        run: |
+          python -m compileall -q src/phase3/rag_runtime tests/phase3/api
+      - name: Local synthetic C018 CLI, hash, durable status, replay regression
+        run: |
+          python -m unittest discover -s tests/phase3/api -p 'test_staging_*.py' -v
