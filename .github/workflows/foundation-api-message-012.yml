@@ -80,13 +80,13 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-          ref: db24075f66d8561b9756804a7141b84e21497479
+          ref: 825b3c731b7cc4c53f4ba322b8c2c18ca0c82c54
       - name: Verify complete #52 source and no accidental API branch mutation
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "db24075f66d8561b9756804a7141b84e21497479"
-          test "$(git merge-base db24075f66d8561b9756804a7141b84e21497479 c8d7316ccf63a93a8afb7ab4e7193236bf176387)" = "c8d7316ccf63a93a8afb7ab4e7193236bf176387"
-          echo 'FND_API012_IMMUTABLE_SOURCE_db24075f66d8561b9756804a7141b84e21497479_PASS'
+          test "$(git rev-parse HEAD)" = "825b3c731b7cc4c53f4ba322b8c2c18ca0c82c54"
+          test "$(git merge-base 825b3c731b7cc4c53f4ba322b8c2c18ca0c82c54 c8d7316ccf63a93a8afb7ab4e7193236bf176387)" = "c8d7316ccf63a93a8afb7ab4e7193236bf176387"
+          echo 'FND_API012_IMMUTABLE_SOURCE_825b3c731b7cc4c53f4ba322b8c2c18ca0c82c54_PASS'
       - name: Stage ONLY the Foundation-owned network test from this CI commit
         run: |
           set -euo pipefail
@@ -334,8 +334,16 @@ jobs:
           GRANT EXECUTE ON FUNCTION auth_l1.revoke_one(text,bigint) TO auth_revoker;
           SQL
           python -m compileall -q apps/api/product_message_fixture.py apps/api/product_session_api.py tests/phase3/integration/api/test_product_message_fixture_012.py
-          python -m unittest discover -s tests/phase3/integration/api -p 'test_product_message_fixture_012.py' -v
-          echo FND_API012_4_REAL_PG_SYNTHETIC_ASGI_PASS
+          echo 'FND_API012_EXACT_TESTED_API_SOURCE=825b3c731b7cc4c53f4ba322b8c2c18ca0c82c54'
+          # Original #52 six methods include real PostgreSQL 40001 plus 005 replay.
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_product_message_fixture_012.py' -v 2>&1 | tee "$RUNNER_TEMP/fnd_api012_pg17.log"
+          grep -F 'test_real_signed_rr_40001_maps_503_rolls_back_jti_then_revoked_401' "$RUNNER_TEMP/fnd_api012_pg17.log"
+          grep -F 'API52_REAL_SIGNED_RR_PG40001_HTTP503_JTI_ROLLBACK_REVOKED401' "$RUNNER_TEMP/fnd_api012_pg17.log"
+          echo 'FND_API012_PG17_40001_503_JTI_ROLLBACK_A401_B200_PASS'
+          grep -F 'test_real_committed_005_jti_replay_stays_401_not_503' "$RUNNER_TEMP/fnd_api012_pg17.log"
+          grep -F 'API52_COMMITTED_005_JTI_REPLAY_AUTH401_PRESERVED' "$RUNNER_TEMP/fnd_api012_pg17.log"
+          echo 'FND_API012_PG17_DURABLE_005_JTI_REPLAY_401_PASS'
+          echo 'FND_API012_6_REAL_PG_SYNTHETIC_ASGI_PASS'
 
       - name: Original Product contract, service proof and separate real History HTTP regressions
         run: |
