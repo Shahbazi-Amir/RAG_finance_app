@@ -18,7 +18,7 @@ from psycopg.conninfo import conninfo_to_dict
 
 from src.phase3.storage.postgres import auth_session, repository as history
 from test_auth_session import db as auth_db, owner as make_owner, issue as issue_session, digest
-from test_history_l1 import db as history_db, create_req
+from test_history_l1 import db as history_db, create_req, send_req
 
 FENCE_SIG = "auth_l1.admit_session_fenced(text,text,bigint,integer)"
 REPLAY_SIG = "auth_l1.consume_service_assertion(text,bigint)"
@@ -357,3 +357,80 @@ class HistoryH1DbFencedReadRace(unittest.TestCase):
             self.assertTrue(admitted)
             _assert_exact_owner(self,page,b,title_b,title_a)
         print("H1DB05_REAL_PG17_RR_005_004_HISTORY_REVOKE_COMMIT_BOUNDARY",flush=True)
+
+    def test_H1DB06_real_40001_after_t1_t2_rolls_back_replay_and_history(self):
+        """Real PG 40001 after BOTH T1 and T2 savepoints undoes entire outer TX.
+
+        Concurrent independent writer commits an UPDATE to an older History
+        conversation after RR snapshot; subsequent FOR SHARE produces actual
+        SerializationFailure. This is not a synthetic thrown exception.
+        """
+        a,b,token_a,token_b,title_a,title_b,saved_a,_=_fixture()
+        old_id=saved_a["conversation"]["conversation_id"]
+        marker=uuid.uuid4().hex
+        jti_digest=digest("synthetic_h1_rr_full_tx_"+marker)
+        request=send_req(None,client="client_"+marker,key="key_"+marker,
+                         question="Synthetic rollback verification "+marker)
+        created_conversation=None
+        with history_db() as reader:
+            reader.isolation_level=psycopg.IsolationLevel.REPEATABLE_READ
+            with self.assertRaises(psycopg.errors.SerializationFailure) as failure:
+                with reader.transaction():
+                    self.assertTrue(reader.execute(
+                        "SELECT auth_l1.consume_service_assertion(%s,%s) AS accepted",
+                        (jti_digest,int(time.time())+25)).fetchone()["accepted"])
+                    self.assertTrue(auth_session.admit_session_fenced(
+                        reader,token_a.opaque,a,token_a.epoch,token_a.generation))
+                    # Exactly #52's nesting shape: T1 and T2 are SAVEPOINTs
+                    # inside the protected outer 005+004 transaction.
+                    receipt=history.send_t1(
+                        reader,a,request,history.uid(),history.uid())
+                    self.assertEqual(receipt["disposition"],"created")
+                    created_conversation=receipt["resolved_conversation_id"]
+                    attempt=history.start_t2(
+                        reader,a,None,request["client_message_id"],
+                        request["idempotency_key"],history.uid(),history.uid())
+                    self.assertEqual(attempt["state"],"attempt_pending")
+                    with history_db() as other:
+                        with other.transaction():
+                            history.scoped(other,a)
+                            changed=other.execute(
+                                """UPDATE history_l1.conversations
+                                   SET title=%s
+                                   WHERE owner_id=%s AND id=%s
+                                   RETURNING id""",
+                                ("synthetic_conflict_"+marker,a,old_id)).fetchone()
+                            self.assertIsNotNone(changed)
+                    # RR snapshot pre-dates writer UPDATE; FOR SHARE
+                    # now sees changed tuple and PG must raise SQLSTATE 40001.
+                    reader.execute(
+                        """SELECT id FROM history_l1.conversations
+                           WHERE owner_id=%s AND id=%s FOR SHARE""",
+                        (a,old_id))
+            self.assertEqual(failure.exception.sqlstate,"40001")
+            self.assertEqual(reader.info.transaction_status,
+                             psycopg.pq.TransactionStatus.IDLE)
+        with auth_db("MIG") as admin:
+            self.assertEqual(admin.execute(
+                """SELECT count(*) AS n FROM auth_l1.service_assertion_replays
+                   WHERE issuer_jti_sha256=%s""",(jti_digest,)
+            ).fetchone()["n"],0)
+        with history_db() as viewer:
+            with viewer.transaction():
+                history.scoped(viewer,a)
+                for sql,params in (
+                    ("""SELECT count(*) AS n FROM history_l1.send_receipts
+                        WHERE owner_id=%s AND client_message_id=%s
+                          AND idempotency_key=%s""",
+                     (a,request["client_message_id"],request["idempotency_key"])),
+                    ("""SELECT count(*) AS n FROM history_l1.conversations
+                        WHERE owner_id=%s AND id=%s""",(a,created_conversation)),
+                    ("""SELECT count(*) AS n FROM history_l1.messages
+                        WHERE owner_id=%s AND body=%s""",(a,request["question"]))
+                ):
+                    self.assertEqual(viewer.execute(sql,params).fetchone()["n"],0)
+        with history_db() as b_reader:
+            admitted,page=_admit_and_list(b_reader,b,token_b)
+            self.assertTrue(admitted)
+            _assert_exact_owner(self,page,b,title_b,title_a)
+        print("H1DB06_REAL_PG17_40001_AFTER_T1_T2_ALL_005_RECEIPT_ATTEMPT_MESSAGE_ROLLED_BACK",flush=True)
