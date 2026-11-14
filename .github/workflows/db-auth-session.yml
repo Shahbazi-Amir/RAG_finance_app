@@ -2,7 +2,7 @@ name: BND-DB-03 — durable PostgreSQL service assertion replay
 
 on:
   push:
-    branches: [agent/db-service-replay]
+    branches: [agent/db-service-replay, agent/db-history-h1-fenced-race]
     paths:
       - '.github/workflows/db-auth-session.yml'
       - 'src/phase3/storage/postgres/**'
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   history-postgres:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/agent/db-service-replay'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/agent/db-service-replay' || github.ref == 'refs/heads/agent/db-history-h1-fenced-race')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
@@ -160,9 +160,15 @@ jobs:
           PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -d history_ci -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'"
           test "$(PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -d history_ci -Aqt -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'")" = "1"
       - name: Run real PostgreSQL synthetic History HDB and Auth BND tests
+        if: github.ref == 'refs/heads/agent/db-service-replay'
         run: |
           set -euo pipefail
           python -m unittest discover -s tests/phase3/database -p 'test_*.py' -v
+      - name: H1 DB fenced History read vs explicit session revoke (real PostgreSQL)
+        if: github.ref == 'refs/heads/agent/db-history-h1-fenced-race'
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/database -p 'test_history_h1_fenced_read.py' -v
       - name: Smoke existing History rollback and auth 003 rollback on disposable databases
         run: |
           set -euo pipefail
