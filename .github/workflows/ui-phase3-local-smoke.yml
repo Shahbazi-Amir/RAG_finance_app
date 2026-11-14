@@ -144,6 +144,18 @@ jobs:
           assert version=="v22.16.0", version
           npm=subprocess.check_output(["npm","-v"],text=True).strip()
           assert launcher.compatible_node()
+          # When a user has Node 24 but macOS 12.7.6, force isolated Node22.
+          from unittest.mock import patch
+          with patch.object(launcher.platform, "mac_ver", return_value=("12.7.6", ("", "", ""), "")):
+              assert launcher.compatible_node(), "node22 should run on macOS12"
+              with patch.object(launcher.subprocess, "run",
+                                return_value=subprocess.CompletedProcess(["node", "-v"], 0, stdout="v24.19.0")):
+                  assert not launcher.compatible_node(), "node24 is unsupported on macOS12"
+          with patch.object(launcher.platform, "mac_ver", return_value=("13.5.0", ("", "", ""), "")):
+              with patch.object(launcher.subprocess, "run",
+                                return_value=subprocess.CompletedProcess(["node", "-v"], 0, stdout="v24.19.0")):
+                  assert launcher.compatible_node(), "node24 supported on macOS13.5+"
+          print("MACOS12_REJECT_NODE24_AUTO_SELECT_NODE22_PASS")
           print("MACOS_NATIVE_PY311_VERIFIED_NODE22_AUTODOWNLOAD_PASS",version,npm)
           PYTEST
       - name: Compare real macOS Intel pip wheel tags to official PyPI

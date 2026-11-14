@@ -101,6 +101,15 @@ def compatible_node():
         major, minor = int(parts[0]), int(parts[1])
     except (ValueError, IndexError):
         return False
+    if major == 24 and sys.platform == "darwin":
+        # Official Node 24 macOS binaries require >=13.5. A manually installed
+        # Node 24 may report a version on macOS 12 but is not supported there.
+        try:
+            mac = platform.mac_ver()[0].split(".")
+            release = (int(mac[0]), int(mac[1]) if len(mac) > 1 else 0)
+        except (ValueError, IndexError):
+            return False
+        return release >= (13, 5)
     return major == 24 or (major == 22 and minor >= 12)
 
 
