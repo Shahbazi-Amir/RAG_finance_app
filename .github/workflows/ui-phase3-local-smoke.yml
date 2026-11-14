@@ -1,0 +1,224 @@
+name: UI Phase 3 Local Launcher — isolated host process smoke
+
+on:
+  push:
+    branches: [agent/ui-auth-bff-010-integration]
+    paths:
+      - 'scripts/phase3-demo/**'
+      - '.github/workflows/ui-phase3-local-smoke.yml'
+      - 'coordination/tasks/AGENT-UI-01.md'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'scripts/phase3-demo/**'
+      - '.github/workflows/ui-phase3-local-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-host-launcher:
+    if: >-
+      github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request'
+          && github.event.pull_request.head.ref == 'agent/ui-auth-bff-010-integration'
+          && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact source branch (not GitHub's synthetic PR merge)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Fetch exact PR branch for detached-worktree trust check
+        run: |
+          git fetch --no-tags origin "refs/heads/agent/ui-auth-bff-010-integration:refs/remotes/origin/agent/ui-auth-bff-010-integration"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse refs/remotes/origin/agent/ui-auth-bff-010-integration)"
+      - name: Python 3.11 (match macOS presentation host)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Node 22.16.0 (macOS 12 compatible)
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.16.0'
+      - name: Verify actual Docker engine and safe port-conflict refusal
+        run: |
+          set -euo pipefail
+          docker info --format '{{.ServerVersion}}'
+          python --version
+          node --version
+          bash scripts/phase3-demo/demo.sh preflight
+          python - <<'PYTEST'
+          import socket,subprocess
+          with socket.socket() as port:
+              port.bind(('127.0.0.1', 3443))
+              blocked=subprocess.run(['bash','scripts/phase3-demo/demo.sh','preflight'],
+                                     capture_output=True,text=True)
+              assert blocked.returncode != 0 and 'PORT_CONFLICT' in blocked.stderr
+          print('LOCAL_DEMO_REFUSES_FOREIGN_PORT_PASS')
+          PYTEST
+      - name: Verify the user's detached worktree mode against current PR tip
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "refs/heads/agent/ui-auth-bff-010-integration:refs/remotes/origin/agent/ui-auth-bff-010-integration"
+          git switch --detach "$GITHUB_SHA"
+          bash scripts/phase3-demo/demo.sh preflight
+          echo LOCAL_DEMO_DETACHED_PR49_HEAD_PASS
+      - name: Start the EXACT same interactive launcher from an isolated Git clone
+        run: |
+          set -euo pipefail
+          bash scripts/phase3-demo/demo.sh start
+      - name: Reset only owned local stack and verify new synthetic identities
+        run: |
+          set -euo pipefail
+          old=$(bash scripts/phase3-demo/demo.sh credentials | python -c 'import sys,json;print(json.load(sys.stdin)["A"]["email"])')
+          bash scripts/phase3-demo/demo.sh reset
+          fresh=$(bash scripts/phase3-demo/demo.sh credentials | python -c 'import sys,json;print(json.load(sys.stdin)["A"]["email"])')
+          test "$old" != "$fresh"
+          echo LOCAL_DEMO_RESET_FRESH_USERS_PASS
+      - name: Real Chromium A/B and revoked-commit checks from persistent host services
+        run: |
+          set -euo pipefail
+          bash scripts/phase3-demo/demo.sh status
+          bash scripts/phase3-demo/demo.sh credentials | python -c 'import json,sys; x=json.load(sys.stdin); assert x["A"]["email"]!=x["B"]["email"]; assert x["A"]["password"] and x["B"]["password"]; print("LOCAL_DEMO_TWO_PRIVATE_ACCOUNT_CREDENTIALS_EXISTS_PASS")'
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location("launcher", "scripts/phase3-demo/launcher.py")
+          module=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          logs=module.LOG.read_text()
+          assert "LOCAL_DEMO_REAL_A_B_HISTORY_REVOKE_CHROMIUM_PASS" in logs
+          assert "DEMO_DESKTOP_REAL_LOGOUT_COMMITTED_RECEIPT_PASS" in logs
+          assert "DEMO_MOBILE_B_SESSION_STILL_PRIVATE_PASS" in logs
+          print("LOCAL_LAUNCHER_PERSISTENT_BROWSER_E2E_GREEN")
+          PY
+          curl --silent --show-error --fail --insecure --max-time 6 https://127.0.0.1:3443/login | grep -q 'راگ مالی'
+          echo 'LOCAL_LAUNCHER_BROWSER_URL_READY_PASS'
+      - name: Stop ONLY own Docker/Postgres and Keycloak objects
+        if: always()
+        run: |
+          bash scripts/phase3-demo/demo.sh stop
+          bash scripts/phase3-demo/demo.sh status
+
+
+  macos-node-autoinstall:
+    # Verify native Intel pip tags and Node without claiming macOS 12 E2E.
+    if: >-
+      github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request'
+          && github.event.pull_request.head.ref == 'agent/ui-auth-bff-010-integration'
+          && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+    steps:
+      - name: Checkout the exact launcher code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: User's Python version family
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download official checksum-pinned Node 22 from macOS Terminal only
+        run: |
+          set -euo pipefail
+          python - <<'PYTEST'
+          import importlib.util, os, pathlib, platform, subprocess
+          target=pathlib.Path("scripts/phase3-demo/launcher.py")
+          spec=importlib.util.spec_from_file_location("mac_launcher",target)
+          launcher=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(launcher)
+          assert platform.system()=="Darwin" and platform.machine()=="x86_64"
+          # Exclude hosted runner's preinstalled node: exercise the real
+          # one-command download instead of silently falling back.
+          os.environ["PATH"]="/usr/bin:/bin"
+          launcher.ensure_node()
+          version=subprocess.check_output(["node","-v"],text=True).strip()
+          assert version=="v22.16.0", version
+          npm=subprocess.check_output(["npm","-v"],text=True).strip()
+          assert launcher.compatible_node()
+          # When a user has Node 24 but macOS 12.7.6, force isolated Node22.
+          from unittest.mock import patch
+          with patch.object(launcher.platform, "mac_ver", return_value=("12.7.6", ("", "", ""), "")):
+              assert launcher.compatible_node(), "node22 should run on macOS12"
+              with patch.object(launcher.subprocess, "run",
+                                return_value=subprocess.CompletedProcess(["node", "-v"], 0, stdout="v24.19.0")):
+                  assert not launcher.compatible_node(), "node24 is unsupported on macOS12"
+          with patch.object(launcher.platform, "mac_ver", return_value=("13.5.0", ("", "", ""), "")):
+              with patch.object(launcher.subprocess, "run",
+                                return_value=subprocess.CompletedProcess(["node", "-v"], 0, stdout="v24.19.0")):
+                  assert launcher.compatible_node(), "node24 supported on macOS13.5+"
+          # No unsupported Chromium download on macOS12. Chrome on that OS
+          # is EOL; reuse an installed app only after an explicit local opt-in.
+          import tempfile
+          from unittest.mock import patch
+          with tempfile.TemporaryDirectory() as temporary:
+              chrome=pathlib.Path(temporary)/"Google Chrome"
+              chrome.write_bytes(b"fake macOS executable used for path-only test")
+              chrome.chmod(0o700)
+              with patch.object(launcher.platform, "mac_ver", return_value=("12.7.6", ("", "", ""), "")), \
+                   patch.object(launcher, "MAC_CHROME_EXECUTABLES", (chrome,)):
+                  with patch.dict(os.environ, {"RAG_PHASE3_DEMO_ALLOW_LEGACY_CHROME":"1"}):
+                      assert launcher.browser_launch_options() == {"executable_path":str(chrome)}
+                  with patch.dict(os.environ, {"RAG_PHASE3_DEMO_ALLOW_LEGACY_CHROME":""}):
+                      try:
+                          launcher.browser_launch_options()
+                      except RuntimeError as exc:
+                          assert "MACOS_LEGACY_BROWSER_OPT_IN_REQUIRED" in str(exc)
+                      else:
+                          raise AssertionError("legacy browser must require opt-in")
+                  chrome.unlink()
+                  with patch.dict(os.environ, {"RAG_PHASE3_DEMO_ALLOW_LEGACY_CHROME":"1"}):
+                      try:
+                          launcher.browser_launch_options()
+                      except RuntimeError as exc:
+                          assert "MACOS_LEGACY_CHROME_NOT_INSTALLED" in str(exc)
+                      else:
+                          raise AssertionError("legacy browser must exist")
+          with patch.object(launcher.platform, "mac_ver", return_value=("15.0", ("", "", ""), "")):
+              assert launcher.browser_launch_options()=={}
+          print("MACOS12_CHROME_EXPLICIT_OPTIN_AND_FAILFAST_PASS")
+          print("MACOS12_REJECT_NODE24_AUTO_SELECT_NODE22_PASS")
+          print("MACOS_NATIVE_PY311_VERIFIED_NODE22_AUTODOWNLOAD_PASS",version,npm)
+          PYTEST
+      - name: Compare real macOS Intel pip wheel tags to official PyPI
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/phase3-pypi-wheel-tags"
+          "$RUNNER_TEMP/phase3-pypi-wheel-tags/bin/python" - <<'PYTEST'
+          import json, platform, sys, urllib.request
+          from pip._vendor.packaging.tags import sys_tags
+          from pip._vendor.packaging.utils import parse_wheel_filename
+          assert platform.system() == "Darwin" and platform.machine() == "x86_64"
+          supported = set(sys_tags())
+          def matching(name, version):
+              url = "https://pypi.org/pypi/" + name + "/" + version + "/json"
+              with urllib.request.urlopen(url, timeout=25) as response:
+                  files = json.load(response)["urls"]
+              found = []
+              for item in files:
+                  if item["packagetype"] != "bdist_wheel":
+                      continue
+                  filename = item["filename"]
+                  if supported.intersection(parse_wheel_filename(filename)[3]):
+                      found.append(filename)
+              return found
+          old = matching("cryptography", "48.0.1")
+          secure = matching("cryptography", "50.0.2")
+          maturin = matching("maturin", "1.14.1")
+          assert any("universal2" in filename for filename in old), old
+          assert not secure, secure
+          assert maturin, "maturin's Mac Intel wheels should be recognized"
+          print("MACOS_INTEL_PYPI_48_UNIVERSAL2_COMPATIBLE_BUT_VULNERABLE_PASS")
+          print("MACOS_INTEL_PYPI_SECURE_50_NO_COMPATIBLE_WHEEL_CONFIRMED")
+          print("MACOS_INTEL_PYPI_MATURIN_COMPATIBLE_WHEEL_PASS")
+          print("INTERPRETER", sys.version.split()[0], "ARCH", platform.machine())
+          print("PIP", __import__("pip").__version__, "FIRST_PIP_TAG", next(iter(sys_tags())))
+          PYTEST
