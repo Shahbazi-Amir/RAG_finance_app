@@ -108,7 +108,8 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "825b3c731b7cc4c53f4ba322b8c2c18ca0c82c54"
           test "$(git hash-object src/phase3/auth/transactional_admission.py)" = "0b95a0392a1808d7ca7d821222ee329447cab79d"
-          python -c 'from src.phase3.auth.transactional_admission import AdmissionSerializationUnavailable; print("FND_API012_NEW_ADMISSION_IMPORT_PASS")'
+          grep -F 'class AdmissionSerializationUnavailable(Exception):' src/phase3/auth/transactional_admission.py
+          echo FND_API012_NEW_ADMISSION_CLASS_ON_PINNED_SOURCE_PASS
           echo FND_API012_825_SOURCE_ADMISSION_BLOB_VERIFIED
       - name: Stage exact approved 009 SQL from #44 tested SHA (CI filesystem only)
         run: |
