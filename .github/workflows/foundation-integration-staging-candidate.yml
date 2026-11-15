@@ -1,0 +1,66 @@
+name: Foundation Integrated Web+API candidate — static evidence only
+
+on:
+  push:
+    branches: [integration/phase3-private-staging-candidate]
+  pull_request:
+    branches: [agent/api-staging-pinned-runner-preflight]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integrated-source-static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact integrated candidate SHA
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Assert pinned original UI/API/Runner source bytes (no substitution)
+        run: |
+          set -euo pipefail
+          echo "INTEGRATED_SOURCE_SHA=$(git rev-parse HEAD)"
+          test "$(git hash-object apps/api/product_session_api.py)" = "54b751a169cc143cc6ae1ea3efe8d837a4b54f1d"
+          test "$(git hash-object apps/web/src/history/proxy.ts)" = "d52da7e04ae7de26faedf7cf3f9d9522642eecf3"
+          test "$(git hash-object scripts/phase3-demo/launcher.py)" = "65248ac6df7c150b3873ca6383ddf3f4eaaf4199"
+          test "$(git hash-object src/phase3/rag_runtime/staging_preflight.py)" = "8b73d7c2fbb4a159c091954fdb20d4d71d4b0135"
+          test "$(git hash-object src/phase3/auth/staging_service_profile.py)" != ""
+          test "$(git hash-object src/phase3/rag_runtime/staging_service_bootstrap.py)" != ""
+          echo "FND_INTEGRATED_UI49_API53_SOURCE_BLOBS_PASS"
+          echo "NO_SSH_NO_PAID_DISPATCH_NO_DEPLOY"
+      - name: Node 22.16.0 (local demo compatible)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Install Web pinned dependencies
+        run: npm ci --prefix apps/web --no-audit --no-fund
+      - name: Web typecheck
+        run: npm --prefix apps/web run typecheck
+      - name: Web lint
+        run: npm --prefix apps/web run lint
+      - name: Web unit tests
+        run: npm --prefix apps/web run test
+      - name: Web production build only (NEVER deployed)
+        run: npm --prefix apps/web run build
+      - name: Python 3.13 for API static/fixture unit checks
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install CI-only API dependencies
+        run: python -m pip install --no-cache-dir -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.34.3'
+      - name: Compile API and staging no-dispatch modules
+        run: |
+          python -m compileall -q src/phase3/auth src/phase3/rag_runtime apps/api
+          echo FND_INTEGRATED_API_COMPILE_PASS
+      - name: Run original API isolated unit tests
+        run: python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
+      - name: Run existing product contract tests
+        run: python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v
+      - name: Explicitly deny staging readiness interpretation
+        if: always()
+        run: |
+          echo "INTEGRATION_CANDIDATE_ONLY_NO_REAL_LOGIN_NO_SERVICE_NO_PG_NO_RUNNER"
+          echo "BROWSER_E2E_BLOCKED_UNTIL_SIGNED_BFF_API_DB_AND_OPS_GATES"

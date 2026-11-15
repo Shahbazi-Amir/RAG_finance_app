@@ -4,6 +4,9 @@
  * The core limits application-collected bytes, not upstream Node/proxy buffers.
  */
 import { boundedJsonBody } from './bounded-body.ts';
+import {SESSION,cookie,secureBrowser,noStore} from '../auth/server/initial-browser.ts';
+import {getActive,revokeAlias} from '../auth/server/initial-store.ts';
+import {productRequest} from '../auth/server/product-session.ts';
 
 const allowed=(parts:string[],method:string):boolean=>
   (parts.length===1&&parts[0]==='conversations'&&['GET','POST'].includes(method))||
@@ -14,6 +17,46 @@ const allowed=(parts:string[],method:string):boolean=>
 
 export async function forwardHistoryProxy(request:Request,path:string[]):Promise<Response>{
   if(!allowed(path,request.method))return new Response(null,{status:404});
+  // The new initial-login fixture must NEVER fall back to the historical
+  // actor-selected CI proxy. #39 signed only GET /v1/conversations through
+  // a test-only dependency override; a Product API History route is absent.
+  if(process.env.AUTH_CI_LOGIN_MODE==='true'){
+    if(!secureBrowser(request))return new Response(null,{status:503,headers:noStore});
+    const handle=cookie(request,SESSION);
+    const active=handle?await getActive(handle):null;
+    if(!active)
+      return Response.json({error:'AUTH_REQUIRED'},{status:401,headers:noStore});
+    // This demo deliberately wires only the LIST route of #50. No old
+    // browser actor selector, local 200 fixture, or unreviewed write endpoints.
+    if(process.env.AUTH_CI_DEMO_MODE!=='true')
+      return Response.json({error:'SIGNED_HISTORY_API_NOT_WIRED'},
+        {status:503,headers:noStore});
+    if(request.method!=='GET'||path.length!==1||path[0]!=='conversations')
+      return Response.json({error:'DEMO_LIST_ONLY'},
+        {status:503,headers:noStore});
+    const values=new URL(request.url).searchParams;
+    if([...values.keys()].some(k=>!['limit','cursor'].includes(k)||
+       values.getAll(k).length!==1))
+      return new Response(null,{status:422,headers:noStore});
+    const limit=values.get('limit')??'20';
+    const cursor=values.get('cursor');
+    if(!/^(?:[1-9][0-9]?)$|^100$/.test(limit)||
+       (cursor!==null&&!/^[A-Za-z0-9_-]{1,512}$/.test(cursor)))
+      return new Response(null,{status:422,headers:noStore});
+    const query='?limit='+limit+(cursor===null?'':'&cursor='+cursor);
+    try{
+      const actual=await productRequest('history',active,query);
+      // The only 401 here is the *actual* protected Product API response.
+      if(actual.status===401&&handle)await revokeAlias(handle);
+      return new Response(actual.body,{
+        status:actual.status,
+        headers:{...noStore,'Content-Type':'application/json; charset=utf-8'},
+      });
+    }catch{
+      return Response.json({error:'DEMO_API_UNAVAILABLE'},
+        {status:503,headers:noStore});
+    }
+  }
   const fixed=process.env.HISTORY_UPSTREAM_ORIGIN;
   // No browser-specified upstream or identity. Closed outside isolated CI.
   if(process.env.CI!=='true'||!fixed||
