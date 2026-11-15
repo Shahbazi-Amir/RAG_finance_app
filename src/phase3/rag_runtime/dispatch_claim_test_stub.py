@@ -17,6 +17,7 @@ class CountOnlyGatewayStub:
         self._mutex = Lock()
         self._counts = Counter()
         self._failures = {}
+        self._default_outcome = "ACCEPTED"
 
     def inject_outcome(self, attempt_id: str, outcome: str) -> None:
         if outcome not in {"ACCEPTED", "TIMEOUT", "LOST_RESPONSE"}:
@@ -24,13 +25,20 @@ class CountOnlyGatewayStub:
         with self._mutex:
             self._failures[attempt_id] = outcome
 
+    def set_default_outcome(self, outcome: str) -> None:
+        if outcome not in {"ACCEPTED", "TIMEOUT", "LOST_RESPONSE"}:
+            raise ValueError("BAD_SYNTHETIC_GATEWAY_OUTCOME")
+        with self._mutex:
+            self._default_outcome = outcome
+
     def __call__(self, permit: CommittedDispatchPermit, question: str) -> None:
         if (not isinstance(permit, CommittedDispatchPermit)
                 or not isinstance(question, str) or not question.strip()):
             raise ValueError("BAD_SYNTHETIC_DISPATCH_PERMIT")
         with self._mutex:
             self._counts[permit.binding.engine_request_id] += 1
-            outcome = self._failures.get(permit.binding.engine_request_id, "ACCEPTED")
+            outcome = self._failures.get(
+                permit.binding.engine_request_id, self._default_outcome)
         if outcome == "TIMEOUT":
             raise TimeoutError("SYNTHETIC_TIMEOUT_AFTER_BOUNDARY")
         if outcome == "LOST_RESPONSE":
