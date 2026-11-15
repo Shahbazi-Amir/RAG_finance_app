@@ -36,7 +36,7 @@ class PinnedStagingPreflight(unittest.TestCase):
         self.layout = RunnerLayout(self.python, self.repo, self.artifacts,
                                    self.relative, self.cache)
         self.env = {
-            **OFFLINE_REQUIRED,
+            **OFFLINE_REQUIRED, "HF_HUB_CACHE": str(self.cache),
             "ARVAN_GATEWAY_URL": "synthetic-DO-NOT-PRINT-ENDPOINT",
             "ARVAN_GATEWAY_API_KEY": "synthetic-DO-NOT-PRINT-SECRET",
         }
