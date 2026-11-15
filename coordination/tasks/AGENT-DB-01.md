@@ -1054,3 +1054,63 @@ Final source phase: only staging package SQL/Runbook and cumulative ledger in a 
 **What this DOES NOT verify:** Any real staging/Arvan backup restore, staging schema drift/data size, role inventory/ACL pre-state, staging Postgres server version, user/host/UID, secret store, PITR restore correctness, private TLS/mTLS, no-generation C018 end-to-end, production readiness or permission to run 011 on an actual server. These remain NOT_OBSERVED/NOT_RUN and require an authorized Ops-provided staging Backup, isolated restore proof and review of whether its ACL pre-state makes the proposed Rollback safe. In production, do NOT blindly rollback a bridge grant that existed before this candidate. The final checkpoint addition is documentation-only after test SHA; code source remains tested ae88aadb, final branch SHA recorded separately.
 
 **Status:** Implemented=DB55_THREE_SCRIPT_SYNTHETIC_BACKUP_RESTORED_PG17_VALIDATION; Tested=PASS_ON_SYNTHETIC_RESTORED_CLONE_ONLY at SHA ae88aadb..., exact Run/Job above. Accepted=NONE_NEW/SUPERVISOR_PENDING; actual STAGING_BACKUP_RESTORE=NOT_RUN; ARVAN_GRANTS_MIGRATIONS=NOT_APPLIED; PAID_GATEWAY_CALLS=ZERO. No merge, deploy, live gate, Reset/C2 or provider calls. Foundation #55 receives handoff and explicit unmet real Backup prerequisite.
+
+
+## Checkpoint DB55-ARVAN-NO-DISPATCH-DB-HANDOFF-01 — actual-target readiness decision (2026-11-15)
+
+**Canonical scope:** DB01-05/07/08/09/14 (P3M04, P3M05, P3M06, P3M10; P3OP02/P3OP03 non-counting); Foundation owns aggregate checklist and signoff. **Starting actual PR head:** #57 `723146d130fd591246c4f617ffd7b4ca751448af` on \`agent/db55-staging-execution-package\`, OPEN/DRAFT. Reviewed #56 actual head \`e7a61a066dd37963fa390b0d15ddd43bca4bd02a\`, #55 actual head \`79807beba1f7b3586e926bdd6ecdf9570a7c7cf8\` (NOT the older executable source pin). #55 green integrated executable candidate is \`9d4cf5dc6cb86b5cc174b71b9ed08c42f57d77de\`, with pinned UI \`0c522847cc627ade62f3da253332555f12b822a5\` and API \`92f83561fcb8391f68b0b4e86ab5dcfc3970e8c5\`; later Foundation #55 commits carry workflow/policy/checkpoint, not an API628 re-pin. DB #56 tested immutable 011 source \`b0ba6dbf6100109cb58f8cb49da808839d68c5f0\` is CI-only and is NOT required or authorized for first NO_DISPATCH.
+
+**Read source files:** AGENTS.md, coordination/ownership.md, this cumulative DB ledger and infra/postgres/staging/DB55_STAGING_DB_RUNBOOK.md; reviewed the exact verifier, bridge, rollback SQL and synthetic CI test/workflow. No direct target DB/SSH/host access was attempted. Latest accessible Foundation/Ops project handoff still requires a C023-safe maintenance window. Do not interpret previous C023-running statements as proof of its exact current state; C023_RELEASE_CONFIRMED=NO_ATTESTATION.
+
+**Target evidence requested from Foundation + authorized Mac SSH Ops (no credentials, DSNs, user rows, raw SQL traces in chat/Git/logs):**
+- \`TARGET_DB_EXISTENCE\` = EXISTING|NEW_EMPTY|UNKNOWN; actual DB identity stored only in private Ops receipt, report anonymized target reference; \`TARGET_PG_MAJOR\`, \`APPLIED_001_010_ORDERED_LIST_WITH_VERIFIED_SOURCE_DIGESTS\`, independent migration ledger and drift verdict, \`011_PRESENT\` yes/no.
+- \`HISTORY_APP/AUTH_REVOKER\` login/service identity and all 009/010 roles, NOSUPERUSER+NOBYPASSRLS+NOINHERIT+no direct Auth SELECT, history_l1 FORCE RLS and exact 003/004/005 + 009/010 EXECUTE/USAGE booleans; role name does NOT prove actual service uses it.
+- Real approved \`BACKUP_ID/PITR_PROOF\`, verified independent \`RESTORED_REAL_BACKUP_CLONE\` provenance, clone isolation/nonproduction endpoint and independent DBA/auditor accounts; signed six-bit PRE-GRANT ACL snapshot for rollback safety; \`PREVIOUS_DEPLOYED_SHA\` and \`TARGET_DEPLOYED_SHA\` (not branch Git head).
+- Confirm \`C023_RELEASED\`, precise shared-host noninterference window, owner/operator/DBA/Foundation approval BEFORE any server interaction. Source-only GitHub inspection does not satisfy this.
+
+**Operator commands — COPY ONLY AFTER authorized safe window; exact repo checkout at #57, never run against production without a distinct explicit approval:**
+
+~~~bash
+# On operator's trusted Mac/worktree, no SSH in this checkpoint:
+cd "$DB55_REPO" && test "$(git rev-parse HEAD)" = "723146d130fd591246c4f617ffd7b4ca751448af"
+# On an independently restored isolated PostgreSQL clone ONLY:
+# PGSERVICE entries and passwords are provisioned by Ops in local mode-0600 service/pass files.
+# Never echo or log their connection details. Auditor needs auth_l1/history_l1 schema USAGE,
+# but NO table SELECT, DML, bypassRLS or app function EXECUTE.
+PGSERVICE=db55_clone_auditor psql -X -v ON_ERROR_STOP=1 -At <<'SQL'
+BEGIN TRANSACTION READ ONLY;
+SELECT 'PG17='||(current_setting('server_version_num')::integer BETWEEN 170000 AND 179999)::text;
+SELECT 'HISTORY_SCHEMA='||EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='history_l1')::text;
+SELECT 'AUTH_SCHEMA='||EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='auth_l1')::text;
+SELECT 'HISTORY_APP_ROLE='||EXISTS(SELECT 1 FROM pg_roles WHERE rolname='history_app')::text;
+SELECT 'AUTH_REVOKER_ROLE='||EXISTS(SELECT 1 FROM pg_roles WHERE rolname='auth_revoker')::text;
+COMMIT;
+SQL
+# When ordered 001–010 + exact role provisioning + pre-grant permissions are known:
+PGSERVICE=db55_clone_auditor psql -X -v ON_ERROR_STOP=1 -v db55_phase=session_core \
+  -f infra/postgres/staging/db55_verify_staging.sql
+PGSERVICE=db55_clone_auditor psql -X -v ON_ERROR_STOP=1 -v db55_phase=private_no_dispatch \
+  -f infra/postgres/staging/db55_verify_staging.sql
+# Approval-only CLONE rehearsal; NEVER stage/production in this mission.
+# First obtain a signed saved pre-grant ACL matrix (six bits) in private Ops evidence.
+PGSERVICE=db55_clone_dba psql -X -v ON_ERROR_STOP=1 \
+  -f infra/postgres/staging/db55_no_dispatch_bridge.sql
+PGSERVICE=db55_clone_auditor psql -X -v ON_ERROR_STOP=1 -v db55_phase=private_no_dispatch \
+  -f infra/postgres/staging/db55_verify_staging.sql
+# Conditional CLONE rollback ONLY if each of the six effective bits was false before
+# the grant and no service depends on them, with separate DBA/Foundation approval:
+PGSERVICE=db55_clone_dba psql -X -v ON_ERROR_STOP=1 \
+  -f infra/postgres/staging/db55_rollback_auth_bridge.sql
+PGSERVICE=db55_clone_auditor psql -X -v ON_ERROR_STOP=1 -v db55_phase=private_no_dispatch \
+  -f infra/postgres/staging/db55_verify_staging.sql
+~~~
+
+**Expected results / stop protocol:** Inventory PG17=t and schema/roles=t for provisioned clone (new empty clone may legitimately show schema/roles=f before installation; do NOT mislabel as corruption). Before missing bridge, verifier must deny with \`DB55_MISSING_APPROVED_004_005_003_BRIDGE_GRANTS\`; after narrowly authorized bridge, \`DB55_private_no_dispatch_DB_ROLE_SCHEMA_AND_FUNCTION_GATE_PASS\` and psql exit 0. Following strictly conditional rollback, the same verifier must again DENY due to missing bridge. \`live_011\` must NOT be run or treated as a no-dispatch prerequisite. An already granted PRE-state cannot be blindly revoked. The verifier checks catalog ACL/function EXECUTE eligibility, NOT real successful invocation of a signed service function, actual migration hashes, A/B transport or live C018. A direct \`SELECT 1 FROM auth_l1.sessions LIMIT 0\` as history_app/auth_revoker, on the private restored clone and ONLY after separate role-connection preflight, must be denied; do not capture customer rows. Report these separate positive/negative results, do not inherit synthetic CI as actual role proof.
+
+**If target is NEW_EMPTY (not yet proven):** record new-empty status with an operator-signed read-only catalog and DB existence receipt; first make an independent EMPTY disposable clone, provision exact restricted real-equivalent roles without copying passwords, apply approved immutable 001→010 in order (001–008 exact main; 009 SHA 656604356dadea953031fcdb74650a5d42df4e9b; 010 SHA 1678e87b7984094b74ec995383b8d4383e5f5ae7); check per-file Git blob hash table in Runbook, then perform audit→approved clone-only bridge→audit and, conditionally, rollback. No real-data restore claim is possible for an empty target and no staging write is authorized. Never add 011 or start paid Dispatch.
+
+**Already verified, unchanged:** #57 exact executable test SHA \`ae88aadb2fee6e707e34e0ba57bb659729cba3be\`, \`bash tests/phase3/database/db55_backup_restore_validation.sh\`, official disposable PG17.11, synthetic pg_dump -Fc and pg_restore into different \`db55_restore_clone\`: GitHub [Run 43729811005 / Job 132859552247](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/43729811005/job/132859552247) SUCCESS. Read-only audit/limited bridge/conditional rollback, synthetic seeded-row preservation, forbidden SELECT negative injection PASSED on restored synthetic clone only. Earlier [Run 43729371704](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/43729371704) failed at auditor schema USAGE prerequisite; corrected CI-only with no change to 3 SQL scripts. No test rerun in this handoff: no source or test gap changed.
+
+**Future live result storage ownership (NOT a NO_DISPATCH gate):** DB owns a separately designed encrypted-at-rest durable result store and restore/deletion feasibility; API owns secure writes, signed read authorization, Owner+Session epoch/generation+resolved Conversation+immutable T2 Attempt correlation; Foundation/Security approve key management, consent/TTL, backup retention/crypto-erasure, revoke/delete consistency and cross-user isolation. CI \`staging.invited_live_result.v1\` synthetic 900s SQLite fixture is not authorized to store real answers. DB011 after any committed Claim remains non-droppable; suspend Dispatch, retain Claim/UNKNOWN and manually reconcile, never auto-retry.
+
+**Final formal outcome:** \`BLOCKED\` for \`READY_FOR_NO_DISPATCH_DB\`. First blockers: real staging target/version/001–010 migration inventory/role pre-ACL = NOT_ATTESTED; real Backup/PITR+isolated restore clone = NOT_ATTESTED; C023-safe approved window = NOT_ATTESTED. Owners: **Foundation** (candidate SHA, cross-component signoff and release window), **authorized Ops/SSH + DBA/DB** (target+backup+roles+clone inventory, private SQL execution and sanitized results), **C023 owner** (release), **Supervisor** (final approval). Implemented=documented reviewed operator handoff and cumulative checkpoint only; Tested=existing synthetic CI PASS (not new), real clone/staging=NOT_RUN; Accepted=NONE_NEW. Staging Migration/GRANT/Rollback=NONE, SSH/Gateway=NONE, Merge/Deploy=NONE.
