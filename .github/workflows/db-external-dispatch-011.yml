@@ -1,0 +1,93 @@
+name: DB-DISPATCH-011 — irreversible external dispatch claim (no Gateway)
+on:
+  push:
+    branches: [agent/db-external-dispatch-011]
+    paths:
+      - '.github/workflows/db-external-dispatch-011.yml'
+      - 'infra/postgres/migrations/011_external_dispatch_claim.up.sql'
+      - 'infra/postgres/migrations/011_external_dispatch_claim.down.sql'
+      - 'tests/phase3/database/test_external_dispatch_claim.py'
+permissions:
+  contents: read
+jobs:
+  disposable-postgres:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/agent/db-external-dispatch-011'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_PASSWORD: synthetic_postgres_ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: 'true'
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGPASSWORD: synthetic_postgres_ci_only
+      DB_APP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_migrator password=synthetic_migrator_only connect_timeout=5
+      DISPATCH_REPORTER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_dispatch_reporter password=synthetic_reporter_only connect_timeout=5
+      DISPATCH_RECON_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_dispatch_reconciler password=synthetic_reconciler_only connect_timeout=5
+    steps:
+      - name: Checkout candidate DB source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install DB-only dependencies (no Runner or Gateway)
+        run: python -m pip install --no-cache-dir 'psycopg[binary]==3.3.8' 'jsonschema==4.25.1'
+      - name: Verify disposable PG17.11 and candidate source
+        run: |
+          set -euo pipefail
+          psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -c 'SHOW server_version;'
+          psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -c "SELECT inet_server_addr(),inet_server_port();"
+          test -f infra/postgres/migrations/001_history_l1.up.sql
+          test -f infra/postgres/migrations/002_one_attempt.up.sql
+          test -f infra/postgres/migrations/011_external_dispatch_claim.up.sql
+          python -m compileall -q tests/phase3/database/test_external_dispatch_claim.py
+      - name: Create isolated no-BYPASSRLS service roles and three temporary DBs
+        run: |
+          set -euo pipefail
+          psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE history_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_migrator_only' NOSUPERUSER;
+          GRANT pg_read_all_stats TO history_migrator;
+          CREATE ROLE history_app LOGIN PASSWORD 'synthetic_app_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE history_dispatch_reporter LOGIN PASSWORD 'synthetic_reporter_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE history_dispatch_reconciler LOGIN PASSWORD 'synthetic_reconciler_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE DATABASE history_ci;
+          CREATE DATABASE history_dispatch_empty_ci;
+          CREATE DATABASE history_dispatch_evidence_ci;
+          GRANT CONNECT,CREATE ON DATABASE history_ci,history_dispatch_empty_ci,history_dispatch_evidence_ci
+            TO history_migrator;
+          GRANT CONNECT ON DATABASE history_ci,history_dispatch_empty_ci,history_dispatch_evidence_ci
+            TO history_app,history_dispatch_reporter,history_dispatch_reconciler;
+          SQL
+      - name: Apply unchanged 001 and 002 plus candidate 011 on disposable PG
+        run: |
+          set -euo pipefail
+          export PGUSER=history_migrator PGPASSWORD=synthetic_migrator_only
+          for database in history_ci history_dispatch_empty_ci history_dispatch_evidence_ci; do
+            psql -X -d "$database" -v ON_ERROR_STOP=1 \
+              -f infra/postgres/migrations/001_history_l1.up.sql
+            psql -X -d "$database" -v ON_ERROR_STOP=1 \
+              -f infra/postgres/migrations/002_one_attempt.up.sql
+            psql -X -d "$database" -v ON_ERROR_STOP=1 \
+              -f infra/postgres/migrations/011_external_dispatch_claim.up.sql
+            test "$(psql -X -d "$database" -Aqt -c 'SELECT count(*) FROM history_l1.external_dispatch_claims')" = "0"
+          done
+          echo 'DISPATCH011_PG17_THREE_ISOLATED_DATABASES_UP_PASS'
+      - name: Run actual concurrent PostgreSQL DB-only dispatch matrix (no Gateway)
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/database \
+            -p 'test_external_dispatch_claim.py' -v
