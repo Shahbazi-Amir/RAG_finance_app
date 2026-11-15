@@ -6,6 +6,7 @@ import {conversations,messages,newSend,sendMessage,recoverStatus,HistoryFailure,
   type AnswerView,type HistoryStatus} from '../history/client';
 import type {Answer,Citation} from '../mock/transport';
 import {verifiedSourceUrl} from './source-locator';
+import {isVerifiedLiveAnswer,productOutcomeLabel} from './answer-visibility';
 import {readCheckpoints,retainCheckpoint,forgetCheckpoints,statusCorrelators,
   type AttemptCheckpoint} from './attempt-checkpoints';
 
@@ -15,24 +16,6 @@ type Attempt= {record:AttemptCheckpoint;question:string|null;phase:HistoryStatus
   attemptId:string|null;messageId:string|null;answer:Answer|null;confirmed:boolean};
 const isTerminal=(phase:Attempt['phase'])=>
   ['answer_committed','invalid_answer','failed','cancelled'].includes(phase);
-const sampleBlocked=(answer:Answer|null):boolean=>!!answer&&
-  (answer.provenance.origin!=='LIVE_VERIFIED'||
-   answer.provenance.rag_binding.status!=='verified'||
-   answer.provenance.rag_binding.adapter_verified!==true);
-const safeAnswer=(answer:Answer|null):answer is Answer=>
-  !!answer&&!sampleBlocked(answer);
-
-function outcomeLabel(answer:Answer):string {
-  switch(answer.outcome){
-    case 'answer':return '';
-    case 'no_answer':return 'شاهد کافی برای پاسخ یافت نشد.';
-    case 'partial':return 'پاسخ ناقص است.';
-    case 'clarification':return 'برای پاسخ دقیق‌تر پرسش را روشن‌تر کنید.';
-    case 'refusal':return 'پاسخ‌گویی به این پرسش ممکن نیست.';
-    case 'error':return 'پاسخ با خطای فنی مواجه شده است.';
-    default:return 'نتیجهٔ پاسخ نامعلوم است.';
-  }
-}
 function phaseLabel(attempt:Attempt):string {
   switch(attempt.phase){
     case 'sending':return 'در حال ثبت پرسش…';
@@ -66,12 +49,12 @@ function CitationView({citation}:{citation:Citation}){
   </li>;
 }
 function AnswerPanel({answer}:{answer:Answer}){
-  if(!safeAnswer(answer))return <p role="status" className="history-note">
+  if(!isVerifiedLiveAnswer(answer))return <p role="status" className="history-note">
     پاسخ نمونه یا تأییدنشده از API دریافت شده و عمداً نمایش داده نمی‌شود.
   </p>;
   return <div className="product-answer" data-testid={'answer-'+answer.answer_id}>
     {answer.answer_text&&<p className="history-message-text">{answer.answer_text}</p>}
-    {outcomeLabel(answer)&&<p role="status" className="history-note">{outcomeLabel(answer)}</p>}
+    {productOutcomeLabel(answer)&&<p role="status" className="history-note">{productOutcomeLabel(answer)}</p>}
     {answer.claims.length>0&&<section aria-label="شواهد این پاسخ" className="product-evidence">
       <h2>شواهد همین پاسخ</h2>
       {answer.claims.map(claim=><div key={claim.claim_id} className="product-claim">
@@ -155,7 +138,7 @@ export default function ProductChat(){
           ...all[record.client_message_id],phase:'status_error'}}));
         return;
       }
-      const resultPhase=status.status==='answer_committed'&&sampleBlocked(status.answer)
+      const resultPhase=status.status==='answer_committed'&&!isVerifiedLiveAnswer(status.answer)
         ?'invalid_answer':status.status;
       setAttempts(all=>{
         const previous=all[record.client_message_id];

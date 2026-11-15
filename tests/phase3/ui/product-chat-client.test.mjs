@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import {sendMessage,recoverStatus,newSend,HistoryFailure} from '../../../apps/web/src/history/client.ts';
 import {conformsToProductV1} from '../../../apps/web/src/history/product-validation.ts';
 import {verifiedSourceUrl} from '../../../apps/web/src/ui/source-locator.ts';
+import {isVerifiedLiveAnswer,productOutcomeLabel} from '../../../apps/web/src/ui/answer-visibility.ts';
 
 const cases=JSON.parse(readFileSync(new URL(
   '../../../packages/contracts/fixtures/product.v1.cases.json',import.meta.url),'utf8')).cases;
@@ -79,4 +80,30 @@ test('a source link is offered only for a valid verified HTTPS URL locator',()=>
       resolution_status:'verified',attribution_status:'verified',
       display_title_origin:'source_record'}),null);
   }
+});
+
+test('synthetic/provisional Answer is never user-visible even if committed',()=>{
+  const synthetic=fixture('valid_answer_unresolved_source');
+  assert.equal(isVerifiedLiveAnswer(synthetic),false);
+  assert.equal(isVerifiedLiveAnswer(null),false);
+  const fake={...synthetic,provenance:{
+    ...synthetic.provenance,origin:'LIVE_VERIFIED',
+    rag_binding:{...synthetic.provenance.rag_binding,status:'provisional',adapter_verified:false}
+  }};
+  assert.equal(isVerifiedLiveAnswer(fake),false);
+  const live={...synthetic,provenance:{
+    ...synthetic.provenance,origin:'LIVE_VERIFIED',
+    rag_binding:{...synthetic.provenance.rag_binding,status:'verified',adapter_verified:true}
+  }};
+  assert.equal(isVerifiedLiveAnswer(live),true);
+});
+test('no evidence vs technical error vs partial vs unknown are separate',()=>{
+  const noAnswer=fixture('valid_answer_no_answer');
+  const technical=fixture('valid_answer_technical_error');
+  const partial=fixture('valid_answer_partial');
+  const unknown=fixture('valid_answer_unknown');
+  assert.match(productOutcomeLabel(noAnswer),/شاهد کافی/);
+  assert.match(productOutcomeLabel(technical),/خطای فنی/);
+  assert.match(productOutcomeLabel(partial),/ناقص/);
+  assert.match(productOutcomeLabel(unknown),/نامعلوم/);
 });
