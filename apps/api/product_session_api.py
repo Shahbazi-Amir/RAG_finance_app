@@ -26,6 +26,9 @@ from apps.api.product_message_fixture import answer_from_fixture
 from src.phase3.rag_runtime.staging_no_dispatch import prepare_post_commit_no_dispatch
 from src.phase3.rag_runtime.no_dispatch_handler import NoDispatchHandler
 from src.phase3.rag_runtime.staging_preflight import PreflightDenied
+from src.phase3.rag_runtime.staging_service_bootstrap import (
+    PrivateStagingEngineConfig, build_private_no_dispatch_handler,
+)
 from src.phase3.auth.staging_service_profile import (
     PrivateStagingProfile, StagingConfigDenied, db_attributes_approved,
 )
@@ -235,6 +238,25 @@ def install_server_no_dispatch_handler(handler: NoDispatchHandler) -> None:
         raise PreflightDenied()
     global _SERVER_NO_DISPATCH_TASK
     _SERVER_NO_DISPATCH_TASK = handler
+
+
+def install_private_staging_no_dispatch(
+    profile: PrivateStagingProfile, engine: PrivateStagingEngineConfig,
+) -> None:
+    """Only trusted Ops startup may call; service stays no-dispatch ONLY.
+
+    First validate pinned C018 runner file/hash and shared private ledger.
+    Then install the separately verified BFF/mTLS/DB profile atomically in
+    process memory. Does not perform HTTP, SQL grants or engine execution.
+    """
+    if (os.getenv("API_RUNNER_EXECUTION_MODE") != "NO_DISPATCH_ONLY"
+            or _PRIVATE_STAGING_PROFILE is not None
+            or _SERVER_NO_DISPATCH_TASK is not None):
+        raise StagingConfigDenied()
+    handler = build_private_no_dispatch_handler(
+        profile=profile, config=engine, environ=os.environ)
+    install_private_staging_auth(profile)
+    install_server_no_dispatch_handler(handler)
 
 
 @app.get("/v1/message-requests/engine-status")
