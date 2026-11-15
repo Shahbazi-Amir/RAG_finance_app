@@ -1,0 +1,76 @@
+name: Foundation UI54 exact-source L1 Chromium (intercepted API only)
+
+on:
+  push:
+    branches: [integration/phase3-private-staging-candidate]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ui54-exact-l1:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout immutable UI #54 source independent of #55 working tree
+        uses: actions/checkout@v4
+        with:
+          ref: d0f37f188028b97f2e183166ca1a587acce48475
+          persist-credentials: false
+      - name: Prove immutable UI HEAD and original L1 test source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "d0f37f188028b97f2e183166ca1a587acce48475"
+          echo "FND_UI54_TESTED_SOURCE_SHA=$(git rev-parse HEAD)"
+          test "$(git hash-object tests/phase3/integration/ui/product_chat_browser.py)" = "861c14a6193630939e002c35342b0a7ca73d41b0"
+          echo FND_UI54_EXACT_SOURCE_AND_BROWSER_TEST_PIN_PASS
+      - name: Node 22.16.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Python 3.13 for browser harness
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install pinned Next dependencies
+        run: npm ci --prefix apps/web --no-audit --no-fund
+      - name: UI54 TypeScript
+        run: npm --prefix apps/web run typecheck
+      - name: UI54 lint
+        run: npm --prefix apps/web run lint
+      - name: UI54 Node tests
+        run: npm --prefix apps/web run test
+      - name: UI54 Next build
+        run: npm --prefix apps/web run build
+      - name: Install isolated Chromium and Playwright (no production resources)
+        run: |
+          set -euo pipefail
+          python -m pip install --no-cache-dir 'playwright==1.64.1'
+          python -m playwright install --with-deps chromium
+      - name: Run actual Chromium against L1 Next with intercepted routes
+        run: |
+          set -euo pipefail
+          nohup npm --prefix apps/web run start > "$RUNNER_TEMP/ui54_next.log" 2>&1 < /dev/null &
+          echo "$!" > "$RUNNER_TEMP/ui54_next.pid"
+          ready=0
+          for n in $(seq 1 55); do
+            if curl --silent --fail --output /dev/null http://127.0.0.1:3000/; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if test "$ready" != 1; then
+            tail -n 50 "$RUNNER_TEMP/ui54_next.log"
+            echo UI54_NEXT_READY_BLOCKED
+            exit 1
+          fi
+          UI_CHAT_L1_BASE_URL=http://127.0.0.1:3000 python tests/phase3/integration/ui/product_chat_browser.py 2>&1 | tee "$RUNNER_TEMP/ui54_browser.log"
+          grep -F 'UI_CHAT_L1_BROWSER_ONCE_ONLY_POST_REFRESH_STATUS_AND_401_PURGE_PASS' "$RUNNER_TEMP/ui54_browser.log"
+          echo FND_UI54_ISOLATED_CHROMIUM_WITH_FIXTURE_PASS
+      - name: Explicitly delimit this evidence
+        if: always()
+        run: |
+          echo UI54_BROWSER_SCOPE=CHROMIUM_L1_INTERCEPTED_API_FIXTURE_NOT_SIGNED_API
+          echo NO_STAGING_NO_REAL_POSTGRES_NO_ENGINE_NO_DISPATCH_NO_DEPLOY
