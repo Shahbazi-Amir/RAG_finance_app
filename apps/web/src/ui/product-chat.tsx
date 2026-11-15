@@ -153,11 +153,12 @@ export default function ProductChat(){
           confirmed:status.status!=='not_found'
         }};
       });
-      if(status.id&&status.status!=='not_found'){
-        const s=sessionStore();if(s)retainCheckpoint(s,{...record,resolved_conversation_id:status.id});
-        setSelected(old=>old.startsWith('draft:')?status.id:old);
+      const confirmedId=status.id;
+      if(confirmedId&&status.status!=='not_found'){
+        const s=sessionStore();if(s)retainCheckpoint(s,{...record,resolved_conversation_id:confirmedId});
+        setSelected(old=>old.startsWith('draft:')?confirmedId:old);
         void loadList();
-        void loadThread(status.id);
+        void loadThread(confirmedId);
       }
     }catch(e){
       if(!invalidate(e)&&!lost.current)
@@ -243,8 +244,7 @@ export default function ProductChat(){
           ...prev,
           // A status GET may finish before the delayed POST receipt.
           // The receipt cannot downgrade completed/unknown/failed outcome.
-          phase:prev.phase==='sending'||prev.phase==='transport_unknown'
-            ?'persisted':prev.phase,
+          phase:prev.phase==='sending'?'persisted':prev.phase,
           record:{...prev.record,resolved_conversation_id:receipt.id},
           viewId:receipt.id,messageId:receipt.messageId,confirmed:true}}:all;});
       retainCheckpoint(s,{...record,resolved_conversation_id:receipt.id});

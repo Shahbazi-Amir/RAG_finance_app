@@ -44,8 +44,11 @@ test('one POST creates receipt; subsequent recovery/refesh is GET only, exact or
     assert.equal(recovered.attemptRequestId,'req_1');
     assert.equal(recovered.attemptTraceId,'trace_1');
     await recoverStatus(original); // browser reload/poll never posts
+    const correlators={requested_conversation_id:original.requested_conversation_id,
+      client_message_id:original.client_message_id,idempotency_key:original.idempotency_key};
+    assert.equal((await recoverStatus(correlators)).status,'attempt_pending');
   });
-  assert.deepEqual(methods,['POST','GET','GET']);
+  assert.deepEqual(methods,['POST','GET','GET','GET']);
   assert.equal(urls[1],urls[2]);
   assert.match(urls[1],/requested_conversation_id=&client_message_id=/);
   assert.ok(!urls.some(u=>u.includes('owner_user_id')));

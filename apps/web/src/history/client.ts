@@ -183,7 +183,11 @@ function acceptedReceipt(payload:unknown, original:SendRequest):{id:string;messa
 export async function sendMessage(original:SendRequest):Promise<{id:string;messageId:string}>{
   return acceptedReceipt(await api('messages','POST',original),original);
 }
-export async function recoverStatus(original:SendRequest):Promise<{
+/** Poll is a GET of the original opaque correlators; it must not need the
+ * question or accept a newly created Send payload after refresh. */
+export type StatusCorrelation=Pick<SendRequest,
+  'requested_conversation_id'|'client_message_id'|'idempotency_key'>;
+export async function recoverStatus(original:StatusCorrelation):Promise<{
   status:HistoryStatus;id:string|null;messageId:string|null;answer:Answer|null;
   attemptId:string|null;attemptRequestId:string|null;attemptTraceId:string|null
 }>{
