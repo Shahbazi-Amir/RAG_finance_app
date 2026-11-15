@@ -41,13 +41,15 @@ jobs:
       - name: Checkout exact approved API #53 source without PR synthetic merge
         uses: actions/checkout@v4
         with:
-          ref: 3b598147c954aa91281392e58ab3d7f2df97ac2d
+          ref: 92f83561fcb8391f68b0b4e86ab5dcfc3970e8c5
           fetch-depth: 0
           persist-credentials: false
       - name: Verify API tested SHA and test module byte identity
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "3b598147c954aa91281392e58ab3d7f2df97ac2d"
+          test "$(git rev-parse HEAD)" = "92f83561fcb8391f68b0b4e86ab5dcfc3970e8c5"
+          test "$(git merge-base HEAD 3b598147c954aa91281392e58ab3d7f2df97ac2d)" = "3b598147c954aa91281392e58ab3d7f2df97ac2d"
+          test "$(git hash-object apps/api/product_session_api.py)" = "43ce1e7929d6e783f90ad8b9dcc689eebdde6faf"
           echo "FND_CLAIM011_API_TESTED_SHA=$(git rev-parse HEAD)"
           test "$(git hash-object tests/phase3/integration/api/test_external_dispatch_claim_011_http.py)" = "e4edc2d9ddb6c903a09f038e1ea6b13875f250b2"
           echo FND_CLAIM011_SIX_ORIGINAL_API_TESTS_SOURCE_PIN_PASS
@@ -61,7 +63,7 @@ jobs:
           test "$(git hash-object infra/postgres/migrations/011_external_dispatch_claim.up.sql)" = "031d2f438f000154eb4e2b374ce42181b3d812b3"
           echo "FND_CLAIM011_DB_MIGRATION_TESTED_SHA=b0ba6dbf6100109cb58f8cb49da808839d68c5f0"
           echo FND_CLAIM011_DB56_UP_SQL_BLOB_VERIFIED
-          test "$(git rev-parse HEAD)" = "3b598147c954aa91281392e58ab3d7f2df97ac2d"
+          test "$(git rev-parse HEAD)" = "92f83561fcb8391f68b0b4e86ab5dcfc3970e8c5"
       - name: Python 3.13 pinned CI dependencies
         uses: actions/setup-python@v5
         with:
@@ -121,7 +123,7 @@ jobs:
       - name: Six real signed ASGI HTTP+PG17 Claim scenarios — count-only stub, no Gateway
         run: |
           set -euo pipefail
-          echo "FND_CLAIM011_TESTED_API_SHA=3b598147c954aa91281392e58ab3d7f2df97ac2d"
+          echo "FND_CLAIM011_TESTED_API_SHA=92f83561fcb8391f68b0b4e86ab5dcfc3970e8c5"
           echo "FND_CLAIM011_TESTED_DB56_SHA=b0ba6dbf6100109cb58f8cb49da808839d68c5f0"
           PYTHONPATH="$PWD/tests/phase3/integration/api:$PWD" \
             python -m unittest discover -s tests/phase3/integration/api -p 'test_external_dispatch_claim_011_http.py' -v 2>&1 | tee "$RUNNER_TEMP/claim011_http.log"

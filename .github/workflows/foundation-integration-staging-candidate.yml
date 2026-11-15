@@ -23,7 +23,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "INTEGRATED_SOURCE_SHA=$(git rev-parse HEAD)"
-          test "$(git hash-object apps/api/product_session_api.py)" = "54b751a169cc143cc6ae1ea3efe8d837a4b54f1d"
+          test "$(git hash-object apps/api/product_session_api.py)" = "43ce1e7929d6e783f90ad8b9dcc689eebdde6faf"
           test "$(git hash-object apps/web/src/history/proxy.ts)" = "dd399fda26fd896616d5a61a938991372ce9b2bc"
           test "$(git hash-object apps/web/src/ui/product-chat.tsx)" = "6391f0ba8bdc796ef39d7555684d11e25a0860a0"
           test "$(git hash-object apps/web/app/page.tsx)" = "fd99583bc67fd886da575acec55108bb9538f8ba"
@@ -36,8 +36,11 @@ jobs:
           test "$(git hash-object apps/web/src/history/client.ts)" = "2aa68d63e994281dcc60d0175c89748e17d23d08"
           test "$(git hash-object tests/phase3/ui/product-chat-client.test.mjs)" = "8da96a4400c5b25b5783ef228e3f433f784ed7a5"
           test "$(git hash-object tests/phase3/ui/product-bff-boundary.test.mjs)" = "107754422141a5704a0dd919aa401fb01045de30"
+          test "$(git hash-object src/phase3/rag_runtime/dispatch_claim_bridge.py)" = "e8549bd9b1c5460804cc510bfee7cda326aff7a8"
+          test "$(git hash-object src/phase3/rag_runtime/dispatch_claim_test_stub.py)" = "226021a6289b38160d75d1a36d6c10897f181795"
+          test "$(git hash-object tests/phase3/integration/api/test_external_dispatch_claim_011_http.py)" = "e4edc2d9ddb6c903a09f038e1ea6b13875f250b2"
           echo "FND_INTEGRATED_UI54_API53_SOURCE_BLOBS_PASS"
-          echo "FND_INTEGRATION_PINNED_API53_SHA_9323566c38d2006f8948b9f277bf6787ef30e474"
+          echo "FND_INTEGRATION_PINNED_API53_SHA_92f83561fcb8391f68b0b4e86ab5dcfc3970e8c5"
           echo "NO_SSH_NO_PAID_DISPATCH_NO_DEPLOY"
       - name: Node 22.16.0 (local demo compatible)
         uses: actions/setup-node@v4

@@ -24,6 +24,11 @@ from psycopg.rows import dict_row
 from apps.api import history_api as history
 from apps.api.product_message_fixture import answer_from_fixture
 from src.phase3.rag_runtime.staging_no_dispatch import prepare_post_commit_no_dispatch
+from src.phase3.rag_runtime.dispatch_claim_bridge import (
+    DispatchClaimDenied, claim_within_signed_t2,
+    after_definitive_commit, owner_scoped_claim_status, flag_reporter_unknown,
+)
+from src.phase3.rag_runtime.dispatch_claim_test_stub import CountOnlyGatewayStub
 from src.phase3.rag_runtime.no_dispatch_handler import NoDispatchHandler
 from src.phase3.rag_runtime.staging_preflight import PreflightDenied
 from src.phase3.rag_runtime.staging_service_bootstrap import (
@@ -49,6 +54,9 @@ _REPLAY = PostgresDurableReplayStore()
 # Server-injected only after Ops verifies runner CLI/digest and DB authority.
 # An environment toggle alone NEVER installs or authorizes this handler.
 _SERVER_NO_DISPATCH_TASK = None
+# Optional network-free CI-only Gateway counter. No production dispatch client.
+_CI_CLAIM_STUB = None
+_CI_DISPATCH_REPORTER_DSN = None
 # Only explicitly injected from a trusted Ops startup; never from an HTTP/env toggle.
 _PRIVATE_STAGING_PROFILE = None
 _PRIVATE_STAGING_VERIFIER = None
@@ -57,6 +65,7 @@ _HISTORY_PATH = b"/v1/conversations"
 _SEND_PATH = b"/v1/messages"
 _STATUS_PATH = b"/v1/message-requests/status"
 _ENGINE_STATUS_PATH = b"/v1/message-requests/engine-status"
+_CLAIM_TEST_STATUS_PATH = b"/v1/message-requests/claim-test-status"
 _CONVERSATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 _SESSION_ROLES = {"history": "history_app", "revoke": "auth_revoker"}
@@ -240,6 +249,31 @@ def install_server_no_dispatch_handler(handler: NoDispatchHandler) -> None:
     _SERVER_NO_DISPATCH_TASK = handler
 
 
+def install_ci_count_only_dispatch(stub: CountOnlyGatewayStub, reporter_dsn: str) -> None:
+    """Test harness only; never installs a live network Gateway client.
+
+    CI-only DB must independently provision Migration 011 and reporter role;
+    it is never applied to staging here. No browser-controlled injection.
+    """
+    global _CI_CLAIM_STUB, _CI_DISPATCH_REPORTER_DSN
+    if (os.getenv("CI") != "true" or os.getenv("GITHUB_ACTIONS") != "true"
+            or os.getenv("API_RUNNER_EXECUTION_MODE") != "CLAIM_STUB_CI_ONLY"
+            or _PRIVATE_STAGING_PROFILE is not None
+            or _CI_CLAIM_STUB is not None
+            or not isinstance(stub, CountOnlyGatewayStub)
+            or not isinstance(reporter_dsn, str)):
+        raise DispatchClaimDenied()
+    attrs = psycopg.conninfo.conninfo_to_dict(reporter_dsn)
+    if ((attrs.get("host"), attrs.get("port"), attrs.get("dbname"),
+         attrs.get("user")) !=
+            ("127.0.0.1", "5432", "history_ci", "history_dispatch_reporter")
+            or set(attrs) - {"host", "port", "dbname", "user",
+                             "password", "connect_timeout"}):
+        raise DispatchClaimDenied()
+    _CI_DISPATCH_REPORTER_DSN = reporter_dsn
+    _CI_CLAIM_STUB = stub
+
+
 def install_private_staging_no_dispatch(
     profile: PrivateStagingProfile, engine: PrivateStagingEngineConfig,
 ) -> None:
@@ -296,6 +330,32 @@ def session_engine_status(request: Request):
             "answer": None,
         }, headers={"Cache-Control": "no-store"})
     return _signed_read(request, _ENGINE_STATUS_PATH, read, coherent_read=True)
+
+
+@app.get("/v1/message-requests/claim-test-status")
+def session_claim_test_status(request: Request):
+    """Disposable signed HTTP diagnostic only; NOT a Foundation staging DTO."""
+    def read(ctx):
+        if (_CI_CLAIM_STUB is None or
+                os.getenv("API_RUNNER_EXECUTION_MODE") != "CLAIM_STUB_CI_ONLY"):
+            raise DispatchClaimDenied()
+        query = history._query(request, "message_request_status_query")
+        doc = history.read_status(
+            ctx["conn"], ctx["owner"], query, ctx["request_id"], ctx["trace_id"],
+            session_transaction=True)
+        data = owner_scoped_claim_status(ctx["conn"], ctx["owner"], doc)
+        if data is None:
+            raise history.NotFound()
+        return JSONResponse(status_code=200, content={
+            "kind": "claim_test_status",
+            "contract_version": "api.claim_stub_diagnostic.v0",
+            "product_status": doc["status"],
+            "dispatch_state": data["dispatch_state"],
+            "attempt_id": doc["attempt_id"],
+            "attempt_trace_id": doc["attempt_trace_id"],
+            "answer": None,
+        }, headers={"Cache-Control": "no-store"})
+    return _signed_read(request, _CLAIM_TEST_STATUS_PATH, read, coherent_read=True)
 
 
 def _run_fixture_send(request, raw_body, payload):
@@ -399,6 +459,73 @@ def _run_server_no_dispatch_send(request, raw_body, payload, background_tasks):
     return history._send_success(receipt, 200 if stage.is_replay else 202)
 
 
+def _report_ci_dispatch_unknown(permit, reason):
+    """Only CI reporter role; failure never authorizes a second send."""
+    if _CI_DISPATCH_REPORTER_DSN is None:
+        return False
+    try:
+        with psycopg.connect(
+            _CI_DISPATCH_REPORTER_DSN, autocommit=True, row_factory=dict_row,
+            connect_timeout=5,
+        ) as conn:
+            role = conn.execute(
+                "SELECT rolname,rolsuper,rolbypassrls FROM pg_roles "
+                "WHERE rolname=current_user").fetchone()
+            if (role is None or role["rolname"] != "history_dispatch_reporter"
+                    or role["rolsuper"] or role["rolbypassrls"]):
+                return False
+            return flag_reporter_unknown(conn, permit, reason)
+    except (psycopg.Error, RuntimeError, OSError, DispatchClaimDenied):
+        return False
+
+
+def _invoke_ci_count_only_gateway(permit, question):
+    """Post-commit count, no network; mark ambiguous result in real PG011."""
+    try:
+        _CI_CLAIM_STUB(permit, question)
+    except TimeoutError:
+        _report_ci_dispatch_unknown(permit, "TIMEOUT")
+    except ConnectionError:
+        _report_ci_dispatch_unknown(permit, "LOST_RESPONSE")
+    # A process crash cannot reuse the consumed Claim, even if report is lost.
+
+
+def _run_ci_claim_send(request, raw_body, payload, background_tasks):
+    """Full signed 005/004 T1→T2→011 Claim outer COMMIT before counted stub."""
+    if (_CI_CLAIM_STUB is None
+            or os.getenv("CI") != "true"
+            or os.getenv("GITHUB_ACTIONS") != "true"
+            or os.getenv("API_RUNNER_EXECUTION_MODE") != "CLAIM_STUB_CI_ONLY"
+            or _PRIVATE_STAGING_PROFILE is not None):
+        return history._safe_error(
+            503, "ENGINE_NOT_CONFIGURED", "technical", "History unavailable.")
+
+    def committed_operation():
+        def reserve(ctx):
+            conn, owner = ctx["conn"], ctx["owner"]
+            receipt = history.send_t1(
+                conn, owner, payload, ctx["request_id"], ctx["trace_id"])
+            if receipt["disposition"] == "replayed":
+                return receipt, None
+            attempt = start_t2(
+                conn, owner, payload["requested_conversation_id"],
+                payload["client_message_id"], payload["idempotency_key"],
+                history.uid(), ctx["trace_id"])
+            # Exactly DB #56 Migration 011 signature. No external send here.
+            permit = claim_within_signed_t2(conn, owner, attempt)
+            return receipt, permit
+        # The original protected_transaction EXIT/COMMIT must succeed first.
+        _, value = _signed_history(request, raw_body, _SEND_PATH, reserve)
+        return value
+
+    def enqueue(permit, question):
+        background_tasks.add_task(_invoke_ci_count_only_gateway, permit, question)
+
+    receipt, created = after_definitive_commit(
+        committed_operation, enqueue, payload["question"])
+    return history._send_success(receipt, 202 if created else 200)
+
+
 @app.post("/v1/messages")
 async def session_send_message(request: Request, background_tasks: BackgroundTasks):
     try:
@@ -411,6 +538,10 @@ async def session_send_message(request: Request, background_tasks: BackgroundTas
             # Never execute synthetic fixture inside private staging.
             response = history._safe_error(
                 503, "ENGINE_NOT_CONFIGURED", "technical", "History unavailable.")
+        elif os.getenv("API_RUNNER_EXECUTION_MODE") == "CLAIM_STUB_CI_ONLY":
+            response = await run_in_threadpool(
+                _run_ci_claim_send,
+                request, raw_body, payload, background_tasks)
         elif os.getenv("API_RUNNER_EXECUTION_MODE") == "NO_DISPATCH_ONLY":
             # Server-only feature gate, not browser-supplied. Without an
             # approved handler this returns 503 BEFORE any DB write.
