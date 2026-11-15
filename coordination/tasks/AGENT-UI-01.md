@@ -930,3 +930,6 @@ New apps/web/src/auth/server/product-session.ts issues session-bound RS256, fres
 
 ### UI-CHAT-013-09 — preserve #49 browser expectations
 - **Implemented:** `product-chat.tsx` retains `GET /api/history/conversations?limit=2` used by existing #49 A/B Keycloak/Logout Chromium harness, while still exposing pagination. Existing browser checks currently pin this GET URL, so changing it to 20 silently breaks the accepted prior synthetic E2E. Stable sessionStore helper outside React callback avoids stale hook deps. Test script/UI code remain NOT_RUN; actual #49 harness re-run on this stacked UI SHA required. P3M05/M13/M14, P3OP05.
+
+### UI-CHAT-013-10 — browser fixture keeps List GET page size two
+- **Implemented:** `tests/phase3/integration/ui/product_chat_browser.py` now mirrors #49's `limit=2` native Next query so its intercepted product.v1 list page validates exactly. The L1 Chromium script still needs actual execution; no fabricated results. P3M13/M14, P3OP05, tests NOT_RUN.

@@ -38,7 +38,7 @@ def main():
             return
         if path.endswith("/api/history/conversations") and method == "GET":
             body = fixture("valid_paginated_conversations")
-            body["page"]["limit"] = 20
+            body["page"]["limit"] = 2
             body["page"]["has_more"] = False
             body["page"]["next_cursor"] = None
             body["items"] = []
