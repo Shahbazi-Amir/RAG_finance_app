@@ -472,7 +472,7 @@ def session_invited_live_result(request: Request):
                 "warning": INVITED_WARNING,
             },
             "answer": item["answer"] if item["result_status"] == "READY" else None,
-        },
+        }
         validate_ci_invited_result(result_document)
         return JSONResponse(status_code=200, content=result_document,
                             headers={"Cache-Control": "no-store"})
