@@ -200,6 +200,7 @@ def install_private_staging_auth(profile: PrivateStagingProfile) -> None:
     a production trust profile. Peer verification MUST use trusted TLS state.
     Does not apply DB grants or enable paid Dispatch.
     """
+    global _PRIVATE_STAGING_PROFILE, _PRIVATE_STAGING_VERIFIER
     if (not isinstance(profile, PrivateStagingProfile)
             or _PRIVATE_STAGING_PROFILE is not None
             or os.getenv("CI") == "true"
@@ -217,7 +218,6 @@ def install_private_staging_auth(profile: PrivateStagingProfile) -> None:
             and _SERVER_NO_DISPATCH_TASK.profile.runner_file_sha256
                 != profile.runner_sha256):
         raise StagingConfigDenied()
-    global _PRIVATE_STAGING_PROFILE, _PRIVATE_STAGING_VERIFIER
     _PRIVATE_STAGING_PROFILE = profile
     _PRIVATE_STAGING_VERIFIER = verifier
 
