@@ -68,6 +68,8 @@ deny_table() {
   echo "DB55_DIRECT_DENIED_"$role"_"$table"_PASS"
 }
 snapshot
+deny_table db55_auditor synthetic_auditor_only auth_l1.sessions
+deny_table db55_auditor synthetic_auditor_only history_l1.messages
 echo DB55_SYNTHETIC_BACKUP_RESTORE_WITH_SEEDED_ROW_PASS
 fail_marker session_core DB55_MISSING_APPROVED_004_005_003_BRIDGE_GRANTS
 fail_marker private_no_dispatch DB55_MISSING_APPROVED_004_005_003_BRIDGE_GRANTS

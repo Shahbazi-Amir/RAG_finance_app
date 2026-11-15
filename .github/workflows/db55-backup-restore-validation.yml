@@ -143,6 +143,12 @@ jobs:
             psql -XAt -v ON_ERROR_STOP=1 -d db55_restore_clone \
             -c "SELECT count(*) FROM history_l1.conversations WHERE owner_id='db55_synthetic_backup_owner'")" = 1
           echo DB55_PG_DUMP_FC_BACKUP_AND_PG_RESTORE_INDEPENDENT_CLONE_PASS
+      - name: Provision auditor schema-name visibility ONLY on the restored clone
+        run: |
+          set -euo pipefail
+          psql -X -U postgres -d db55_restore_clone -v ON_ERROR_STOP=1 -c             'GRANT USAGE ON SCHEMA auth_l1,history_l1 TO db55_auditor'
+          test "$(psql -X -U postgres -d db55_restore_clone -Atc             "SELECT has_table_privilege('db55_auditor','auth_l1.sessions','SELECT') OR has_table_privilege('db55_auditor','history_l1.messages','SELECT')")" = f
+          echo DB55_AUDITOR_SCHEMA_USABLE_BUT_TABLE_SELECT_FORBIDDEN_PASS
       - name: Audit / Grant / Rollback actual PostgreSQL validation (RESTORED CLONE ONLY)
         run: |
           set -euo pipefail
