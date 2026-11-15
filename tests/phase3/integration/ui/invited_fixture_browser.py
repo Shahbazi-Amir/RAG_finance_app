@@ -145,7 +145,8 @@ def one_case(page, base, case_state):
     page.get_by_test_id("create-conversation").click()
     page.get_by_test_id("history-question").fill("تست پاسخ و استناد فارسی")
     page.get_by_test_id("history-send").click()
-    expect(page.get_by_text(expected[case_state], exact=True)).to_be_visible(timeout=15000)
+    expect(page.get_by_test_id("ci-fixture-result").get_by_role("status")).to_contain_text(
+        expected[case_state], timeout=15000)
     assert calls["send"] == 1
     attempt = calls["body"]["client_message_id"]
 
@@ -167,7 +168,8 @@ def one_case(page, base, case_state):
     before_fixture = len(calls["fixture"])
     page.reload(wait_until="domcontentloaded")
     expect(page.get_by_test_id("attempt-" + attempt)).to_be_visible(timeout=15000)
-    expect(page.get_by_text(expected[case_state], exact=True)).to_be_visible(timeout=15000)
+    expect(page.get_by_test_id("ci-fixture-result").get_by_role("status")).to_contain_text(
+        expected[case_state], timeout=15000)
     assert_fixture()
     assert calls["send"] == 1
     assert len(calls["status"]) > before_status
