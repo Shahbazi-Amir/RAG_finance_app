@@ -7,6 +7,7 @@ import {createHash,createPrivateKey,randomBytes,sign} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {request as httpsRequest} from 'node:https';
 import type {IncomingMessage,ClientRequest} from 'node:http';
+import {stagingRequested,stagingProfile,stagingSecret} from './private-staging.ts';
 
 export type TrustedActive=Readonly<{ownerId:string;epoch:number;generation:number;
   sessionVerifier:string}>;
@@ -15,6 +16,14 @@ const sha=(data:Buffer|string)=>createHash('sha256').update(data).digest('hex');
 const b64=(x:unknown)=>Buffer.from(JSON.stringify(x),'utf8').toString('base64url');
 function deny():never{throw new Error('DEMO_PRODUCT_PRIVATE_API_UNAVAILABLE');}
 async function privateConfig(){
+  if(stagingRequested()){
+    const p=stagingProfile();
+    return {endpoint:new URL(p.product_origin),
+      signKey:stagingSecret(p.product_sign_key_file),
+      ca:stagingSecret(p.tls_ca_file),cert:stagingSecret(p.tls_client_cert_file),
+      key:stagingSecret(p.tls_client_key_file),
+      issuer:p.product_issuer,audience:p.product_audience,kid:p.product_kid};
+  }
   if(process.env.CI!=='true'||process.env.AUTH_CI_DEMO_MODE!=='true')deny();
   let endpoint:URL;
   try{
@@ -56,7 +65,8 @@ export async function productRequest(
   if(isStatus&&(!statusQuery.test(query)||operationId||rawBody))deny();
   if(isSend&&(query||operationId||!rawBody||
       Buffer.byteLength(rawBody,'utf8')>8192||
-      process.env.AUTH_CI_PRODUCT_CHAT_MODE!=='NO_DISPATCH_ONLY'))deny();
+      (stagingRequested()?stagingProfile().send_mode!=='NO_DISPATCH_ONLY':
+        process.env.AUTH_CI_PRODUCT_CHAT_MODE!=='NO_DISPATCH_ONLY')))deny();
   const c=await privateConfig();
   const rawPath=isList?'/v1/conversations':
     isRevoke?'/internal/auth/session/v1/revoke-one':

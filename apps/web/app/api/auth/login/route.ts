@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {stagingRequested,stagingProfile} from '../../../../src/auth/server/private-staging.ts';
 import {bootstrap} from '../../../../src/auth/initial/index.ts';
 import {digest,saveInit,fresh} from '../../../../src/auth/initial/index.ts';
 import {INIT,cookie,csrf,mutationAllowed,noStore} from
@@ -27,7 +28,8 @@ export async function POST(request:Request):Promise<Response>{
        typeof reply.data.state!=='string'||typeof reply.data.authorize_url!=='string')
       return new Response('Login unavailable',{status:503,headers:noStore});
     const url=new URL(reply.data.authorize_url);
-    const expected=process.env.AUTH_CI_IDP_AUTHORIZATION_ORIGIN??'';
+    const expected=stagingRequested()?stagingProfile().idp_authorization_origin:
+      process.env.AUTH_CI_IDP_AUTHORIZATION_ORIGIN??'';
     if(url.origin!==expected||!url.pathname.endsWith('/protocol/openid-connect/auth')||
        url.searchParams.get('state')!==reply.data.state||
        url.searchParams.get('code_challenge_method')!=='S256')
