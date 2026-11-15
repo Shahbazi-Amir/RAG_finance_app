@@ -218,14 +218,16 @@ export default function ProductChat(){
     if(!question)return;
     // A draft is a UI-only ID. The API allocates a real conversation on T1.
     const original=selected.startsWith('draft:')?null:selected;
-    if(Object.values(attemptsRef.current).some(a=>!isTerminal(a.phase)&&
+    // Only a prior unresolved Send in the SAME persisted conversation
+    // blocks a second send. An unrelated fresh draft may start independently.
+    if(original!==null&&Object.values(attemptsRef.current).some(a=>
+        !isTerminal(a.phase)&&
         (a.record.resolved_conversation_id??a.record.requested_conversation_id)===original))
       return;
     const request=newSend(question,original);
-    const record:AttemptCheckpoint={...statusCorrelators({
+    const record:AttemptCheckpoint={
       requested_conversation_id:request.requested_conversation_id,
       client_message_id:request.client_message_id,idempotency_key:request.idempotency_key,
-      created_at:Date.now(),resolved_conversation_id:null}),
       created_at:Date.now(),resolved_conversation_id:null};
     if(!retainCheckpoint(window.sessionStorage,record)){
       setError('این مرورگر امکان ذخیرهٔ شناسهٔ پیگیری را ندارد؛ پرسش ارسال نشد.');

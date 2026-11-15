@@ -23,7 +23,7 @@ function html(content:string){
     'border-radius:12px;padding:12px}.error{color:#991b1b;background:#fef2f2;'+
     'border-radius:12px;padding:12px}</style></head><body>'+
     '<main><div class="brand">◈ راگ مالی | فاز سوم</div>'+content+
-    '<small>این یک محیط آزمایشی ایزوله با داده‌ها و حساب‌های مصنوعی است؛ اتصال موتور زنده ندارد.</small>'+
+    '<small>ورود و تاریخچهٔ خصوصی در محیط ایزوله؛ پاسخ زنده فقط پس از اتصال تأییدشدهٔ Runner نمایش داده می‌شود.</small>'+
     '</main></body></html>';
 }
 export async function GET(request:Request):Promise<Response>{
@@ -58,7 +58,7 @@ export async function GET(request:Request):Promise<Response>{
       ?'<p class="success" data-testid="logout-success">خروج با ابطال تأییدشدهٔ نشست انجام شد.</p>'
       :reason==='auth_failed'
       ?'<p class="error" data-testid="login-error">درخواست ورود معتبر نبود؛ دوباره تلاش کنید.</p>':'';
-    const text=html('<h1>ورود به تاریخچهٔ مالی</h1>'+result+
+    const text=html('<h1>ورود به گفت‌وگوی مالی</h1>'+result+
       '<p>با یکی از حساب‌های مصنوعی «نمایشی الف» یا «نمایشی ب» وارد شوید؛ هر حساب فقط تاریخچهٔ خودش را می‌بیند.</p>'+
       '<p class="label">تاریخچهٔ نمونهٔ سپهر و دماوند؛ اطلاعات غیرواقعی.</p>'+
       '<form method="post" action="/api/auth/login">'+
