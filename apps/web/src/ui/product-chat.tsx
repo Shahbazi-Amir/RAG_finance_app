@@ -67,10 +67,11 @@ function AnswerPanel({answer}:{answer:Answer}){
   </div>;
 }
 
+// Storage access is optional. Sending requires checkpoint persistence first.
+function sessionStore():Storage|null{
+  try{return window.sessionStorage;}catch{return null;}
+}
 export default function ProductChat(){
-  // Storage access is optional, but a Send is refused if its checkpoint
-  // cannot be written synchronously before the one irreversible POST.
-  const store=()=>{try{return window.sessionStorage;}catch{return null;}};
   const [list,setList]=useState<ListData>({items:[],next:null,more:false});
   const [listState,setListState]=useState<'loading'|'ready'|'error'|'unauthorized'>('loading');
   const [selected,setSelected]=useState<string>('draft:new');
@@ -89,7 +90,7 @@ export default function ProductChat(){
   const invalidate=useCallback((e:unknown):boolean=>{
     if(!(e instanceof HistoryFailure&&e.reason==='unauthorized'))return false;
     lost.current=true;
-    const s=store();if(s)forgetCheckpoints(s);
+    const s=sessionStore();if(s)forgetCheckpoints(s);
     attemptsRef.current={};
     threadEpochs.current={};
     setAttempts({});setList({items:[],next:null,more:false});
@@ -100,7 +101,8 @@ export default function ProductChat(){
   const loadList=useCallback(async (append=false,cursor:string|null=null)=>{
     if(lost.current)return;
     try{
-      const page=await conversations(20,append?cursor:null);
+      // Keep the existing #49 browser A/B harness query `limit=2` stable.
+      const page=await conversations(2,append?cursor:null);
       if(lost.current)return;
       setList(prev=>({items:append?mergeUnique(prev.items,page.items,x=>x.id):page.items,
         next:page.next,more:page.more}));
@@ -151,7 +153,7 @@ export default function ProductChat(){
         }};
       });
       if(status.id&&status.status!=='not_found'){
-        const s=store();if(s)retainCheckpoint(s,{...record,resolved_conversation_id:status.id});
+        const s=sessionStore();if(s)retainCheckpoint(s,{...record,resolved_conversation_id:status.id});
         setSelected(old=>old.startsWith('draft:')?status.id:old);
         void loadList();
         void loadThread(status.id);
@@ -169,7 +171,7 @@ export default function ProductChat(){
     let active=true;
     queueMicrotask(()=>{
       if(!active)return;
-      const s=store();
+      const s=sessionStore();
       const saved=s?readCheckpoints(s):[];
       setAttempts(all=>{
         const next={...all};
@@ -218,7 +220,7 @@ export default function ProductChat(){
       requested_conversation_id:request.requested_conversation_id,
       client_message_id:request.client_message_id,idempotency_key:request.idempotency_key,
       created_at:Date.now(),resolved_conversation_id:null};
-    const s=store();
+    const s=sessionStore();
     if(!s||!retainCheckpoint(s,record)){
       setError('این مرورگر امکان ذخیرهٔ شناسهٔ پیگیری را ندارد؛ پرسش ارسال نشد.');
       return;
