@@ -212,15 +212,18 @@ def verify_staging_database_authority(profile: PrivateStagingProfile) -> None:
             raise StagingConfigDenied() from None
 
 
-def prepare_private_app(cfg: PrivateASGIConfig, environ=None):
-    """Validate file/env/TLS and install actual pinned handler BEFORE traffic.
+def read_only_preflight(cfg: PrivateASGIConfig, environ=None) -> None:
+    """Checks actual TLS+PKI, BFF signing key, DB role/grants, pinned C018.
 
-    Must not be called twice. No SQL writes/grants or actual Runner invocation.
-    Real History role/004/005 access is checked on the signed smoke request.
+    Zero runner subprocesses, no HTTP listener, no SQLite ledger writes,
+    no SQL DDL/DML. Does make bounded READ-ONLY database metadata queries;
+    do not run this on Arvan before Ops grants a safe inspection window.
     """
     environ = os.environ if environ is None else environ
     _assert_no_dispatch_environment(environ)
     _test_tls_material(cfg)
+    from src.phase3.auth.service_proof import BFFServiceVerifier
+    from src.phase3.auth.staging_service_profile import StagingConfigDenied
     boundary = TrustedBFFTLSBoundary(cfg.bff_leaf_cert_sha256)
     profile = PrivateStagingProfile(
         issuer=cfg.issuer, audience=cfg.audience, kid=cfg.kid,
@@ -229,8 +232,40 @@ def prepare_private_app(cfg: PrivateASGIConfig, environ=None):
         peer_verifier=boundary.scope_is_verified,
         runner_sha256=RUNNER_C018_SHA256,
     )
-    # Hard DB gate: refuse to listen before actual restricted roles and 004/005.
+    # Parse actual RS256 BFF public key; never accept arbitrary PEM/data.
+    BFFServiceVerifier(
+        issuer=cfg.issuer, audience=cfg.audience,
+        public_keys={cfg.kid: profile.load_public_key()})
     verify_staging_database_authority(profile)
+    folder = cfg.ledger_file.parent
+    try:
+        st = folder.stat()
+        if (not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid()
+                or stat.S_IMODE(st.st_mode) & 0o077):
+            raise StagingConfigDenied()
+        if cfg.ledger_file.exists():
+            _protected_file(cfg.ledger_file, secret=True)
+    except OSError:
+        raise StagingConfigDenied() from None
+
+
+def prepare_private_app(cfg: PrivateASGIConfig, environ=None):
+    """Validate file/env/TLS and install actual pinned handler BEFORE traffic.
+
+    Must not be called twice. No SQL writes/grants or actual Runner invocation.
+    Real History role/004/005 access is checked on the signed smoke request.
+    """
+    environ = os.environ if environ is None else environ
+    # Validates BFF RS256 key, pinned runner and real DB privileges pre-listen.
+    read_only_preflight(cfg, environ)
+    boundary = TrustedBFFTLSBoundary(cfg.bff_leaf_cert_sha256)
+    profile = PrivateStagingProfile(
+        issuer=cfg.issuer, audience=cfg.audience, kid=cfg.kid,
+        public_key_path=cfg.public_key_file,
+        history_dsn=cfg.history_dsn, revoke_dsn=cfg.revoke_dsn,
+        peer_verifier=boundary.scope_is_verified,
+        runner_sha256=RUNNER_C018_SHA256,
+    )
     # Avoid a magic PYTHONPATH dependency for the original repository module.
     project_root = Path(__file__).resolve().parents[2]
     module_dir = project_root / "src/phase3/storage/postgres"
@@ -274,8 +309,14 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description="Pinned private no-dispatch Product API; Ops approval needed.")
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--preflight-only", action="store_true",
+                        help="Read-only dependency checks, no listen or runner")
     args = parser.parse_args(argv)
     try:
+        if args.preflight_only:
+            read_only_preflight(load_private_config(args.config))
+            print("PRIVATE_STAGING_PREFLIGHT_PASS")
+            return 0
         run_private_staging(args.config)
     except (PreflightDenied, StagingConfigDenied, VerifiedPeerUnavailable,
             ImportError, ModuleNotFoundError, OSError, ValueError, RuntimeError):
