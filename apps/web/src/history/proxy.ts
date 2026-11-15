@@ -4,9 +4,10 @@
  * The core limits application-collected bytes, not upstream Node/proxy buffers.
  */
 import { boundedJsonBody } from './bounded-body.ts';
-import {SESSION,cookie,secureBrowser,noStore} from '../auth/server/initial-browser.ts';
+import {SESSION,cookie,secureBrowser,noStore,publicOrigin} from '../auth/server/initial-browser.ts';
 import {getActive,revokeAlias} from '../auth/server/initial-store.ts';
 import {productRequest} from '../auth/server/product-session.ts';
+import {conformsToProductV1} from './product-validation.ts';
 
 const allowed=(parts:string[],method:string):boolean=>
   (parts.length===1&&parts[0]==='conversations'&&['GET','POST'].includes(method))||
@@ -17,43 +18,78 @@ const allowed=(parts:string[],method:string):boolean=>
 
 export async function forwardHistoryProxy(request:Request,path:string[]):Promise<Response>{
   if(!allowed(path,request.method))return new Response(null,{status:404});
-  // The new initial-login fixture must NEVER fall back to the historical
-  // actor-selected CI proxy. #39 signed only GET /v1/conversations through
-  // a test-only dependency override; a Product API History route is absent.
+  // CI-only authenticated path. No browser-selected owner, upstream, or
+  // synthetic fallback. The API independently fences the signed session.
   if(process.env.AUTH_CI_LOGIN_MODE==='true'){
     if(!secureBrowser(request))return new Response(null,{status:503,headers:noStore});
     const handle=cookie(request,SESSION);
     const active=handle?await getActive(handle):null;
     if(!active)
       return Response.json({error:'AUTH_REQUIRED'},{status:401,headers:noStore});
-    // This demo deliberately wires only the LIST route of #50. No old
-    // browser actor selector, local 200 fixture, or unreviewed write endpoints.
     if(process.env.AUTH_CI_DEMO_MODE!=='true')
-      return Response.json({error:'SIGNED_HISTORY_API_NOT_WIRED'},
+      return Response.json({error:'SIGNED_PRODUCT_API_NOT_WIRED'},
         {status:503,headers:noStore});
-    if(request.method!=='GET'||path.length!==1||path[0]!=='conversations')
-      return Response.json({error:'DEMO_LIST_ONLY'},
+    const query=new URL(request.url).searchParams;
+    const listed=path.length===1&&path[0]==='conversations'&&request.method==='GET';
+    const thread=path.length===3&&path[0]==='conversations'&&path[2]==='messages'&&request.method==='GET';
+    const status=path.length===2&&path[0]==='message-requests'&&path[1]==='status'&&request.method==='GET';
+    const send=path.length===1&&path[0]==='messages'&&request.method==='POST';
+    // The pinned #53 signed API has no POST create-conversation endpoint.
+    // A new draft becomes a server conversation only with its first Send.
+    if(!(listed||thread||status||send))
+      return Response.json({error:'PRODUCT_ROUTE_NOT_AVAILABLE'},{status:503,headers:noStore});
+    if(send&&process.env.AUTH_CI_PRODUCT_CHAT_MODE!=='NO_DISPATCH_ONLY')
+      return Response.json({error:'LIVE_RUNNER_NOT_APPROVED'},
         {status:503,headers:noStore});
-    const values=new URL(request.url).searchParams;
-    if([...values.keys()].some(k=>!['limit','cursor'].includes(k)||
-       values.getAll(k).length!==1))
-      return new Response(null,{status:422,headers:noStore});
-    const limit=values.get('limit')??'20';
-    const cursor=values.get('cursor');
-    if(!/^(?:[1-9][0-9]?)$|^100$/.test(limit)||
-       (cursor!==null&&!/^[A-Za-z0-9_-]{1,512}$/.test(cursor)))
-      return new Response(null,{status:422,headers:noStore});
-    const query='?limit='+limit+(cursor===null?'':'&cursor='+cursor);
+    let signedQuery='',rawBody='';
+    if(listed||thread){
+      if([...query.keys()].some(k=>!['limit','cursor'].includes(k)||
+         query.getAll(k).length!==1))
+        return new Response(null,{status:422,headers:noStore});
+      const limit=query.get('limit')??'20',cursor=query.get('cursor');
+      if(!/^(?:[1-9][0-9]?|100)$/.test(limit)||
+         (cursor!==null&&!/^[A-Za-z0-9_-]{1,512}$/.test(cursor)))
+        return new Response(null,{status:422,headers:noStore});
+      signedQuery='?limit='+limit+(cursor===null?'':'&cursor='+cursor);
+    }else if(status){
+      const keys=['requested_conversation_id','client_message_id','idempotency_key'];
+      if([...query.keys()].some(k=>!keys.includes(k)||query.getAll(k).length!==1)||
+         keys.some(k=>!query.has(k)))
+        return new Response(null,{status:422,headers:noStore});
+      const original=query.get('requested_conversation_id')??'';
+      const client=query.get('client_message_id')??'';
+      const key=query.get('idempotency_key')??'';
+      if(!/^[A-Za-z0-9_-]{0,64}$/.test(original)||
+         !/^[A-Za-z0-9_-]{1,64}$/.test(client)||
+         !/^[A-Za-z0-9_-]{8,128}$/.test(key))
+        return new Response(null,{status:422,headers:noStore});
+      signedQuery='?requested_conversation_id='+original+
+        '&client_message_id='+client+'&idempotency_key='+key;
+    }else{
+      if(query.size!==0||request.headers.get('origin')!==publicOrigin()||
+         request.headers.get('sec-fetch-site')!=='same-origin'||
+         !request.headers.get('content-type')?.startsWith('application/json'))
+        return new Response(null,{status:403,headers:noStore});
+      const bounded=await boundedJsonBody(request);
+      if(!bounded.ok)return new Response(null,{status:bounded.status,headers:noStore});
+      try{
+        rawBody=new TextDecoder('utf-8',{fatal:true}).decode(bounded.bytes);
+        const value:unknown=JSON.parse(rawBody);
+        if(!conformsToProductV1(value,'send_message_request'))
+          return new Response(null,{status:422,headers:noStore});
+      }catch{return new Response(null,{status:422,headers:noStore});}
+    }
     try{
-      const actual=await productRequest('history',active,query);
-      // The only 401 here is the *actual* protected Product API response.
+      const operation=listed?'history':thread?'messages':status?'status':'send';
+      const actual=await productRequest(
+        operation,active,signedQuery,thread?path[1]:'',rawBody);
       if(actual.status===401&&handle)await revokeAlias(handle);
       return new Response(actual.body,{
         status:actual.status,
         headers:{...noStore,'Content-Type':'application/json; charset=utf-8'},
       });
     }catch{
-      return Response.json({error:'DEMO_API_UNAVAILABLE'},
+      return Response.json({error:'SIGNED_PRODUCT_API_UNAVAILABLE'},
         {status:503,headers:noStore});
     }
   }
