@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {sendMessage,recoverStatus,newSend,HistoryFailure} from '../../../apps/web/src/history/client.ts';
 import {conformsToProductV1} from '../../../apps/web/src/history/product-validation.ts';
-import {safeSourceHref} from '../../../apps/web/src/mock/transport.ts';
+import {verifiedSourceUrl} from '../../../apps/web/src/ui/source-locator.ts';
 
 const cases=JSON.parse(readFileSync(new URL(
   '../../../packages/contracts/fixtures/product.v1.cases.json',import.meta.url),'utf8')).cases;
@@ -67,8 +67,16 @@ test('a source link is offered only for a valid verified HTTPS URL locator',()=>
   const unresolved=fixture('valid_answer_unresolved_source');
   const source=unresolved.citations[0]?.source;
   if(source){
-    assert.equal(safeSourceHref(source),null);
-    assert.equal(safeSourceHref({...source,locator:{kind:'url',url:'javascript:alert(1)',page:null,timestamp_ms:null},
-      resolution_status:'verified'}),null);
+    assert.equal(verifiedSourceUrl(source),null);
+    assert.equal(verifiedSourceUrl({...source,locator:{kind:'url',url:'javascript:alert(1)',page:null,timestamp_ms:null},
+      resolution_status:'verified',attribution_status:'verified'}),null);
+    assert.equal(verifiedSourceUrl({...source,locator:{
+      kind:'url',url:'https://example.org/verified',page:null,timestamp_ms:null},
+      resolution_status:'verified',attribution_status:'verified',
+      display_title_origin:'source_record'}),'https://example.org/verified');
+    assert.equal(verifiedSourceUrl({...source,locator:{
+      kind:'url',url:'https://user:pass@example.org',page:null,timestamp_ms:null},
+      resolution_status:'verified',attribution_status:'verified',
+      display_title_origin:'source_record'}),null);
   }
 });

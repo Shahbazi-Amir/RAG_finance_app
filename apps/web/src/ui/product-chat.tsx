@@ -4,7 +4,8 @@ import Link from 'next/link';
 import {conversations,messages,newSend,sendMessage,recoverStatus,HistoryFailure,
   failureLabel,mergeUnique,type ConversationView,type MessageView,
   type AnswerView,type HistoryStatus} from '../history/client';
-import {safeSourceHref,type Answer,type Citation} from '../mock/transport';
+import type {Answer,Citation} from '../mock/transport';
+import {verifiedSourceUrl} from './source-locator';
 import {readCheckpoints,retainCheckpoint,forgetCheckpoints,statusCorrelators,
   type AttemptCheckpoint} from './attempt-checkpoints';
 
@@ -49,7 +50,7 @@ function phaseLabel(attempt:Attempt):string {
 }
 function CitationView({citation}:{citation:Citation}){
   const s=citation.source;
-  const href=safeSourceHref(s);
+  const href=verifiedSourceUrl(s);
   return <li className="product-citation">
     <span>شناسهٔ منبع: <code dir="ltr">{s.source_id??'ثبت نشده'}</code></span>
     {s.display_title&&s.display_title_origin!=='SYNTHETIC'&&
@@ -84,6 +85,9 @@ function AnswerPanel({answer}:{answer:Answer}){
 }
 
 export default function ProductChat(){
+  // Storage access is optional, but a Send is refused if its checkpoint
+  // cannot be written synchronously before the one irreversible POST.
+  const store=()=>{try{return window.sessionStorage;}catch{return null;}};
   const [list,setList]=useState<ListData>({items:[],next:null,more:false});
   const [listState,setListState]=useState<'loading'|'ready'|'error'|'unauthorized'>('loading');
   const [selected,setSelected]=useState<string>('draft:new');
@@ -102,7 +106,7 @@ export default function ProductChat(){
   const invalidate=useCallback((e:unknown):boolean=>{
     if(!(e instanceof HistoryFailure&&e.reason==='unauthorized'))return false;
     lost.current=true;
-    forgetCheckpoints(window.sessionStorage);
+    const s=store();if(s)forgetCheckpoints(s);
     attemptsRef.current={};
     threadEpochs.current={};
     setAttempts({});setList({items:[],next:null,more:false});
@@ -164,7 +168,7 @@ export default function ProductChat(){
         }};
       });
       if(status.id&&status.status!=='not_found'){
-        retainCheckpoint(window.sessionStorage,{...record,resolved_conversation_id:status.id});
+        const s=store();if(s)retainCheckpoint(s,{...record,resolved_conversation_id:status.id});
         setSelected(old=>old.startsWith('draft:')?status.id:old);
         void loadList();
         void loadThread(status.id);
@@ -182,7 +186,8 @@ export default function ProductChat(){
     let active=true;
     queueMicrotask(()=>{
       if(!active)return;
-      const saved=readCheckpoints(window.sessionStorage);
+      const s=store();
+      const saved=s?readCheckpoints(s):[];
       setAttempts(all=>{
         const next={...all};
         for(const record of saved)if(!next[record.client_message_id])
@@ -230,7 +235,8 @@ export default function ProductChat(){
       requested_conversation_id:request.requested_conversation_id,
       client_message_id:request.client_message_id,idempotency_key:request.idempotency_key,
       created_at:Date.now(),resolved_conversation_id:null};
-    if(!retainCheckpoint(window.sessionStorage,record)){
+    const s=store();
+    if(!s||!retainCheckpoint(s,record)){
       setError('این مرورگر امکان ذخیرهٔ شناسهٔ پیگیری را ندارد؛ پرسش ارسال نشد.');
       return;
     }
@@ -247,7 +253,7 @@ export default function ProductChat(){
         {...all,[record.client_message_id]:{...prev,phase:'persisted',
           record:{...prev.record,resolved_conversation_id:receipt.id},
           messageId:receipt.messageId,confirmed:true}}:all;});
-      retainCheckpoint(window.sessionStorage,{...record,resolved_conversation_id:receipt.id});
+      retainCheckpoint(s,{...record,resolved_conversation_id:receipt.id});
       setSelected(old=>old===selected?receipt.id:old);
       void loadList();void loadThread(receipt.id);
       void probe(record); // GET only
