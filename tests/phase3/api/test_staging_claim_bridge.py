@@ -116,6 +116,14 @@ class TestClaimPostCommitBoundary(unittest.TestCase):
         with self.assertRaises(DispatchClaimDenied):
             owner_scoped_claim_status(c, "synthetic_owner_B", doc)
 
+    def test_real_postgres_http_suite_source_compiles_without_running_it(self):
+        # Only syntax evidence. Real HTTP/PG needs Foundation-owned PG17 CI.
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[3]
+        source = root / "tests/phase3/integration/api/test_external_dispatch_claim_011_http.py"
+        compiled = compile(source.read_text(encoding="utf-8"), str(source), "exec")
+        self.assertIsNotNone(compiled)
+
     def test_unknown_reporter_only_claim_id_and_enum(self):
         permit = self.permit()
         c = FakeConn({"ok": True})
