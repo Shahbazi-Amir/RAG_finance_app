@@ -233,7 +233,12 @@ export default function ProductChat(){
       const receipt=await sendMessage(request); // exactly one POST per user action
       if(lost.current)return;
       setAttempts(all=>{const prev=all[record.client_message_id];return prev?
-        {...all,[record.client_message_id]:{...prev,phase:'persisted',
+        {...all,[record.client_message_id]:{
+          ...prev,
+          // A status GET may finish before the delayed POST receipt.
+          // The receipt cannot downgrade completed/unknown/failed outcome.
+          phase:prev.phase==='sending'||prev.phase==='transport_unknown'
+            ?'persisted':prev.phase,
           record:{...prev.record,resolved_conversation_id:receipt.id},
           messageId:receipt.messageId,confirmed:true}}:all;});
       retainCheckpoint(s,{...record,resolved_conversation_id:receipt.id});
@@ -255,7 +260,11 @@ export default function ProductChat(){
     (a.record.resolved_conversation_id??a.record.requested_conversation_id)===
       (selected.startsWith('draft:')?null:selected));
   return <main className="history-shell product-shell" dir="rtl">
-    <aside className={'history-sidebar'+(mobileOpen?' is-mobile-open':'')}>
+    <aside className={'history-sidebar'+(mobileOpen?' is-mobile-open':'')}
+      role={mobileOpen?'dialog':undefined} aria-modal={mobileOpen?'true':undefined}
+      aria-label="فهرست گفتگوها">
+      <button type="button" className="history-mobile-close" aria-label="بستن فهرست"
+        onClick={()=>setMobileOpen(false)}>×</button>
       <div className="history-brand"><span className="brand-mark" aria-hidden="true">ف</span>
         <strong>راگ مالی</strong></div>
       <div className="history-actions">

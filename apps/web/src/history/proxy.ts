@@ -93,6 +93,12 @@ export async function forwardHistoryProxy(request:Request,path:string[]):Promise
         {status:503,headers:noStore});
     }
   }
+  // Historical actor-selected CI proxy is not a product/staging fallback.
+  // Even when Auth login is misconfigured, demo/chat mode must fail closed.
+  if(process.env.AUTH_CI_DEMO_MODE==='true'||
+     process.env.AUTH_CI_PRODUCT_CHAT_MODE!==undefined)
+    return Response.json({error:'PRODUCT_AUTH_REQUIRED'},
+      {status:503,headers:noStore});
   const fixed=process.env.HISTORY_UPSTREAM_ORIGIN;
   // No browser-specified upstream or identity. Closed outside isolated CI.
   if(process.env.CI!=='true'||!fixed||
