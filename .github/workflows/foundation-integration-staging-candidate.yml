@@ -52,6 +52,10 @@ jobs:
           test "$(git hash-object src/phase3/rag_runtime/dispatch_claim_bridge.py)" = "e8549bd9b1c5460804cc510bfee7cda326aff7a8"
           test "$(git hash-object src/phase3/rag_runtime/dispatch_claim_test_stub.py)" = "226021a6289b38160d75d1a36d6c10897f181795"
           test "$(git hash-object tests/phase3/integration/api/test_external_dispatch_claim_011_http.py)" = "e4edc2d9ddb6c903a09f038e1ea6b13875f250b2"
+          test "$(git hash-object apps/api/private_staging_asgi.py)" = "6072e7586d922737117dee27d61798df0cb9a6fc"
+          test "$(git hash-object src/phase3/auth/staging_transport_mtls.py)" = "1e0cb76483322a680cb59ed446702b7ab35c69ca"
+          test "$(git hash-object tests/phase3/api/test_staging_private_asgi.py)" = "09cc969e68d418c56eb70f8616120292821b7923"
+          echo "FND_PINNED_API53_PRIVATE_ASGI_MTLS_SOURCE_PASS"
           echo "FND_INTEGRATED_UI54_API53_SOURCE_BLOBS_PASS"
           echo "FND_INTEGRATION_PINNED_API53_SHA_92f83561fcb8391f68b0b4e86ab5dcfc3970e8c5"
           echo "NO_SSH_NO_PAID_DISPATCH_NO_DEPLOY"
@@ -74,7 +78,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Install CI-only API dependencies
-        run: python -m pip install --no-cache-dir -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.34.3'
+        run: python -m pip install --no-cache-dir -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.48.0'
       - name: Install Chromium for bounded isolated UI L1 smoke
         run: |
           set -euo pipefail
