@@ -34,6 +34,9 @@ from src.phase3.rag_runtime.staging_invited_result_fixture import (
     VERSION as INVITED_RESULT_VERSION, WARNING as INVITED_WARNING,
     session_ref_digest,
 )
+from src.phase3.rag_runtime.staging_invited_result_contract import (
+    validate_ci_invited_result,
+)
 from src.phase3.rag_runtime.no_dispatch_handler import NoDispatchHandler
 from src.phase3.rag_runtime.staging_preflight import PreflightDenied
 from src.phase3.rag_runtime.staging_service_bootstrap import (
@@ -446,7 +449,7 @@ def session_invited_live_result(request: Request):
                 "UNKNOWN" if doc["status"] == "attempt_unknown" else "FAILED")
             item["answer"] = None
         # No real Gateway/Answer provenance or product.v1 History row.
-        return JSONResponse(status_code=200, content={
+        result_document = {
             "kind": "invited_live_result",
             "contract_version": INVITED_RESULT_VERSION,
             "result_status": item["result_status"],
@@ -469,7 +472,10 @@ def session_invited_live_result(request: Request):
                 "warning": INVITED_WARNING,
             },
             "answer": item["answer"] if item["result_status"] == "READY" else None,
-        }, headers={"Cache-Control": "no-store"})
+        },
+        validate_ci_invited_result(result_document)
+        return JSONResponse(status_code=200, content=result_document,
+                            headers={"Cache-Control": "no-store"})
     return _signed_read(request, _INVITED_RESULT_PATH, read, coherent_read=True)
 
 
