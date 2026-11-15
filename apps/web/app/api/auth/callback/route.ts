@@ -71,7 +71,7 @@ export async function GET(request:Request):Promise<Response>{
       await revokeAlias(alias);
       return new Response('Login unavailable',{status:503,headers:noStore});
     }
-    const response=redirectLocal('/history');
+    const response=redirectLocal('/');
     appendCookie(response,SESSION,alias,500); // CI-only TTL; policy NOT approved
     appendCookie(response,INIT,'',0);
     return response;

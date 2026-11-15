@@ -7,6 +7,10 @@ import {createHash,createPrivateKey,randomBytes,sign} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {request as httpsRequest} from 'node:https';
 import type {IncomingMessage,ClientRequest} from 'node:http';
+import {stagingRequested,stagingProfile,stagingSecret} from './private-staging.ts';
+const ciFixture=()=>!stagingRequested()&&process.env.CI==='true'&&
+  process.env.GITHUB_ACTIONS==='true'&&
+  process.env.AUTH_CI_PRODUCT_CHAT_MODE==='INVITED_RESULT_STUB_CI_ONLY';
 
 export type TrustedActive=Readonly<{ownerId:string;epoch:number;generation:number;
   sessionVerifier:string}>;
@@ -15,6 +19,14 @@ const sha=(data:Buffer|string)=>createHash('sha256').update(data).digest('hex');
 const b64=(x:unknown)=>Buffer.from(JSON.stringify(x),'utf8').toString('base64url');
 function deny():never{throw new Error('DEMO_PRODUCT_PRIVATE_API_UNAVAILABLE');}
 async function privateConfig(){
+  if(stagingRequested()){
+    const p=stagingProfile();
+    return {endpoint:new URL(p.product_origin),
+      signKey:stagingSecret(p.product_sign_key_file),
+      ca:stagingSecret(p.tls_ca_file),cert:stagingSecret(p.tls_client_cert_file),
+      key:stagingSecret(p.tls_client_key_file),
+      issuer:p.product_issuer,audience:p.product_audience,kid:p.product_kid};
+  }
   if(process.env.CI!=='true'||process.env.AUTH_CI_DEMO_MODE!=='true')deny();
   let endpoint:URL;
   try{
@@ -38,20 +50,42 @@ async function privateConfig(){
     key:contents[3],issuer,audience,kid};
 }
 export async function productRequest(
-  operation:'history'|'revoke',active:TrustedActive,
-  query='' ,operationId=''):Promise<ProductReply>{
+  operation:'history'|'revoke'|'messages'|'status'|'engine-status'|'invited-live-result'|'send',active:TrustedActive,
+  query='',operationId='',rawBody=''):Promise<ProductReply>{
   if(!/^[A-Za-z0-9_-]{43,256}$/.test(active.sessionVerifier)||
      !/^[A-Za-z0-9_-]{1,128}$/.test(active.ownerId)||
      !Number.isSafeInteger(active.epoch)||active.epoch<0||
      !Number.isSafeInteger(active.generation)||active.generation<0)deny();
-  const isList=operation==='history';
-  if((isList&&operationId)||(isList&&!/^\?(?:limit=[0-9]+)(?:&cursor=[A-Za-z0-9_-]+)?$/.test(query))||
-     (!isList&&(query||!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(operationId))))deny();
+  const isList=operation==='history',isRevoke=operation==='revoke';
+  const isMessages=operation==='messages',isStatus=operation==='status';
+  const isEngineStatus=operation==='engine-status';
+  const isInvited=operation==='invited-live-result';
+  if(isInvited&&!ciFixture())deny();
+  const isSend=operation==='send';
+  const paging=/^\?limit=(?:[1-9][0-9]?|100)(?:&cursor=[A-Za-z0-9_-]{1,512})?$/;
+  const statusQuery=/^\?requested_conversation_id=(?:[A-Za-z0-9_-]{0,64})&client_message_id=[A-Za-z0-9_-]{1,64}&idempotency_key=[A-Za-z0-9_-]{8,128}$/;
+  const validId=/^[A-Za-z0-9_-]{1,64}$/;
+  if(isList&&(!paging.test(query)||operationId||rawBody))deny();
+  if(isRevoke&&(query||rawBody||!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(operationId)))deny();
+  if(isMessages&&(!paging.test(query)||!validId.test(operationId)||rawBody))deny();
+  if((isStatus||isEngineStatus||isInvited)&&
+     (!statusQuery.test(query)||operationId||rawBody))deny();
+  if(isSend&&(query||operationId||!rawBody||
+      Buffer.byteLength(rawBody,'utf8')>8192||
+      (stagingRequested()?stagingProfile().send_mode!=='NO_DISPATCH_ONLY':
+        process.env.AUTH_CI_PRODUCT_CHAT_MODE!=='NO_DISPATCH_ONLY'&&
+        !ciFixture())))deny();
   const c=await privateConfig();
-  const rawPath=isList?'/v1/conversations':'/internal/auth/session/v1/revoke-one';
-  const rawQuery=isList?query.slice(1):'';
-  const method=isList?'GET':'POST';
-  const body=isList?Buffer.alloc(0):Buffer.from(JSON.stringify({operation_id:operationId}));
+  const rawPath=isList?'/v1/conversations':
+    isRevoke?'/internal/auth/session/v1/revoke-one':
+    isMessages?'/v1/conversations/'+operationId+'/messages':
+    isStatus?'/v1/message-requests/status':
+    isEngineStatus?'/v1/message-requests/engine-status':
+    isInvited?'/v1/message-requests/invited-live-result':'/v1/messages';
+  const rawQuery=(isList||isMessages||isStatus||isEngineStatus||isInvited)?query.slice(1):'';
+  const method=(isRevoke||isSend)?'POST':'GET';
+  const body=isRevoke?Buffer.from(JSON.stringify({operation_id:operationId})):
+    isSend?Buffer.from(rawBody,'utf8'):Buffer.alloc(0);
   const now=Math.floor(Date.now()/1000);
   const claims={
     iss:c.issuer,aud:c.audience,iat:now,nbf:now,exp:now+25,
@@ -81,7 +115,7 @@ export async function productRequest(
         rejectUnauthorized:true,agent:false,minVersion:'TLSv1.2',
         headers:{
           Authorization:'BFF-Assertion '+token,
-          ...(isList?{}:{'Content-Type':'application/json'}),
+          ...(method==='POST'?{'Content-Type':'application/json'}:{}),
           'Content-Length':String(body.length),
         }},response=>{
         res=response;

@@ -29,7 +29,7 @@ test('UIAUTH01: START state and initiator persist across process and one callbac
   assert.equal(row?.initiatorHash,digest(init));
   assert.equal(await findInitForState(fresh()),null);
   const child=spawnSync(process.execPath,['--experimental-strip-types','--input-type=module',
-    '-e',"import {findInitForState} from './apps/web/src/auth/server/initial-store.ts';console.log((await findInitForState(process.argv[1]))?.attemptId??'NONE')",state],
+    '-e',"import {findInitForState} from './apps/web/src/auth/server/initial-store.ts';console.log((await findInitForState(process.argv[1]))?.attemptId??'NONE')",'--',state],
     {cwd:root,encoding:'utf8',env:process.env});
   assert.equal(child.status,0,child.stderr);
   assert.ok(child.stdout.includes(attemptId),'separate worker reads durable init');
@@ -39,7 +39,9 @@ test('UIAUTH01: START state and initiator persist across process and one callbac
 });
 
 test('UIAUTH02: encrypted alias NOT_SERVE until ACK, then shared across worker',async()=>{
-  const alias=fresh(),secret=fresh(),receiptId=randomUUID();
+  // Deterministic negative-leading value catches Node -e option parsing.
+  const alias='-'+fresh().slice(1),secret=fresh(),receiptId=randomUUID();
+  assert.ok(alias.startsWith('-'));
   const checksum=await writePending(alias,{attemptId:randomUUID(),receiptId,
     ownerId:'synthetic_owner_A',epoch:0,generation:0,sessionVerifier:secret});
   assert.equal(checksum,digest(alias));
@@ -54,10 +56,11 @@ test('UIAUTH02: encrypted alias NOT_SERVE until ACK, then shared across worker',
   assert.equal(await activate(alias,receiptId),true);
   assert.equal((await getActive(alias))?.sessionVerifier,secret);
   const child=spawnSync(process.execPath,['--experimental-strip-types','--input-type=module',
-    '-e',"import {getActive} from './apps/web/src/auth/server/initial-store.ts';console.log((await getActive(process.argv[1]))?.ownerId??'NONE')",alias],
+    '-e',"import {getActive} from './apps/web/src/auth/server/initial-store.ts';console.log((await getActive(process.argv[1]))?.ownerId??'NONE')",'--',alias],
     {cwd:root,encoding:'utf8',env:process.env});
   assert.equal(child.status,0,child.stderr);
-  assert.ok(child.stdout.includes('synthetic_owner_A'));
+  assert.equal(child.stdout.trim(),'synthetic_owner_A',
+    'negative-leading alias passed unchanged as argv[1] into a separate worker');
   await revokeAlias(alias);
   assert.equal(await getActive(alias),null);
 });
@@ -81,4 +84,14 @@ test('UIAUTH03: same-origin HTTPS/Origin/CSRF, HttpOnly Host-only cookie',()=>{
   for(const name of ['Secure','HttpOnly','SameSite=Lax','Path=/'])
     assert.ok(cookieText.includes(name));
   assert.ok(!cookieText.includes('Domain='));
+});
+
+test('UIAUTH04: Node -e uses -- to preserve a leading-hyphen data argument',()=>{
+  const value='-'+fresh().slice(1);
+  const child=spawnSync(process.execPath,[
+    '--experimental-strip-types','--input-type=module',
+    '-e','process.stdout.write(process.argv[1]??"MISSING")','--',value
+  ],{cwd:root,encoding:'utf8',env:process.env});
+  assert.equal(child.status,0,child.stderr);
+  assert.equal(child.stdout,value);
 });

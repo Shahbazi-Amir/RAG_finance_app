@@ -1,0 +1,36 @@
+{
+  "kind": "invited_live_result",
+  "contract_version": "staging.invited_live_result.v1",
+  "result_status": "READY",
+  "owner_user_id": "synthetic_owner_A",
+  "requested_conversation_id": null,
+  "resolved_conversation_id": "ffffffffffffffffffffffffffffffff",
+  "client_message_id": "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+  "idempotency_key": "fixture-key-abc123456789",
+  "attempt_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "attempt_request_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "attempt_trace_id": "cccccccccccccccccccccccccccccccc",
+  "request_id": "dddddddddddddddddddddddddddddddd",
+  "trace_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "retention_expires_at_unix": 1799999999,
+  "consent_scope": "CI_FIXTURE_ONLY",
+  "provenance": {
+    "state": "UNVERIFIED_STAGING",
+    "origin": "FIXED_GATEWAY_STUB",
+    "product_live_verified": false,
+    "warning": "آزمایشی؛ این پاسخ و استناد تأییدشدهٔ محصول نیستند."
+  },
+  "answer": {
+    "text": "در این نمونهٔ آزمایشی، بودجه برنامه‌ای برای برآورد درآمدها و هزینه‌هاست.",
+    "citations": [
+      {
+        "citation_id": "fixture-cite-budget-01",
+        "source_id": "fixture:budget-example-001",
+        "title": "سند ساختگی آزمون بودجه",
+        "evidence_status": "SYNTHETIC_TEST_ONLY",
+        "excerpt": null,
+        "locator": null
+      }
+    ]
+  }
+}

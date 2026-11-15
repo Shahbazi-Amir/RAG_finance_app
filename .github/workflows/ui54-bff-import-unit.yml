@@ -1,0 +1,43 @@
+name: UI54 isolated BFF browser-import unit
+on:
+  push:
+    branches: [agent/ui-product-chat-attempt-013]
+    paths:
+      - '.github/workflows/ui54-bff-import-unit.yml'
+      - 'tests/phase3/ui/bff-service.test.mjs'
+      - 'apps/web/src/auth/server/service-sender.ts'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bff-import-unit:
+    name: Direct bff-service.test.mjs / Node ${{ matrix.node }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.16.0', '24']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Verify exact checked-out SHA and JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo "UI54_TESTED_SHA=$GITHUB_SHA"
+          node --version
+          node --check tests/phase3/ui/bff-service.test.mjs
+          echo BFF_JSDOC_SYNTAX_PASS
+      - name: Execute the REAL bff-service.test.mjs (no mocks, no network)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types --test tests/phase3/ui/bff-service.test.mjs
+          echo BFF_DIRECT_AND_TRANSITIVE_SERVER_IMPORT_GUARD_PASS

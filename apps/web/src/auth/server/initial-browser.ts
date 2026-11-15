@@ -1,9 +1,11 @@
 /** Isolated HTTPS-browser policy; never silently permits production HTTP. */
 import {createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
+import {stagingRequested,stagingProfile,stagingSecret} from './private-staging.ts';
 export const INIT='__Host-rag-login-init';
 export const SESSION='__Host-rag-session';
 const err=():never=>{throw new Error('AUTH_BROWSER_POLICY_DENIED');};
 export function publicOrigin():string{
+  if(stagingRequested())return stagingProfile().public_origin;
   if(process.env.CI!=='true')err();
   const origin=process.env.AUTH_CI_PUBLIC_ORIGIN??'';
   let url:URL;
@@ -14,7 +16,19 @@ export function publicOrigin():string{
 }
 export function secureBrowser(request:Request):boolean{
   try{
-    publicOrigin();
+    const origin=publicOrigin();
+    if(stagingRequested()){
+      const p=stagingProfile();
+      // Ops must strip all incoming forwarded/proof headers and inject a fresh
+      // private proof at the sole TLS ingress. Next must be private-only.
+      if(origin!=='https://ragfinance.ir'||
+         request.headers.get('x-forwarded-proto')!=='https'||
+         request.headers.get('x-forwarded-host')!=='ragfinance.ir')return false;
+      const expected=stagingSecret(p.proxy_proof_file).trim();
+      const supplied=request.headers.get('x-auth-staging-proxy-proof')??'';
+      return expected.length>=32&&supplied.length===expected.length&&
+        timingSafeEqual(Buffer.from(expected),Buffer.from(supplied));
+    }
     // Only isolated private-loopback Next instance may receive requests from
     // a trusted TLS termination proxy. Direct HTTP never satisfies this guard.
     const expected=process.env.AUTH_CI_PROXY_SECRET??'';
@@ -24,7 +38,8 @@ export function secureBrowser(request:Request):boolean{
   }catch{return false;}
 }
 export function csrf(initiator:string):string{
-  const secret=process.env.AUTH_CI_CSRF_SECRET??'';
+  const secret=stagingRequested()?stagingSecret(stagingProfile().csrf_secret_file).trim():
+    process.env.AUTH_CI_CSRF_SECRET??'';
   if(secret.length<32||!/^[A-Za-z0-9_-]{32,256}$/.test(initiator))err();
   return createHmac('sha256',secret).update('csrf-login-v1:').update(initiator)
     .digest('base64url');
