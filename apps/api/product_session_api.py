@@ -26,6 +26,9 @@ from apps.api.product_message_fixture import answer_from_fixture
 from src.phase3.rag_runtime.staging_no_dispatch import prepare_post_commit_no_dispatch
 from src.phase3.rag_runtime.no_dispatch_handler import NoDispatchHandler
 from src.phase3.rag_runtime.staging_preflight import PreflightDenied
+from src.phase3.auth.staging_service_profile import (
+    PrivateStagingProfile, StagingConfigDenied, db_attributes_approved,
+)
 from src.phase3.auth.service_proof import (
     BFFServiceVerifier, TrustRejected, assertion_from_asgi_headers, wire_request,
 )
@@ -43,6 +46,9 @@ _REPLAY = PostgresDurableReplayStore()
 # Server-injected only after Ops verifies runner CLI/digest and DB authority.
 # An environment toggle alone NEVER installs or authorizes this handler.
 _SERVER_NO_DISPATCH_TASK = None
+# Only explicitly injected from a trusted Ops startup; never from an HTTP/env toggle.
+_PRIVATE_STAGING_PROFILE = None
+_PRIVATE_STAGING_VERIFIER = None
 _REVOKE_PATH = b"/internal/auth/session/v1/revoke-one"
 _HISTORY_PATH = b"/v1/conversations"
 _SEND_PATH = b"/v1/messages"
@@ -54,6 +60,8 @@ _SESSION_ROLES = {"history": "history_app", "revoke": "auth_revoker"}
 
 
 def _config():
+    if _PRIVATE_STAGING_PROFILE is not None:
+        return _PRIVATE_STAGING_VERIFIER
     if os.getenv("CI") != "true" or os.getenv("GITHUB_ACTIONS") != "true":
         raise RuntimeError("ISOLATED_CI_ONLY")
     path = os.environ.get("API_PRODUCT_PROOF_PUBLIC_KEY_PATH", "")
@@ -72,9 +80,13 @@ def _conn(operation: str):
     if operation not in _SESSION_ROLES:
         raise RuntimeError("AUTH_INVALID_ROLE")
     key = "DB_APP_DSN" if operation == "history" else "AUTH_REVOKER_DSN"
-    dsn = os.getenv(key, "")
+    dsn = (_PRIVATE_STAGING_PROFILE.dsn(operation)
+           if _PRIVATE_STAGING_PROFILE is not None else os.getenv(key, ""))
     opts = psycopg.conninfo.conninfo_to_dict(dsn)
-    if (opts.get("host") != "127.0.0.1" or opts.get("port") != "5432"
+    if _PRIVATE_STAGING_PROFILE is not None:
+        if not db_attributes_approved(opts, operation):
+            raise RuntimeError("PRIVATE_STAGING_DB_DENIED")
+    elif (opts.get("host") != "127.0.0.1" or opts.get("port") != "5432"
             or opts.get("dbname") != "history_ci"
             or opts.get("user") != _SESSION_ROLES[operation]):
         raise RuntimeError("CI_DSN_NOT_ALLOWED")
@@ -100,6 +112,10 @@ def _err(status: int, code: str):
 
 
 def _signed_history(request, raw_body, expected_path, action, *, coherent_read=False):
+    # Service assertions cannot substitute for real private transport identity.
+    if (_PRIVATE_STAGING_PROFILE is not None
+            and not _PRIVATE_STAGING_PROFILE.allowed_peer(request.scope)):
+        raise TrustRejected()
     if request.scope.get("raw_path") != expected_path:
         raise TrustRejected()
     token = assertion_from_asgi_headers(request.scope)
@@ -177,13 +193,45 @@ def session_message_status(request: Request):
                         lambda ctx: history.status(request, ctx), coherent_read=True)
 
 
+def install_private_staging_auth(profile: PrivateStagingProfile) -> None:
+    """Ops-only explicit injection; real BFF public key and DB roles required.
+
+    No CI flags, injected headers, local fixture, or browser requests authorize
+    a production trust profile. Peer verification MUST use trusted TLS state.
+    Does not apply DB grants or enable paid Dispatch.
+    """
+    if (not isinstance(profile, PrivateStagingProfile)
+            or _PRIVATE_STAGING_PROFILE is not None
+            or os.getenv("CI") == "true"
+            or os.getenv("GITHUB_ACTIONS") == "true"):
+        raise StagingConfigDenied()
+    for operation in ("history", "revoke"):
+        if not db_attributes_approved(
+                psycopg.conninfo.conninfo_to_dict(profile.dsn(operation)),
+                operation):
+            raise StagingConfigDenied()
+    verifier = BFFServiceVerifier(
+        issuer=profile.issuer, audience=profile.audience,
+        public_keys={profile.kid: profile.load_public_key()})
+    if (_SERVER_NO_DISPATCH_TASK is not None
+            and _SERVER_NO_DISPATCH_TASK.profile.runner_file_sha256
+                != profile.runner_sha256):
+        raise StagingConfigDenied()
+    global _PRIVATE_STAGING_PROFILE, _PRIVATE_STAGING_VERIFIER
+    _PRIVATE_STAGING_PROFILE = profile
+    _PRIVATE_STAGING_VERIFIER = verifier
+
+
 def install_server_no_dispatch_handler(handler: NoDispatchHandler) -> None:
     """Ops-controlled startup injection, not a client or env-controlled grant.
 
     The CI-only Auth/DSN guards are intentionally unchanged. A real staging
     ASGI deployment requires separately reviewed session trust/role profile.
     """
-    if not isinstance(handler, NoDispatchHandler):
+    if (not isinstance(handler, NoDispatchHandler)
+            or (_PRIVATE_STAGING_PROFILE is not None
+                and handler.profile.runner_file_sha256
+                    != _PRIVATE_STAGING_PROFILE.runner_sha256)):
         raise PreflightDenied()
     global _SERVER_NO_DISPATCH_TASK
     _SERVER_NO_DISPATCH_TASK = handler
@@ -336,7 +384,12 @@ async def session_send_message(request: Request, background_tasks: BackgroundTas
             raise history.ApiFailure(422, "INVALID_REQUEST", "validation")
         payload, raw_body = await history._read_body(
             request, "send_message_request", include_raw=True)
-        if os.getenv("API_RUNNER_EXECUTION_MODE") == "NO_DISPATCH_ONLY":
+        if (_PRIVATE_STAGING_PROFILE is not None
+                and os.getenv("API_RUNNER_EXECUTION_MODE") != "NO_DISPATCH_ONLY"):
+            # Never execute synthetic fixture inside private staging.
+            response = history._safe_error(
+                503, "ENGINE_NOT_CONFIGURED", "technical", "History unavailable.")
+        elif os.getenv("API_RUNNER_EXECUTION_MODE") == "NO_DISPATCH_ONLY":
             # Server-only feature gate, not browser-supplied. Without an
             # approved handler this returns 503 BEFORE any DB write.
             response = await run_in_threadpool(
