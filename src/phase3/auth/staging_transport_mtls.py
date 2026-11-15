@@ -90,6 +90,14 @@ def make_verified_h11_protocol(boundary: TrustedBFFTLSBoundary):
     if uvicorn.__version__ != "0.48.0":
         raise VerifiedPeerUnavailable()
 
+    async def reject_unverified_app(scope, receive, send):
+        # A closing transport can still deliver already-buffered HTTP bytes.
+        # Never let such a request reach the underlying product application.
+        if scope.get("type") == "http":
+            await send({"type": "http.response.start", "status": 403,
+                        "headers": [(b"content-length", b"0")]})
+            await send({"type": "http.response.body", "body": b""})
+
     class VerifiedH11Protocol(H11Protocol):
         def connection_made(self, transport):
             super().connection_made(transport)
@@ -98,7 +106,11 @@ def make_verified_h11_protocol(boundary: TrustedBFFTLSBoundary):
                 self.app = boundary.wrap_real_verified_connection(
                     self.app, ssl_object)
             except VerifiedPeerUnavailable:
-                transport.close()  # no application call or fallback
+                # First replace the app, then close: never a race to the
+                # unguarded original app even if receive was already queued.
+                self.app = reject_unverified_app
+                transport.pause_reading()
+                transport.close()
                 return
 
     return VerifiedH11Protocol
