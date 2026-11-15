@@ -12,7 +12,7 @@ import {readCheckpoints,retainCheckpoint,forgetCheckpoints,statusCorrelators,
 
 type ListData={items:ConversationView[];next:string|null;more:boolean};
 type ThreadData={items:MessageView[];answers:AnswerView[];next:string|null;more:boolean};
-type Attempt= {record:AttemptCheckpoint;question:string|null;phase:HistoryStatus|'sending'|'transport_unknown'|'invalid_answer'|'status_error';
+type Attempt= {record:AttemptCheckpoint;viewId:string;question:string|null;phase:HistoryStatus|'sending'|'transport_unknown'|'invalid_answer'|'status_error';
   attemptId:string|null;messageId:string|null;answer:Answer|null;confirmed:boolean};
 const isTerminal=(phase:Attempt['phase'])=>
   ['answer_committed','invalid_answer','failed','cancelled'].includes(phase);
@@ -149,6 +149,7 @@ export default function ProductChat(){
           ...previous,phase:resultPhase,attemptId:status.attemptId??previous.attemptId,
           messageId:status.messageId,answer:status.answer,
           record:status.id?{...previous.record,resolved_conversation_id:status.id}:previous.record,
+          viewId:status.id??previous.viewId,
           confirmed:status.status!=='not_found'
         }};
       });
@@ -176,7 +177,10 @@ export default function ProductChat(){
       setAttempts(all=>{
         const next={...all};
         for(const record of saved)if(!next[record.client_message_id])
-          next[record.client_message_id]={record,question:null,phase:'transport_unknown',
+          next[record.client_message_id]={
+            record,viewId:record.resolved_conversation_id??
+              record.requested_conversation_id??'draft:new',
+            question:null,phase:'transport_unknown',
             attemptId:null,messageId:null,answer:null,confirmed:false};
         return next;
       });
@@ -227,7 +231,7 @@ export default function ProductChat(){
     }
     sending.current=true;setBusy(true);setError('');
     setDrafts(all=>({...all,[selected]:''}));
-    const attempt:Attempt={record,question,phase:'sending',attemptId:null,
+    const attempt:Attempt={record,viewId:selected,question,phase:'sending',attemptId:null,
       messageId:null,answer:null,confirmed:false};
     attemptsRef.current={...attemptsRef.current,[record.client_message_id]:attempt};
     setAttempts(all=>({...all,[record.client_message_id]:attempt}));
@@ -242,7 +246,7 @@ export default function ProductChat(){
           phase:prev.phase==='sending'||prev.phase==='transport_unknown'
             ?'persisted':prev.phase,
           record:{...prev.record,resolved_conversation_id:receipt.id},
-          messageId:receipt.messageId,confirmed:true}}:all;});
+          viewId:receipt.id,messageId:receipt.messageId,confirmed:true}}:all;});
       retainCheckpoint(s,{...record,resolved_conversation_id:receipt.id});
       setSelected(old=>old===selected?receipt.id:old);
       void loadList();void loadThread(receipt.id);
@@ -258,9 +262,9 @@ export default function ProductChat(){
   const messagesFor=threads[selected];
   const renderedIds=new Set(messagesFor?.items.map(m=>m.id)??[]);
   const answers=new Map((messagesFor?.answers??[]).map(a=>[a.messageId,a.payload]));
-  const selectedAttempts=Object.values(attempts).filter(a=>
-    (a.record.resolved_conversation_id??a.record.requested_conversation_id)===
-      (selected.startsWith('draft:')?null:selected));
+  const selectedAttempts=Object.values(attempts).filter(a=>a.viewId===selected);
+  const pendingDrafts=[...new Set(Object.values(attempts).filter(a=>
+    a.viewId.startsWith('draft:')&&!isTerminal(a.phase)).map(a=>a.viewId))];
   return <main className="history-shell product-shell" dir="rtl">
     <aside className={'history-sidebar'+(mobileOpen?' is-mobile-open':'')}
       role={mobileOpen?'dialog':undefined} aria-modal={mobileOpen?'true':undefined}
@@ -277,6 +281,13 @@ export default function ProductChat(){
         <span className="history-note">گفت‌وگو با ثبت اولین پرسش در سرور ایجاد می‌شود.</span>
       </div>
       <p className="nav-section-title">گفت‌وگوهای حساب شما</p>
+      {pendingDrafts.length>0&&<div className="history-list" aria-label="پرسش‌های در انتظار دریافت شناسهٔ گفتگو">
+        {pendingDrafts.map(draft=><button type="button" key={draft}
+          className={'nav-thread'+(selected===draft?' is-current':'')}
+          onClick={()=>{setSelected(draft);setMobileOpen(false);}}>
+          <span className="nav-thread-text">پرسش در انتظار ثبت سروری</span>
+        </button>)}
+      </div>}
       <p role="status" data-testid="history-state" className="history-state">
         {listState==='loading'?'در حال بارگذاری…':
         listState==='unauthorized'?'نشست پایان یافته است.':

@@ -933,3 +933,6 @@ New apps/web/src/auth/server/product-session.ts issues session-bound RS256, fres
 
 ### UI-CHAT-013-10 — browser fixture keeps List GET page size two
 - **Implemented:** `tests/phase3/integration/ui/product_chat_browser.py` now mirrors #49's `limit=2` native Next query so its intercepted product.v1 list page validates exactly. The L1 Chromium script still needs actual execution; no fabricated results. P3M13/M14, P3OP05, tests NOT_RUN.
+
+### UI-CHAT-013-11 — isolate pending new-chat Attempt from other draft views
+- **Implemented:** Each temporary new-chat `viewId` remains local in UI only; no local ID enters POST or Status wire DTO. An unresolved null conversation Attempt stays in its originating draft view and has an accessible sidebar entry; when server returns `resolved_conversation_id` via Receipt or Status it moves to its matching server thread. On Refresh unresolved correlation maps to a recoverable default draft rather than an invented server ID. New draft question cannot show another draft's status. Only authenticated GET status probes continue. P3M05/M10/M14/M15, P3OP05; still NOT_RUN L1 Chromium, acceptance pending.
