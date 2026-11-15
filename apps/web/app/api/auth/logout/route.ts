@@ -8,6 +8,7 @@ import {SESSION,cookie,csrf,mutationAllowed,noStore} from
 import {getActive,revokeAlias,appendCookie,redirectLocal} from '../../../../src/auth/initial/index.ts';
 import {productRequest} from '../../../../src/auth/initial/index.ts';
 import {randomUUID} from 'node:crypto';
+import {stagingRequested,stagingProfile} from '../../../../src/auth/server/private-staging.ts';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
 export async function POST(request:Request):Promise<Response>{
@@ -25,7 +26,8 @@ export async function POST(request:Request):Promise<Response>{
       {status:401,headers:noStore});
     // This demo calls real API #50 with the SAME trusted Product Session
     // (not the opaque browser handle). Never claim Logout for 401/503/unknown.
-    if(process.env.AUTH_CI_DEMO_MODE!=='true')return new Response(
+    if(stagingRequested())stagingProfile();
+    if(!stagingRequested()&&process.env.AUTH_CI_DEMO_MODE!=='true')return new Response(
       'خروج هنوز به ابطال سروری متصل نشده است.',{status:503,headers:noStore});
     const operationId=randomUUID();
     const result=await productRequest('revoke',active,'',operationId);
