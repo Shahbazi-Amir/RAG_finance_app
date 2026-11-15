@@ -87,3 +87,100 @@ READY_FOR_NO_DISPATCH_DB=BLOCKED
 ~~~
 
 Operator next: read-only OS/package/resource command above → return sanitized results → Foundation+Ops approve specific PG17 method/write window → DBA creates isolated clone and executes source-verified 001–010; no install or service change in this handoff. No secret/DSN/password/cert/private IP or user data in any GitHub ticket.
+
+
+## 5. Verified Ubuntu 24.04 noble / amd64 package installation handoff (2026-11-16; prepared ONLY)
+
+**New user-supplied Arvan read-only facts:** `ID=ubuntu`, `VERSION_CODENAME=noble`, `architecture=x86_64` (Debian APT `amd64`), `apt-get/apt-cache` installed, **11 GiB RAM available**, **61 GiB disk available**, `apt-cache policy postgresql-17` showed no candidate, previous `LOCAL_PG_NOT_EVIDENCED`. Sufficient to select the official PGDG APT path, NOT sufficient by itself to approve a write window or assert disk storage/PITR design.
+
+**Official maintained sources**, checked 2026-11-16:
+- https://www.postgresql.org/download/linux/ubuntu/ : PGDG `noble`+amd64 supported, `postgresql-17` versioned package, signing key ACCC4CF8.
+- https://wiki.postgresql.org/wiki/Apt : `noble-pgdg` signed `sources` entry.
+- https://manpages.ubuntu.com/manpages/noble/man1/pg_createcluster.1.html : Debian/Ubuntu `postgresql-common` automatically creates a default `main` cluster unless `create_main_cluster = false`.
+- https://github.com/docker-library/postgres/blob/master/17/trixie/Dockerfile : demonstrated `sed` flip to `create_main_cluster = false` **before server package installation**.
+
+**This copy/paste is a HOST CHANGE; authorized Mac Ops runs it inside the actual Arvan Ubuntu shell only AFTER Foundation/Ops approve `PG17_PACKAGE_INSTALL_WRITE_WINDOW=YES`, no-overlap and host security review.** It installs **server binaries and supporting packages only**. It intentionally disables automatic `main` cluster creation before `postgresql-17` package installation. It does **not** create `ragfinance_staging`, initialize a PG cluster, create PG roles, start a server intentionally, enable TCP, grant privileges, apply any migrations or modify API configuration.
+
+~~~bash
+sudo bash <<'SH'
+set -euo pipefail
+. /etc/os-release
+test "$ID" = ubuntu && test "$VERSION_CODENAME" = noble
+test "$(dpkg --print-architecture)" = amd64
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+  ca-certificates curl gpg postgresql-common
+key=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+install -d -m 0755 /usr/share/postgresql-common/pgdg
+curl --fail --silent --show-error --location \
+  https://www.postgresql.org/media/keys/ACCC4CF8.asc -o "$key"
+actual="$(gpg --batch --show-keys --with-colons "$key" |
+  awk -F: '$1=="fpr" {print $10; exit}')"
+test "$actual" = B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8 || {
+  echo 'STOP_PGDG_SIGNING_KEY_MISMATCH'; exit 1;
+}
+cat >/etc/apt/sources.list.d/pgdg.sources <<'SRC'
+Types: deb
+URIs: https://apt.postgresql.org/pub/repos/apt
+Suites: noble-pgdg
+Architectures: amd64
+Components: main
+Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+SRC
+apt-get update
+apt-cache policy postgresql-17
+candidate="$(apt-cache policy postgresql-17 |
+  awk '/Candidate:/ {print $2; exit}')"
+case "$candidate" in
+  *pgdg24.04*) ;;
+  *) echo 'STOP_PG17_PGDG_NOBLE_CANDIDATE_NOT_VERIFIED'; exit 1 ;;
+esac
+test -f /etc/postgresql-common/createcluster.conf || {
+  echo 'STOP_MISSING_CREATECLUSTER_CONFIG'; exit 1;
+}
+if [ -n "$(pg_lsclusters -h)" ]; then
+  echo 'STOP_EXISTING_CLUSTER_REVIEW_REQUIRED'; exit 1
+fi
+cp -a /etc/postgresql-common/createcluster.conf \
+  /etc/postgresql-common/createcluster.conf.db55.preinstall
+if grep -Eq '^[[:space:]]*#?[[:space:]]*create_main_cluster[[:space:]]*=' \
+    /etc/postgresql-common/createcluster.conf; then
+  sed -i -E \
+    's/^[[:space:]]*#?[[:space:]]*create_main_cluster[[:space:]]*=.*/create_main_cluster = false/' \
+    /etc/postgresql-common/createcluster.conf
+else
+  printf '\ncreate_main_cluster = false\n' >> \
+    /etc/postgresql-common/createcluster.conf
+fi
+grep -Eq '^create_main_cluster = false$' \
+  /etc/postgresql-common/createcluster.conf || {
+    echo 'STOP_AUTO_CLUSTER_DISABLE_NOT_CONFIRMED'; exit 1;
+  }
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+  "postgresql-17=$candidate"
+printf 'PG17_BINARY='
+/usr/lib/postgresql/17/bin/postgres --version
+printf '%s\n' '=== CLUSTERS ==='
+pg_lsclusters -h
+printf '%s\n' '=== TCP POSTGRES LISTENERS ==='
+if command -v ss >/dev/null 2>&1; then
+  ss -H -lntp | awk '/postgres|postmaster|:5432([[:space:]]|$)/ {
+    print "PG_TCP_LISTENER="$0; f=1
+  } END {if (!f) print "PG_TCP_LISTENER=NONE_OBSERVED"}'
+  printf '%s\n' '=== UNIX POSTGRES LISTENERS ==='
+  ss -H -lx | awk '/\.s\.PGSQL\./ {
+    print "PG_UNIX_LISTENER="$0; f=1
+  } END {if (!f) print "PG_UNIX_LISTENER=NONE_OBSERVED"}'
+else
+  echo 'PG_LISTENER_CHECK=UNAVAILABLE'
+fi
+if [ -n "$(pg_lsclusters -h)" ]; then
+  echo 'STOP_UNEXPECTED_POSTINSTALL_CLUSTER'; exit 1
+fi
+echo 'PG17_PACKAGES_ONLY_NO_CLUSTER_CONFIRMED'
+SH
+~~~
+
+**Stop condition:** if any earlier line fails, do not run the remaining lines manually; save sanitized status. `pg_lsclusters` expected **empty** and all PG TCP/Unix listeners expected `NONE_OBSERVED` **at the end of the package-only stage**. `postgresql.service` unit active-exited is not evidence that a cluster listens. An existing cluster triggers stop; do not drop/restart it. The config backup must remain Ops-managed. If install creates an unexpected cluster or listener, do not run `pg_dropcluster` or restart—request an Ops-specific safe remediation.
+
+**NEXT DISTINCT WRITE AUTHORIZATION:** decide independent cluster instance/PG data directory and storage, `listen_addresses=''` (no TCP) and private Unix socket, `pg_hba.conf` authenticated local accounts, backup/PITR and actual API namespace socket reachability. Then DBA/Ops explicitly approve `pg_createcluster`/cluster start. Only *after that* is the dedicated DB `ragfinance_staging` or separate EMPTY clone provisioned. All 001–010/003–005 role test instructions remain in §3; no 011.
