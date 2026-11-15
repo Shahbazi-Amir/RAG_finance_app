@@ -104,10 +104,10 @@ BEGIN
  WHERE owner_id=p_owner AND id=p_attempt_id
    AND attempt_trace_id=p_attempt_trace_id;
  IF NOT FOUND THEN RETURN; END IF;
- SELECT state,claimed_at,unknown_at,reconciled_at INTO d
- FROM history_l1.external_dispatch_claims
- WHERE owner_id=p_owner AND attempt_id=p_attempt_id
-   AND attempt_trace_id=p_attempt_trace_id;
+ SELECT x.state,x.claimed_at,x.unknown_at,x.reconciled_at INTO d
+ FROM history_l1.external_dispatch_claims AS x
+ WHERE x.owner_id=p_owner AND x.attempt_id=p_attempt_id
+   AND x.attempt_trace_id=p_attempt_trace_id;
  IF NOT FOUND THEN
   RETURN QUERY SELECT 'NOT_CLAIMED'::text,NULL::timestamptz,
                       NULL::timestamptz,NULL::timestamptz;
@@ -130,7 +130,7 @@ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE d record;
 BEGIN
  IF p_owner IS NULL OR p_attempt_id IS NULL OR p_attempt_trace_id IS NULL
-    OR p_claim_id IS NULL OR p_reason NOT IN
+    OR p_claim_id IS NULL OR p_reason IS NULL OR p_reason NOT IN
      ('TIMEOUT','LOST_RESPONSE','CRASH','COMMIT_UNCERTAIN') THEN
   RETURN false;
  END IF;
@@ -159,7 +159,7 @@ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE d record;
 BEGIN
  IF p_owner IS NULL OR p_attempt_id IS NULL OR p_attempt_trace_id IS NULL
-   OR p_outcome NOT IN
+   OR p_outcome IS NULL OR p_outcome NOT IN
       ('RECONCILED_DELIVERED','RECONCILED_NOT_DELIVERED')
    OR p_evidence_sha256 IS NULL OR p_evidence_sha256 !~ '^[0-9a-f]{64}$' THEN
   RETURN false;
