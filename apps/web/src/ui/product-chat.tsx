@@ -191,7 +191,14 @@ export default function ProductChat(){
     return ()=>{active=false;};
   },[loadList,probe]);
   useEffect(()=>{
-    if(selected&&!selected.startsWith('draft:'))void loadThread(selected);
+    if(!selected||selected.startsWith('draft:'))return;
+    let active=true;
+    // Fetch in a scheduled callback, not synchronously in an Effect.
+    // Cancel the callback when a newer conversation is selected.
+    queueMicrotask(()=>{
+      if(active)void loadThread(selected);
+    });
+    return ()=>{active=false;};
   },[selected,loadThread]);
   useEffect(()=>{
     const timer=window.setInterval(()=>{
