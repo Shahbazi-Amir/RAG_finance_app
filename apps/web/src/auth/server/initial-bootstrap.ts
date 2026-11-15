@@ -7,6 +7,7 @@ import {createHash,createPrivateKey,randomBytes,sign} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {request as httpsRequest} from 'node:https';
 import type {ClientRequest,IncomingMessage} from 'node:http';
+import {stagingRequested,stagingProfile,stagingSecret} from './private-staging.ts';
 
 type Operation='start'|'complete'|'status'|'ack'|'abort';
 export type BootstrapReply=Readonly<{status:number;data:Record<string,unknown>}>;
@@ -17,6 +18,14 @@ function object(x:unknown):x is Record<string,unknown>{
   return x!==null&&typeof x==='object'&&!Array.isArray(x);
 }
 async function settings(){
+  if(stagingRequested()){
+    const p=stagingProfile();
+    return {target:new URL(p.bootstrap_origin),
+      privateKey:stagingSecret(p.bootstrap_sign_key_file),
+      ca:stagingSecret(p.tls_ca_file),cert:stagingSecret(p.tls_client_cert_file),
+      key:stagingSecret(p.tls_client_key_file),
+      issuer:p.bootstrap_issuer,audience:p.bootstrap_audience,kid:p.bootstrap_kid};
+  }
   if(process.env.CI!=='true')reject();
   const origin=process.env.AUTH_CI_BOOTSTRAP_ORIGIN??'';
   let target:URL;

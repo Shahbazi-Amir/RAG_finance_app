@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {sendMessage,recoverStatus,newSend,HistoryFailure} from '../../../apps/web/src/history/client.ts';
+import {sendMessage,recoverStatus,recoverEngineStatus,newSend,HistoryFailure} from '../../../apps/web/src/history/client.ts';
 import {conformsToProductV1} from '../../../apps/web/src/history/product-validation.ts';
 import {verifiedSourceUrl} from '../../../apps/web/src/ui/source-locator.ts';
 import {isVerifiedLiveAnswer,productOutcomeLabel} from '../../../apps/web/src/ui/answer-visibility.ts';
@@ -81,6 +81,41 @@ test('network-unknown POST and refresh recovery: identical correlators, GET only
   for(const [key,value] of Object.entries(correlation))
     assert.equal(new URL(requested[1].url,'http://localhost').searchParams.get(key),
       value??'');
+});
+
+test('API no-dispatch engine-status: original GET correlation, terminal not an Answer',async()=>{
+  const original=newSend('وضعیت فنی چیست؟',null);
+  const correlation={requested_conversation_id:original.requested_conversation_id,
+    client_message_id:original.client_message_id,idempotency_key:original.idempotency_key};
+  const seen=[];
+  const technical={kind:'no_dispatch_execution_status',
+    contract_version:'api.no_dispatch_status.v1',request_id:'req_poll',
+    trace_id:'trace_poll',attempt_id:'a'.repeat(32),attempt_trace_id:'trace_t2',
+    product_status:'attempt_pending',preflight_state:'CONTEXT_READY',
+    question_sha256_matches:true,top10_count:10,generation_calls:0,
+    dispatch_performed:false,answer:null};
+  await withFetch(async(url,init)=>{
+    seen.push({url:String(url),method:init?.method??'GET'});
+    return response(technical);
+  },async()=>{
+    const a=await recoverEngineStatus(correlation);
+    assert.equal(a.state,'CONTEXT_READY');
+    assert.equal(a.generationCalls,0);
+    assert.equal(a.top10Count,10);
+    assert.equal((await recoverEngineStatus({...correlation})).state,'CONTEXT_READY');
+  });
+  assert.deepEqual(seen.map(x=>x.method),['GET','GET']);
+  assert.equal(seen[0].url,seen[1].url);
+  for(const [key,value] of Object.entries(correlation))
+    assert.equal(new URL(seen[0].url,'http://localhost').searchParams.get(key),value??'');
+  await withFetch(async()=>response({...technical,dispatch_performed:true}),async()=>{
+    await assert.rejects(recoverEngineStatus(correlation),
+      e=>e instanceof HistoryFailure&&e.reason==='invalid');
+  });
+  await withFetch(async()=>response({...technical,answer:{answer_text:'SYNTHETIC'}}),async()=>{
+    await assert.rejects(recoverEngineStatus(correlation),
+      e=>e instanceof HistoryFailure&&e.reason==='invalid');
+  });
 });
 test('a source link is offered only for a valid verified HTTPS URL locator',()=>{
   const unresolved=fixture('valid_answer_unresolved_source');

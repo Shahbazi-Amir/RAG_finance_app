@@ -8,7 +8,7 @@ Start the Next build on isolated 127.0.0.1:3000 before invoking this script.
 import json
 import os
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 
 from playwright.sync_api import sync_playwright, expect
 
@@ -25,9 +25,19 @@ def main():
     url = urlsplit(base)
     if url.scheme != "http" or url.hostname != "127.0.0.1" or url.port != 3000:
         raise RuntimeError("UI_CHAT_L1_ONLY_LOOPBACK_HTTP_PORT_3000")
-    state = {"posts": 0, "status_reads": 0, "logged_in": True, "request": None}
+    state = {"posts": 0, "status_reads": 0, "engine_reads": 0,
+             "logged_in": True, "request": None}
     conversation_id = "conv_uichat_013"
     user_message = "msg_uichat_013"
+
+    def check_original_query(url):
+        assert state["request"] is not None
+        fields = parse_qs(urlsplit(url).query, keep_blank_values=True)
+        assert set(fields) == {
+            "requested_conversation_id", "client_message_id", "idempotency_key"}
+        for key in fields:
+            assert len(fields[key]) == 1
+            assert fields[key][0] == (state["request"][key] or "")
 
     def intercept(route):
         path = urlsplit(route.request.url).path
@@ -80,6 +90,7 @@ def main():
                 body["items"] = [user]
             route.fulfill(status=200, json=body)
         elif path.endswith("/api/history/message-requests/status") and method == "GET":
+            check_original_query(route.request.url)
             state["status_reads"] += 1
             original = state["request"]
             assert original
@@ -89,12 +100,34 @@ def main():
             status["idempotency_key"] = original["idempotency_key"]
             status["resolved_conversation_id"] = conversation_id
             status["message_id"] = user_message
-            status["attempt_id"] = "attempt_uichat_013"
+            status["attempt_id"] = "a" * 32
             status["attempt_request_id"] = "req_attempt_uichat_013"
             status["attempt_trace_id"] = "trace_attempt_uichat_013"
             status["reserved_answer_id"] = "ans_uichat_013"
             status["status"] = "attempt_pending"
             route.fulfill(status=200, json=status)
+        elif path.endswith("/api/history/message-requests/engine-status") and method == "GET":
+            check_original_query(route.request.url)
+            state["engine_reads"] += 1
+            original = state["request"]
+            assert original
+            # A separate API #53 *technical* document: not product Answer,
+            # never a live Runner claim or a Citation.
+            route.fulfill(status=200, json={
+                "kind": "no_dispatch_execution_status",
+                "contract_version": "api.no_dispatch_status.v1",
+                "request_id": "req_engine_status",
+                "trace_id": "trace_engine_status",
+                "attempt_id": "a" * 32,
+                "attempt_trace_id": "trace_attempt_uichat_013",
+                "product_status": "attempt_pending",
+                "preflight_state": "CONTEXT_READY",
+                "question_sha256_matches": True,
+                "top10_count": 10,
+                "generation_calls": 0,
+                "dispatch_performed": False,
+                "answer": None
+            })
         else:
             route.fulfill(status=404, content_type="application/json",
                           body='{"error":"NOT_FOUND"}')
@@ -112,13 +145,18 @@ def main():
             page.get_by_test_id("history-send").click()
             expect(page.get_by_text("در حال پردازش؛ وضعیت از API دریافت شده است.")).to_be_visible(
                 timeout=15000)
+            expect(page.get_by_text(
+                "بازیابی شواهد کامل شد؛ تولید پاسخ انجام نشده است.")).to_be_visible()
             assert state["posts"] == 1
             # Reload MUST never invoke POST: same original client IDs/status GET.
             page.reload(wait_until="domcontentloaded")
             expect(page.get_by_test_id("attempt-" + state["request"]["client_message_id"])).to_be_visible(
                 timeout=15000)
             expect(page.get_by_text("در حال پردازش؛ وضعیت از API دریافت شده است.")).to_be_visible()
+            expect(page.get_by_text(
+                "بازیابی شواهد کامل شد؛ تولید پاسخ انجام نشده است.")).to_be_visible()
             assert state["posts"] == 1 and state["status_reads"] >= 2
+            assert state["engine_reads"] >= 2
             expect(page.locator("nav.history-list")).to_contain_text("گفت‌وگوی تست فارسی")
             # Server 401 purges old per-account list and persisted correlators.
             state["logged_in"] = False

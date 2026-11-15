@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,createPublicKey,verify} from 'node:crypto';
-import {readFileSync,readdirSync} from 'node:fs';
-import {join} from 'node:path';
+import {readFileSync,readdirSync,existsSync,statSync,mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+import {join,resolve,dirname,extname,sep} from 'node:path';
+import {tmpdir} from 'node:os';
 import {signForTrustedAttempt,createServiceSender} from '../../../apps/web/src/auth/server/service-sender.ts';
 
 const pair=generateKeyPairSync('rsa',{modulusLength:2048});
@@ -71,19 +72,90 @@ test('exact raw bytes: changed query order/percent, Unicode body, JSON whitespac
   assert.throws(()=>signForTrustedAttempt(config,session,{...op,rawPath:Buffer.from('/bad?x=1')}),/BFF_SERVICE_DENIED/);
   assert.throws(()=>signForTrustedAttempt(config,session,{...op,body:Buffer.alloc(8193)}),/BFF_SERVICE_DENIED/);
 });
-test('Next server-only entrypoint and isolated client import boundary',()=>{
-  const root=new URL('../../../apps/web/',import.meta.url);
-  const entry=readFileSync(new URL('src/auth/server/index.ts',root),'utf8');
-  assert.match(entry,/import 'server-only'/);
-  function walk(dir){
-    for(const file of readdirSync(dir,{withFileTypes:true})){
-      const pathname=join(dir,file.name);
-      if(file.isDirectory())walk(pathname);
-      else if(/\.(tsx?|jsx?)$/.test(file.name)){
-        const text=readFileSync(pathname,'utf8');
-        assert.doesNotMatch(text,/auth\/server\/|service-sender/,pathname);
-      }
+/**
+ * Next API route handlers under app/api/ are server entry points, not browser code.
+ * Only 'use client' files and their transitive runtime import graph become
+ * browser code. Follow static imports/exports and literal dynamic imports,
+ * explicitly excluding erased TypeScript type-only imports.
+ */
+function runtimeImports(source){
+  const staticImports=/(?:^|\n)\s*(?:import|export)\s+(?!type\b)(?:[^;]*?\s+from\s+)?['"]([^'"]+)['"]/g;
+  const dynamicImports=/\b(?:import|require)\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+  return [...source.matchAll(staticImports),...source.matchAll(dynamicImports)]
+    .map(match=>match[1]);
+}
+function clientBoundary(root,entry){
+  const visited=new Set();
+  const rootPath=resolve(root);
+  // The checked-in public product.v1 JSON schema is the ONLY allowed runtime
+  // import outside apps/web. No other shared package or server module passes.
+  const publicSchema=resolve(rootPath,'../../packages/contracts/product.v1.schema.json');
+  function visit(file){
+    const full=resolve(file);
+    assert.ok(full.startsWith(rootPath+sep)||full===publicSchema,
+      'CLIENT_IMPORT_OUTSIDE_APP: '+full);
+    if(visited.has(full))return;
+    if(full===publicSchema){
+      JSON.parse(readFileSync(full,'utf8'));
+      visited.add(full);
+      return;
+    }
+    visited.add(full);
+    const source=readFileSync(full,'utf8');
+    assert.doesNotMatch(source,/(?:^|\n)\s*['"]use server['"]\s*;?/,
+      'CLIENT_SERVER_MODULE: '+full);
+    for(const spec of runtimeImports(source)){
+      assert.ok(!/^(?:node:|server-only$|fs$|crypto$|child_process$|module$|net$|tls$)/.test(spec)&&
+        !/(?:^|\/)auth\/(?:server|initial)(?:\/|$)/.test(spec)&&
+        !/(?:^|\/)history\/proxy(?:\.|\/|$)/.test(spec),
+        'CLIENT_SERVER_IMPORT: '+full+' -> '+spec);
+      if(!spec.startsWith('.'))continue;
+      if(/\.(?:css|scss|sass)$/.test(spec))continue;
+      const target=resolve(dirname(full),spec);
+      const possible=[target,target+'.ts',target+'.tsx',target+'.js',target+'.jsx',
+        join(target,'index.ts'),join(target,'index.tsx'),join(target,'index.js')];
+      const resolved=possible.find(candidate=>existsSync(candidate)&&statSync(candidate).isFile());
+      assert.ok(resolved,'CLIENT_UNRESOLVED_IMPORT: '+full+' -> '+spec);
+      visit(resolved);
     }
   }
-  walk(new URL('app/',root).pathname);
+  visit(entry);
+  return visited;
+}
+function allSources(dir){
+  const found=[];
+  for(const item of readdirSync(dir,{withFileTypes:true})){
+    const pathname=join(dir,item.name);
+    if(item.isDirectory())found.push(...allSources(pathname));
+    else if(item.isFile()&&/\.(?:tsx?|jsx?)$/.test(item.name))found.push(pathname);
+  }
+  return found;
+}
+test('Next server-only entrypoint; browser client import closure excludes server modules',()=>{
+  const root=new URL('../../../apps/web/',import.meta.url).pathname;
+  const entry=readFileSync(join(root,'src/auth/server/index.ts'),'utf8');
+  assert.match(entry,/import 'server-only'/);
+  const route=readFileSync(join(root,'app/api/auth/login/route.ts'),'utf8');
+  assert.match(route,/auth\/server\/private-staging/);
+  assert.doesNotMatch(route,/^\s*['"]use client['"]/m,
+    'API login route must remain server-only');
+  const entries=[...allSources(join(root,'app')),...allSources(join(root,'src'))]
+    .filter(file=>/^\s*['"]use client['"]\s*;?/m.test(readFileSync(file,'utf8')));
+  assert.ok(entries.some(file=>file.endsWith('/src/ui/product-chat.tsx')),
+    'product chat must be guarded as a browser client root');
+  for(const file of entries)clientBoundary(root,file);
+});
+test('client boundary rejects a transitive import of server-only code',()=>{
+  const root=mkdtempSync(join(tmpdir(),'rag-client-import-'));
+  try{
+    writeFileSync(join(root,'client.tsx'),"'use client';\nimport './bridge';");
+    writeFileSync(join(root,'bridge.ts'),"export {secret} from './secret';");
+    writeFileSync(join(root,'secret.ts'),"import 'server-only';\nexport const secret='must-not-bundle';");
+    assert.throws(()=>clientBoundary(root,join(root,'client.tsx')),
+      /CLIENT_SERVER_IMPORT/);
+    writeFileSync(join(root,'client.tsx'),
+      "'use client';\nimport './bridge';\nimport '../auth/server/key';");
+    assert.throws(()=>clientBoundary(root,join(root,'client.tsx')),
+      /CLIENT_SERVER_IMPORT/);
+  }finally{rmSync(root,{recursive:true,force:true});}
 });

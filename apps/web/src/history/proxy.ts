@@ -8,11 +8,13 @@ import {SESSION,cookie,secureBrowser,noStore,publicOrigin} from '../auth/server/
 import {getActive,revokeAlias} from '../auth/server/initial-store.ts';
 import {productRequest} from '../auth/server/product-session.ts';
 import {conformsToProductV1} from './product-validation.ts';
+import {stagingRequested,stagingProfile} from '../auth/server/private-staging.ts';
 
 const allowed=(parts:string[],method:string):boolean=>
   (parts.length===1&&parts[0]==='conversations'&&['GET','POST'].includes(method))||
   (parts.length===1&&parts[0]==='messages'&&method==='POST')||
-  (parts.length===2&&parts[0]==='message-requests'&&parts[1]==='status'&&method==='GET')||
+  (parts.length===2&&parts[0]==='message-requests'&&
+    ['status','engine-status'].includes(parts[1])&&method==='GET')||
   (parts.length===3&&parts[0]==='conversations'&&/^[A-Za-z0-9_-]{1,64}$/.test(parts[1])&&
     parts[2]==='messages'&&method==='GET');
 
@@ -20,25 +22,28 @@ export async function forwardHistoryProxy(request:Request,path:string[]):Promise
   if(!allowed(path,request.method))return new Response(null,{status:404});
   // CI-only authenticated path. No browser-selected owner, upstream, or
   // synthetic fallback. The API independently fences the signed session.
-  if(process.env.AUTH_CI_LOGIN_MODE==='true'){
+  if(process.env.AUTH_CI_LOGIN_MODE==='true'||stagingRequested()){
     if(!secureBrowser(request))return new Response(null,{status:503,headers:noStore});
     const handle=cookie(request,SESSION);
     const active=handle?await getActive(handle):null;
     if(!active)
       return Response.json({error:'AUTH_REQUIRED'},{status:401,headers:noStore});
-    if(process.env.AUTH_CI_DEMO_MODE!=='true')
+    if(!stagingRequested()&&process.env.AUTH_CI_DEMO_MODE!=='true')
       return Response.json({error:'SIGNED_PRODUCT_API_NOT_WIRED'},
         {status:503,headers:noStore});
     const query=new URL(request.url).searchParams;
     const listed=path.length===1&&path[0]==='conversations'&&request.method==='GET';
     const thread=path.length===3&&path[0]==='conversations'&&path[2]==='messages'&&request.method==='GET';
     const status=path.length===2&&path[0]==='message-requests'&&path[1]==='status'&&request.method==='GET';
+    const engineStatus=path.length===2&&path[0]==='message-requests'&&
+      path[1]==='engine-status'&&request.method==='GET';
     const send=path.length===1&&path[0]==='messages'&&request.method==='POST';
     // The pinned #53 signed API has no POST create-conversation endpoint.
     // A new draft becomes a server conversation only with its first Send.
-    if(!(listed||thread||status||send))
+    if(!(listed||thread||status||engineStatus||send))
       return Response.json({error:'PRODUCT_ROUTE_NOT_AVAILABLE'},{status:503,headers:noStore});
-    if(send&&process.env.AUTH_CI_PRODUCT_CHAT_MODE!=='NO_DISPATCH_ONLY')
+    if(send&&(stagingRequested()?stagingProfile().send_mode!=='NO_DISPATCH_ONLY':
+      process.env.AUTH_CI_PRODUCT_CHAT_MODE!=='NO_DISPATCH_ONLY'))
       return Response.json({error:'LIVE_RUNNER_NOT_APPROVED'},
         {status:503,headers:noStore});
     let signedQuery='',rawBody='';
@@ -51,7 +56,7 @@ export async function forwardHistoryProxy(request:Request,path:string[]):Promise
          (cursor!==null&&!/^[A-Za-z0-9_-]{1,512}$/.test(cursor)))
         return new Response(null,{status:422,headers:noStore});
       signedQuery='?limit='+limit+(cursor===null?'':'&cursor='+cursor);
-    }else if(status){
+    }else if(status||engineStatus){
       const keys=['requested_conversation_id','client_message_id','idempotency_key'];
       if([...query.keys()].some(k=>!keys.includes(k)||query.getAll(k).length!==1)||
          keys.some(k=>!query.has(k)))
@@ -80,7 +85,8 @@ export async function forwardHistoryProxy(request:Request,path:string[]):Promise
       }catch{return new Response(null,{status:422,headers:noStore});}
     }
     try{
-      const operation=listed?'history':thread?'messages':status?'status':'send';
+      const operation=listed?'history':thread?'messages':
+        engineStatus?'engine-status':status?'status':'send';
       const actual=await productRequest(
         operation,active,signedQuery,thread?path[1]:'',rawBody);
       if(actual.status===401&&handle)await revokeAlias(handle);
@@ -95,7 +101,7 @@ export async function forwardHistoryProxy(request:Request,path:string[]):Promise
   }
   // Historical actor-selected CI proxy is not a product/staging fallback.
   // Even when Auth login is misconfigured, demo/chat mode must fail closed.
-  if(process.env.AUTH_CI_DEMO_MODE==='true'||
+  if(stagingRequested()||process.env.AUTH_CI_DEMO_MODE==='true'||
      process.env.AUTH_CI_PRODUCT_CHAT_MODE!==undefined)
     return Response.json({error:'PRODUCT_AUTH_REQUIRED'},
       {status:503,headers:noStore});

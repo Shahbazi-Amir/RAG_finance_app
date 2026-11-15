@@ -1,5 +1,6 @@
 import {cookie,csrf,freshCookie,INIT,SESSION,secureBrowser,appendCookie,noStore,
   publicOrigin} from '../../src/auth/initial/index.ts';
+import {stagingRequested,stagingProfile} from '../../src/auth/server/private-staging.ts';
 import {getActive} from '../../src/auth/initial/index.ts';
 export const dynamic='force-dynamic';
 export const runtime='nodejs';
@@ -32,7 +33,8 @@ export async function GET(request:Request):Promise<Response>{
     const current=cookie(request,SESSION);
     const active=current?await getActive(current):null;
     if(active){
-      const label=active.ownerId===process.env.AUTH_CI_DEMO_OWNER_A?'حساب نمایشی الف'
+      const label=stagingRequested()?'نشست دعوت‌شدهٔ معتبر':
+        active.ownerId===process.env.AUTH_CI_DEMO_OWNER_A?'حساب نمایشی الف'
         :active.ownerId===process.env.AUTH_CI_DEMO_OWNER_B?'حساب نمایشی ب'
         :'نشست آزمایشی معتبر';
       const content=html('<h1>مدیریت نشست</h1><p class="label">'+label+
@@ -48,19 +50,24 @@ export async function GET(request:Request):Promise<Response>{
     // CSP form-action also checks the redirect target, not only POST /api/auth/login.
     // Allow ONLY the statically provisioned loopback Keycloak origin in this
     // isolated CI demo; never accept a query/body-selected origin.
-    const idpOrigin=process.env.AUTH_CI_IDP_AUTHORIZATION_ORIGIN??'';
-    const match=/^http:\/\/127\.0\.0\.1:([0-9]{1,5})$/.exec(idpOrigin);
-    const port=match?Number(match[1]):0;
-    if(!match||port<1||port>65535)throw new Error('CI_PINNED_IDP_REQUIRED');
+    const idpOrigin=stagingRequested()?stagingProfile().idp_authorization_origin:
+      process.env.AUTH_CI_IDP_AUTHORIZATION_ORIGIN??'';
+    if(!stagingRequested()){
+      const match=/^http:\/\/127\.0\.0\.1:([0-9]{1,5})$/.exec(idpOrigin);
+      const port=match?Number(match[1]):0;
+      if(!match||port<1||port>65535)throw new Error('CI_PINNED_IDP_REQUIRED');
+    }
     const formPolicy="default-src 'none'; style-src 'unsafe-inline'; form-action 'self' "+idpOrigin+"; base-uri 'none'";
     const reason=new URL(request.url).searchParams.get('reason');
     const result=reason==='logged_out'
       ?'<p class="success" data-testid="logout-success">خروج با ابطال تأییدشدهٔ نشست انجام شد.</p>'
       :reason==='auth_failed'
       ?'<p class="error" data-testid="login-error">درخواست ورود معتبر نبود؛ دوباره تلاش کنید.</p>':'';
-    const text=html('<h1>ورود به گفت‌وگوی مالی</h1>'+result+
+    const accountText=stagingRequested()?
+      '<p>برای ادامه از حساب دعوت‌شدهٔ خود استفاده کنید؛ هر نشست فقط تاریخچهٔ خصوصی خود را می‌بیند.</p>':
       '<p>با یکی از حساب‌های مصنوعی «نمایشی الف» یا «نمایشی ب» وارد شوید؛ هر حساب فقط تاریخچهٔ خودش را می‌بیند.</p>'+
-      '<p class="label">تاریخچهٔ نمونهٔ سپهر و دماوند؛ اطلاعات غیرواقعی.</p>'+
+      '<p class="label">تاریخچهٔ نمونهٔ سپهر و دماوند؛ اطلاعات غیرواقعی.</p>';
+    const text=html('<h1>ورود به گفت‌وگوی مالی</h1>'+result+accountText+
       '<form method="post" action="/api/auth/login">'+
       '<input type="hidden" name="csrf" value="'+csrf(init)+'">'+
       '<button type="submit" data-testid="login-submit">ورود</button></form>');

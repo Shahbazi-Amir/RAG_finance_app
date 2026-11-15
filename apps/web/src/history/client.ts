@@ -14,6 +14,11 @@ export type MessagePage = HistoryPage<MessageView> & { answers:AnswerView[]; con
 export type CreateOperation = { kind:'create_conversation_request'; contract_version:'product.v1'; client_conversation_id:string; idempotency_key:string; title:string|null };
 export type PendingSend = { request:SendRequest; phase:'sending'|'unknown'|'unconfirmed'|'persisted'|'conflict'|'unauthorized'; messageId:string|null; serverId:string|null };
 export type HistoryStatus = 'not_found'|'persisted'|'attempt_pending'|'attempt_unknown'|'answer_committed'|'failed'|'cancelled';
+export type EnginePreflightState='NOT_STARTED'|'NOT_RECORDED'|'QUEUED'|'RUNNING'|
+  'CONTEXT_READY'|'FAILED'|'UNKNOWN';
+export type EngineStatus=Readonly<{state:EnginePreflightState;productStatus:HistoryStatus;
+  attemptId:string|null;attemptTraceId:string|null;top10Count:number|null;
+  generationCalls:number|null;questionHashMatches:boolean|null}>;
 type Wire = Record<string,unknown>;
 
 export class HistoryFailure extends Error {
@@ -225,6 +230,49 @@ export async function recoverStatus(original:StatusCorrelation):Promise<{
   return {status,id,messageId,answer,
     attemptId:maybeText(o.attempt_id),attemptRequestId:maybeText(o.attempt_request_id),
     attemptTraceId:maybeText(o.attempt_trace_id)};
+}
+/** API #53 technical GET. It is NOT a product.v1 Answer or a citation.
+ * Only the original three correlators are transmitted; no POST or question.
+ * Cross-check attempt identity against the independently authenticated Product
+ * Status when both reads expose one. Server status is trusted only via BFF.
+ */
+export async function recoverEngineStatus(original:StatusCorrelation):Promise<EngineStatus|null>{
+  const query=params({requested_conversation_id:original.requested_conversation_id??'',
+    client_message_id:original.client_message_id,idempotency_key:original.idempotency_key});
+  let raw:unknown;
+  try{raw=await api('message-requests/engine-status?'+query);}
+  catch(e){if(e instanceof HistoryFailure&&e.status===404)return null;throw e;}
+  const o=object(raw);
+  const fields=['kind','contract_version','request_id','trace_id',
+    'attempt_id','attempt_trace_id','product_status','preflight_state',
+    'question_sha256_matches','top10_count','generation_calls',
+    'dispatch_performed','answer'];
+  if(Object.keys(o).sort().join('|')!==fields.sort().join('|')||
+     o.kind!=='no_dispatch_execution_status'||
+     o.contract_version!=='api.no_dispatch_status.v1'||
+     o.dispatch_performed!==false||o.answer!==null)invalid();
+  text(o.request_id);text(o.trace_id);
+  const attemptId=maybeText(o.attempt_id),attemptTraceId=maybeText(o.attempt_trace_id);
+  if(attemptId!==null&&!/^[a-f0-9]{32}$/.test(attemptId))invalid();
+  if((attemptId===null)!==(attemptTraceId===null))invalid();
+  const statuses:HistoryStatus[]=['not_found','persisted','attempt_pending',
+    'attempt_unknown','answer_committed','failed','cancelled'];
+  const states:EnginePreflightState[]=['NOT_STARTED','NOT_RECORDED','QUEUED',
+    'RUNNING','CONTEXT_READY','FAILED','UNKNOWN'];
+  if(!statuses.includes(o.product_status as HistoryStatus)||
+     !states.includes(o.preflight_state as EnginePreflightState))invalid();
+  if(o.question_sha256_matches!==null&&typeof o.question_sha256_matches!=='boolean')invalid();
+  const metric=(v:unknown)=>v===null?null:
+    Number.isSafeInteger(v)&&Number(v)>=0?Number(v):invalid();
+  const top10Count=metric(o.top10_count),generationCalls=metric(o.generation_calls);
+  if(o.preflight_state==='CONTEXT_READY'&&
+     (top10Count!==10||generationCalls!==0||o.question_sha256_matches!==true))
+    invalid();
+  if(o.preflight_state==='NOT_STARTED'&&attemptId!==null)invalid();
+  return {state:o.preflight_state as EnginePreflightState,
+    productStatus:o.product_status as HistoryStatus,attemptId,attemptTraceId,
+    top10Count,generationCalls,
+    questionHashMatches:o.question_sha256_matches as boolean|null};
 }
 export function failureLabel(err:unknown):string{
   if(!(err instanceof HistoryFailure))return 'خطای نامشخص؛ وضعیت ثبت تأیید نشده است.';

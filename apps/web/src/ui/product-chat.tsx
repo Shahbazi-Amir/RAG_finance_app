@@ -1,9 +1,9 @@
 'use client';
 import {useCallback,useEffect,useRef,useState,type FormEvent} from 'react';
 import Link from 'next/link';
-import {conversations,messages,newSend,sendMessage,recoverStatus,HistoryFailure,
+import {conversations,messages,newSend,sendMessage,recoverStatus,recoverEngineStatus,HistoryFailure,
   failureLabel,mergeUnique,type ConversationView,type MessageView,
-  type AnswerView,type HistoryStatus} from '../history/client';
+  type AnswerView,type HistoryStatus,type EngineStatus} from '../history/client';
 import type {Answer,Citation} from '../mock/transport';
 import {verifiedSourceUrl} from './source-locator';
 import {isVerifiedLiveAnswer,productOutcomeLabel} from './answer-visibility';
@@ -13,7 +13,8 @@ import {readCheckpoints,retainCheckpoint,forgetCheckpoints,statusCorrelators,
 type ListData={items:ConversationView[];next:string|null;more:boolean};
 type ThreadData={items:MessageView[];answers:AnswerView[];next:string|null;more:boolean};
 type Attempt= {record:AttemptCheckpoint;viewId:string;question:string|null;phase:HistoryStatus|'sending'|'transport_unknown'|'invalid_answer'|'status_error';
-  attemptId:string|null;messageId:string|null;answer:Answer|null;confirmed:boolean};
+  attemptId:string|null;messageId:string|null;answer:Answer|null;confirmed:boolean;
+  engine:EngineStatus|null;engineUnavailable:boolean};
 const isTerminal=(phase:Attempt['phase'])=>
   ['answer_committed','invalid_answer','failed','cancelled'].includes(phase);
 function phaseLabel(attempt:Attempt):string {
@@ -29,6 +30,17 @@ function phaseLabel(attempt:Attempt):string {
     case 'answer_committed':return 'پاسخ تأییدشدهٔ همین Attempt دریافت شد.';
     case 'status_error':return 'خواندن وضعیت ناموفق بود؛ نتیجه نامعلوم است.';
     default:return 'ارتباط قطع شد؛ نتیجه نامعلوم است. فقط وضعیت پیگیری می‌شود.';
+  }
+}
+function engineLabel(s:EngineStatus):string{
+  switch(s.state){
+    case 'NOT_STARTED':return 'اجرای فنی هنوز آغاز نشده است.';
+    case 'NOT_RECORDED':return 'وضعیت فنی برای این Attempt ثبت نشده است.';
+    case 'QUEUED':return 'در صف پردازش فنی بدون تولید پاسخ.';
+    case 'RUNNING':return 'بازیابی شواهد در حال اجراست؛ تولید پاسخ غیرفعال است.';
+    case 'CONTEXT_READY':return 'بازیابی شواهد کامل شد؛ تولید پاسخ انجام نشده است.';
+    case 'FAILED':return 'پردازش فنی بدون تولید پاسخ با خطا پایان یافت.';
+    default:return 'نتیجهٔ اجرای فنی نامعلوم است؛ ارسال مجدد انجام نمی‌شود.';
   }
 }
 function CitationView({citation}:{citation:Citation}){
@@ -142,12 +154,29 @@ export default function ProductChat(){
       }
       const resultPhase=status.status==='answer_committed'&&!isVerifiedLiveAnswer(status.answer)
         ?'invalid_answer':status.status;
+      let technical:EngineStatus|null=null;
+      let engineUnavailable=false;
+      if(status.status!=='not_found'){
+        try{
+          technical=await recoverEngineStatus(statusCorrelators(record));
+          if(technical&&status.attemptId&&technical.attemptId&&
+             (technical.attemptId!==status.attemptId||
+              (status.attemptTraceId!==null&&
+               technical.attemptTraceId!==status.attemptTraceId)))
+            throw new HistoryFailure(0,'invalid');
+        }catch(e){
+          if(invalidate(e)||lost.current)return;
+          engineUnavailable=true;
+        }
+      }
+      if(lost.current)return;
       setAttempts(all=>{
         const previous=all[record.client_message_id];
         if(!previous||isTerminal(previous.phase))return all;
         return {...all,[record.client_message_id]:{
           ...previous,phase:resultPhase,attemptId:status.attemptId??previous.attemptId,
           messageId:status.messageId,answer:status.answer,
+          engine:technical??previous.engine,engineUnavailable,
           record:status.id?{...previous.record,resolved_conversation_id:status.id}:previous.record,
           viewId:status.id??previous.viewId,
           confirmed:status.status!=='not_found'
@@ -182,7 +211,8 @@ export default function ProductChat(){
             record,viewId:record.resolved_conversation_id??
               record.requested_conversation_id??'draft:new',
             question:null,phase:'transport_unknown',
-            attemptId:null,messageId:null,answer:null,confirmed:false};
+            attemptId:null,messageId:null,answer:null,confirmed:false,
+            engine:null,engineUnavailable:false};
         return next;
       });
       void loadList();
@@ -240,7 +270,7 @@ export default function ProductChat(){
     sending.current=true;setBusy(true);setError('');
     setDrafts(all=>({...all,[selected]:''}));
     const attempt:Attempt={record,viewId:selected,question,phase:'sending',attemptId:null,
-      messageId:null,answer:null,confirmed:false};
+      messageId:null,answer:null,confirmed:false,engine:null,engineUnavailable:false};
     attemptsRef.current={...attemptsRef.current,[record.client_message_id]:attempt};
     setAttempts(all=>({...all,[record.client_message_id]:attempt}));
     try{
@@ -357,6 +387,18 @@ export default function ProductChat(){
             <p className="history-message-text">{a.question}</p>}
           <p role="status" className="history-note">{phaseLabel(a)}</p>
           {a.attemptId&&<p className="history-note">شناسهٔ Attempt: <code>{a.attemptId}</code></p>}
+          {a.engine&&<section className="history-note"
+            data-testid={'engine-status-'+a.record.client_message_id}
+            aria-label="وضعیت فنی همین درخواست">
+            <p role="status">{engineLabel(a.engine)}</p>
+            {a.engine.state==='CONTEXT_READY'&&<p>
+              شواهد بازیابی‌شده: {a.engine.top10Count}، تعداد تولید پاسخ: {a.engine.generationCalls}
+            </p>}
+            <p>این گزارش فنی پاسخ مدل یا استناد قابل‌نمایش نیست.</p>
+          </section>}
+          {a.engineUnavailable&&<p role="status" className="history-note">
+            وضعیت فنی جداگانه در دسترس نیست؛ فقط وضعیت اصلی پیگیری می‌شود.
+          </p>}
           {a.phase==='answer_committed'&&a.answer&&
             !renderedIds.has(a.answer.message_id)&&<AnswerPanel answer={a.answer}/>}
           {a.phase==='invalid_answer'&&<p className="history-note">
