@@ -16,12 +16,12 @@ jobs:
       - name: Checkout immutable UI #54 source independent of #55 working tree
         uses: actions/checkout@v4
         with:
-          ref: d0f37f188028b97f2e183166ca1a587acce48475
+          ref: c05d4924379baa690747bd3ffa3366c2731e7f43
           persist-credentials: false
       - name: Prove immutable UI HEAD and original L1 test source
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "d0f37f188028b97f2e183166ca1a587acce48475"
+          test "$(git rev-parse HEAD)" = "c05d4924379baa690747bd3ffa3366c2731e7f43"
           echo "FND_UI54_TESTED_SOURCE_SHA=$(git rev-parse HEAD)"
           test "$(git hash-object tests/phase3/integration/ui/product_chat_browser.py)" = "861c14a6193630939e002c35342b0a7ca73d41b0"
           echo FND_UI54_EXACT_SOURCE_AND_BROWSER_TEST_PIN_PASS
