@@ -159,6 +159,7 @@ export default function ProductChat(){
         return {...all,[record.client_message_id]:{
           ...previous,phase:resultPhase,attemptId:status.attemptId??previous.attemptId,
           messageId:status.messageId,answer:status.answer,
+          record:status.id?{...previous.record,resolved_conversation_id:status.id}:previous.record,
           confirmed:status.status!=='not_found'
         }};
       });
@@ -244,6 +245,7 @@ export default function ProductChat(){
       if(lost.current)return;
       setAttempts(all=>{const prev=all[record.client_message_id];return prev?
         {...all,[record.client_message_id]:{...prev,phase:'persisted',
+          record:{...prev.record,resolved_conversation_id:receipt.id},
           messageId:receipt.messageId,confirmed:true}}:all;});
       retainCheckpoint(window.sessionStorage,{...record,resolved_conversation_id:receipt.id});
       setSelected(old=>old===selected?receipt.id:old);
@@ -262,8 +264,7 @@ export default function ProductChat(){
   const answers=new Map((messagesFor?.answers??[]).map(a=>[a.messageId,a.payload]));
   const selectedAttempts=Object.values(attempts).filter(a=>
     (a.record.resolved_conversation_id??a.record.requested_conversation_id)===
-      (selected.startsWith('draft:')?null:selected) &&
-    (!a.messageId||!renderedIds.has(a.messageId)));
+      (selected.startsWith('draft:')?null:selected));
   return <main className="history-shell product-shell" dir="rtl">
     <aside className={'history-sidebar'+(mobileOpen?' is-mobile-open':'')}>
       <div className="history-brand"><span className="brand-mark" aria-hidden="true">ف</span>
@@ -334,10 +335,15 @@ export default function ProductChat(){
         {selectedAttempts.map(a=><article key={a.record.client_message_id}
           className="history-answer product-attempt"
           data-testid={'attempt-'+a.record.client_message_id}>
-          {a.question&&<p className="history-message-text">{a.question}</p>}
+          {a.question&&(!a.messageId||!renderedIds.has(a.messageId))&&
+            <p className="history-message-text">{a.question}</p>}
           <p role="status" className="history-note">{phaseLabel(a)}</p>
           {a.attemptId&&<p className="history-note">شناسهٔ Attempt: <code>{a.attemptId}</code></p>}
-          {a.phase==='answer_committed'&&a.answer&&<AnswerPanel answer={a.answer}/>}
+          {a.phase==='answer_committed'&&a.answer&&
+            !renderedIds.has(a.answer.message_id)&&<AnswerPanel answer={a.answer}/>}
+          {a.phase==='invalid_answer'&&<p className="history-note">
+            محتوای دریافت‌شده از منبع آزمایشی قابل ارائه نیست.
+          </p>}
           {!isTerminal(a.phase)&&<button type="button" className="secondary"
             data-testid="recover-status" onClick={()=>void probe(a.record)}>
             بررسی وضعیت همین Attempt
