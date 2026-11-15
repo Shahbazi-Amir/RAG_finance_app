@@ -165,6 +165,53 @@ def _harden_tls_context(config, default_factory):
     return ctx
 
 
+def verify_staging_database_authority(profile: PrivateStagingProfile) -> None:
+    """Read-only real DB role/004/005/revoke privilege pre-start admission.
+
+    No migrations, grants, writes or SQL exposed to an HTTP caller. It verifies
+    the actual server credentials, role identity and scoped EXECUTE permissions.
+    No user secrets or DSN are returned or printed.
+    """
+    import psycopg
+    from psycopg.rows import dict_row
+    from src.phase3.auth.staging_service_profile import db_attributes_approved
+
+    procedures = {
+        "history": (
+            "auth_l1.consume_service_assertion(text,bigint)",
+            "auth_l1.admit_session_fenced(text,text,bigint,integer)",
+        ),
+        "revoke": (
+            "auth_l1.consume_service_assertion(text,bigint)",
+            "auth_l1.admit_session_fenced(text,text,bigint,integer)",
+            "auth_l1.revoke_one(text,bigint)",
+        ),
+    }
+    role_names = {"history": "history_app", "revoke": "auth_revoker"}
+    for operation, names in procedures.items():
+        dsn = profile.dsn(operation)
+        if not db_attributes_approved(
+                psycopg.conninfo.conninfo_to_dict(dsn), operation):
+            raise StagingConfigDenied()
+        try:
+            with psycopg.connect(dsn, autocommit=True,
+                                 row_factory=dict_row, connect_timeout=5) as conn:
+                row = conn.execute(
+                    "SELECT rolname,rolsuper,rolbypassrls "
+                    "FROM pg_roles WHERE rolname=current_user").fetchone()
+                if (row is None or row["rolname"] != role_names[operation]
+                        or row["rolsuper"] or row["rolbypassrls"]):
+                    raise StagingConfigDenied()
+                for signature in names:
+                    has = conn.execute(
+                        "SELECT has_function_privilege(current_user,%s,'EXECUTE') AS ok",
+                        (signature,)).fetchone()
+                    if has is None or has["ok"] is not True:
+                        raise StagingConfigDenied()
+        except psycopg.Error:
+            raise StagingConfigDenied() from None
+
+
 def prepare_private_app(cfg: PrivateASGIConfig, environ=None):
     """Validate file/env/TLS and install actual pinned handler BEFORE traffic.
 
@@ -182,6 +229,8 @@ def prepare_private_app(cfg: PrivateASGIConfig, environ=None):
         peer_verifier=boundary.scope_is_verified,
         runner_sha256=RUNNER_C018_SHA256,
     )
+    # Hard DB gate: refuse to listen before actual restricted roles and 004/005.
+    verify_staging_database_authority(profile)
     # Avoid a magic PYTHONPATH dependency for the original repository module.
     project_root = Path(__file__).resolve().parents[2]
     module_dir = project_root / "src/phase3/storage/postgres"
