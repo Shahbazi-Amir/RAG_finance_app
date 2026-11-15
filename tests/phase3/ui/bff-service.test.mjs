@@ -73,7 +73,7 @@ test('exact raw bytes: changed query order/percent, Unicode body, JSON whitespac
   assert.throws(()=>signForTrustedAttempt(config,session,{...op,body:Buffer.alloc(8193)}),/BFF_SERVICE_DENIED/);
 });
 /**
- * Server routes (app/api/**/route.ts) are NOT browser entry points.
+ * Next API route handlers under app/api/ are server entry points, not browser code.
  * Only 'use client' files and their transitive runtime import graph become
  * browser code. Follow static imports/exports and literal dynamic imports,
  * explicitly excluding erased TypeScript type-only imports.
