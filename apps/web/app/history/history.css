@@ -71,3 +71,22 @@
   .history-messages{padding:18px 0}
   .history-compose{padding-bottom:10px}
 }
+
+/* UI-CHAT-013: authenticated product chat (not the separate synthetic demo). */
+.product-shell .history-main{max-width:900px}
+.product-shell .history-list{overflow-y:auto}
+.product-shell .history-messages{gap:18px}
+.product-shell .history-answer{max-width:min(100%,780px);width:fit-content}
+.product-evidence{border-top:1px solid #dce7dc;margin-top:12px;padding-top:12px}
+.product-evidence h2{font-size:14px;color:#23583b}
+.product-claim{padding:10px 0;border-bottom:1px solid #eef2ec}
+.product-claim p{font-size:14px;line-height:1.9;white-space:pre-wrap;overflow-wrap:anywhere}
+.product-citation{display:flex;flex-direction:column;align-items:flex-start;gap:4px;
+  font-size:12px;line-height:1.7;margin:8px 0;overflow-wrap:anywhere}
+.product-citation a{color:#175b42;text-decoration:underline}
+.product-attempt{border:1px solid #e2d6bd;background:#fffcf6}
+.product-shell .history-mobile-topbar .history-link{font-size:12px}
+@media(max-width:760px){
+ .product-shell .history-sidebar.is-mobile-open{z-index:49}
+ .product-shell .history-mobile-scrim{z-index:48}
+}

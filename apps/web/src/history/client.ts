@@ -184,14 +184,16 @@ export async function sendMessage(original:SendRequest):Promise<{id:string;messa
   return acceptedReceipt(await api('messages','POST',original),original);
 }
 export async function recoverStatus(original:SendRequest):Promise<{
-  status:HistoryStatus;id:string|null;messageId:string|null;answer:Answer|null
+  status:HistoryStatus;id:string|null;messageId:string|null;answer:Answer|null;
+  attemptId:string|null;attemptRequestId:string|null;attemptTraceId:string|null
 }>{
   let response:unknown;
   try{response=await api('message-requests/status?'+params({
     requested_conversation_id:original.requested_conversation_id??'',
     client_message_id:original.client_message_id,idempotency_key:original.idempotency_key
   }));}catch(e){
-    if(e instanceof HistoryFailure&&e.status===404)return {status:'not_found',id:null,messageId:null,answer:null};
+    if(e instanceof HistoryFailure&&e.status===404)return {status:'not_found',id:null,messageId:null,answer:null,
+      attemptId:null,attemptRequestId:null,attemptTraceId:null};
     throw e;
   }
   const o=doc(response,'message_request_status');
@@ -216,11 +218,13 @@ export async function recoverStatus(original:SendRequest):Promise<{
   }
   // The current status poll's request_id/trace_id are NOT the historical T2
   // attempt trace. Only the T2 attempt fields may link a committed Answer.
-  return {status,id,messageId,answer};
+  return {status,id,messageId,answer,
+    attemptId:maybeText(o.attempt_id),attemptRequestId:maybeText(o.attempt_request_id),
+    attemptTraceId:maybeText(o.attempt_trace_id)};
 }
 export function failureLabel(err:unknown):string{
   if(!(err instanceof HistoryFailure))return 'خطای نامشخص؛ وضعیت ثبت تأیید نشده است.';
-  if(err.reason==='unauthorized')return 'برای مشاهدهٔ تاریخچه نیاز به ورود معتبر است؛ ورود هنوز راه‌اندازی نشده است.';
+  if(err.reason==='unauthorized')return 'نشست شما معتبر نیست؛ دوباره از صفحهٔ ورود وارد شوید.';
   if(err.reason==='conflict')return 'تعارض درخواست؛ این پیام ثبت موفق جدید نیست.';
   if(err.reason==='unknown')return 'نتیجهٔ شبکه نامعلوم است؛ ثبت پیام تأیید نشده است.';
   if(err.reason==='unavailable')return 'ارتباط تاریخچه با API در دسترس نیست؛ به Mock منتقل نمی‌شوید.';

@@ -1,4 +1,4 @@
-name: Foundation Integrated Web+API candidate — static evidence only
+name: Foundation Integrated UI54 Web+API53 candidate — offline CI
 
 on:
   push:
@@ -13,7 +13,7 @@ permissions:
 jobs:
   integrated-source-static:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - name: Checkout exact integrated candidate SHA
         uses: actions/checkout@v4
@@ -24,12 +24,16 @@ jobs:
           set -euo pipefail
           echo "INTEGRATED_SOURCE_SHA=$(git rev-parse HEAD)"
           test "$(git hash-object apps/api/product_session_api.py)" = "54b751a169cc143cc6ae1ea3efe8d837a4b54f1d"
-          test "$(git hash-object apps/web/src/history/proxy.ts)" = "d52da7e04ae7de26faedf7cf3f9d9522642eecf3"
+          test "$(git hash-object apps/web/src/history/proxy.ts)" = "dd399fda26fd896616d5a61a938991372ce9b2bc"
+          test "$(git hash-object apps/web/src/ui/product-chat.tsx)" = "324c35a21eb342fc3eaaed7f966f541b7855b8d7"
+          test "$(git hash-object apps/web/app/page.tsx)" = "fd99583bc67fd886da575acec55108bb9538f8ba"
+          test "$(git hash-object tests/phase3/integration/ui/product_chat_browser.py)" = "861c14a6193630939e002c35342b0a7ca73d41b0"
+          echo "FND_EXACT_UI54_SHA_1c3d6a91250b06093b2f4f99d300cd37e0fe9204_SOURCE_PASS"
           test "$(git hash-object scripts/phase3-demo/launcher.py)" = "65248ac6df7c150b3873ca6383ddf3f4eaaf4199"
           test "$(git hash-object src/phase3/rag_runtime/staging_preflight.py)" = "8b73d7c2fbb4a159c091954fdb20d4d71d4b0135"
           test "$(git hash-object src/phase3/auth/staging_service_profile.py)" != ""
           test "$(git hash-object src/phase3/rag_runtime/staging_service_bootstrap.py)" != ""
-          echo "FND_INTEGRATED_UI49_API53_SOURCE_BLOBS_PASS"
+          echo "FND_INTEGRATED_UI54_API53_SOURCE_BLOBS_PASS"
           echo "NO_SSH_NO_PAID_DISPATCH_NO_DEPLOY"
       - name: Node 22.16.0 (local demo compatible)
         uses: actions/setup-node@v4
@@ -51,6 +55,32 @@ jobs:
           python-version: '3.13'
       - name: Install CI-only API dependencies
         run: python -m pip install --no-cache-dir -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.34.3'
+      - name: Install Chromium for bounded isolated UI L1 smoke
+        run: |
+          set -euo pipefail
+          python -m pip install --no-cache-dir 'playwright==1.64.1'
+          python -m playwright install --with-deps chromium
+      - name: Chromium UI #54 Refresh once-only, GET status, 401 private purge (route intercepted)
+        run: |
+          set -euo pipefail
+          nohup npm --prefix apps/web run start > "$RUNNER_TEMP/ui54-next.log" 2>&1 < /dev/null &
+          echo "$!" > "$RUNNER_TEMP/ui54-next.pid"
+          ready=0
+          for attempt in $(seq 1 45); do
+            if curl --fail --silent --output /dev/null http://127.0.0.1:3000/; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if test "$ready" -ne 1; then
+            echo "UI54_NEXT_NOT_READY"
+            tail -n 35 "$RUNNER_TEMP/ui54-next.log"
+            exit 1
+          fi
+          UI_CHAT_L1_BASE_URL=http://127.0.0.1:3000 python tests/phase3/integration/ui/product_chat_browser.py 2>&1 | tee "$RUNNER_TEMP/ui54-chromium.log"
+          grep -F 'UI_CHAT_L1_BROWSER_ONCE_ONLY_POST_REFRESH_STATUS_AND_401_PURGE_PASS' "$RUNNER_TEMP/ui54-chromium.log"
+          echo 'FND_UI54_CHROMIUM_ISOLATED_NO_REAL_API_PASS'
       - name: Compile API and staging no-dispatch modules
         run: |
           python -m compileall -q src/phase3/auth src/phase3/rag_runtime apps/api
