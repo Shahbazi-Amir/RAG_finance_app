@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""UI-CHAT-013 L1-only real Chromium check with *test-only* route interception.
+
+This is NOT Product API, signed BFF, live Runner, account isolation, or Gate
+evidence. Never run this on a public staging service or assert live citations.
+Start the Next build on isolated 127.0.0.1:3000 before invoking this script.
+"""
+import json
+import os
+from pathlib import Path
+from urllib.parse import urlsplit
+
+from playwright.sync_api import sync_playwright, expect
+
+ROOT = Path(__file__).resolve().parents[4]
+REGISTRY = json.loads((ROOT / "packages/contracts/fixtures/product.v1.cases.json").
+                      read_text(encoding="utf-8"))["cases"]
+
+def fixture(name):
+    return next(json.loads(json.dumps(c["document"])) for c in REGISTRY
+                if c["case_id"] == name and c["expected_valid"])
+
+def main():
+    base = os.getenv("UI_CHAT_L1_BASE_URL", "http://127.0.0.1:3000")
+    url = urlsplit(base)
+    if url.scheme != "http" or url.hostname != "127.0.0.1" or url.port != 3000:
+        raise RuntimeError("UI_CHAT_L1_ONLY_LOOPBACK_HTTP_PORT_3000")
+    state = {"posts": 0, "status_reads": 0, "logged_in": True, "request": None}
+    conversation_id = "conv_uichat_013"
+    user_message = "msg_uichat_013"
+
+    def intercept(route):
+        path = urlsplit(route.request.url).path
+        method = route.request.method
+        if not state["logged_in"]:
+            route.fulfill(status=401, content_type="application/json",
+                          body='{"error":"AUTH_REQUIRED"}')
+            return
+        if path.endswith("/api/history/conversations") and method == "GET":
+            body = fixture("valid_paginated_conversations")
+            body["page"]["limit"] = 20
+            body["page"]["has_more"] = False
+            body["page"]["next_cursor"] = None
+            body["items"] = []
+            if state["posts"]:
+                conv = fixture("valid_conversation")
+                conv["conversation_id"] = conversation_id
+                conv["title"] = "گفت‌وگوی تست فارسی"
+                conv["owner_user_id"] = body["scope_user_id"]
+                body["items"] = [conv]
+            route.fulfill(status=200, json=body)
+        elif path.endswith("/api/history/messages") and method == "POST":
+            state["posts"] += 1
+            if state["posts"] > 1:
+                raise AssertionError("BROWSER_REPOST_IS_FORBIDDEN")
+            original = route.request.post_data_json
+            assert original["requested_conversation_id"] is None
+            state["request"] = original
+            receipt = fixture("valid_send_message_receipt")
+            receipt["requested_conversation_id"] = None
+            receipt["resolved_conversation_id"] = conversation_id
+            receipt["client_message_id"] = original["client_message_id"]
+            receipt["idempotency_key"] = original["idempotency_key"]
+            receipt["message_id"] = user_message
+            route.fulfill(status=202, json=receipt)
+        elif "/api/history/conversations/" in path and path.endswith("/messages") and method == "GET":
+            body = fixture("valid_history_messages_page")
+            body["conversation_id"] = conversation_id
+            body["page"]["limit"] = 30
+            body["page"]["has_more"] = False
+            body["page"]["next_cursor"] = None
+            body["items"] = []
+            body["answers"] = []
+            if state["posts"]:
+                user = fixture("valid_user_message")
+                user["conversation_id"] = conversation_id
+                user["owner_user_id"] = body["owner_user_id"]
+                user["message_id"] = user_message
+                user["text"] = state["request"]["question"]
+                body["items"] = [user]
+            route.fulfill(status=200, json=body)
+        elif path.endswith("/api/history/message-requests/status") and method == "GET":
+            state["status_reads"] += 1
+            original = state["request"]
+            assert original
+            status = fixture("valid_history_status_not_found")
+            status["requested_conversation_id"] = original["requested_conversation_id"]
+            status["client_message_id"] = original["client_message_id"]
+            status["idempotency_key"] = original["idempotency_key"]
+            status["resolved_conversation_id"] = conversation_id
+            status["message_id"] = user_message
+            status["attempt_id"] = "attempt_uichat_013"
+            status["attempt_request_id"] = "req_attempt_uichat_013"
+            status["attempt_trace_id"] = "trace_attempt_uichat_013"
+            status["reserved_answer_id"] = "ans_uichat_013"
+            status["status"] = "attempt_pending"
+            route.fulfill(status=200, json=status)
+        else:
+            route.fulfill(status=404, content_type="application/json",
+                          body='{"error":"NOT_FOUND"}')
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
+            context = browser.new_context(viewport={"width": 1280, "height": 800})
+            page = context.new_page()
+            page.route("**/api/history/**", intercept)
+            page.goto(base, wait_until="domcontentloaded")
+            expect(page.get_by_text("هنوز گفت‌وگویی ثبت نشده است.")).to_be_visible()
+            page.get_by_test_id("create-conversation").click()
+            page.get_by_test_id("history-question").fill("پرسش فارسی دربارهٔ نرخ بهره")
+            page.get_by_test_id("history-send").click()
+            expect(page.get_by_text("در حال پردازش؛ وضعیت از API دریافت شده است.")).to_be_visible(
+                timeout=15000)
+            assert state["posts"] == 1
+            # Reload MUST never invoke POST: same original client IDs/status GET.
+            page.reload(wait_until="domcontentloaded")
+            expect(page.get_by_test_id("attempt-" + state["request"]["client_message_id"])).to_be_visible(
+                timeout=15000)
+            expect(page.get_by_text("در حال پردازش؛ وضعیت از API دریافت شده است.")).to_be_visible()
+            assert state["posts"] == 1 and state["status_reads"] >= 2
+            expect(page.locator("nav.history-list")).to_contain_text("گفت‌وگوی تست فارسی")
+            # Server 401 purges old per-account list and persisted correlators.
+            state["logged_in"] = False
+            page.get_by_test_id("refresh-history").click()
+            expect(page.get_by_test_id("history-login-required")).to_be_visible()
+            assert page.locator("nav.history-list button").count() == 0
+            assert page.evaluate(
+                "() => sessionStorage.getItem('rag-finance-attempt-correlation-v1')") is None
+            print("UI_CHAT_L1_BROWSER_ONCE_ONLY_POST_REFRESH_STATUS_AND_401_PURGE_PASS")
+            context.close()
+        finally:
+            browser.close()
+
+if __name__ == "__main__":
+    main()
