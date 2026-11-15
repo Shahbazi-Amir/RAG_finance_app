@@ -5,9 +5,16 @@
 import {createCipheriv,createDecipheriv,createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {open,readFile,rename,mkdir,unlink} from 'node:fs/promises';
 import {join} from 'node:path';
+import {stagingRequested,stagingProfile,stagingSecret} from './private-staging.ts';
 
 const fail=():never=>{throw new Error('AUTH_STORE_UNAVAILABLE');};
 function config():{root:string;key:Buffer}{
+  if(stagingRequested()){
+    const p=stagingProfile();
+    const key=Buffer.from(stagingSecret(p.alias_key_file).trim(),'base64url');
+    if(key.length!==32)fail();
+    return {root:p.store_dir,key};
+  }
   if(process.env.CI!=='true'||!process.env.AUTH_CI_SHARED_STORE_DIR)fail();
   const root=process.env.AUTH_CI_SHARED_STORE_DIR??'';
   if(!root.startsWith('/tmp/')||root.includes('..'))fail();
@@ -21,7 +28,10 @@ function isRecord(x:unknown):x is Record<string,unknown>{
   return x!==null&&typeof x==='object'&&!Array.isArray(x);
 }
 async function dir(){
-  const c=config();await mkdir(c.root,{recursive:true,mode:0o700});return c;
+  const c=config();
+  // Staging store is already provisioned, owned and mode 0700 by Ops.
+  if(!stagingRequested())await mkdir(c.root,{recursive:true,mode:0o700});
+  return c;
 }
 function file(root:string,kind:'init'|'alias'|'claim'|'state',id:string){
   if(!valid(id))fail();
