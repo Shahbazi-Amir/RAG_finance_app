@@ -439,7 +439,9 @@ def session_invited_live_result(request: Request):
                 claim = owner_scoped_claim_status(ctx["conn"], ctx["owner"], doc)
                 if claim is None:
                     raise history.NotFound()
-                state = "UNKNOWN" if claim["dispatch_state"] == "UNKNOWN" else "PENDING"
+                # An existing claimed T2 with NO result receipt after Commit
+                # is AMBIGUOUS, never a prompt to execute the producer again.
+                state = "UNKNOWN"
             else:
                 state = "PENDING"
             item = {"result_status": state, "answer": None,
