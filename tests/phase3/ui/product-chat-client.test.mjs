@@ -44,25 +44,43 @@ test('one POST creates receipt; subsequent recovery/refesh is GET only, exact or
     assert.equal(recovered.attemptRequestId,'req_1');
     assert.equal(recovered.attemptTraceId,'trace_1');
     await recoverStatus(original); // browser reload/poll never posts
+    const correlators={requested_conversation_id:original.requested_conversation_id,
+      client_message_id:original.client_message_id,idempotency_key:original.idempotency_key};
+    assert.equal((await recoverStatus(correlators)).status,'attempt_pending');
   });
-  assert.deepEqual(methods,['POST','GET','GET']);
+  assert.deepEqual(methods,['POST','GET','GET','GET']);
   assert.equal(urls[1],urls[2]);
   assert.match(urls[1],/requested_conversation_id=&client_message_id=/);
   assert.ok(!urls.some(u=>u.includes('owner_user_id')));
 });
-test('network-unknown POST does not authorize automatic re-post',async()=>{
+test('network-unknown POST and refresh recovery: identical correlators, GET only',async()=>{
   const original=newSend('سؤال آزمایشی',null);
+  const correlation={
+    requested_conversation_id:original.requested_conversation_id,
+    client_message_id:original.client_message_id,
+    idempotency_key:original.idempotency_key,
+  };
   const requested=[];
   await withFetch(async(url,init)=>{
-    requested.push((init?.method??'GET')+' '+url);
+    requested.push({method:init?.method??'GET',url:String(url)});
     if(init?.method==='POST')throw Error('connection drop');
-    return response(fixture('valid_history_status_not_found'));
+    // The shared valid fixture has STATIC ids; a server Status response must
+    // echo the original operation's three correlators. Keep strict validation.
+    const notFound=fixture('valid_history_status_not_found');
+    Object.assign(notFound,correlation);
+    return response(notFound);
   },async()=>{
-    await assert.rejects(sendMessage(original),e=>e instanceof HistoryFailure&&e.reason==='unknown');
-    const status=await recoverStatus(original);
-    assert.equal(status.status,'not_found');
+    await assert.rejects(sendMessage(original),e=>
+      e instanceof HistoryFailure&&e.reason==='unknown');
+    assert.equal((await recoverStatus(correlation)).status,'not_found');
+    // Simulate page reload: only opaque correlation survives; no question.
+    assert.equal((await recoverStatus({...correlation})).status,'not_found');
   });
-  assert.equal(requested.filter(x=>x.startsWith('POST')).length,1);
+  assert.deepEqual(requested.map(r=>r.method),['POST','GET','GET']);
+  assert.equal(requested[1].url,requested[2].url);
+  for(const [key,value] of Object.entries(correlation))
+    assert.equal(new URL(requested[1].url,'http://localhost').searchParams.get(key),
+      value??'');
 });
 test('a source link is offered only for a valid verified HTTPS URL locator',()=>{
   const unresolved=fixture('valid_answer_unresolved_source');

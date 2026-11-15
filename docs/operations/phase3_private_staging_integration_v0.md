@@ -4,7 +4,7 @@
 
 ## Exact versions and why existing launcher is not a deployment
 
-UI source of truth is **Draft #54** (stacked on #49) at exact pinned SHA `1c3d6a91250b06093b2f4f99d300cd37e0fe9204`. #49 base is `93c4cc00ed03a21c9fe8c20737f45eea8fb7c9bd`. API Draft #53 = `9323566c38d2006f8948b9f277bf6787ef30e474`, stacked on #52 `ef340a787503e953e4fa46d09949347d4a894885` and #50 `c8d7316ccf63a93a8afb7ab4e7193236bf176387`. Foundation policy #35 = `a930c8d169619f5e115c592507b1db79d978bf1a`. The integrated candidate combines the UI and API source blobs under ONE new Git commit. This is a **candidate SHA**, not a deployed SHA.
+UI source of truth is **Draft #54** (stacked on #49) at exact pinned SHA `c05d4924379baa690747bd3ffa3366c2731e7f43`. #49 base is `93c4cc00ed03a21c9fe8c20737f45eea8fb7c9bd`. API Draft #53 = `9323566c38d2006f8948b9f277bf6787ef30e474`, stacked on #52 `ef340a787503e953e4fa46d09949347d4a894885` and #50 `c8d7316ccf63a93a8afb7ab4e7193236bf176387`. Foundation policy #35 = `a930c8d169619f5e115c592507b1db79d978bf1a`. The integrated candidate combines the UI and API source blobs under ONE new Git commit. This is a **candidate SHA**, not a deployed SHA.
 
 #49 `scripts/phase3-demo/launcher.py` internally checks out older UI `fee20cc0992f4c26f76757e670cd6425400441cc` and older API50 `62d40f4b4ed254de0aa0dfc21c17d809e24423db` into an ephemeral worktree with temporary synthetic PG/Keycloak. `demo.sh start` and GitHub Actions are NOT durable server deployment. Plan after operator review: version-pinned systemd Next BFF + private API + separately constrained engine worker, private persistent PG, authenticated TLS ingress; **do not install units or change infrastructure before staging trust/DB approvals**.
 
@@ -26,6 +26,10 @@ Required pre-start record: named operator and verified host SSH key, unit names/
 Valid HTTPS invited A login -> open Chat -> fresh question -> real Persian answer -> open actual authorized Citation -> refresh same request_id/trace_id and Answer with unchanged Runner/Gateway invocation count -> B cannot see A. Exact deployed SHA / request_id / trace_id / opened URL status currently NOT_OBSERVED. No staging deployment, API account inspection, env permission check or Mac browser test performed by this author.
 
 
-## UI #54 pinned source update — 1c3d6a91250b06093b2f4f99d300cd37e0fe9204
+## UI #54 pinned source update — c05d4924379baa690747bd3ffa3366c2731e7f43
 
 UI #54 adds gated signed BFF send/status/messages, durable client-only Attempt correlation, no automatic repost on Refresh, authorized Source Locator/verified-only Answer visibility and an isolated browser script with intercepted routes. **Source sha != tested sha until same-head CI completes.** Foundation integrates unchanged UI #54 blobs above exact API #53; CI will test Next unit+build, API unit/contracts and a real local Chromium page with **intercepted API routes**. This test cannot claim mTLS/API→Postgres→Runner, a real source open, or staging browser acceptance. #49 remains only the parent/launcher source, not current Web app pin.
+
+## Verified UI #54 re-pin checkpoint — 2026-11-15
+
+Exact UI SHA `c05d4924379baa690747bd3ffa3366c2731e7f43` passed Foundation isolated [Run #43712331416](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/43712331416) / [Job #132806404248](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/43712331416/job/132806404248): Typecheck PASS, lint PASS (one nonblocking unused-import warning), Node 99/99 PASS, Next build PASS, genuine localhost Chromium + intercepted API Fixture PASS with one POST→intercepted 202, Refresh GET-only status and 401 private purge. The test is **L1 BROWSER_WITH_FIXTURE**, not a real signed API/PG/Runner or staging test. The integrated candidate still holds immutable API #53 source `9323566c38d2006f8948b9f277bf6787ef30e474`, rather than silently advancing to newer unrelated #53 commits. API/DB/Runner live no-dispatch proof remains separate and blocked.
