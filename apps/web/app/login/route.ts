@@ -36,7 +36,7 @@ export async function GET(request:Request):Promise<Response>{
         :active.ownerId===process.env.AUTH_CI_DEMO_OWNER_B?'حساب نمایشی ب'
         :'نشست آزمایشی معتبر';
       const content=html('<h1>مدیریت نشست</h1><p class="label">'+label+
-        ' — نشست فعال است</p><p><a href="/history">بازگشت به تاریخچهٔ خصوصی</a></p>'+
+        ' — نشست فعال است</p><p><a href="/">بازگشت به گفت‌وگوی خصوصی</a></p>'+
         '<form method="post" action="/api/auth/logout">'+
         '<input type="hidden" name="csrf" value="'+csrf(current!)+'">'+
         '<button type="submit" data-testid="logout-submit">خروج امن از حساب</button></form>');
