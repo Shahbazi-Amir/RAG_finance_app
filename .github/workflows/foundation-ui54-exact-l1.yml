@@ -65,10 +65,10 @@ jobs:
           UI_CHAT_L1_BASE_URL=http://127.0.0.1:3000 python tests/phase3/integration/ui/product_chat_browser.py 2>&1 | tee "$RUNNER_TEMP/ui54_browser.log"
           grep -F 'UI_CHAT_L1_BROWSER_ONCE_ONLY_POST_REFRESH_STATUS_AND_401_PURGE_PASS' "$RUNNER_TEMP/ui54_browser.log"
           echo FND_UI54_ISOLATED_CHROMIUM_WITH_FIXTURE_PASS
-      - name: UI54 Node tests
-        run: npm --prefix apps/web run test
       - name: UI54 lint
         run: npm --prefix apps/web run lint
+      - name: UI54 Node tests
+        run: npm --prefix apps/web run test
       - name: Explicitly delimit this evidence
         if: always()
         run: |
