@@ -432,20 +432,6 @@ class DispatchClaim011(unittest.TestCase):
         print("DC12_REAL_011_EMPTY_UP_DOWN_UP_AND_EVIDENCE_DOWN_REFUSED",flush=True)
 
 
-def send_request_for_receipt(receipt,att):
-    # Only used to verify exact same scoped send idempotency after new Worker.
-    # The original question is persisted in messages and must be loaded from
-    # RLS-bound History, not reconstructed from receipt metadata alone.
-    with connect("MIG") as c:
-        msg=c.execute("""SELECT body FROM history_l1.messages
-             WHERE owner_id=%s AND id=%s""",
-             (att["owner_id"],receipt["message_id"])).fetchone()
-    return {"kind":"send_message_request","contract_version":"product.v1",
-            "requested_conversation_id":receipt["requested_conversation_id"],
-            "client_message_id":receipt["client_message_id"],
-            "idempotency_key":receipt["idempotency_key"],
-            "question":msg["body"]}
-
     def test_DC13_real_fresh_os_process_after_commit_cannot_claim_again(self):
         """Distinct OS process has ZERO Python in-memory state from the winner."""
         import sys
@@ -477,3 +463,19 @@ print('REAL_NEW_OS_PROCESS_CLAIM_REJECTED_NO_REDISPATCH')
             self.assertIn("REAL_NEW_OS_PROCESS_CLAIM_REJECTED_NO_REDISPATCH",
                           completed.stdout)
         print("DC13_TWO_FRESH_OS_PROCESSES_RESTART_NO_SECOND_DISPATCH_RIGHT",flush=True)
+
+
+
+def send_request_for_receipt(receipt,att):
+    # Only used to verify exact same scoped send idempotency after new Worker.
+    # The original question is persisted in messages and must be loaded from
+    # RLS-bound History, not reconstructed from receipt metadata alone.
+    with connect("MIG") as c:
+        msg=c.execute("""SELECT body FROM history_l1.messages
+             WHERE owner_id=%s AND id=%s""",
+             (att["owner_id"],receipt["message_id"])).fetchone()
+    return {"kind":"send_message_request","contract_version":"product.v1",
+            "requested_conversation_id":receipt["requested_conversation_id"],
+            "client_message_id":receipt["client_message_id"],
+            "idempotency_key":receipt["idempotency_key"],
+            "question":msg["body"]}
