@@ -149,6 +149,35 @@ class SignedInvitedResult015HTTP(unittest.TestCase):
         self.assertEqual(self.gateway.count(), 1)
         print("LR05_GATEWAY_TIMEOUT_AFTER_ONE_STUB_UNKNOWN_NO_RETRY", flush=True)
 
+    def test_LR07_concurrent_same_idempotency_one_stub_and_same_attempt(self):
+        from concurrent.futures import ThreadPoolExecutor
+        msg = self.helper.message()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(self.send, self.a, msg) for _ in range(2)]
+            responses = [f.result(timeout=30) for f in futures]
+        self.assertEqual(sorted(r.status_code for r in responses), [200, 202])
+        self.assertEqual(responses[0].json()["message_id"],
+                         responses[1].json()["message_id"])
+        result = self.result(self.a, msg)
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(result.json()["result_status"], "READY")
+        self.assertEqual(self.gateway.count(result.json()["attempt_id"]), 1)
+        print("LR07_CONCURRENT_202_200_SAME_ATTEMPT_GATEWAY_STUB=1", flush=True)
+
+    def test_LR08_expired_receipt_signed_GET_unknown_no_resend(self):
+        import sqlite3
+        msg = self.helper.message()
+        self.assertEqual(self.send(self.a, msg).status_code, 202)
+        with sqlite3.connect(self.file) as c:
+            c.execute("UPDATE staging_fixture_results SET expires_at=1")
+        expired = self.result(self.a, msg)
+        self.assertEqual(expired.status_code, 200)
+        self.assertEqual(expired.json()["result_status"], "UNKNOWN")
+        self.assertIsNone(expired.json()["answer"])
+        self.assertEqual(self.send(self.a, msg).status_code, 200)
+        self.assertEqual(self.gateway.count(), 1)
+        print("LR08_EXPIRED_RESULT_UNKNOWN_GATEWAY_EXTRA_SEND=0", flush=True)
+
     def test_LR06_uninstalled_fixture_fail_closed_before_T1(self):
         msg = self.helper.message()
         with patch.object(api, "_CI_INVITED_RESULT_STORE", None):
