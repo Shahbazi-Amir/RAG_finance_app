@@ -1,0 +1,77 @@
+name: UI54 API53 invited-result fixture — isolated browser L1
+on:
+  push:
+    branches: [agent/ui-product-chat-attempt-013]
+    paths:
+      - '.github/workflows/ui54-invited-fixture-l1.yml'
+      - 'apps/web/**'
+      - 'tests/phase3/ui/**'
+      - 'tests/phase3/integration/ui/invited_fixture_browser.py'
+      - 'coordination/tasks/AGENT-UI-01.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  invited-fixture-l1:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Confirm exact source and pinned API53 JSON blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git hash-object apps/web/src/history/fixtures/staging_invited_live_result.v1.schema.json)" = "dfc0ea520e6333491d01cab48831eb2a7508b428"
+          test "$(git hash-object tests/phase3/ui/fixtures/staging_invited_live_result_ready.example.json)" = "967d9943406159186a408db69820fc601592f32c"
+          echo "UI_FIXTURE_SOURCE_SHA=$GITHUB_SHA"
+          echo "API53_INVITED_JSON_BLOBS_EXACT_PASS"
+      - name: npm CI
+        working-directory: apps/web
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        working-directory: apps/web
+        run: npm run typecheck
+      - name: Lint
+        working-directory: apps/web
+        run: npm run lint
+      - name: Node UI tests including real API53 schema and GET-only assertions
+        working-directory: apps/web
+        run: npm test
+      - name: Production Next build
+        working-directory: apps/web
+        run: npm run build
+      - name: Install pinned Playwright and Chromium in isolated runner
+        run: |
+          python -m pip install --index-url https://pypi.org/simple 'playwright==1.64.1'
+          python -m playwright install --with-deps chromium
+      - name: Real Chromium, loopback fixture-only, four states and Refresh
+        shell: bash
+        run: |
+          set -euo pipefail
+          export AUTH_CI_PRODUCT_CHAT_MODE=INVITED_RESULT_STUB_CI_ONLY
+          cd apps/web
+          npm run start > "$RUNNER_TEMP/ui54-invited-next.log" 2>&1 &
+          SERVER_PID=$!
+          cd ../..
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 2 http://127.0.0.1:3000/ci-fixture-review > /dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS --max-time 5 http://127.0.0.1:3000/ci-fixture-review > /dev/null ||
+            { tail -80 "$RUNNER_TEMP/ui54-invited-next.log"; exit 1; }
+          python tests/phase3/integration/ui/invited_fixture_browser.py
+          echo UI_FIXTURE_BROWSER_ONLY_NO_LIVE_API_NO_GATEWAY_PASS
