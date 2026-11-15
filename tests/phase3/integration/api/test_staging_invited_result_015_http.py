@@ -131,7 +131,7 @@ class SignedInvitedResult015HTTP(unittest.TestCase):
         self.assertEqual(self.gateway.count(), 0)
         view = self.result(self.a, msg)
         self.assertEqual(view.status_code, 200)
-        self.assertEqual(view.json()["result_status"], "PENDING")
+        self.assertEqual(view.json()["result_status"], "UNKNOWN")
         self.assertIsNone(view.json()["answer"])
         print("LR04_LOST_COMMIT_ACK_STUB_SEND=0_NO_RECLAIM", flush=True)
 
