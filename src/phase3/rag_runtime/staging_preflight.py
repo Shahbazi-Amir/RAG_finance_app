@@ -119,9 +119,12 @@ def inspect_no_dispatch(layout: RunnerLayout, environ: Mapping[str, str]) -> dic
         "runner_present_confined": runner.is_file() and runner_confined,
         "hf_cache_present": layout.cache.is_dir(),
     }
+    # Runner Python/assets/HF path are Ops-owned typed server config.
+    # The pinned default remains /opt/rag-finance-staging/hf/hub.
+    required_offline = dict(OFFLINE_REQUIRED, HF_HUB_CACHE=str(layout.cache))
     offline_environment = {
         key: environ.get(key) == required
-        for key, required in OFFLINE_REQUIRED.items()
+        for key, required in required_offline.items()
     }
     settings_present = {
         name: bool(environ.get(name))
