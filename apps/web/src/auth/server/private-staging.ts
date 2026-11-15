@@ -49,7 +49,7 @@ export function stagingProfile():PrivateStaging{
  const x=parsed as Record<string,unknown>;
  if(Object.keys(x).sort().join('|')!==[...fields].sort().join('|')||
     fields.some(k=>typeof x[k]!=='string'||!x[k]))denied();
- const p=x as PrivateStaging;
+ const p=x as unknown as PrivateStaging;
  if(p.public_origin!=='https://ragfinance.ir'||
     !originOk(p.public_origin)||!originOk(p.idp_authorization_origin)||
     !originOk(p.bootstrap_origin)||!originOk(p.product_origin)||
