@@ -48,7 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "6280dcf90f50532d7e591f9b10d71433c7b9f34c"
-          test "$(git merge-base HEAD 92f83561fcb8391f68b0b4e86ab5dcfc3970e8c5)" = "3b598147c954aa91281392e58ab3d7f2df97ac2d"
+          test "$(git merge-base HEAD 92f83561fcb8391f68b0b4e86ab5dcfc3970e8c5)" = "92f83561fcb8391f68b0b4e86ab5dcfc3970e8c5"
           test "$(git hash-object apps/api/product_session_api.py)" = "df7e013025c06b98443e5e2d619377bfa61545d6"
           echo "FND_INVITED015_API_TESTED_SHA=$(git rev-parse HEAD)"
           test "$(git hash-object tests/phase3/integration/api/test_staging_invited_result_015_http.py)" = "8fc2551f5b71f57d999884b6201fa4cefb214681"
