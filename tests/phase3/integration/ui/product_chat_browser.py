@@ -8,7 +8,7 @@ Start the Next build on isolated 127.0.0.1:3000 before invoking this script.
 import json
 import os
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 
 from playwright.sync_api import sync_playwright, expect
 
@@ -29,6 +29,15 @@ def main():
              "logged_in": True, "request": None}
     conversation_id = "conv_uichat_013"
     user_message = "msg_uichat_013"
+
+    def check_original_query(url):
+        assert state["request"] is not None
+        fields = parse_qs(urlsplit(url).query, keep_blank_values=True)
+        assert set(fields) == {
+            "requested_conversation_id", "client_message_id", "idempotency_key"}
+        for key in fields:
+            assert len(fields[key]) == 1
+            assert fields[key][0] == (state["request"][key] or "")
 
     def intercept(route):
         path = urlsplit(route.request.url).path
@@ -81,6 +90,7 @@ def main():
                 body["items"] = [user]
             route.fulfill(status=200, json=body)
         elif path.endswith("/api/history/message-requests/status") and method == "GET":
+            check_original_query(route.request.url)
             state["status_reads"] += 1
             original = state["request"]
             assert original
@@ -97,6 +107,7 @@ def main():
             status["status"] = "attempt_pending"
             route.fulfill(status=200, json=status)
         elif path.endswith("/api/history/message-requests/engine-status") and method == "GET":
+            check_original_query(route.request.url)
             state["engine_reads"] += 1
             original = state["request"]
             assert original

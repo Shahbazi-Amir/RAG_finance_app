@@ -32,7 +32,10 @@ export async function POST(request:Request):Promise<Response>{
       process.env.AUTH_CI_IDP_AUTHORIZATION_ORIGIN??'';
     if(url.origin!==expected||!url.pathname.endsWith('/protocol/openid-connect/auth')||
        url.searchParams.get('state')!==reply.data.state||
-       url.searchParams.get('code_challenge_method')!=='S256')
+       url.searchParams.get('code_challenge_method')!=='S256'||
+       (stagingRequested()&&(
+         url.searchParams.getAll('redirect_uri').length!==1||
+         url.searchParams.get('redirect_uri')!=='https://ragfinance.ir/api/auth/callback')))
       return new Response('Login unavailable',{status:503,headers:noStore});
     await saveInit({attemptId,bffAttemptId,initiatorHash,
       stateHash:digest(reply.data.state),created:Date.now(),status:'INITIATED'});
