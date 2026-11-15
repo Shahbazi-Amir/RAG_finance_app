@@ -136,6 +136,27 @@ jobs:
           grep -F 'API53_HTTP011_LOST_RESPONSE_SEND_COUNT=1_UNKNOWN_NO_RETRY' "$RUNNER_TEMP/claim011_http.log"
           grep -F 'API53_HTTP011_UNCONFIGURED_GATEWAY_BOUNDARY_COUNT=0' "$RUNNER_TEMP/claim011_http.log"
           echo FND_CLAIM011_ALL_SIX_ORIGINAL_REAL_SIGNED_ASGI_HTTP_POSTGRES_PASS
+      - name: Observe first and replay HTTP statuses for exact lost COMMIT ACK case
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$PWD/tests/phase3/integration/api:$PWD" python - <<'PY'
+          import unittest
+          from test_external_dispatch_claim_011_http import SignedClaimDispatchHttp011
+          original = SignedClaimDispatchHttp011.send
+          observed = []
+          def trace_status(self, session, msg):
+              result = original(self, session, msg)
+              if session is self.a:
+                  observed.append(result.status_code)
+                  print(f'FND_CLAIM011_HTTP03_REAL_HTTP_STATUS_{len(observed)}={result.status_code}', flush=True)
+              return result
+          SignedClaimDispatchHttp011.send = trace_status
+          test = SignedClaimDispatchHttp011('test_HTTP03_commit_ack_unknown_zero_send_and_replay_no_reclaim')
+          outcome = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite([test]))
+          if not outcome.wasSuccessful() or len(observed) != 2 or observed[0] == 202 or observed[1] != 200:
+              raise SystemExit('FND_CLAIM011_HTTP03_OBSERVER_FAILED')
+          print('FND_CLAIM011_HTTP03_ORIGINAL_CASE_RECHECKED_WITH_REAL_HTTP_CODES_PASS', flush=True)
+          PY
       - name: Ephemeral DB aggregate evidence, no real Gateway or deploy
         if: always()
         run: |
