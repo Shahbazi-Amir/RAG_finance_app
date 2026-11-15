@@ -1118,3 +1118,63 @@ PGSERVICE=db55_clone_auditor psql -X -v ON_ERROR_STOP=1 -v db55_phase=private_no
 **Future live result storage ownership (NOT a NO_DISPATCH gate):** DB owns a separately designed encrypted-at-rest durable result store and restore/deletion feasibility; API owns secure writes, signed read authorization, Owner+Session epoch/generation+resolved Conversation+immutable T2 Attempt correlation; Foundation/Security approve key management, consent/TTL, backup retention/crypto-erasure, revoke/delete consistency and cross-user isolation. CI `staging.invited_live_result.v1` synthetic 900s SQLite fixture is not authorized to store real answers. DB011 after any committed Claim remains non-droppable; suspend Dispatch, retain Claim/UNKNOWN and manually reconcile, never auto-retry.
 
 **Final formal outcome:** `BLOCKED` for `READY_FOR_NO_DISPATCH_DB`. First blockers: real staging target/version/001–010 migration inventory/role pre-ACL = NOT_ATTESTED; real Backup/PITR+isolated restore clone = NOT_ATTESTED; C023-safe approved window = NOT_ATTESTED. Owners: **Foundation** (candidate SHA, cross-component signoff and release window), **authorized Ops/SSH + DBA/DB** (target+backup+roles+clone inventory, private SQL execution and sanitized results), **C023 owner** (release), **Supervisor** (final approval). Implemented=documented reviewed operator handoff and cumulative checkpoint only; Tested=existing synthetic CI PASS (not new), real clone/staging=NOT_RUN; Accepted=NONE_NEW. Staging Migration/GRANT/Rollback=NONE, SSH/Gateway=NONE, Merge/Deploy=NONE.
+
+
+## Checkpoint DB55-STAGING-DESTINATION-02 — target decision and exact read-only metadata probe (2026-11-15)
+
+**Authority / intent:** DATABASE_F3 follow-up: determine a private PostgreSQL target or propose a new dedicated staging database without falsely claiming it already exists. #57 actual starting head `720c263d3bda3cf6db5b4a7aa6dc127265c14a6f`, #55 actual head `79807beba1f7b3586e926bdd6ecdf9570a7c7cf8`, source executable #55 candidate `9d4cf5dc6cb86b5cc174b71b9ed08c42f57d77de`. Foundation's [latest status](https://github.com/Shahbazi-Amir/RAG_finance_app/pull/55#issuecomment-6897719655): `READ_ONLY_INSPECTION=NOT_AUTHORIZED_YET`, `NB23_ACTIVE_NOW=NOT_ATTESTED`, `SSH_OPS_WINDOW=NOT_ATTESTED`; an **18:15–18:25 UTC proposal is NOT an approved slot**. C023Z archival alone does not authorize inventory. No server or DB connection was made.
+
+**Actual target verdict (NOT a synthetic CI inference):**
+- `TARGET_DB_ACTUAL_NAME=UNKNOWN`, `TARGET_DB_EXISTS=UNKNOWN`, `TARGET_HOST_OR_PROVIDER=UNKNOWN`, `TARGET_CONNECTION_PRIVATE_TYPE=UNKNOWN`.
+- `TARGET_POSTGRES_REAL_VERSION=UNKNOWN`; `001=UNKNOWN;002=UNKNOWN;003=UNKNOWN;004=UNKNOWN;005=UNKNOWN;006=UNKNOWN;007=UNKNOWN;008=UNKNOWN;009=UNKNOWN;010=UNKNOWN`; installed schema shape/source digest/ledger all `NOT_ATTESTED`.
+- `history_app`: actual role existence/login flags/004/005 permissions/direct Auth table SELECT `NOT_AUDITED`. `auth_revoker`: actual role existence/login flags/003/004/005 permissions/direct Auth table SELECT `NOT_AUDITED`. All 009/010 login roles `NOT_AUDITED`. `STAGING_BACKUP_REAL_RESTORE_CLONE=NOT_RUN`.
+- PG17.11 is **only disposable synthetic CI** in Run 43729811005 / Job 132859552247, command `bash tests/phase3/database/db55_backup_restore_validation.sh`, tested SHA `ae88aadb2fee6e707e34e0ba57bb659729cba3be`; NOT the live target version.
+
+**Preferred NEW dedicated staging plan, never an assertion of deployment:** propose database identifier `ragfinance_staging` on an Ops-approved, isolated **PostgreSQL 17.x** instance accessible ONLY by the private Phase3 API/DB accounts. Prefer same-host Unix-domain socket when the authorized operator confirms colocated PostgreSQL; otherwise explicitly approve private-network TLS + firewall and deny public PostgreSQL listen address. Do NOT assume the host currently runs PostgreSQL. Separate DB/roles from NB23 engine, production, and disposable `history_ci`, with persistent storage and private DB backup/PITR policy. Name `ragfinance_staging` must be checked for conflicts and accepted by Foundation/Ops/DBA BEFORE creation. This checkpoint does NOT create a database, login, password, PGSERVICE, role, grant or schema.
+
+**Next precise READ-ONLY command**, to be run **only in an approved DBA-provisioned auditor shell on the authorized host or private administrative network**, AFTER `SSH_READ_ONLY_PERMIT=YES`, `PG_CATALOG_READ_ONLY=YES` and a signed bounded window. `db55_target_ro` is a **proposed** local private PGSERVICE alias to a restricted auditor, NOT a real existing service name or a DSN to print. The shell must already have approved non-secret `PGSERVICEFILE`/service-secret permissions; do not output those values. This command never connects through untrusted public endpoints and must not run if the alias is unprovisioned. The auditor must have `USAGE` on `auth_l1`/`history_l1` for qualified name resolution, but no direct table SELECT/DML/BYPASSRLS or application EXECUTE. If that prerequisite is missing, flag `AUDITOR_UNPROVISIONED` rather than fabricating a migration failure.
+
+~~~bash
+PGSERVICE=db55_target_ro psql -X -qAt -v ON_ERROR_STOP=1 <<'SQL'
+BEGIN TRANSACTION READ ONLY;
+SELECT 'ACTUAL_DB='||current_database();
+SELECT 'REAL_PG_VERSION='||current_setting('server_version');
+SELECT 'CONNECTED_VIA_LOCAL_SOCKET='||(inet_server_addr() IS NULL)::text;
+WITH footprint(n,found) AS (VALUES
+ (1,to_regclass('history_l1.conversations') IS NOT NULL),
+ (2,to_regclass('history_l1.one_attempt_per_send_receipt') IS NOT NULL),
+ (3,to_regclass('auth_l1.sessions') IS NOT NULL),
+ (4,to_regprocedure('auth_l1.admit_session_fenced(text,text,bigint,integer)') IS NOT NULL),
+ (5,to_regprocedure('auth_l1.consume_service_assertion(text,bigint)') IS NOT NULL),
+ (6,to_regclass('auth_l1.reset_c1_authorizations') IS NOT NULL),
+ (7,to_regprocedure('auth_l1.resolve_reset_identity(text,text,text,text,bigint,text)') IS NOT NULL),
+ (8,to_regclass('auth_l1.reset_idp_attempts') IS NOT NULL),
+ (9,to_regclass('auth_l1.initial_login_attempts') IS NOT NULL),
+ (10,to_regprocedure('auth_l1.claim_initial_login_exchange_material(uuid,text,uuid,text,text)') IS NOT NULL)
+)
+SELECT 'M'||lpad(n::text,3,'0')||'_OBJECT='||CASE WHEN found THEN 'PRESENT' ELSE 'ABSENT_OR_NOT_VISIBLE' END
+FROM footprint ORDER BY n;
+WITH wanted(name) AS (VALUES ('history_app'::text), ('auth_revoker'::text))
+SELECT 'ROLE_'||w.name||'='||COALESCE((
+ SELECT CASE WHEN r.rolsuper OR r.rolbypassrls OR r.rolinherit OR r.rolcreatedb OR r.rolcreaterole
+             THEN 'UNSAFE_FLAGS' ELSE 'RESTRICTED_FLAGS' END||',CANLOGIN='||r.rolcanlogin::text
+ FROM pg_roles r WHERE r.rolname=w.name),'MISSING')
+FROM wanted w;
+SELECT 'HISTORY_APP_AUTH_USAGE='||COALESCE(has_schema_privilege(to_regrole('history_app'),to_regnamespace('auth_l1'),'USAGE')::text,'UNKNOWN');
+SELECT 'HISTORY_APP_004_EXECUTE='||COALESCE(has_function_privilege(to_regrole('history_app'),to_regprocedure('auth_l1.admit_session_fenced(text,text,bigint,integer)'),'EXECUTE')::text,'UNKNOWN');
+SELECT 'HISTORY_APP_005_EXECUTE='||COALESCE(has_function_privilege(to_regrole('history_app'),to_regprocedure('auth_l1.consume_service_assertion(text,bigint)'),'EXECUTE')::text,'UNKNOWN');
+SELECT 'HISTORY_APP_AUTH_DIRECT_SELECT='||COALESCE(has_table_privilege(to_regrole('history_app'),to_regclass('auth_l1.sessions'),'SELECT')::text,'UNKNOWN');
+SELECT 'AUTH_REVOKER_AUTH_USAGE='||COALESCE(has_schema_privilege(to_regrole('auth_revoker'),to_regnamespace('auth_l1'),'USAGE')::text,'UNKNOWN');
+SELECT 'AUTH_REVOKER_003_EXECUTE='||COALESCE(has_function_privilege(to_regrole('auth_revoker'),to_regprocedure('auth_l1.revoke_one(text,bigint)'),'EXECUTE')::text,'UNKNOWN');
+SELECT 'AUTH_REVOKER_004_EXECUTE='||COALESCE(has_function_privilege(to_regrole('auth_revoker'),to_regprocedure('auth_l1.admit_session_fenced(text,text,bigint,integer)'),'EXECUTE')::text,'UNKNOWN');
+SELECT 'AUTH_REVOKER_005_EXECUTE='||COALESCE(has_function_privilege(to_regrole('auth_revoker'),to_regprocedure('auth_l1.consume_service_assertion(text,bigint)'),'EXECUTE')::text,'UNKNOWN');
+SELECT 'AUTH_REVOKER_AUTH_DIRECT_SELECT='||COALESCE(has_table_privilege(to_regrole('auth_revoker'),to_regclass('auth_l1.sessions'),'SELECT')::text,'UNKNOWN');
+COMMIT;
+SQL
+~~~
+
+**Probe limitations:** `M001...M010_OBJECT=PRESENT` is **only a schema footprint**, NOT an applied migration-ledger entry or immutable source-digest match. Never convert these ten booleans into `001..010=APPLIED`. DBA must separately provide ordered, verifiable migration provenance (main exact 001–008, #44 009 source `656604356dadea953031fcdb74650a5d42df4e9b`, #47 010 source `1678e87b7984094b74ec995383b8d4383e5f5ae7`), exact source hashes, audited 009/010 dedicated functions, RLS and real role usage. `CONNECTED_VIA_LOCAL_SOCKET=true` describes the observed **auditor connection only**, not the app's actual transport or whether TCP has a public listener. The above ACL predicates are catalog effective grants only; direct SELECT denial and signed invocation need separate authorized role-bound clone checks. No raw session/user data is selected. If private auditor cannot connect, return `TARGET_PG_CATALOG=NOT_AVAILABLE` and identify whether the host is local vs externally managed; do NOT infer `NEW_EMPTY`.
+
+**Branch decision after attestation:** real target not present and DBA approves proposed name → dedicated isolated PostgreSQL17 DB plan, independently empty disposable clone rehearsal of immutable 001→010 with restricted Login roles/function-only 003/004/005 bridge and negative Auth SELECT; then distinct signed provision/change window, backup/PITR readiness and real read-only audit. Existing with data → proven real Backup/PITR and separate real-backup restored clone before any change. Unknown → STOP. Do not install/grant 001–010 on staging in this task. `011=NOT_REQUIRED_FOR_FIRST_NO_DISPATCH`. `READY_FOR_NO_DISPATCH_DB=BLOCKED` until genuine target identity/version, digests, roles, clone path and separate approvals are evidenced.
+
+**Owner handoff:** Foundation #55 owns approval of proposed destination/private transport, non-overlap/read-only slot, executable candidate pin and final coordination; Ops/DBA own PostgreSQL inventory, private PGSERVICE and actual local/remote target; DB #57 owns migration/role/restore-clone review. Never publish PGSERVICEFILE contents, DSN, password, key, client cert, user rows or backup bytes. Tested=existing synthetic CI only, no new SQL execution, no SSH, no Gateway, no Merge/Deploy. Accepted=NONE_NEW.
