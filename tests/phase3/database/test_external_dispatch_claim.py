@@ -445,3 +445,35 @@ def send_request_for_receipt(receipt,att):
             "client_message_id":receipt["client_message_id"],
             "idempotency_key":receipt["idempotency_key"],
             "question":msg["body"]}
+
+    def test_DC13_real_fresh_os_process_after_commit_cannot_claim_again(self):
+        """Distinct OS process has ZERO Python in-memory state from the winner."""
+        import sys
+        owner,_,attempt,first=make_attempt(claim_in_tx=True)
+        self.assertTrue(first["claim_won"])
+        worker = """
+import os,sys,psycopg
+from psycopg.rows import dict_row
+owner,attempt_id,trace=sys.argv[1:]
+with psycopg.connect(os.environ['DB_APP_DSN'],autocommit=True,row_factory=dict_row) as c:
+    with c.transaction():
+        c.execute("SELECT set_config('app.owner_id',%s,true)",(owner,))
+        r=c.execute("SELECT claim_won,claim_id FROM history_l1.claim_external_dispatch(%s,%s,%s)",
+                    (owner,attempt_id,trace)).fetchone()
+        assert r['claim_won'] is False and r['claim_id'] is None, r
+        status=c.execute("SELECT dispatch_state FROM history_l1.status_external_dispatch(%s,%s,%s)",
+                         (owner,attempt_id,trace)).fetchone()
+        assert status['dispatch_state']=='CLAIMED',status
+print('REAL_NEW_OS_PROCESS_CLAIM_REJECTED_NO_REDISPATCH')
+"""
+        env={"DB_APP_DSN":os.environ["DB_APP_DSN"],"CI":"true",
+             "GITHUB_ACTIONS":"true","PATH":"/usr/bin:/bin"}
+        for _ in range(2):
+            completed=subprocess.run(
+                [sys.executable,"-c",worker,owner,attempt["id"],
+                 attempt["attempt_trace_id"]],
+                env=env,capture_output=True,text=True,timeout=12)
+            self.assertEqual(completed.returncode,0,completed.stderr)
+            self.assertIn("REAL_NEW_OS_PROCESS_CLAIM_REJECTED_NO_REDISPATCH",
+                          completed.stdout)
+        print("DC13_TWO_FRESH_OS_PROCESSES_RESTART_NO_SECOND_DISPATCH_RIGHT",flush=True)
