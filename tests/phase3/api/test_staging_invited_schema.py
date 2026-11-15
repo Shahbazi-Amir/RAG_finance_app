@@ -85,5 +85,14 @@ class InvitedResultSchemaTest(unittest.TestCase):
                 validate_ci_invited_result(doc)
 
 
+    def test_07_signed_postgres_http_test_source_compiles_but_is_not_claimed_run(self):
+        root = Path(__file__).resolve().parents[3]
+        path = (root / "tests/phase3/integration/api/"
+                "test_staging_invited_result_015_http.py")
+        source = path.read_text(encoding="utf-8")
+        compile(source, str(path), "exec")
+        self.assertEqual(source.count("    def test_LR"), 6)
+
+
 if __name__ == "__main__":
     unittest.main()
