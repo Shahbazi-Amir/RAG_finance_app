@@ -119,6 +119,11 @@ jobs:
           GRANT USAGE ON SCHEMA auth_l1 TO history_app;
           GRANT EXECUTE ON FUNCTION auth_l1.consume_service_assertion(text,bigint) TO history_app;
           GRANT EXECUTE ON FUNCTION auth_l1.admit_session_fenced(text,text,bigint,integer) TO history_app;
+          -- Scope revoker to exactly its signed admission and revoke functions
+          -- in disposable PostgreSQL only. No table SELECT or BYPASSRLS.
+          GRANT USAGE ON SCHEMA auth_l1 TO auth_revoker;
+          GRANT EXECUTE ON FUNCTION auth_l1.consume_service_assertion(text,bigint) TO auth_revoker;
+          GRANT EXECUTE ON FUNCTION auth_l1.admit_session_fenced(text,text,bigint,integer) TO auth_revoker;
           GRANT EXECUTE ON FUNCTION auth_l1.revoke_one(text,bigint) TO auth_revoker;
           SQL
           PGUSER=history_app PGPASSWORD=synthetic_app_only psql -X -d history_ci -v ON_ERROR_STOP=1 -c "SELECT to_regprocedure('history_l1.claim_external_dispatch(text,text,text)') IS NOT NULL AS exists;"
