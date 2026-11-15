@@ -1,0 +1,157 @@
+name: DB55 — validate three SQL scripts on backup-restored synthetic PostgreSQL (NO ARVAN)
+on:
+  push:
+    branches: [agent/db55-staging-execution-package]
+    paths:
+      - '.github/workflows/db55-backup-restore-validation.yml'
+      - 'tests/phase3/database/db55_backup_restore_validation.sh'
+      - 'infra/postgres/staging/db55_verify_staging.sql'
+      - 'infra/postgres/staging/db55_no_dispatch_bridge.sql'
+      - 'infra/postgres/staging/db55_rollback_auth_bridge.sql'
+permissions:
+  contents: read
+jobs:
+  restored-synthetic-backup-pg17:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/agent/db55-staging-execution-package'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_PASSWORD: synthetic_pg17_only
+        ports: [ "5432:5432" ]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: 'true'
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGPASSWORD: synthetic_pg17_only
+    steps:
+      - name: Checkout exact branch only, no persisted write token
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify no-Arvan build and official PostgreSQL 17.11
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/agent/db55-staging-execution-package'
+          psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 -Atc 'SHOW server_version;'
+          test "$(psql -X -U postgres -d postgres -Atc 'SHOW server_version_num;')" -ge 170000
+          test "$(psql -X -U postgres -d postgres -Atc 'SHOW server_version_num;')" -lt 180000
+          echo DB55_CI_ONLY_EPHEMERAL_POSTGRESQL17_PASS
+      - name: Fetch EXACT immutable unmerged 009/010/011 into ephemeral CI working tree
+        run: |
+          set -euo pipefail
+          SOURCE_REPO=https://github.com/Shahbazi-Amir/RAG_finance_app.git
+          for pin in \
+            656604356dadea953031fcdb74650a5d42df4e9b \
+            1678e87b7984094b74ec995383b8d4383e5f5ae7 \
+            b0ba6dbf6100109cb58f8cb49da808839d68c5f0; do
+            git fetch --no-tags --depth=1 "$SOURCE_REPO" "$pin"
+          done
+          git show 656604356dadea953031fcdb74650a5d42df4e9b:infra/postgres/migrations/009_initial_login_attempt_binding.up.sql \
+            > infra/postgres/migrations/009_initial_login_attempt_binding.up.sql
+          git show 1678e87b7984094b74ec995383b8d4383e5f5ae7:infra/postgres/migrations/010_initial_login_claim_material.up.sql \
+            > infra/postgres/migrations/010_initial_login_claim_material.up.sql
+          git show b0ba6dbf6100109cb58f8cb49da808839d68c5f0:infra/postgres/migrations/011_external_dispatch_claim.up.sql \
+            > infra/postgres/migrations/011_external_dispatch_claim.up.sql
+          test "$(git hash-object infra/postgres/migrations/009_initial_login_attempt_binding.up.sql)" = 2a694f871bf45aa5540b458bcaea1b2bd343036d
+          test "$(git hash-object infra/postgres/migrations/010_initial_login_claim_material.up.sql)" = 3a8ec114ff29c9d8ef795fb85c32b57aecfa8f27
+          test "$(git hash-object infra/postgres/migrations/011_external_dispatch_claim.up.sql)" = 031d2f438f000154eb4e2b374ce42181b3d812b3
+          echo DB55_EXACT_PINNED_009_010_011_BLOBS_VERIFIED
+      - name: Create disposable roles and source/restore DBs; NO real credentials
+        run: |
+          set -euo pipefail
+          psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE history_migrator LOGIN NOSUPERUSER BYPASSRLS PASSWORD 'synthetic_history_migrator_only';
+          CREATE ROLE auth_migrator LOGIN NOSUPERUSER BYPASSRLS PASSWORD 'synthetic_auth_migrator_only';
+          CREATE ROLE history_app LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_history_app_only';
+          CREATE ROLE auth_revoker LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_auth_revoker_only';
+          CREATE ROLE db55_auditor LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD 'synthetic_auditor_only';
+          DO $roles$
+          DECLARE role_name text;
+          BEGIN
+            FOREACH role_name IN ARRAY ARRAY[
+              'auth_mapper','auth_sessions','auth_reauth','auth_trust_api',
+              'auth_replay_cleaner','auth_reset_issuer','auth_reset_executor',
+              'auth_reset_lookup','auth_reset_idp_recorder',
+              'auth_login_bootstrap','auth_login_issuer','auth_login_binder',
+              'auth_login_reader','auth_login_cleaner','auth_login_claim_reader',
+              'history_dispatch_reporter','history_dispatch_reconciler'
+            ] LOOP
+              EXECUTE format(
+                'CREATE ROLE %I LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE PASSWORD %L',
+                role_name,'synthetic_other_only');
+            END LOOP;
+          END $roles$;
+          CREATE DATABASE db55_backup_source;
+          CREATE DATABASE db55_restore_clone;
+          GRANT CONNECT,CREATE ON DATABASE db55_backup_source TO history_migrator,auth_migrator;
+          GRANT CONNECT ON DATABASE db55_backup_source TO history_app;
+          GRANT CONNECT ON DATABASE db55_restore_clone TO history_migrator,auth_migrator,history_app,auth_revoker,db55_auditor,history_dispatch_reporter,history_dispatch_reconciler;
+          SQL
+          echo DB55_DISPOSABLE_22_ROLES_SOURCE_AND_CLONE_DATABASES_PASS
+      - name: Build synthetic source database with exact 001–010 and one fake row
+        run: |
+          set -euo pipefail
+          export PGUSER=history_migrator PGPASSWORD=synthetic_history_migrator_only
+          for name in 001_history_l1 002_one_attempt; do
+            psql -X -v ON_ERROR_STOP=1 -d db55_backup_source \
+              -f "infra/postgres/migrations/$name.up.sql"
+          done
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
+          for name in \
+            003_auth_session 004_session_aware_fence 005_service_assertion_replay \
+            006_atomic_reset_c1 007_scoped_reset_identity_lookup \
+            008_durable_idp_attempt_outcome 009_initial_login_attempt_binding \
+            010_initial_login_claim_material; do
+            psql -X -v ON_ERROR_STOP=1 -d db55_backup_source \
+              -f "infra/postgres/migrations/$name.up.sql"
+          done
+          PGUSER=history_app PGPASSWORD=synthetic_history_app_only \
+          psql -X -v ON_ERROR_STOP=1 -d db55_backup_source <<'SQL'
+          BEGIN;
+          SELECT set_config('app.owner_id','db55_synthetic_backup_owner',true);
+          INSERT INTO history_l1.conversations(owner_id,id)
+          VALUES('db55_synthetic_backup_owner','db55_synthetic_backup_conv');
+          COMMIT;
+          SQL
+          test "$(PGUSER=postgres PGPASSWORD=synthetic_pg17_only \
+            psql -XAt -v ON_ERROR_STOP=1 -d db55_backup_source \
+            -c "SELECT count(*) FROM history_l1.conversations WHERE owner_id='db55_synthetic_backup_owner'")" = 1
+          echo DB55_SYNTHETIC_SOURCE_001_TO_010_AND_SEED_PASS
+      - name: Create actual pg_dump backup with PG17 client, then pg_restore a separate copy
+        run: |
+          set -euo pipefail
+          docker run --rm --network host \
+            -e PGPASSWORD=synthetic_pg17_only -v "$RUNNER_TEMP:/backup" \
+            postgres:17.11 pg_dump \
+            -h127.0.0.1 -p5432 -Upostgres -d db55_backup_source \
+            -Fc -f /backup/db55_synthetic_backup.dump
+          test -s "$RUNNER_TEMP/db55_synthetic_backup.dump"
+          docker run --rm --network host \
+            -e PGPASSWORD=synthetic_pg17_only -v "$RUNNER_TEMP:/backup" \
+            postgres:17.11 pg_restore \
+            -h127.0.0.1 -p5432 -Upostgres -d db55_restore_clone \
+            --exit-on-error /backup/db55_synthetic_backup.dump
+          test "$(PGUSER=postgres PGPASSWORD=synthetic_pg17_only \
+            psql -XAt -v ON_ERROR_STOP=1 -d db55_restore_clone \
+            -c "SELECT count(*) FROM history_l1.conversations WHERE owner_id='db55_synthetic_backup_owner'")" = 1
+          echo DB55_PG_DUMP_FC_BACKUP_AND_PG_RESTORE_INDEPENDENT_CLONE_PASS
+      - name: Audit / Grant / Rollback actual PostgreSQL validation (RESTORED CLONE ONLY)
+        run: |
+          set -euo pipefail
+          bash tests/phase3/database/db55_backup_restore_validation.sh
+      - name: Final NO real staging and NO Gateway evidence
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/agent/db55-staging-execution-package'
+          echo DB55_REAL_ARVAN_BACKUP_NOT_AVAILABLE_OR_USED
+          echo DB55_ARVAN_STAGING_CONNECTIONS_ZERO
+          echo DB55_GATEWAY_CALLS_ZERO
+          echo DB55_RESTORED_BACKUP_PROVENANCE_SYNTHETIC_ONLY
