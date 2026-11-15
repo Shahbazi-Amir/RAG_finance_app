@@ -91,7 +91,7 @@ class InvitedResultSchemaTest(unittest.TestCase):
                 "test_staging_invited_result_015_http.py")
         source = path.read_text(encoding="utf-8")
         compile(source, str(path), "exec")
-        self.assertEqual(source.count("    def test_LR"), 6)
+        self.assertEqual(source.count("    def test_LR"), 8)
 
 
 if __name__ == "__main__":
