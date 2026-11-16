@@ -84,6 +84,36 @@ def _fields(data, required, optional=frozenset()):
         raise BootstrapDenied(422)
 
 
+class _StagingNoRedirectJWKClient(jwt.PyJWKClient):
+    """JWKS must come directly from the pinned HTTPS IdP, not redirects.
+
+    PyJWKClient's default urllib opener can follow HTTP redirects; that
+    must not silently downgrade the identity signing-key trust boundary.
+    """
+    def __init__(self, uri: str, tls_context: ssl.SSLContext):
+        super().__init__(uri, timeout=15, ssl_context=tls_context)
+        self._trusted_tls = tls_context
+
+    def fetch_data(self):
+        try:
+            with httpx.Client(timeout=15, trust_env=False,
+                              follow_redirects=False,
+                              verify=self._trusted_tls) as client:
+                response = client.get(self.uri)
+                if response.status_code != 200 or len(response.content) > 65536:
+                    raise jwt.PyJWKClientConnectionError("IDP_JWKS_UNAVAILABLE")
+                doc = response.json()
+                if (not isinstance(doc, dict)
+                        or not isinstance(doc.get("keys"), list)
+                        or not 1 <= len(doc["keys"]) <= 64):
+                    raise jwt.PyJWKClientConnectionError("IDP_JWKS_UNAVAILABLE")
+        except (httpx.HTTPError, OSError, ValueError):
+            raise jwt.PyJWKClientConnectionError("IDP_JWKS_UNAVAILABLE") from None
+        if self.jwk_set_cache is not None:
+            self.jwk_set_cache.put(doc)
+        return doc
+
+
 class BootstrapOIDC:
     """One config per deployed IdP; client cert principal and RSA keys pinned.
 
@@ -391,10 +421,11 @@ class BootstrapOIDC:
         hdr = jwt.get_unverified_header(id_token)
         if hdr.get("alg") != "RS256" or not isinstance(hdr.get("kid"), str):
             raise BootstrapDenied()
-        signing_key = jwt.PyJWKClient(
-            self.oidc["jwks_uri"], timeout=15,
-            ssl_context=self.idp_tls_context).get_signing_key_from_jwt(
-            id_token).key
+        jwks = (_StagingNoRedirectJWKClient(
+            self.oidc["jwks_uri"], self.idp_tls_context)
+            if self.runtime_profile == "private_staging"
+            else jwt.PyJWKClient(self.oidc["jwks_uri"], timeout=15))
+        signing_key = jwks.get_signing_key_from_jwt(id_token).key
         claims = jwt.decode(id_token, signing_key, algorithms=["RS256"],
                             issuer=self.oidc["issuer"], audience=self.client_id,
                             options={"require": ["iss", "aud", "sub", "exp",
