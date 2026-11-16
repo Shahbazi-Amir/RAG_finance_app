@@ -198,7 +198,19 @@ class StagingBootstrapASGITests(unittest.TestCase):
     def client(self,verified=True):
         app=create_bootstrap_app(self.service,self.boundary)
         if verified:
-            app=self.boundary.wrap_real_verified_connection(app,self.tls)
+            # TestClient.__enter__ sends ASGI lifespan; the real H11 mTLS
+            # transport deliberately accepts HTTP scopes ONLY. Lifespan
+            # belongs to FastAPI itself, not to a verified TLS connection.
+            verified_http=self.boundary.wrap_real_verified_connection(
+                app,self.tls)  # checks the actual OpenSSL client leaf
+            async def fixture_asgi(scope,receive,send):
+                if scope["type"]=="lifespan":
+                    await app(scope,receive,send)
+                else:
+                    # Every HTTP request still needs the real TLS-derived
+                    # capability + verified DER, never forwarded headers.
+                    await verified_http(scope,receive,send)
+            app=fixture_asgi
         return TestClient(app,base_url="https://127.0.0.1")
 
     def test_01_https_real_idp_and_exact_public_callback(self):
