@@ -12,6 +12,7 @@ from hmac import compare_digest
 from typing import Callable, Mapping
 import base64
 import json
+import ipaddress
 import re
 import secrets
 import ssl
@@ -170,12 +171,18 @@ class BootstrapOIDC:
                                   "https://ragfinance.ir/api/auth/callback")
                 issuer_url = urlsplit(expected)
                 # Current pinned IdP contract is Keycloak with one concrete Realm.
-                realm = re.fullmatch(r"/realms/[A-Za-z0-9._-]{1,100}",
-                                     issuer_url.path or "") is not None
+                realm_match = re.fullmatch(
+                    r"/realms/([A-Za-z0-9._-]{1,100})", issuer_url.path or "")
+                realm = bool(realm_match and realm_match.group(1) not in {".", ".."})
+                host = issuer_url.hostname or ""
+                try:
+                    loopback = ipaddress.ip_address(host).is_loopback
+                except ValueError:
+                    loopback = (host == "localhost" or host.endswith(".localhost"))
                 idp_ok = (
                     issuer_url.scheme == "https"
-                    and bool(issuer_url.hostname)
-                    and issuer_url.hostname not in {"localhost", "127.0.0.1", "::1"}
+                    and bool(host)
+                    and not loopback
                     and not issuer_url.username and not issuer_url.password
                     and not issuer_url.query and not issuer_url.fragment
                     and issuer_url.port in (None, 443)
