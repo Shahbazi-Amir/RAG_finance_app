@@ -101,7 +101,9 @@ class StagingBootstrapASGITests(unittest.TestCase):
             ext = cls.root/f"{name}.ext"
             ext.write_text("basicConstraints=critical,CA:FALSE\n"
                            "keyUsage=digitalSignature,keyEncipherment\n"
-                           "extendedKeyUsage=serverAuth,clientAuth\n")
+                           "extendedKeyUsage=serverAuth,clientAuth\n"
+                           + ("subjectAltName=IP:127.0.0.1\n"
+                              if name=="server" else ""))
             cmd("x509","-req","-in",cls.root/f"{name}.csr",
                 "-CA",cls.root/"ca.pem","-CAkey",cls.root/"ca.key",
                 "-CAcreateserial","-out",cls.root/f"{name}.pem",
