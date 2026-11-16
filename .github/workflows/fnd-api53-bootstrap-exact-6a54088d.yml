@@ -1,16 +1,16 @@
-name: FND API53 exact 6a54088d Bootstrap 13 + real local mTLS five routes
+name: FND API53 exact 99769fa Bootstrap 13 + real local mTLS five routes
 
 on:
   push:
     branches:
-      - integration/fnd-api53-bootstrap-verify-6a54088d
+      - integration/fnd-api53-bootstrap-verify-99769fa
   workflow_dispatch:
 
 permissions:
   contents: read
 
 env:
-  API_SHA: 6a54088d531f9d97844eb721bcc97673b595d03a
+  API_SHA: 99769fa68cc32f711113d2cda77f908317007a19
   PYTHONDONTWRITEBYTECODE: "1"
 
 jobs:
@@ -22,16 +22,16 @@ jobs:
       - name: Checkout the exact user-specified API53 SHA (not workflow branch)
         uses: actions/checkout@v4
         with:
-          ref: 6a54088d531f9d97844eb721bcc97673b595d03a
+          ref: 99769fa68cc32f711113d2cda77f908317007a19
           persist-credentials: false
       - name: Assert exact tested source and fixture blobs
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$API_SHA"
-          test "$(git hash-object tests/phase3/integration/api/test_staging_bootstrap_asgi.py)" = "fe63f080bbc5f6c871febeb71d8a7b1b1375468d"
+          test "$(git hash-object tests/phase3/integration/api/test_staging_bootstrap_asgi.py)" = "8b5c84d705498a7ee3f70c4877efcade2054a48f"
           test "$(git hash-object tests/phase3/integration/api/test_staging_bootstrap_network.py)" = "264418f265e62f168914f27ceec21d165f6d92ac"
-          echo "API53_EXACT_SHA_6a54088d_SOURCE_PIN_PASS"
+          echo "API53_EXACT_SHA_99769fa_SOURCE_PIN_PASS"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
@@ -58,7 +58,7 @@ jobs:
       - name: Checkout the exact user-specified API53 SHA (not workflow branch)
         uses: actions/checkout@v4
         with:
-          ref: 6a54088d531f9d97844eb721bcc97673b595d03a
+          ref: 99769fa68cc32f711113d2cda77f908317007a19
           persist-credentials: false
       - name: Assert exact tested source and network fixture
         shell: bash
@@ -66,8 +66,8 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$API_SHA"
           test "$(git hash-object tests/phase3/integration/api/test_staging_bootstrap_network.py)" = "264418f265e62f168914f27ceec21d165f6d92ac"
-          test "$(git hash-object tests/phase3/integration/api/test_staging_bootstrap_asgi.py)" = "fe63f080bbc5f6c871febeb71d8a7b1b1375468d"
-          echo "API53_EXACT_SHA_6a54088d_NETWORK_PIN_PASS"
+          test "$(git hash-object tests/phase3/integration/api/test_staging_bootstrap_asgi.py)" = "8b5c84d705498a7ee3f70c4877efcade2054a48f"
+          echo "API53_EXACT_SHA_99769fa_NETWORK_PIN_PASS"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
