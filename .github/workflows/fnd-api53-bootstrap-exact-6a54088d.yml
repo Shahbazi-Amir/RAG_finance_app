@@ -1,0 +1,87 @@
+name: FND API53 exact 6a54088d Bootstrap 13 + real local mTLS five routes
+
+on:
+  push:
+    branches:
+      - integration/fnd-api53-bootstrap-verify-6a54088d
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  API_SHA: 6a54088d531f9d97844eb721bcc97673b595d03a
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  bootstrap-13-isolated-asgi:
+    name: API53 exact SHA Bootstrap 13 ASGI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout the exact user-specified API53 SHA (not workflow branch)
+        uses: actions/checkout@v4
+        with:
+          ref: 6a54088d531f9d97844eb721bcc97673b595d03a
+          persist-credentials: false
+      - name: Assert exact tested source and fixture blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$API_SHA"
+          test "$(git hash-object tests/phase3/integration/api/test_staging_bootstrap_asgi.py)" = "fe63f080bbc5f6c871febeb71d8a7b1b1375468d"
+          test "$(git hash-object tests/phase3/integration/api/test_staging_bootstrap_network.py)" = "264418f265e62f168914f27ceec21d165f6d92ac"
+          echo "API53_EXACT_SHA_6a54088d_SOURCE_PIN_PASS"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install CI-only pinned API/mTLS dependencies (no Arvan credentials)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --no-cache-dir -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.48.0'
+      - name: Run all 13 signed in-process Bootstrap ASGI cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_staging_bootstrap_asgi.py' -v 2>&1 | tee "$RUNNER_TEMP/bootstrap13.log"
+          grep -F 'Ran 13 tests' "$RUNNER_TEMP/bootstrap13.log"
+          grep -x 'OK' "$RUNNER_TEMP/bootstrap13.log"
+          grep -F 'BOOTSTRAP_STAGING_FIVE_SIGNED_MTLS_FIXTURE_ENDPOINTS_PASS' "$RUNNER_TEMP/bootstrap13.log"
+          echo 'FND_API53_EXACT_SHA_BOOTSTRAP13_PASS'
+
+  bootstrap-five-route-real-local-network:
+    name: API53 exact SHA real local Uvicorn mTLS 5 routes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout the exact user-specified API53 SHA (not workflow branch)
+        uses: actions/checkout@v4
+        with:
+          ref: 6a54088d531f9d97844eb721bcc97673b595d03a
+          persist-credentials: false
+      - name: Assert exact tested source and network fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$API_SHA"
+          test "$(git hash-object tests/phase3/integration/api/test_staging_bootstrap_network.py)" = "264418f265e62f168914f27ceec21d165f6d92ac"
+          test "$(git hash-object tests/phase3/integration/api/test_staging_bootstrap_asgi.py)" = "fe63f080bbc5f6c871febeb71d8a7b1b1375468d"
+          echo "API53_EXACT_SHA_6a54088d_NETWORK_PIN_PASS"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install CI-only pinned API/mTLS dependencies (no real DB/IdP)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --no-cache-dir -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.48.0'
+      - name: Run true localhost Uvicorn H11 + five signed mTLS endpoint network fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_staging_bootstrap_network.py' -v 2>&1 | tee "$RUNNER_TEMP/bootstrap-network.log"
+          grep -F 'Ran 1 test' "$RUNNER_TEMP/bootstrap-network.log"
+          grep -x 'OK' "$RUNNER_TEMP/bootstrap-network.log"
+          grep -F 'BOOTSTRAP_STAGING_REAL_LOCAL_HTTPS_MTLS_RS256_FIVE_ROUTES_PASS' "$RUNNER_TEMP/bootstrap-network.log"
+          echo 'FND_API53_EXACT_SHA_BOOTSTRAP_NETWORK_PASS'
