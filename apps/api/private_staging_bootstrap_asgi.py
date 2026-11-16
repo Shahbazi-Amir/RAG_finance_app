@@ -221,7 +221,10 @@ def verify_bootstrap_roles(dsns: Mapping[str, str]) -> None:
 
 def build_bootstrap_service(cfg: StagingBootstrapConfig, *, check_db=True):
     """Validate OIDC HTTPS and exact callback; create service before listen."""
-    if os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true":
+    # check_db=False is ONLY an off-server unit-test constructor, never an
+    # executable staging server. The runner always calls check_db=True.
+    if check_db and (os.getenv("CI") == "true"
+                     or os.getenv("GITHUB_ACTIONS") == "true"):
         raise StagingConfigDenied()
     from src.phase3.auth.service_proof import BFFServiceVerifier
     from cryptography.fernet import Fernet
@@ -321,6 +324,8 @@ def create_bootstrap_app(service: BootstrapOIDC, boundary: TrustedBFFTLSBoundary
 
 
 def run_staging_bootstrap(config_path: Path, *, preflight_only=False) -> None:
+    if os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true":
+        raise StagingConfigDenied()
     cfg = load_staging_bootstrap_config(config_path)
     service, boundary = build_bootstrap_service(cfg)
     if preflight_only:
