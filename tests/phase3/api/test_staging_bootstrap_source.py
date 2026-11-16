@@ -14,11 +14,12 @@ CORE = ROOT / "src/phase3/auth/bootstrap_oidc.py"
 SERVER = ROOT / "apps/api/private_staging_bootstrap_asgi.py"
 TLS = ROOT / "src/phase3/auth/staging_transport_mtls.py"
 INTEGRATION = ROOT / "tests/phase3/integration/api/test_staging_bootstrap_asgi.py"
+NETWORK = ROOT / "tests/phase3/integration/api/test_staging_bootstrap_network.py"
 
 
 class BootstrapSourceGuards(unittest.TestCase):
     def test_01_core_server_tls_integration_all_compile(self):
-        for file in (CORE, SERVER, TLS, INTEGRATION):
+        for file in (CORE, SERVER, TLS, INTEGRATION, NETWORK):
             with self.subTest(path=file.name):
                 compile(file.read_text(encoding="utf-8"), str(file), "exec")
 
@@ -31,6 +32,8 @@ class BootstrapSourceGuards(unittest.TestCase):
         self.assertIn("/protocol/openid-connect/token", content)
         self.assertIn("/protocol/openid-connect/certs", content)
         self.assertIn("follow_redirects=False", content)
+        self.assertIn("_StagingNoRedirectJWKClient", content)
+        self.assertIn("verify=self._trusted_tls", content)
 
     def test_03_private_bootstrap_five_POST_only(self):
         source = SERVER.read_text()
@@ -65,6 +68,7 @@ class BootstrapSourceGuards(unittest.TestCase):
         self.assertIn("test_03_all_five_signed_https_asgi_endpoints_fenced", code)
         self.assertIn("test_06_foreign_certificate_or_forged_scope_not_accepted", code)
         self.assertNotIn("ARVAN_GATEWAY_API_KEY", code)
+        self.assertIn("BOOTSTRAP_STAGING_REAL_LOCAL_HTTPS_MTLS_RS256_FIVE_ROUTES_PASS", NETWORK.read_text())
 
 
 if __name__ == "__main__":
