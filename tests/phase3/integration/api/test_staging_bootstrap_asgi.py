@@ -364,7 +364,7 @@ class StagingBootstrapASGITests(unittest.TestCase):
             self.assertEqual(client.return_value.__enter__.return_value.post.call_args.kwargs["data"]["redirect_uri"],REDIRECT_URI)
 
     def test_10_jwks_validation_uses_https_ca(self):
-        with patch("src.phase3.auth.bootstrap_oidc.jwt.PyJWKClient") as client:
+        with patch("src.phase3.auth.bootstrap_oidc._StagingNoRedirectJWKClient") as client:
             client.return_value.get_signing_key_from_jwt.return_value.key=object()
             with patch("src.phase3.auth.bootstrap_oidc.jwt.get_unverified_header",
                        return_value={"kid":"idp","alg":"RS256"}),patch(
@@ -375,9 +375,28 @@ class StagingBootstrapASGITests(unittest.TestCase):
                     "status_code":200,"json":lambda self:{"id_token":"synthetic"}
                 })()
                 self.service._validate_idp(r,"nonce")
-            self.assertEqual(client.call_args.kwargs["ssl_context"],
-                             self.service.idp_tls_context)
-            self.assertEqual(client.call_args.kwargs["timeout"],15)
+            self.assertIs(client.call_args.args[1],
+                          self.service.idp_tls_context)
+            self.assertEqual(client.call_args.args[0],OIDC["jwks_uri"])
+
+    def test_10b_jwks_redirect_or_oversize_denied(self):
+        from src.phase3.auth.bootstrap_oidc import _StagingNoRedirectJWKClient
+        client=_StagingNoRedirectJWKClient(
+            OIDC["jwks_uri"],self.service.idp_tls_context)
+        class Reply:
+            def __init__(self, status, data):
+                self.status_code=status
+                self.content=data
+            def json(self):
+                return {"keys":[{"kty":"RSA","kid":"test"}]}
+        for response in (Reply(302,b""),Reply(200,b"a"*70000)):
+            with patch("src.phase3.auth.bootstrap_oidc.httpx.Client") as http:
+                http.return_value.__enter__.return_value.get.return_value=response
+                with self.assertRaises(jwt.PyJWKClientConnectionError):
+                    client.fetch_data()
+                self.assertFalse(http.call_args.kwargs["follow_redirects"])
+                self.assertIs(http.call_args.kwargs["verify"],
+                              self.service.idp_tls_context)
 
     def test_11_no_initial_auth_direct_postgres_table_access_startup(self):
         self.assertEqual(set(FUNCTIONS),set(ROLES))
