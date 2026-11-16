@@ -18,6 +18,7 @@ from typing import Mapping
 
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _CAPABILITY_SCOPE_KEY = "ragfinance.private_staging.verified_bff_capability"
+_PEER_DER_SCOPE_KEY = "ragfinance.private_staging.verified_bff_leaf_der"
 
 
 class VerifiedPeerUnavailable(Exception):
@@ -59,11 +60,29 @@ class TrustedBFFTLSBoundary:
                 and scope.get("scheme") == "https"
                 and scope.get(_CAPABILITY_SCOPE_KEY) is self.__capability)
 
+    def peer_der_from_scope(self, scope: Mapping) -> bytes | None:
+        """Bootstrap-only: retrieve the actual OpenSSL-validated leaf DER.
+
+        It is NOT read from an HTTP request header or caller-selected field.
+        The process-private capability must already match this boundary.
+        """
+        if not self.scope_is_verified(scope):
+            return None
+        value = scope.get(_PEER_DER_SCOPE_KEY)
+        if (isinstance(value, bytes) and value
+                and sha256(value).hexdigest() == self._expected_fingerprint):
+            return value
+        return None
+
     def wrap_real_verified_connection(self, app, ssl_object):
         """Only protocol code may invoke after a real TLS connection is verified."""
         if not self.approved_tls_peer(ssl_object):
             raise VerifiedPeerUnavailable()
         private_capability = self.__capability
+        leaf_der = ssl_object.getpeercert(binary_form=True)
+        if (not isinstance(leaf_der, bytes) or not leaf_der
+                or sha256(leaf_der).hexdigest() != self._expected_fingerprint):
+            raise VerifiedPeerUnavailable()
 
         async def transport_verified_app(scope, receive, send):
             if scope.get("type") != "http" or scope.get("scheme") != "https":
@@ -71,6 +90,7 @@ class TrustedBFFTLSBoundary:
             # Never mutate shared scope; overwrite any injected/caller field.
             protected = dict(scope)
             protected[_CAPABILITY_SCOPE_KEY] = private_capability
+            protected[_PEER_DER_SCOPE_KEY] = leaf_der
             await app(protected, receive, send)
 
         return transport_verified_app
@@ -90,6 +110,14 @@ def make_verified_h11_protocol(boundary: TrustedBFFTLSBoundary):
     if uvicorn.__version__ != "0.48.0":
         raise VerifiedPeerUnavailable()
 
+    async def reject_unverified_app(scope, receive, send):
+        # A closing transport can still deliver already-buffered HTTP bytes.
+        # Never let such a request reach the underlying product application.
+        if scope.get("type") == "http":
+            await send({"type": "http.response.start", "status": 403,
+                        "headers": [(b"content-length", b"0")]})
+            await send({"type": "http.response.body", "body": b""})
+
     class VerifiedH11Protocol(H11Protocol):
         def connection_made(self, transport):
             super().connection_made(transport)
@@ -98,7 +126,11 @@ def make_verified_h11_protocol(boundary: TrustedBFFTLSBoundary):
                 self.app = boundary.wrap_real_verified_connection(
                     self.app, ssl_object)
             except VerifiedPeerUnavailable:
-                transport.close()  # no application call or fallback
+                # First replace the app, then close: never a race to the
+                # unguarded original app even if receive was already queued.
+                self.app = reject_unverified_app
+                transport.pause_reading()
+                transport.close()
                 return
 
     return VerifiedH11Protocol

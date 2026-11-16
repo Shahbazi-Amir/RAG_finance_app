@@ -53,8 +53,15 @@ jobs:
           test "$(git hash-object src/phase3/rag_runtime/dispatch_claim_test_stub.py)" = "226021a6289b38160d75d1a36d6c10897f181795"
           test "$(git hash-object tests/phase3/integration/api/test_external_dispatch_claim_011_http.py)" = "e4edc2d9ddb6c903a09f038e1ea6b13875f250b2"
           test "$(git hash-object apps/api/private_staging_asgi.py)" = "6072e7586d922737117dee27d61798df0cb9a6fc"
-          test "$(git hash-object src/phase3/auth/staging_transport_mtls.py)" = "1e0cb76483322a680cb59ed446702b7ab35c69ca"
+          test "$(git hash-object src/phase3/auth/staging_transport_mtls.py)" = "f5900544cd8659ee0ebc04d784370aebb0b0b14b"
           test "$(git hash-object tests/phase3/api/test_staging_private_asgi.py)" = "09cc969e68d418c56eb70f8616120292821b7923"
+          test "$(git hash-object apps/api/private_staging_bootstrap_asgi.py)" = "3df807f53c865ebb29f8e8f26d0a8819149b46f9"
+          test "$(git hash-object src/phase3/auth/bootstrap_oidc.py)" = "b4b1a1f39e3432f4daacf844b9b82962c5f31e7a"
+          test "$(git hash-object tests/phase3/api/test_staging_bootstrap_source.py)" = "d515ef3fb00ac530d3d71873e28b18cddc478643"
+          test "$(git hash-object tests/phase3/integration/api/test_staging_bootstrap_asgi.py)" = "44db44106a05fe05cd7b0720919d4454be49b9d6"
+          test "$(git hash-object tests/phase3/integration/api/test_staging_bootstrap_network.py)" = "264418f265e62f168914f27ceec21d165f6d92ac"
+          test "$(git hash-object tests/phase3/integration/api/test_staging_mtls_h11_network.py)" = "69b2af7479daf8da54021b006ae57aa753975522"
+          echo "FND_API53_BOOTSTRAP_SOURCE_PIN_cc16563ccf12931b20ca75a883ca9318ca004d81_PASS"
           echo "FND_PINNED_API53_PRIVATE_ASGI_MTLS_SOURCE_PASS"
           echo "FND_INTEGRATED_UI54_API53_SOURCE_BLOBS_PASS"
           echo "FND_INTEGRATION_PINNED_API53_SHA_92f83561fcb8391f68b0b4e86ab5dcfc3970e8c5"
@@ -111,6 +118,28 @@ jobs:
           echo FND_INTEGRATED_API_COMPILE_PASS
       - name: Run original API isolated unit tests
         run: python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
+      - name: API_F3 Bootstrap 13 signed ASGI synthetic fixture (pinned same integrated SHA)
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_staging_bootstrap_asgi.py' -v 2>&1 | tee "$RUNNER_TEMP/fnd-bootstrap13.log"
+          grep -F 'Ran 13 tests' "$RUNNER_TEMP/fnd-bootstrap13.log"
+          grep -x 'OK' "$RUNNER_TEMP/fnd-bootstrap13.log"
+          grep -F 'BOOTSTRAP_STAGING_FIVE_SIGNED_MTLS_FIXTURE_ENDPOINTS_PASS' "$RUNNER_TEMP/fnd-bootstrap13.log"
+          echo FND_INTEGRATED_BOOTSTRAP13_PASS
+      - name: API_F3 Bootstrap five POST signed REAL local Uvicorn mTLS (fake DB/IdP)
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_staging_bootstrap_network.py' -v 2>&1 | tee "$RUNNER_TEMP/fnd-bootstrap-network.log"
+          grep -F 'Ran 1 test' "$RUNNER_TEMP/fnd-bootstrap-network.log"
+          grep -x 'OK' "$RUNNER_TEMP/fnd-bootstrap-network.log"
+          grep -F 'BOOTSTRAP_STAGING_REAL_LOCAL_HTTPS_MTLS_RS256_FIVE_ROUTES_PASS' "$RUNNER_TEMP/fnd-bootstrap-network.log"
+          echo FND_INTEGRATED_BOOTSTRAP_REAL_MTLS_PASS
+      - name: API_F3 Product mTLS H11 regression on imported transport (fake app)
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_staging_mtls_h11_network.py' -v 2>&1 | tee "$RUNNER_TEMP/fnd-product-mtls.log"
+          grep -F 'API_F3_REAL_LOCAL_MTLS_UVICORN_BFF200_NO_CERT_DENIED_OTHER_CERT_DENIED_PASS' "$RUNNER_TEMP/fnd-product-mtls.log"
+          echo FND_INTEGRATED_PRODUCT_MTLS_REGRESSION_PASS
       - name: Run existing product contract tests
         run: python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v
       - name: Explicitly deny staging readiness interpretation
