@@ -271,6 +271,25 @@ class PrivateASGITransportTest(unittest.TestCase):
         self.assertNotIn("GatewayStub(", source)
         self.assertNotIn("--dispatch", source.replace("no --dispatch", ""))
 
+    def test_13_preflight_flag_cannot_open_listener_or_execute_runner(self):
+        from apps.api.private_staging_asgi import main
+        with patch("apps.api.private_staging_asgi.load_private_config") as load, \
+             patch("apps.api.private_staging_asgi.read_only_preflight") as check, \
+             patch("apps.api.private_staging_asgi.run_private_staging") as run:
+            load.return_value = object()
+            self.assertEqual(main(["--config", str(self.config_file),
+                                   "--preflight-only"]), 0)
+            check.assert_called_once_with(load.return_value)
+            run.assert_not_called()
+
+    def test_14_rejected_cert_cannot_reach_original_asgi_on_buffered_http(self):
+        source = (Path(__file__).resolve().parents[3] /
+                  "src/phase3/auth/staging_transport_mtls.py").read_text()
+        self.assertIn("self.app = reject_unverified_app", source)
+        self.assertIn("transport.pause_reading()", source)
+        self.assertIn("transport.close()", source)
+        self.assertNotIn("X-Forwarded-Client-Cert", source)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

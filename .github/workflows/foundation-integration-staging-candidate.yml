@@ -23,7 +23,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "INTEGRATED_SOURCE_SHA=$(git rev-parse HEAD)"
-          test "$(git hash-object apps/api/product_session_api.py)" = "43ce1e7929d6e783f90ad8b9dcc689eebdde6faf"
+          test "$(git hash-object apps/api/product_session_api.py)" = "df7e013025c06b98443e5e2d619377bfa61545d6"
           test "$(git hash-object apps/web/src/history/proxy.ts)" = "27150b8613f01a8520b4cf675840b1070c6c81a6"
           test "$(git hash-object apps/web/src/ui/product-chat.tsx)" = "0f665ab74900f82c6596f4cf00d4b72217c24077"
           test "$(git hash-object apps/web/app/page.tsx)" = "fd99583bc67fd886da575acec55108bb9538f8ba"
@@ -54,7 +54,7 @@ jobs:
           test "$(git hash-object tests/phase3/integration/api/test_external_dispatch_claim_011_http.py)" = "e4edc2d9ddb6c903a09f038e1ea6b13875f250b2"
           test "$(git hash-object apps/api/private_staging_asgi.py)" = "6072e7586d922737117dee27d61798df0cb9a6fc"
           test "$(git hash-object src/phase3/auth/staging_transport_mtls.py)" = "f5900544cd8659ee0ebc04d784370aebb0b0b14b"
-          test "$(git hash-object tests/phase3/api/test_staging_private_asgi.py)" = "09cc969e68d418c56eb70f8616120292821b7923"
+          test "$(git hash-object tests/phase3/api/test_staging_private_asgi.py)" = "92b4ee95eafdf7bd5204e568885dddcff9f0ca06"
           test "$(git hash-object apps/api/private_staging_bootstrap_asgi.py)" = "3df807f53c865ebb29f8e8f26d0a8819149b46f9"
           test "$(git hash-object src/phase3/auth/bootstrap_oidc.py)" = "b4b1a1f39e3432f4daacf844b9b82962c5f31e7a"
           test "$(git hash-object tests/phase3/api/test_staging_bootstrap_source.py)" = "d515ef3fb00ac530d3d71873e28b18cddc478643"
@@ -62,9 +62,16 @@ jobs:
           test "$(git hash-object tests/phase3/integration/api/test_staging_bootstrap_network.py)" = "264418f265e62f168914f27ceec21d165f6d92ac"
           test "$(git hash-object tests/phase3/integration/api/test_staging_mtls_h11_network.py)" = "69b2af7479daf8da54021b006ae57aa753975522"
           echo "FND_API53_BOOTSTRAP_SOURCE_PIN_cc16563ccf12931b20ca75a883ca9318ca004d81_PASS"
+          test "$(git hash-object src/phase3/rag_runtime/staging_invited_result_fixture.py)" = "f17abfb510c9886ccf8b3cba1b97e11d38c3b584"
+          test "$(git hash-object src/phase3/rag_runtime/staging_invited_result_contract.py)" = "ef7043b6a0d6d0570dcba605d9ea78ac9d9fefa0"
+          test "$(git hash-object src/phase3/rag_runtime/staging_invited_live_result.v1.schema.json)" = "dfc0ea520e6333491d01cab48831eb2a7508b428"
+          test "$(git hash-object tests/phase3/api/test_staging_invited_result.py)" = "6522a07f477704f5ffb854c0c2483f54ac8ab1b7"
+          test "$(git hash-object tests/phase3/api/test_staging_invited_schema.py)" = "be832af0c647706a910f07b258c7b11f30e3d6e4"
+          test "$(git hash-object tests/phase3/integration/api/test_staging_invited_result_015_http.py)" = "8fc2551f5b71f57d999884b6201fa4cefb214681"
+          echo "FND_API53_CI_ONLY_INVITED_FIXTURE_UPSTREAM_BLOBS_PASS"
           echo "FND_PINNED_API53_PRIVATE_ASGI_MTLS_SOURCE_PASS"
           echo "FND_INTEGRATED_UI54_API53_SOURCE_BLOBS_PASS"
-          echo "FND_INTEGRATION_PINNED_API53_SHA_92f83561fcb8391f68b0b4e86ab5dcfc3970e8c5"
+          echo "FND_BASE_API53_CONFLICT_RESOLUTION_PIN_cc16563ccf12931b20ca75a883ca9318ca004d81"
           echo "NO_SSH_NO_PAID_DISPATCH_NO_DEPLOY"
       - name: Node 22.16.0 (local demo compatible)
         uses: actions/setup-node@v4

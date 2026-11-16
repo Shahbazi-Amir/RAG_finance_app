@@ -29,6 +29,14 @@ from src.phase3.rag_runtime.dispatch_claim_bridge import (
     after_definitive_commit, owner_scoped_claim_status, flag_reporter_unknown,
 )
 from src.phase3.rag_runtime.dispatch_claim_test_stub import CountOnlyGatewayStub
+from src.phase3.rag_runtime.staging_invited_result_fixture import (
+    InvitedBinding, FixedInvitedGatewayStub, PrivateFixtureResultLedger,
+    VERSION as INVITED_RESULT_VERSION, WARNING as INVITED_WARNING,
+    session_ref_digest,
+)
+from src.phase3.rag_runtime.staging_invited_result_contract import (
+    validate_ci_invited_result,
+)
 from src.phase3.rag_runtime.no_dispatch_handler import NoDispatchHandler
 from src.phase3.rag_runtime.staging_preflight import PreflightDenied
 from src.phase3.rag_runtime.staging_service_bootstrap import (
@@ -57,6 +65,8 @@ _SERVER_NO_DISPATCH_TASK = None
 # Optional network-free CI-only Gateway counter. No production dispatch client.
 _CI_CLAIM_STUB = None
 _CI_DISPATCH_REPORTER_DSN = None
+# CI-only fixed synthetic response receipt, never Product History or private staging.
+_CI_INVITED_RESULT_STORE = None
 # Only explicitly injected from a trusted Ops startup; never from an HTTP/env toggle.
 _PRIVATE_STAGING_PROFILE = None
 _PRIVATE_STAGING_VERIFIER = None
@@ -66,6 +76,7 @@ _SEND_PATH = b"/v1/messages"
 _STATUS_PATH = b"/v1/message-requests/status"
 _ENGINE_STATUS_PATH = b"/v1/message-requests/engine-status"
 _CLAIM_TEST_STATUS_PATH = b"/v1/message-requests/claim-test-status"
+_INVITED_RESULT_PATH = b"/v1/message-requests/invited-live-result"
 _CONVERSATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 _SESSION_ROLES = {"history": "history_app", "revoke": "auth_revoker"}
@@ -146,7 +157,10 @@ def _signed_history(request, raw_body, expected_path, action, *, coherent_read=F
             raw_path=path, raw_query=query, body=body,
         ) as owner:
             ctx = {"owner": owner, "conn": conn, "request_id": history.uid(),
-                   "trace_id": history.uid(), "session_transaction": True}
+                   "trace_id": history.uid(), "session_transaction": True,
+                   "session_ref_sha256": session_ref_digest(proof.session_ref),
+                   "session_epoch": proof.epoch,
+                   "session_generation": proof.generation}
             result = action(ctx)
     return proof, result
 
@@ -257,7 +271,8 @@ def install_ci_count_only_dispatch(stub: CountOnlyGatewayStub, reporter_dsn: str
     """
     global _CI_CLAIM_STUB, _CI_DISPATCH_REPORTER_DSN
     if (os.getenv("CI") != "true" or os.getenv("GITHUB_ACTIONS") != "true"
-            or os.getenv("API_RUNNER_EXECUTION_MODE") != "CLAIM_STUB_CI_ONLY"
+            or os.getenv("API_RUNNER_EXECUTION_MODE") not in {
+                "CLAIM_STUB_CI_ONLY", "INVITED_RESULT_STUB_CI_ONLY"}
             or _PRIVATE_STAGING_PROFILE is not None
             or _CI_CLAIM_STUB is not None
             or not isinstance(stub, CountOnlyGatewayStub)
@@ -272,6 +287,22 @@ def install_ci_count_only_dispatch(stub: CountOnlyGatewayStub, reporter_dsn: str
         raise DispatchClaimDenied()
     _CI_DISPATCH_REPORTER_DSN = reporter_dsn
     _CI_CLAIM_STUB = stub
+
+
+def install_ci_invited_result_fixture(
+    store: PrivateFixtureResultLedger, gateway: FixedInvitedGatewayStub,
+    reporter_dsn: str,
+) -> None:
+    """CI fixture ONLY; never exposes or stores a real generated Answer."""
+    global _CI_INVITED_RESULT_STORE
+    if (os.getenv("CI") != "true" or os.getenv("GITHUB_ACTIONS") != "true"
+            or os.getenv("API_RUNNER_EXECUTION_MODE") != "INVITED_RESULT_STUB_CI_ONLY"
+            or _CI_INVITED_RESULT_STORE is not None
+            or not isinstance(store, PrivateFixtureResultLedger)
+            or not isinstance(gateway, FixedInvitedGatewayStub)):
+        raise DispatchClaimDenied()
+    install_ci_count_only_dispatch(gateway, reporter_dsn)
+    _CI_INVITED_RESULT_STORE = store
 
 
 def install_private_staging_no_dispatch(
@@ -356,6 +387,98 @@ def session_claim_test_status(request: Request):
             "answer": None,
         }, headers={"Cache-Control": "no-store"})
     return _signed_read(request, _CLAIM_TEST_STATUS_PATH, read, coherent_read=True)
+
+
+def _invited_binding_from_status(ctx, doc):
+    return InvitedBinding(
+        owner_user_id=ctx["owner"],
+        session_ref_sha256=ctx["session_ref_sha256"],
+        session_epoch=ctx["session_epoch"],
+        session_generation=ctx["session_generation"],
+        requested_conversation_id=doc["requested_conversation_id"],
+        resolved_conversation_id=doc["resolved_conversation_id"],
+        client_message_id=doc["client_message_id"],
+        idempotency_key=doc["idempotency_key"],
+        attempt_id=doc["attempt_id"],
+        attempt_request_id=doc["attempt_request_id"],
+        attempt_trace_id=doc["attempt_trace_id"],
+    )
+
+
+@app.get("/v1/message-requests/invited-live-result")
+def session_invited_live_result(request: Request):
+    """CI-fixture-only staging DTO; 005/004 signed and 100% read-only.
+
+    Every GET independently rechecks the actual authenticated Product session
+    and reads the original persisted owner/Conversation/T2 Attempt.
+    No Gateway, Runner, Claim, second T1/T2, T3 or answer-history write.
+    """
+    def read(ctx):
+        if (_CI_INVITED_RESULT_STORE is None
+                or os.getenv("CI") != "true"
+                or os.getenv("GITHUB_ACTIONS") != "true"
+                or os.getenv("API_RUNNER_EXECUTION_MODE")
+                    != "INVITED_RESULT_STUB_CI_ONLY"
+                or _PRIVATE_STAGING_PROFILE is not None):
+            raise DispatchClaimDenied()
+        query = history._query(request, "message_request_status_query")
+        doc = history.read_status(
+            ctx["conn"], ctx["owner"], query, ctx["request_id"], ctx["trace_id"],
+            session_transaction=True)
+        if doc["owner_user_id"] != ctx["owner"]:
+            raise TrustRejected()
+        if doc["status"] == "answer_committed":
+            # This route MUST NOT represent a Product Answer as provisional.
+            raise DispatchClaimDenied()
+        item = None
+        if doc["attempt_id"] is not None:
+            binding = _invited_binding_from_status(ctx, doc)
+            item = _CI_INVITED_RESULT_STORE.read(binding)
+        if item is None:
+            if doc["attempt_id"] is not None:
+                claim = owner_scoped_claim_status(ctx["conn"], ctx["owner"], doc)
+                if claim is None:
+                    raise history.NotFound()
+                # An existing claimed T2 with NO result receipt after Commit
+                # is AMBIGUOUS, never a prompt to execute the producer again.
+                state = "UNKNOWN"
+            else:
+                state = "PENDING"
+            item = {"result_status": state, "answer": None,
+                    "retention_expires_at": None}
+        if doc["status"] in ("attempt_unknown", "failed", "cancelled"):
+            item["result_status"] = (
+                "UNKNOWN" if doc["status"] == "attempt_unknown" else "FAILED")
+            item["answer"] = None
+        # No real Gateway/Answer provenance or product.v1 History row.
+        result_document = {
+            "kind": "invited_live_result",
+            "contract_version": INVITED_RESULT_VERSION,
+            "result_status": item["result_status"],
+            "owner_user_id": ctx["owner"],
+            "requested_conversation_id": doc["requested_conversation_id"],
+            "resolved_conversation_id": doc["resolved_conversation_id"],
+            "client_message_id": doc["client_message_id"],
+            "idempotency_key": doc["idempotency_key"],
+            "attempt_id": doc["attempt_id"],
+            "attempt_request_id": doc["attempt_request_id"],
+            "attempt_trace_id": doc["attempt_trace_id"],
+            "request_id": doc["request_id"],
+            "trace_id": doc["trace_id"],
+            "retention_expires_at_unix": item["retention_expires_at"],
+            "consent_scope": "CI_FIXTURE_ONLY",
+            "provenance": {
+                "state": "UNVERIFIED_STAGING",
+                "origin": "FIXED_GATEWAY_STUB",
+                "product_live_verified": False,
+                "warning": INVITED_WARNING,
+            },
+            "answer": item["answer"] if item["result_status"] == "READY" else None,
+        }
+        validate_ci_invited_result(result_document)
+        return JSONResponse(status_code=200, content=result_document,
+                            headers={"Cache-Control": "no-store"})
+    return _signed_read(request, _INVITED_RESULT_PATH, read, coherent_read=True)
 
 
 def _run_fixture_send(request, raw_body, payload):
@@ -479,26 +602,43 @@ def _report_ci_dispatch_unknown(permit, reason):
         return False
 
 
-def _invoke_ci_count_only_gateway(permit, question):
-    """Post-commit count, no network; mark ambiguous result in real PG011."""
+def _invoke_ci_count_only_gateway(permit, question, invited_binding=None):
+    """Post-commit stub call, max ONE; optional immutable synthetic result."""
     try:
-        _CI_CLAIM_STUB(permit, question)
+        result = _CI_CLAIM_STUB(permit, question)
+        if invited_binding is not None:
+            if (_CI_INVITED_RESULT_STORE is None
+                    or not _CI_INVITED_RESULT_STORE.ready(invited_binding, result)):
+                raise DispatchClaimDenied()
     except TimeoutError:
+        if invited_binding is not None and _CI_INVITED_RESULT_STORE is not None:
+            _CI_INVITED_RESULT_STORE.unknown(invited_binding)
         _report_ci_dispatch_unknown(permit, "TIMEOUT")
     except ConnectionError:
+        if invited_binding is not None and _CI_INVITED_RESULT_STORE is not None:
+            _CI_INVITED_RESULT_STORE.unknown(invited_binding)
         _report_ci_dispatch_unknown(permit, "LOST_RESPONSE")
+    except (DispatchClaimDenied, sqlite3.Error, ValueError):
+        if invited_binding is not None and _CI_INVITED_RESULT_STORE is not None:
+            _CI_INVITED_RESULT_STORE.unknown(invited_binding)
     # A process crash cannot reuse the consumed Claim, even if report is lost.
 
 
 def _run_ci_claim_send(request, raw_body, payload, background_tasks):
-    """Full signed 005/004 T1→T2→011 Claim outer COMMIT before counted stub."""
+    """Signed 005/004 T1→T2→011 Claim outer COMMIT before counted stub."""
+    mode = os.getenv("API_RUNNER_EXECUTION_MODE")
     if (_CI_CLAIM_STUB is None
             or os.getenv("CI") != "true"
             or os.getenv("GITHUB_ACTIONS") != "true"
-            or os.getenv("API_RUNNER_EXECUTION_MODE") != "CLAIM_STUB_CI_ONLY"
-            or _PRIVATE_STAGING_PROFILE is not None):
+            or mode not in {"CLAIM_STUB_CI_ONLY", "INVITED_RESULT_STUB_CI_ONLY"}
+            or _PRIVATE_STAGING_PROFILE is not None
+            or (mode == "INVITED_RESULT_STUB_CI_ONLY"
+                and (_CI_INVITED_RESULT_STORE is None
+                     or not isinstance(_CI_CLAIM_STUB, FixedInvitedGatewayStub)))):
         return history._safe_error(
             503, "ENGINE_NOT_CONFIGURED", "technical", "History unavailable.")
+
+    accepted = {"binding": None}
 
     def committed_operation():
         def reserve(ctx):
@@ -511,15 +651,27 @@ def _run_ci_claim_send(request, raw_body, payload, background_tasks):
                 conn, owner, payload["requested_conversation_id"],
                 payload["client_message_id"], payload["idempotency_key"],
                 history.uid(), ctx["trace_id"])
-            # Exactly DB #56 Migration 011 signature. No external send here.
+            # DB #56 Migration 011, same 005/004 outer transaction.
             permit = claim_within_signed_t2(conn, owner, attempt)
+            if mode == "INVITED_RESULT_STUB_CI_ONLY":
+                accepted["binding"] = _invited_binding_from_status(ctx, {
+                    **receipt,
+                    "attempt_id": attempt["id"],
+                    "attempt_request_id": attempt["attempt_request_id"],
+                    "attempt_trace_id": attempt["attempt_trace_id"],
+                })
             return receipt, permit
         # The original protected_transaction EXIT/COMMIT must succeed first.
         _, value = _signed_history(request, raw_body, _SEND_PATH, reserve)
         return value
 
     def enqueue(permit, question):
-        background_tasks.add_task(_invoke_ci_count_only_gateway, permit, question)
+        binding = accepted["binding"]
+        if mode == "INVITED_RESULT_STUB_CI_ONLY":
+            if binding is None or not _CI_INVITED_RESULT_STORE.reserve(binding):
+                raise DispatchClaimDenied()
+        background_tasks.add_task(
+            _invoke_ci_count_only_gateway, permit, question, binding)
 
     receipt, created = after_definitive_commit(
         committed_operation, enqueue, payload["question"])
@@ -538,7 +690,8 @@ async def session_send_message(request: Request, background_tasks: BackgroundTas
             # Never execute synthetic fixture inside private staging.
             response = history._safe_error(
                 503, "ENGINE_NOT_CONFIGURED", "technical", "History unavailable.")
-        elif os.getenv("API_RUNNER_EXECUTION_MODE") == "CLAIM_STUB_CI_ONLY":
+        elif os.getenv("API_RUNNER_EXECUTION_MODE") in {
+                "CLAIM_STUB_CI_ONLY", "INVITED_RESULT_STUB_CI_ONLY"}:
             response = await run_in_threadpool(
                 _run_ci_claim_send,
                 request, raw_body, payload, background_tasks)
