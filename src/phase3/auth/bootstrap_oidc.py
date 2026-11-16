@@ -14,6 +14,7 @@ import base64
 import json
 import re
 import secrets
+import ssl
 import time
 import uuid
 
@@ -94,7 +95,9 @@ class BootstrapOIDC:
     def __init__(self, *, service_issuer, audience, service_keys: Mapping[str, bytes],
                  cert_fingerprints: Mapping[str, str], seal_keys: Mapping[str, bytes], active_seal_kid: str,
                  db_dsn: Mapping[str, str], oidc: dict, client_id: str,
-                 redirect_uri: str, exchange: Callable | None = None):
+                 redirect_uri: str, exchange: Callable | None = None,
+                 runtime_profile: str = "loopback_fixture",
+                 idp_ca_file: str | None = None):
         if (not isinstance(service_issuer, str) or not service_issuer.startswith("urn:")
                 or len(service_issuer) > 128 or not audience.startswith("urn:")
                 or not cert_fingerprints or not service_keys or not db_dsn):
@@ -126,33 +129,73 @@ class BootstrapOIDC:
         self.oidc = dict(oidc)
         self.client_id = client_id
         self.redirect_uri = redirect_uri
+        self.runtime_profile = runtime_profile
         from urllib.parse import urlsplit
         expected = self.oidc.get("issuer")
         try:
             callback = urlsplit(redirect_uri)
-            exact_callback = (
-                callback.scheme in ("http", "https")
-                and callback.hostname == "127.0.0.1"
-                and callback.port is not None
-                and callback.path == "/callback"
-                and not callback.username and not callback.password
-                and not callback.query and not callback.fragment
-                and callback.netloc == "127.0.0.1:" + str(callback.port)
-            )
+            if runtime_profile == "private_staging":
+                # An exact public callback, NOT an open redirect or a browser field.
+                exact_callback = (redirect_uri ==
+                                  "https://ragfinance.ir/api/auth/callback")
+                issuer_url = urlsplit(expected)
+                # Current pinned IdP contract is Keycloak with one concrete Realm.
+                realm = re.fullmatch(r"/realms/[A-Za-z0-9._-]{1,100}",
+                                     issuer_url.path or "") is not None
+                idp_ok = (
+                    issuer_url.scheme == "https"
+                    and bool(issuer_url.hostname)
+                    and issuer_url.hostname not in {"localhost", "127.0.0.1", "::1"}
+                    and not issuer_url.username and not issuer_url.password
+                    and not issuer_url.query and not issuer_url.fragment
+                    and issuer_url.port in (None, 443)
+                    and realm and issuer_url.geturl() == expected
+                )
+                if idp_ok:
+                    expected_endpoints = {
+                        "authorization_endpoint": expected +
+                            "/protocol/openid-connect/auth",
+                        "token_endpoint": expected +
+                            "/protocol/openid-connect/token",
+                        "jwks_uri": expected + "/protocol/openid-connect/certs",
+                    }
+                    idp_ok = all(self.oidc.get(name) == value
+                                 for name, value in expected_endpoints.items())
+            elif runtime_profile == "loopback_fixture":
+                exact_callback = (
+                    callback.scheme in ("http", "https")
+                    and callback.hostname == "127.0.0.1"
+                    and callback.port is not None
+                    and callback.path == "/callback"
+                    and not callback.username and not callback.password
+                    and not callback.query and not callback.fragment
+                    and callback.netloc == "127.0.0.1:" + str(callback.port)
+                )
+                idp_ok = (isinstance(expected, str)
+                          and expected.startswith("http://127.0.0.1:")
+                          and self.oidc.get("token_endpoint") == expected +
+                              "/protocol/openid-connect/token"
+                          and self.oidc.get("jwks_uri") == expected +
+                              "/protocol/openid-connect/certs"
+                          and self.oidc.get("authorization_endpoint", "").startswith(
+                              expected + "/"))
+            else:
+                raise BootstrapDenied()
         except (TypeError, ValueError, AttributeError):
-            exact_callback = False
-        if (not isinstance(expected, str) or not expected.startswith("http://127.0.0.1:")
-                or self.oidc.get("token_endpoint")
-                   != expected + "/protocol/openid-connect/token"
-                or self.oidc.get("jwks_uri")
-                   != expected + "/protocol/openid-connect/certs"
-                or not self.oidc.get("authorization_endpoint", "").startswith(expected + "/")
-                or not exact_callback):
-            # Exact, configured, loopback callback (including TLS HTTPS) only.
-            # URI is server config, NEVER read from browser/BFF payload;
-            # the identical URI flows to IdP authorization AND token exchange.
-            # CI's existing HTTP callback remains only for historical tests.
+            raise BootstrapDenied() from None
+        if not exact_callback or not idp_ok:
             raise BootstrapDenied()
+        # System trust (or a pinned Ops CA) applies to *both* token and JWKS.
+        if runtime_profile == "private_staging":
+            try:
+                self.idp_tls_context = ssl.create_default_context(
+                    cafile=idp_ca_file)
+                self.idp_tls_context.check_hostname = True
+                self.idp_tls_context.verify_mode = ssl.CERT_REQUIRED
+            except (OSError, ssl.SSLError, ValueError):
+                raise BootstrapDenied() from None
+        else:
+            self.idp_tls_context = None
         self.exchange = exchange if exchange is not None else self._redeem
 
     def _conn(self, role):
@@ -332,7 +375,8 @@ class BootstrapOIDC:
             return row
 
     def _redeem(self, code, verifier):
-        with httpx.Client(timeout=15, trust_env=False, follow_redirects=False) as c:
+        with httpx.Client(timeout=15, trust_env=False, follow_redirects=False,
+                          verify=self.idp_tls_context or True) as c:
             return c.post(self.oidc["token_endpoint"], data={
                 "grant_type": "authorization_code", "client_id": self.client_id,
                 "redirect_uri": self.redirect_uri, "code": code,
@@ -347,7 +391,9 @@ class BootstrapOIDC:
         hdr = jwt.get_unverified_header(id_token)
         if hdr.get("alg") != "RS256" or not isinstance(hdr.get("kid"), str):
             raise BootstrapDenied()
-        signing_key = jwt.PyJWKClient(self.oidc["jwks_uri"]).get_signing_key_from_jwt(
+        signing_key = jwt.PyJWKClient(
+            self.oidc["jwks_uri"], timeout=15,
+            ssl_context=self.idp_tls_context).get_signing_key_from_jwt(
             id_token).key
         claims = jwt.decode(id_token, signing_key, algorithms=["RS256"],
                             issuer=self.oidc["issuer"], audience=self.client_id,
