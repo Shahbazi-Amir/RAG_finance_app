@@ -29,6 +29,8 @@ class BootstrapSourceGuards(unittest.TestCase):
         self.assertIn('runtime_profile == "private_staging"', content)
         self.assertIn('runtime_profile == "loopback_fixture"', content)
         self.assertIn('issuer_url.scheme == "https"', content)
+        self.assertIn("ipaddress.ip_address(host).is_loopback", content)
+        self.assertIn('realm_match.group(1) not in {".", ".."}', content)
         self.assertIn("/protocol/openid-connect/token", content)
         self.assertIn("/protocol/openid-connect/certs", content)
         self.assertIn("follow_redirects=False", content)
