@@ -233,6 +233,9 @@ class StagingBootstrapASGITests(unittest.TestCase):
             {"oidc":{**OIDC,"token_endpoint":"http://idp.example.invalid/token"}},
             {"oidc":{**OIDC,"jwks_uri":"https://other.invalid/certs"}},
             {"oidc":{**OIDC,"issuer":"https://idp.example.invalid:444/realms/finance"}},
+            {"oidc":{**OIDC,"issuer":"https://127.0.0.2/realms/finance"}},
+            {"oidc":{**OIDC,"issuer":"https://[::1]/realms/finance"}},
+            {"oidc":{**OIDC,"issuer":"https://idp.example.invalid/realms/.."}},
         ):
             with self.subTest(changes=changes), self.assertRaises(BootstrapDenied):
                 BootstrapOIDC(**{**fields,**changes})
