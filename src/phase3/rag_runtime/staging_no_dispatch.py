@@ -200,7 +200,10 @@ def invoke_pinned_no_dispatch(
             raise TimeoutError() from None
         try:
             stdout, _ = child.communicate(timeout=profile.max_seconds)
-        except subprocess.TimeoutExpired:
+        except (subprocess.TimeoutExpired, OSError, ValueError,
+                subprocess.SubprocessError):
+            # Post-spawn I/O failure is potentially executed, not a clean
+            # pre-spawn denial: UNKNOWN and never retry.
             _stop_audited_child(child)
             spawn_audit.unknown(binding)
             raise TimeoutError() from None
