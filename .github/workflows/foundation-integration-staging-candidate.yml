@@ -1,0 +1,156 @@
+name: Foundation Integrated UI54 Web+API53 candidate — offline CI
+
+on:
+  push:
+    branches: [integration/phase3-private-staging-candidate]
+  pull_request:
+    branches: [agent/api-staging-pinned-runner-preflight]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integrated-source-static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact integrated candidate SHA
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Assert pinned original UI/API/Runner source bytes (no substitution)
+        run: |
+          set -euo pipefail
+          echo "INTEGRATED_SOURCE_SHA=$(git rev-parse HEAD)"
+          test "$(git hash-object apps/api/product_session_api.py)" = "df7e013025c06b98443e5e2d619377bfa61545d6"
+          test "$(git hash-object apps/web/src/history/proxy.ts)" = "27150b8613f01a8520b4cf675840b1070c6c81a6"
+          test "$(git hash-object apps/web/src/ui/product-chat.tsx)" = "0f665ab74900f82c6596f4cf00d4b72217c24077"
+          test "$(git hash-object apps/web/app/page.tsx)" = "fd99583bc67fd886da575acec55108bb9538f8ba"
+          test "$(git hash-object tests/phase3/integration/ui/product_chat_browser.py)" = "1384cb477e3a70a8e183a80102e7b89a5b6e2e37"
+          test "$(git hash-object apps/web/README.md)" = "618a4f7e25968e57874feb4d11c55f5eed9481ba"
+          test "$(git hash-object apps/web/app/api/auth/login/route.ts)" = "666c2be141199eb81e3c5f6073e69af5b5b95e71"
+          test "$(git hash-object apps/web/app/api/auth/logout/route.ts)" = "26325db1d7f1d277634a8cdb3a6f4de9b84fd222"
+          test "$(git hash-object apps/web/app/login/route.ts)" = "d70e30f65fc30ca4d484e4c9242861b3c2045406"
+          test "$(git hash-object apps/web/src/auth/server/initial-bootstrap.ts)" = "878262af7496c385ccb8bf23cd204b6de78a2aa7"
+          test "$(git hash-object apps/web/src/auth/server/initial-browser.ts)" = "439954b292631a1986577b9ef573ec824a3aab88"
+          test "$(git hash-object apps/web/src/auth/server/initial-store.ts)" = "7ed559c30571e2f1d4b27377b8df781952ed2e09"
+          test "$(git hash-object apps/web/src/auth/server/private-staging.ts)" = "3d0ebee052c0a20028ad5e046e3d8daf59e1407a"
+          test "$(git hash-object apps/web/src/auth/server/product-session.ts)" = "fd5dc26d0f099b3a6ce76ab16bfe85f5ba5e1d6d"
+          test "$(git hash-object coordination/tasks/AGENT-UI-01.md)" = "033efae463b04abbfc23bef5975c071f034f7db6"
+          test "$(git hash-object tests/phase3/ui/auth_bootstrap_010.test.mjs)" = "808d015ac31cb926dbfd379d2d55f8277d80975f"
+          test "$(git hash-object tests/phase3/ui/bff-service.test.mjs)" = "c1f42e1c3405c97c862edd0202c06ab24508be00"
+          test "$(git hash-object tests/phase3/ui/private-staging.test.mjs)" = "7ed0ce7ba34609117e1f0b88c23dd8cb8ea40ea2"
+          echo "FND_EXACT_UI54_SHA_0c522847cc627ade62f3da253332555f12b822a5_SOURCE_PASS"
+          test "$(git hash-object scripts/phase3-demo/launcher.py)" = "65248ac6df7c150b3873ca6383ddf3f4eaaf4199"
+          test "$(git hash-object src/phase3/rag_runtime/staging_preflight.py)" = "8b73d7c2fbb4a159c091954fdb20d4d71d4b0135"
+          test "$(git hash-object src/phase3/auth/staging_service_profile.py)" != ""
+          test "$(git hash-object src/phase3/rag_runtime/staging_service_bootstrap.py)" != ""
+          test "$(git hash-object apps/web/src/history/client.ts)" = "1bb9ab950e04de4d625a9b15b5cb4fdc08b98fe1"
+          test "$(git hash-object tests/phase3/ui/product-chat-client.test.mjs)" = "d57a2eff343fcc73e979834bfa7d18897a260a0f"
+          test "$(git hash-object tests/phase3/ui/product-bff-boundary.test.mjs)" = "107754422141a5704a0dd919aa401fb01045de30"
+          test "$(git hash-object src/phase3/rag_runtime/dispatch_claim_bridge.py)" = "e8549bd9b1c5460804cc510bfee7cda326aff7a8"
+          test "$(git hash-object src/phase3/rag_runtime/dispatch_claim_test_stub.py)" = "226021a6289b38160d75d1a36d6c10897f181795"
+          test "$(git hash-object tests/phase3/integration/api/test_external_dispatch_claim_011_http.py)" = "e4edc2d9ddb6c903a09f038e1ea6b13875f250b2"
+          test "$(git hash-object apps/api/private_staging_asgi.py)" = "6072e7586d922737117dee27d61798df0cb9a6fc"
+          test "$(git hash-object src/phase3/auth/staging_transport_mtls.py)" = "f5900544cd8659ee0ebc04d784370aebb0b0b14b"
+          test "$(git hash-object tests/phase3/api/test_staging_private_asgi.py)" = "92b4ee95eafdf7bd5204e568885dddcff9f0ca06"
+          test "$(git hash-object apps/api/private_staging_bootstrap_asgi.py)" = "3df807f53c865ebb29f8e8f26d0a8819149b46f9"
+          test "$(git hash-object src/phase3/auth/bootstrap_oidc.py)" = "b4b1a1f39e3432f4daacf844b9b82962c5f31e7a"
+          test "$(git hash-object tests/phase3/api/test_staging_bootstrap_source.py)" = "d515ef3fb00ac530d3d71873e28b18cddc478643"
+          test "$(git hash-object tests/phase3/integration/api/test_staging_bootstrap_asgi.py)" = "44db44106a05fe05cd7b0720919d4454be49b9d6"
+          test "$(git hash-object tests/phase3/integration/api/test_staging_bootstrap_network.py)" = "264418f265e62f168914f27ceec21d165f6d92ac"
+          test "$(git hash-object tests/phase3/integration/api/test_staging_mtls_h11_network.py)" = "69b2af7479daf8da54021b006ae57aa753975522"
+          echo "FND_API53_BOOTSTRAP_SOURCE_PIN_cc16563ccf12931b20ca75a883ca9318ca004d81_PASS"
+          test "$(git hash-object src/phase3/rag_runtime/staging_invited_result_fixture.py)" = "f17abfb510c9886ccf8b3cba1b97e11d38c3b584"
+          test "$(git hash-object src/phase3/rag_runtime/staging_invited_result_contract.py)" = "ef7043b6a0d6d0570dcba605d9ea78ac9d9fefa0"
+          test "$(git hash-object src/phase3/rag_runtime/staging_invited_live_result.v1.schema.json)" = "dfc0ea520e6333491d01cab48831eb2a7508b428"
+          test "$(git hash-object tests/phase3/api/test_staging_invited_result.py)" = "6522a07f477704f5ffb854c0c2483f54ac8ab1b7"
+          test "$(git hash-object tests/phase3/api/test_staging_invited_schema.py)" = "be832af0c647706a910f07b258c7b11f30e3d6e4"
+          test "$(git hash-object tests/phase3/integration/api/test_staging_invited_result_015_http.py)" = "8fc2551f5b71f57d999884b6201fa4cefb214681"
+          echo "FND_API53_CI_ONLY_INVITED_FIXTURE_UPSTREAM_BLOBS_PASS"
+          echo "FND_PINNED_API53_PRIVATE_ASGI_MTLS_SOURCE_PASS"
+          echo "FND_INTEGRATED_UI54_API53_SOURCE_BLOBS_PASS"
+          echo "FND_BASE_API53_CONFLICT_RESOLUTION_PIN_cc16563ccf12931b20ca75a883ca9318ca004d81"
+          echo "NO_SSH_NO_PAID_DISPATCH_NO_DEPLOY"
+      - name: Node 22.16.0 (local demo compatible)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Install Web pinned dependencies
+        run: npm ci --prefix apps/web --no-audit --no-fund
+      - name: Web typecheck
+        run: npm --prefix apps/web run typecheck
+      - name: Web lint
+        run: npm --prefix apps/web run lint
+      - name: Web unit tests
+        run: npm --prefix apps/web run test
+      - name: Web production build only (NEVER deployed)
+        run: npm --prefix apps/web run build
+      - name: Python 3.13 for API static/fixture unit checks
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install CI-only API dependencies
+        run: python -m pip install --no-cache-dir -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.48.0'
+      - name: Install Chromium for bounded isolated UI L1 smoke
+        run: |
+          set -euo pipefail
+          python -m pip install --no-cache-dir 'playwright==1.64.1'
+          python -m playwright install --with-deps chromium
+      - name: Chromium UI #54 Refresh once-only, GET status, 401 private purge (route intercepted)
+        run: |
+          set -euo pipefail
+          nohup npm --prefix apps/web run start > "$RUNNER_TEMP/ui54-next.log" 2>&1 < /dev/null &
+          echo "$!" > "$RUNNER_TEMP/ui54-next.pid"
+          ready=0
+          for attempt in $(seq 1 45); do
+            if curl --fail --silent --output /dev/null http://127.0.0.1:3000/; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if test "$ready" -ne 1; then
+            echo "UI54_NEXT_NOT_READY"
+            tail -n 35 "$RUNNER_TEMP/ui54-next.log"
+            exit 1
+          fi
+          UI_CHAT_L1_BASE_URL=http://127.0.0.1:3000 python tests/phase3/integration/ui/product_chat_browser.py 2>&1 | tee "$RUNNER_TEMP/ui54-chromium.log"
+          grep -F 'UI_CHAT_L1_BROWSER_ONCE_ONLY_POST_REFRESH_STATUS_AND_401_PURGE_PASS' "$RUNNER_TEMP/ui54-chromium.log"
+          echo 'FND_UI54_CHROMIUM_ISOLATED_NO_REAL_API_PASS'
+      - name: Compile API and staging no-dispatch modules
+        run: |
+          python -m compileall -q src/phase3/auth src/phase3/rag_runtime apps/api
+          echo FND_INTEGRATED_API_COMPILE_PASS
+      - name: Run original API isolated unit tests
+        run: python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
+      - name: API_F3 Bootstrap 13 signed ASGI synthetic fixture (pinned same integrated SHA)
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_staging_bootstrap_asgi.py' -v 2>&1 | tee "$RUNNER_TEMP/fnd-bootstrap13.log"
+          grep -F 'Ran 13 tests' "$RUNNER_TEMP/fnd-bootstrap13.log"
+          grep -x 'OK' "$RUNNER_TEMP/fnd-bootstrap13.log"
+          grep -F 'BOOTSTRAP_STAGING_FIVE_SIGNED_MTLS_FIXTURE_ENDPOINTS_PASS' "$RUNNER_TEMP/fnd-bootstrap13.log"
+          echo FND_INTEGRATED_BOOTSTRAP13_PASS
+      - name: API_F3 Bootstrap five POST signed REAL local Uvicorn mTLS (fake DB/IdP)
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_staging_bootstrap_network.py' -v 2>&1 | tee "$RUNNER_TEMP/fnd-bootstrap-network.log"
+          grep -F 'Ran 1 test' "$RUNNER_TEMP/fnd-bootstrap-network.log"
+          grep -x 'OK' "$RUNNER_TEMP/fnd-bootstrap-network.log"
+          grep -F 'BOOTSTRAP_STAGING_REAL_LOCAL_HTTPS_MTLS_RS256_FIVE_ROUTES_PASS' "$RUNNER_TEMP/fnd-bootstrap-network.log"
+          echo FND_INTEGRATED_BOOTSTRAP_REAL_MTLS_PASS
+      - name: API_F3 Product mTLS H11 regression on imported transport (fake app)
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_staging_mtls_h11_network.py' -v 2>&1 | tee "$RUNNER_TEMP/fnd-product-mtls.log"
+          grep -F 'API_F3_REAL_LOCAL_MTLS_UVICORN_BFF200_NO_CERT_DENIED_OTHER_CERT_DENIED_PASS' "$RUNNER_TEMP/fnd-product-mtls.log"
+          echo FND_INTEGRATED_PRODUCT_MTLS_REGRESSION_PASS
+      - name: Run existing product contract tests
+        run: python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v
+      - name: Explicitly deny staging readiness interpretation
+        if: always()
+        run: |
+          echo "INTEGRATION_CANDIDATE_ONLY_NO_REAL_LOGIN_NO_SERVICE_NO_PG_NO_RUNNER"
+          echo "BROWSER_E2E_BLOCKED_UNTIL_SIGNED_BFF_API_DB_AND_OPS_GATES"

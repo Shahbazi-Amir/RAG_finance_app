@@ -1,0 +1,165 @@
+name: Foundation API53 + DB56 Claim011 signed HTTP / PostgreSQL17 — immutable sources
+
+on:
+  push:
+    branches: [integration/phase3-private-staging-candidate]
+    paths:
+      - '.github/workflows/foundation-api53-db56-claim011-http.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api53-db56-claim011:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_PASSWORD: fnd_ci_pg011_synthetic
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: 'true'
+      PGPASSWORD: fnd_ci_pg011_synthetic
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      DB_APP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+      AUTH_MAP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_mapper password=synthetic_mapper_only connect_timeout=5
+      AUTH_SESSION_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_sessions password=synthetic_session_only connect_timeout=5
+      AUTH_REVOKER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_revoker password=synthetic_revoker_only connect_timeout=5
+      DISPATCH_REPORTER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_dispatch_reporter password=synthetic_reporter_only connect_timeout=5
+    steps:
+      - name: Checkout exact approved API #53 source without PR synthetic merge
+        uses: actions/checkout@v4
+        with:
+          ref: 92f83561fcb8391f68b0b4e86ab5dcfc3970e8c5
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify API tested SHA and test module byte identity
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "92f83561fcb8391f68b0b4e86ab5dcfc3970e8c5"
+          test "$(git merge-base HEAD 3b598147c954aa91281392e58ab3d7f2df97ac2d)" = "3b598147c954aa91281392e58ab3d7f2df97ac2d"
+          test "$(git hash-object apps/api/product_session_api.py)" = "43ce1e7929d6e783f90ad8b9dcc689eebdde6faf"
+          echo "FND_CLAIM011_API_TESTED_SHA=$(git rev-parse HEAD)"
+          test "$(git hash-object tests/phase3/integration/api/test_external_dispatch_claim_011_http.py)" = "e4edc2d9ddb6c903a09f038e1ea6b13875f250b2"
+          echo FND_CLAIM011_SIX_ORIGINAL_API_TESTS_SOURCE_PIN_PASS
+      - name: Stage only DB #56 immutable 011 SQL into ephemeral checkout
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin b0ba6dbf6100109cb58f8cb49da808839d68c5f0
+          test "$(git rev-parse FETCH_HEAD)" = "b0ba6dbf6100109cb58f8cb49da808839d68c5f0"
+          mkdir -p infra/postgres/migrations
+          git show "FETCH_HEAD:infra/postgres/migrations/011_external_dispatch_claim.up.sql" > infra/postgres/migrations/011_external_dispatch_claim.up.sql
+          test "$(git hash-object infra/postgres/migrations/011_external_dispatch_claim.up.sql)" = "031d2f438f000154eb4e2b374ce42181b3d812b3"
+          echo "FND_CLAIM011_DB_MIGRATION_TESTED_SHA=b0ba6dbf6100109cb58f8cb49da808839d68c5f0"
+          echo FND_CLAIM011_DB56_UP_SQL_BLOB_VERIFIED
+          test "$(git rev-parse HEAD)" = "92f83561fcb8391f68b0b4e86ab5dcfc3970e8c5"
+      - name: Python 3.13 pinned CI dependencies
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install API CI packages only
+        run: |
+          set -euo pipefail
+          python -m pip install --no-cache-dir -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.34.3'
+          python -m compileall -q apps/api src/phase3/auth src/phase3/rag_runtime tests/phase3/integration/api/test_external_dispatch_claim_011_http.py
+      - name: Verify PostgreSQL is the temporary 17.11 service
+        run: |
+          set -euo pipefail
+          python --version
+          psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -c 'SHOW server_version;'
+          test "$(psql -U postgres -d postgres -X -Atqc 'SHOW server_version;')" = '17.11 (Debian 17.11-1.pgdg13+1)' || psql -U postgres -d postgres -X -Atqc 'SHOW server_version;'
+          echo FND_CLAIM011_DISPOSABLE_PG17_ONLY
+      - name: Create disposable history_ci and separate non-BYPASSRLS app/auth/reporter roles
+        run: |
+          set -euo pipefail
+          psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE history_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_mig_only' NOSUPERUSER;
+          CREATE ROLE auth_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_auth_mig_only' NOSUPERUSER;
+          CREATE ROLE history_app LOGIN PASSWORD 'synthetic_app_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_mapper LOGIN PASSWORD 'synthetic_mapper_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_sessions LOGIN PASSWORD 'synthetic_session_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_revoker LOGIN PASSWORD 'synthetic_revoker_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reauth LOGIN PASSWORD 'synthetic_reauth_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_trust_api LOGIN PASSWORD 'synthetic_trust_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_replay_cleaner LOGIN PASSWORD 'synthetic_clean_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE history_dispatch_reporter LOGIN PASSWORD 'synthetic_reporter_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE history_dispatch_reconciler LOGIN PASSWORD 'synthetic_recon_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE DATABASE history_ci;
+          GRANT CONNECT,CREATE ON DATABASE history_ci TO history_migrator,auth_migrator;
+          GRANT CONNECT ON DATABASE history_ci TO history_app,auth_mapper,auth_sessions,auth_revoker,auth_reauth,auth_trust_api,auth_replay_cleaner,history_dispatch_reporter,history_dispatch_reconciler;
+          SQL
+      - name: Apply unchanged 001/002 History, 003/004/005 Auth then exact #56 011
+        run: |
+          set -euo pipefail
+          export PGUSER=history_migrator PGPASSWORD=synthetic_mig_only
+          psql -X -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -X -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_mig_only
+          psql -X -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          psql -X -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
+          psql -X -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.up.sql
+          export PGUSER=history_migrator PGPASSWORD=synthetic_mig_only
+          psql -X -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/011_external_dispatch_claim.up.sql
+          echo FND_CLAIM011_MIGRATIONS_001_002_003_004_005_PLUS_DB56_011_PASS
+          # Strictly temporary CI function-only permissions; no raw auth table access.
+          PGUSER=auth_migrator PGPASSWORD=synthetic_auth_mig_only psql -X -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          GRANT USAGE ON SCHEMA auth_l1 TO history_app;
+          GRANT EXECUTE ON FUNCTION auth_l1.consume_service_assertion(text,bigint) TO history_app;
+          GRANT EXECUTE ON FUNCTION auth_l1.admit_session_fenced(text,text,bigint,integer) TO history_app;
+          GRANT EXECUTE ON FUNCTION auth_l1.revoke_one(text,bigint) TO auth_revoker;
+          SQL
+          PGUSER=history_app PGPASSWORD=synthetic_app_only psql -X -d history_ci -v ON_ERROR_STOP=1 -c "SELECT to_regprocedure('history_l1.claim_external_dispatch(text,text,text)') IS NOT NULL AS exists;"
+      - name: Six real signed ASGI HTTP+PG17 Claim scenarios — count-only stub, no Gateway
+        run: |
+          set -euo pipefail
+          echo "FND_CLAIM011_TESTED_API_SHA=92f83561fcb8391f68b0b4e86ab5dcfc3970e8c5"
+          echo "FND_CLAIM011_TESTED_DB56_SHA=b0ba6dbf6100109cb58f8cb49da808839d68c5f0"
+          PYTHONPATH="$PWD/tests/phase3/integration/api:$PWD" \
+            python -m unittest discover -s tests/phase3/integration/api -p 'test_external_dispatch_claim_011_http.py' -v 2>&1 | tee "$RUNNER_TEMP/claim011_http.log"
+          grep -F 'Ran 6 tests in' "$RUNNER_TEMP/claim011_http.log"
+          grep -Fx 'OK' "$RUNNER_TEMP/claim011_http.log"
+          grep -F 'API53_HTTP011_CONCURRENT_A_202_200_GATEWAY_BOUNDARY_COUNT=1' "$RUNNER_TEMP/claim011_http.log"
+          grep -F 'API53_HTTP011_REPLAY_COUNT=0_POLL_COUNT=0_B_READ=404' "$RUNNER_TEMP/claim011_http.log"
+          grep -F 'API53_HTTP011_UNKNOWN_COMMIT_GATEWAY_BOUNDARY_COUNT=0' "$RUNNER_TEMP/claim011_http.log"
+          grep -F 'API53_HTTP011_TIMEOUT_AFTER_SEND_COUNT=1_UNKNOWN_NO_RETRY' "$RUNNER_TEMP/claim011_http.log"
+          grep -F 'API53_HTTP011_LOST_RESPONSE_SEND_COUNT=1_UNKNOWN_NO_RETRY' "$RUNNER_TEMP/claim011_http.log"
+          grep -F 'API53_HTTP011_UNCONFIGURED_GATEWAY_BOUNDARY_COUNT=0' "$RUNNER_TEMP/claim011_http.log"
+          echo FND_CLAIM011_ALL_SIX_ORIGINAL_REAL_SIGNED_ASGI_HTTP_POSTGRES_PASS
+      - name: Observe first and replay HTTP statuses for exact lost COMMIT ACK case
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$PWD/tests/phase3/integration/api:$PWD" python - <<'PY'
+          import unittest
+          from test_external_dispatch_claim_011_http import SignedClaimDispatchHttp011
+          original = SignedClaimDispatchHttp011.send
+          observed = []
+          def trace_status(self, session, msg):
+              result = original(self, session, msg)
+              if session is self.a:
+                  observed.append(result.status_code)
+                  print(f'FND_CLAIM011_HTTP03_REAL_HTTP_STATUS_{len(observed)}={result.status_code}', flush=True)
+              return result
+          SignedClaimDispatchHttp011.send = trace_status
+          test = SignedClaimDispatchHttp011('test_HTTP03_commit_ack_unknown_zero_send_and_replay_no_reclaim')
+          outcome = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite([test]))
+          if not outcome.wasSuccessful() or len(observed) != 2 or observed[0] == 202 or observed[1] != 200:
+              raise SystemExit('FND_CLAIM011_HTTP03_OBSERVER_FAILED')
+          print('FND_CLAIM011_HTTP03_ORIGINAL_CASE_RECHECKED_WITH_REAL_HTTP_CODES_PASS', flush=True)
+          PY
+      - name: Ephemeral DB aggregate evidence, no real Gateway or deploy
+        if: always()
+        run: |
+          echo 'FND_CLAIM011_SCOPE=SIGNED_ASGI_TESTCLIENT_REAL_PG17_COUNT_ONLY_IN_MEMORY_GATEWAY'
+          echo 'NO_MTLS_NETWORK_NO_STAGING_NO_PROVIDER_NO_MODEL_NO_DISPATCH_NO_DEPLOY'
+          PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -X -d history_ci -v ON_ERROR_STOP=1 -c 'SELECT state,count(*) FROM history_l1.external_dispatch_claims GROUP BY state ORDER BY state;' || true
