@@ -18,6 +18,9 @@ from src.phase3.rag_runtime.staging_preflight import (
     AttemptBinding, PreflightDenied, RunnerLayout, OFFLINE_REQUIRED,
     bind_persisted_attempt,
 )
+from src.phase3.rag_runtime.runner_spawn_audit import (
+    LinuxRunnerSpawnAudit, SpawnEvidenceUnknown, observe_linux_exec,
+)
 
 HEX_SHA = re.compile(r"^[0-9a-f]{64}$")
 MAX_OUTPUT_BYTES = 1_048_576
@@ -109,6 +112,23 @@ def _safe_approved_argv(profile: ApprovedNoDispatchCLI,
     )
 
 
+
+
+def _stop_audited_child(child: subprocess.Popen) -> None:
+    """Stop only the private child's own session, no argv/status logging."""
+    try:
+        import signal
+        os.killpg(child.pid, signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        try:
+            child.kill()
+        except OSError:
+            pass
+    try:
+        child.communicate(timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
 def invoke_pinned_no_dispatch(
     *,
     layout: RunnerLayout,
@@ -116,6 +136,7 @@ def invoke_pinned_no_dispatch(
     binding: AttemptBinding,
     question: str,
     environment: Mapping[str, str],
+    spawn_audit: LinuxRunnerSpawnAudit | None = None,
 ) -> bytes:
     """One bounded subprocess only, with no Gateway credentials in child env.
 
@@ -144,15 +165,53 @@ def invoke_pinned_no_dispatch(
             "HF_HUB_CACHE": environment["HF_HUB_CACHE"],
             "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
         }
-        proc = subprocess.run(
-            [str(layout.python), str(path), *argv],
-            stdin=subprocess.DEVNULL, cwd=str(layout.repo), env=allowed_env,
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            timeout=profile.max_seconds, check=False,
-        )
-        if proc.returncode != 0 or not 0 < len(proc.stdout) <= MAX_OUTPUT_BYTES:
+        command = [str(layout.python), str(path), *argv]
+        if spawn_audit is None:
+            # Existing isolated fixture tests retain the historical behavior.
+            proc = subprocess.run(
+                command, stdin=subprocess.DEVNULL, cwd=str(layout.repo),
+                env=allowed_env, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, timeout=profile.max_seconds,
+                check=False,
+            )
+            if proc.returncode != 0 or not 0 < len(proc.stdout) <= MAX_OUTPUT_BYTES:
+                raise PreflightDenied()
+            return proc.stdout
+
+        # In private staging this branch is REQUIRED. Intent is durably
+        # committed BEFORE Popen, but intent never counts as execution.
+        spawn_audit.intent(binding, profile.runner_file_sha256)
+        try:
+            child = subprocess.Popen(
+                command, stdin=subprocess.DEVNULL, cwd=str(layout.repo),
+                env=allowed_env, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, start_new_session=True,
+            )
+        except (OSError, ValueError, subprocess.SubprocessError):
+            spawn_audit.failed_before_spawn(binding)
+            raise PreflightDenied() from None
+        try:
+            observed = observe_linux_exec(child.pid, layout.python)
+            spawn_audit.observed(binding, observed)
+        except (SpawnEvidenceUnknown, PreflightDenied):
+            # Child might have started: UNKNOWN, never automatic replay.
+            _stop_audited_child(child)
+            spawn_audit.unknown(binding)
+            raise TimeoutError() from None
+        try:
+            stdout, _ = child.communicate(timeout=profile.max_seconds)
+        except subprocess.TimeoutExpired:
+            _stop_audited_child(child)
+            spawn_audit.unknown(binding)
+            raise TimeoutError() from None
+        try:
+            spawn_audit.finished(binding, child.returncode)
+        except SpawnEvidenceUnknown:
+            spawn_audit.unknown(binding)
+            raise TimeoutError() from None
+        if child.returncode != 0 or not 0 < len(stdout) <= MAX_OUTPUT_BYTES:
             raise PreflightDenied()
-        return proc.stdout
+        return stdout
     except subprocess.TimeoutExpired:
         # A launched process may have progressed despite timeout.
         # Preserve UNKNOWN and NEVER retry automatically.
