@@ -2,7 +2,7 @@ name: Foundation Integrated UI54 Web+API53 candidate — offline CI
 
 on:
   push:
-    branches: [integration/phase3-private-staging-candidate]
+    branches: [integration/phase3-private-staging-candidate, integration/phase3-private-staging-c018-audit]
   pull_request:
     branches: [agent/api-staging-pinned-runner-preflight]
   workflow_dispatch:
@@ -72,6 +72,15 @@ jobs:
           echo "FND_PINNED_API53_PRIVATE_ASGI_MTLS_SOURCE_PASS"
           echo "FND_INTEGRATED_UI54_API53_SOURCE_BLOBS_PASS"
           echo "FND_BASE_API53_CONFLICT_RESOLUTION_PIN_cc16563ccf12931b20ca75a883ca9318ca004d81"
+          # Independent exact source of the API_F3 C018 witness transplant.
+          test "$(git hash-object apps/api/PRIVATE_C018_HOST_READONLY_CHECK.sh)" = "bed336a2e476a31bf5136f6ff8773f7e0f7bcd79"
+          test "$(git hash-object src/phase3/rag_runtime/runner_spawn_audit.py)" = "b39dbcd49d4703a00810543889f25ddcbec20524"
+          test "$(git hash-object src/phase3/rag_runtime/staging_no_dispatch.py)" = "25eccc82aa74c71d8db9d9891c18f06e4bf0d088"
+          test "$(git hash-object src/phase3/rag_runtime/no_dispatch_handler.py)" = "5ce3b47f8245fe6a203e3dfc52480a4c912138ca"
+          test "$(git hash-object src/phase3/rag_runtime/staging_service_bootstrap.py)" = "31909ce1f04879dde45ab2a5fdfbceca03bc2682"
+          test "$(git hash-object tests/phase3/api/test_staging_c018_spawn_audit.py)" = "426d349ad51b868dd88832918882bd9b9a08ff54"
+          test "$(git hash-object tests/phase3/api/test_staging_no_dispatch.py)" = "e4c2b67b699999bd7ae4e3f3cdf6108b728e2fbe"
+          echo "FND_API53_C018_SPAWN_WITNESS_EXACT_BLOBS_PASS"
           echo "NO_SSH_NO_PAID_DISPATCH_NO_DEPLOY"
       - name: Node 22.16.0 (local demo compatible)
         uses: actions/setup-node@v4
@@ -125,6 +134,14 @@ jobs:
           echo FND_INTEGRATED_API_COMPILE_PASS
       - name: Run original API isolated unit tests
         run: python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
+      - name: API_F3 C018 Linux pidfd/proc witness nine tests (no real Runner)
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/api -p "test_staging_c018_spawn_audit.py" -v 2>&1 | tee "$RUNNER_TEMP/fnd-c018-witness.log"
+          grep -F "Ran 9 tests" "$RUNNER_TEMP/fnd-c018-witness.log"
+          grep -x "OK" "$RUNNER_TEMP/fnd-c018-witness.log"
+          grep -F "C018_OS_PIDFD_PROC_START_WITNESS_ONE_PASS" "$RUNNER_TEMP/fnd-c018-witness.log"
+          echo "FND_API53_C018_OS_WITNESS_LINUX_FIXTURE_PASS"
       - name: API_F3 Bootstrap 13 signed ASGI synthetic fixture (pinned same integrated SHA)
         run: |
           set -euo pipefail
