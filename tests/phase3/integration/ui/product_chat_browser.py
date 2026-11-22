@@ -218,7 +218,9 @@ def main():
             expect(page.locator("nav.history-list")).to_contain_text("گفت‌وگوی تست فارسی")
             # Server 401 purges old per-account list and persisted correlators.
             state["logged_in"] = False
-            page.get_by_test_id("refresh-history").click()
+            # Refresh invokes authenticated GET, even if background polling has
+            # already observed the 401 and disabled the in-page Refresh button.
+            page.reload(wait_until="domcontentloaded")
             expect(page.get_by_test_id("history-login-required")).to_be_visible()
             assert page.locator("nav.history-list button").count() == 0
             assert page.evaluate(
