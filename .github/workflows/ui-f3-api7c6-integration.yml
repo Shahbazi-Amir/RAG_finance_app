@@ -3,7 +3,8 @@ on:
   push:
     branches: [agent/ui-f3-api7c6-integration-20261123]
     paths:
-      - '.github/workflows/ui-f3-gate3-isolated.yml'
+      - '.github/workflows/ui-f3-api7c6-integration.yml'
+      - 'packages/contracts/api.retrieved_sources.v1.schema.json'
       - 'apps/web/**'
       - 'tests/phase3/ui/**'
       - 'tests/phase3/integration/ui/**'
