@@ -1,0 +1,315 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ragfinance:staging:invited_live_result:v1:ci_fixture",
+  "title": "staging.invited_live_result.v1 CI fixture-only wire; Foundation review required",
+  "description": "Signed 005/004 GET read-only pre-Release staging result. Strict synthetic fixture only; not approved for real staging/live, not product.v1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "contract_version",
+    "result_status",
+    "owner_user_id",
+    "requested_conversation_id",
+    "resolved_conversation_id",
+    "client_message_id",
+    "idempotency_key",
+    "attempt_id",
+    "attempt_request_id",
+    "attempt_trace_id",
+    "request_id",
+    "trace_id",
+    "retention_expires_at_unix",
+    "consent_scope",
+    "provenance",
+    "answer"
+  ],
+  "properties": {
+    "kind": {
+      "const": "invited_live_result"
+    },
+    "contract_version": {
+      "const": "staging.invited_live_result.v1"
+    },
+    "result_status": {
+      "enum": [
+        "PENDING",
+        "READY",
+        "FAILED",
+        "UNKNOWN"
+      ]
+    },
+    "owner_user_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "requested_conversation_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "resolved_conversation_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "client_message_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128
+    },
+    "attempt_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "attempt_request_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "attempt_trace_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "trace_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "retention_expires_at_unix": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "consent_scope": {
+      "const": "CI_FIXTURE_ONLY"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "origin",
+        "product_live_verified",
+        "warning"
+      ],
+      "properties": {
+        "state": {
+          "const": "UNVERIFIED_STAGING"
+        },
+        "origin": {
+          "const": "FIXED_GATEWAY_STUB"
+        },
+        "product_live_verified": {
+          "const": false
+        },
+        "warning": {
+          "const": "آزمایشی؛ این پاسخ و استناد تأییدشدهٔ محصول نیستند."
+        }
+      }
+    },
+    "answer": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "text",
+            "citations"
+          ],
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "citations": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 10,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "citation_id",
+                  "source_id",
+                  "title",
+                  "evidence_status",
+                  "excerpt",
+                  "locator"
+                ],
+                "properties": {
+                  "citation_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "source_id": {
+                    "type": "string",
+                    "pattern": "^fixture:[A-Za-z0-9_-]{1,100}$"
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 250
+                  },
+                  "evidence_status": {
+                    "const": "SYNTHETIC_TEST_ONLY"
+                  },
+                  "excerpt": {
+                    "type": "null"
+                  },
+                  "locator": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "result_status": {
+            "const": "READY"
+          }
+        },
+        "required": [
+          "result_status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "answer": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "text",
+              "citations"
+            ],
+            "properties": {
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "citations": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "citation_id",
+                    "source_id",
+                    "title",
+                    "evidence_status",
+                    "excerpt",
+                    "locator"
+                  ],
+                  "properties": {
+                    "citation_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "source_id": {
+                      "type": "string",
+                      "pattern": "^fixture:[A-Za-z0-9_-]{1,100}$"
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 250
+                    },
+                    "evidence_status": {
+                      "const": "SYNTHETIC_TEST_ONLY"
+                    },
+                    "excerpt": {
+                      "type": "null"
+                    },
+                    "locator": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "attempt_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "attempt_request_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "attempt_trace_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "retention_expires_at_unix": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "answer": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ]
+}

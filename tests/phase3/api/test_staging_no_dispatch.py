@@ -17,6 +17,7 @@ from src.phase3.rag_runtime.staging_no_dispatch import (
 from src.phase3.rag_runtime.no_dispatch_handler import (
     NoDispatchHandler, NoDispatchLedger,
 )
+from src.phase3.rag_runtime.runner_spawn_audit import LinuxRunnerSpawnAudit
 from src.phase3.rag_runtime.staging_preflight import (
     AttemptBinding, PreflightDenied, RunnerLayout,
 )
@@ -135,6 +136,42 @@ class NoDispatchBridgeTests(unittest.TestCase):
             handler("owner_A",self.binding,self.question)
         self.assertEqual(handler.read("owner_A",self.binding.engine_request_id),original)
         self.assertFalse(handler.reserve("owner_A",self.binding))
+
+    @unittest.skipUnless(sys.platform.startswith("linux") and hasattr(os, "pidfd_open"),
+                         "requires Linux kernel pidfd")
+    def test_audited_handler_real_os_child_one_attempt_refresh_read_only(self):
+        # This uses a tiny no-generation fixture child, NOT the actual Arvan
+        # C018 assets. It verifies OS process observation is wired to the
+        # exact Attempt and no duplicate subprocess across GET or replay.
+        script = self.runner.read_text()
+        self.runner.write_text("import time;time.sleep(0.6)\n" + script)
+        digest = hashlib.sha256(self.runner.read_bytes()).hexdigest()
+        audit = LinuxRunnerSpawnAudit(Path(self.tmp.name)/"c018-audit.sqlite3")
+        handler = NoDispatchHandler(
+            self.layout, runner_sha256=digest, ledger=self.ledger,
+            spawn_audit=audit)
+        self.assertTrue(handler.reserve("owner_A", self.binding))
+        with patch.dict(os.environ, self.env, clear=False):
+            handler("owner_A", self.binding, self.question)
+        status = handler.read("owner_A", self.binding.engine_request_id)
+        witness = audit.receipt(self.binding)
+        self.assertEqual(status["state"], "CONTEXT_READY")
+        self.assertEqual(status["top10_count"], 10)
+        self.assertEqual(status["generation_calls"], 0)
+        self.assertEqual(witness["state"], "EXITED_OK")
+        self.assertEqual(witness["witnessed_exec_count"], 1)
+        self.assertGreater(witness["proc_start_ticks"], 0)
+        self.assertEqual(handler.read("owner_B", self.binding.engine_request_id)["state"],
+                         "NOT_RECORDED")
+        for _ in range(5):
+            self.assertEqual(handler.read("owner_A", self.binding.engine_request_id), status)
+        with patch("src.phase3.rag_runtime.no_dispatch_handler.invoke_pinned_no_dispatch",
+                   side_effect=AssertionError("REPLAY_RAN_CHILD")):
+            handler("owner_A", self.binding, self.question)
+        self.assertFalse(handler.reserve("owner_A", self.binding))
+        self.assertEqual(audit.receipt(self.binding), witness)
+        print("C018_AUDITED_HANDLER_ONE_ATTEMPT_GET_ONLY_NO_GENERATION_PASS",
+              flush=True)
 
     def test_handler_nonzero_exit_marked_failed(self):
         handler=NoDispatchHandler(self.layout,runner_sha256=self.digest,ledger=self.ledger)

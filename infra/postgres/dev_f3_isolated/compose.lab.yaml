@@ -1,0 +1,63 @@
+# ISOLATED DEVELOPMENT TEST ONLY. Never point it to the accepted Mac demo volume.
+name: ${LAB_PROJECT:?set LAB_PROJECT}
+services:
+  lab-db:
+    image: public.ecr.aws/docker/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a
+    platform: linux/amd64
+    hostname: demo-db
+    entrypoint: ["/bin/bash", "/usr/local/bin/f3-lab-entrypoint.sh"]
+    command: ["postgres", "-c", "ssl=on", "-c", "ssl_cert_file=/var/lib/postgresql/f3tls/server.crt", "-c", "ssl_key_file=/var/lib/postgresql/f3tls/server.key", "-c", "ssl_ca_file=/var/lib/postgresql/f3tls/ca.crt", "-c", "hba_file=/var/lib/postgresql/f3tls/pg_hba.conf", "-c", "password_encryption=scram-sha-256"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: rag_finance_f3_lab
+      POSTGRES_PASSWORD_FILE: /run/lab_secrets/superuser_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - lab_pgdata:/var/lib/postgresql/data
+      - ${LAB_SECRETS:?}:/run/lab_secrets:ro
+      - ${LAB_SOURCE:?}:/run/source:ro
+      - ${LAB_WORK:?}:/run/work
+      - ./scripts/lab-entrypoint.sh:/usr/local/bin/f3-lab-entrypoint.sh:ro
+    networks:
+      private:
+        aliases: [demo-db]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d rag_finance_f3_lab"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  restore-db:
+    profiles: ["restore"]
+    image: public.ecr.aws/docker/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a
+    platform: linux/amd64
+    hostname: restore-db
+    entrypoint: ["/bin/bash", "/usr/local/bin/f3-lab-entrypoint.sh"]
+    command: ["postgres", "-c", "ssl=on", "-c", "ssl_cert_file=/var/lib/postgresql/f3tls/server.crt", "-c", "ssl_key_file=/var/lib/postgresql/f3tls/server.key", "-c", "ssl_ca_file=/var/lib/postgresql/f3tls/ca.crt", "-c", "hba_file=/var/lib/postgresql/f3tls/pg_hba.conf", "-c", "password_encryption=scram-sha-256"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: rag_finance_f3_lab_restore
+      POSTGRES_PASSWORD_FILE: /run/lab_secrets/superuser_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - lab_restore_pgdata:/var/lib/postgresql/data
+      - ${LAB_SECRETS:?}:/run/lab_secrets:ro
+      - ${LAB_SOURCE:?}:/run/source:ro
+      - ${LAB_WORK:?}:/run/work
+      - ./scripts/lab-entrypoint.sh:/usr/local/bin/f3-lab-entrypoint.sh:ro
+    networks:
+      private: {}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d rag_finance_f3_lab_restore"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+networks:
+  private:
+    internal: true
+volumes:
+  lab_pgdata:
+    name: ${LAB_VOLUME:?}
+  lab_restore_pgdata:
+    name: ${LAB_RESTORE_VOLUME:?}

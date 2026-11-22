@@ -1,0 +1,45 @@
+name: F3 DB59 API53 UI58 integrated source — offline preflight only
+on:
+  push:
+    branches: [integration/phase3-f3-db59-api53-ui58-installable-20261123]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  integrated-offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify imported owner Git blob SHA1s
+        run: |
+          python3 - <<'PY'
+          import json, subprocess
+          m=json.load(open('integration/F3_SOURCE_PINS.json'))
+          for p, v in m['file_pins'].items():
+              actual=subprocess.check_output(['git','hash-object','--',p], text=True).strip()
+              assert actual == v['blob_sha1'], p
+          print('INTEGRATED_OWNER_BLOBS_PASS',len(m['file_pins']))
+          PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.5'
+      - run: npm ci --prefix apps/web --no-audit --no-fund
+      - run: npm --prefix apps/web run typecheck
+      - run: npm --prefix apps/web run lint
+      - run: npm --prefix apps/web run test
+      - run: npm --prefix apps/web run build
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: CI-only API dependencies; NOT a release wheel lock
+        run: python -m pip install --no-cache-dir -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.48.0'
+      - run: python -m compileall -q apps/api src/phase3/auth src/phase3/rag_runtime
+      - run: python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
+      - run: python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v
+      - run: bash infra/postgres/dev_f3_isolated/tests/run_static.sh
+      - name: No runtime acceptance implied
+        if: always()
+        run: echo 'MAC_BUILD_START_AUTH_C018_RESTORE_NOT_TESTED; ARVAN_HOLD'

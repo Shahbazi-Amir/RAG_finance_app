@@ -1,0 +1,251 @@
+{
+  "schema": "foundation.f3.source-integration.v1",
+  "source_base": "c5e271d0fab8ab34c92a2da933ba6b194d1f1e9a",
+  "owners": {
+    "API_F3": {
+      "head": "fa448ee8b7fd1f71a340f2ebb1146930a6e3a085",
+      "tested": "fa448ee8b7fd1f71a340f2ebb1146930a6e3a085"
+    },
+    "UI_F3": {
+      "head": "6a92d0c719f2a31e459f49b2a18782fe92a08094",
+      "tested": "6a92d0c719f2a31e459f49b2a18782fe92a08094"
+    },
+    "DATABASE_F3": {
+      "head": "db14943d6e96bc53c416862889ad57cc0b53c3ee",
+      "tested": "57b5d007c86deb7003610605d305bdc942a31312",
+      "head_diff": "documentation_and_test_receipt_only"
+    }
+  },
+  "execution_mode": "NO_DISPATCH_ONLY",
+  "mac_install": "NOT_RUN",
+  "real_c018": "NOT_RUN",
+  "real_sources_contract": "BLOCKED",
+  "frozen_mac": "UNTOUCHED",
+  "arvan": "HOLD",
+  "file_pins": {
+    "apps/api/PRIVATE_C018_HOST_READONLY_CHECK.sh": {
+      "blob_sha1": "bed336a2e476a31bf5136f6ff8773f7e0f7bcd79",
+      "owner": "API_F3"
+    },
+    "src/phase3/rag_runtime/no_dispatch_handler.py": {
+      "blob_sha1": "5ce3b47f8245fe6a203e3dfc52480a4c912138ca",
+      "owner": "API_F3"
+    },
+    "src/phase3/rag_runtime/runner_spawn_audit.py": {
+      "blob_sha1": "b39dbcd49d4703a00810543889f25ddcbec20524",
+      "owner": "API_F3"
+    },
+    "src/phase3/rag_runtime/staging_no_dispatch.py": {
+      "blob_sha1": "25eccc82aa74c71d8db9d9891c18f06e4bf0d088",
+      "owner": "API_F3"
+    },
+    "src/phase3/rag_runtime/staging_service_bootstrap.py": {
+      "blob_sha1": "31909ce1f04879dde45ab2a5fdfbceca03bc2682",
+      "owner": "API_F3"
+    },
+    "tests/phase3/api/test_staging_c018_spawn_audit.py": {
+      "blob_sha1": "426d349ad51b868dd88832918882bd9b9a08ff54",
+      "owner": "API_F3"
+    },
+    "tests/phase3/api/test_staging_no_dispatch.py": {
+      "blob_sha1": "e4c2b67b699999bd7ae4e3f3cdf6108b728e2fbe",
+      "owner": "API_F3"
+    },
+    "apps/web/README.md": {
+      "blob_sha1": "bcd80728e2e1023b00dbf07008f48660db2f3a67",
+      "owner": "UI_F3"
+    },
+    "apps/web/app/ci-evidence-preview/page.tsx": {
+      "blob_sha1": "78166d29241af2ac6e292925ee0f36e9b09b91ba",
+      "owner": "UI_F3"
+    },
+    "apps/web/app/ci-fixture-review/page.tsx": {
+      "blob_sha1": "e8d9fe3f838b4c1a2f4e116386a112185b3885ae",
+      "owner": "UI_F3"
+    },
+    "apps/web/app/history/history.css": {
+      "blob_sha1": "bea14df9d9e525a62a1a64172d53d6008fabb05c",
+      "owner": "UI_F3"
+    },
+    "apps/web/app/login/route.ts": {
+      "blob_sha1": "0fab056e6e0158919f71560f8e2da205b36d1366",
+      "owner": "UI_F3"
+    },
+    "apps/web/src/auth/server/product-session.ts": {
+      "blob_sha1": "ab93316cd566c373651ab7a4339b86bb7f768e96",
+      "owner": "UI_F3"
+    },
+    "apps/web/src/history/fixtures/staging_invited_live_result.v1.schema.json": {
+      "blob_sha1": "dfc0ea520e6333491d01cab48831eb2a7508b428",
+      "owner": "UI_F3"
+    },
+    "apps/web/src/history/invited-fixture.ts": {
+      "blob_sha1": "caac64d3221adf43dde7fff4f6aa75e309a2bbdf",
+      "owner": "UI_F3"
+    },
+    "apps/web/src/history/product-validation.ts": {
+      "blob_sha1": "5afeb1adcb991df2046bf327ba91932929a56d70",
+      "owner": "UI_F3"
+    },
+    "apps/web/src/history/proxy.ts": {
+      "blob_sha1": "f0d1b1f6a95ebb02ab0d2d3ff7706cacfef33448",
+      "owner": "UI_F3"
+    },
+    "apps/web/src/ui/product-chat.tsx": {
+      "blob_sha1": "481e687899235d12227ac375ce0a0f5585b28abb",
+      "owner": "UI_F3"
+    },
+    "apps/web/src/ui/retrieval-evidence-panel.tsx": {
+      "blob_sha1": "a9b4828cdcfda4a1cd2c63b0a736eeeaa09a5cdd",
+      "owner": "UI_F3"
+    },
+    "apps/web/src/ui/retrieval-evidence-view.ts": {
+      "blob_sha1": "6bd3c72558d1852cbb3b7204c661ddc13c2f2965",
+      "owner": "UI_F3"
+    },
+    "tests/phase3/integration/ui/invited_fixture_browser.py": {
+      "blob_sha1": "7074d10e5519a5b625e106310db2ac477f77d9cb",
+      "owner": "UI_F3"
+    },
+    "tests/phase3/integration/ui/product_chat_browser.py": {
+      "blob_sha1": "2f792832885ef90484ac4f6410db5b701b486470",
+      "owner": "UI_F3"
+    },
+    "tests/phase3/integration/ui/retrieval_evidence_preview_browser.py": {
+      "blob_sha1": "63f417f8784d44238c26245a90aefb96e420b244",
+      "owner": "UI_F3"
+    },
+    "tests/phase3/ui/fixtures/staging_invited_live_result_ready.example.json": {
+      "blob_sha1": "967d9943406159186a408db69820fc601592f32c",
+      "owner": "UI_F3"
+    },
+    "tests/phase3/ui/invited-fixture.test.mjs": {
+      "blob_sha1": "7f30b181cf9ff24d8d8fb732c7b0bec155852d57",
+      "owner": "UI_F3"
+    },
+    "tests/phase3/ui/retrieval-evidence-view.test.mjs": {
+      "blob_sha1": "d9601af7c7fbfd834b5bcab5faae10020e70263f",
+      "owner": "UI_F3"
+    },
+    "infra/postgres/dev_f3_isolated/.gitignore": {
+      "blob_sha1": "aa4ab1659da65faa4b45eb722beba7da91c11a21",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/MIGRATIONS_001_010_PINNED.tsv": {
+      "blob_sha1": "f67f5e985c45ae9b6a6c68417ebc54ba05ec7fdf",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/README.md": {
+      "blob_sha1": "348b3cfd9ba03b2969ea2dff45d8497db2a88a15",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/TEST_RECEIPT_20261122.json": {
+      "blob_sha1": "ab77fb2ee4a87a6cdb296f49db8ed21453d9a546",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/TEST_RECEIPT_TEMPLATE.json": {
+      "blob_sha1": "aa724ea5277b46f929db84b8d70460d493e84f6e",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/compose.lab.yaml": {
+      "blob_sha1": "ed3dde2cc3181cf4dafb7f273a85bf66e3fa0271",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/contracts/FOUNDATION_API_DB_CONTRACT.md": {
+      "blob_sha1": "549a3ff77d5e0371300d3a8dc3e46aaf3dd19208",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/docs/PHASE3_DATABASE_CHECKLIST.md": {
+      "blob_sha1": "8f207264023ef4f0b01b92085dacc2905ebe4a6c",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/docs/POST010_MIGRATIONS.md": {
+      "blob_sha1": "bb8197baa05d1c985fca5709267f83fed8061669",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/00_prepare_source.sh": {
+      "blob_sha1": "a3f4f059b8a1684b35ad6ea5d205aaed32adf598",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/01_create_isolated_lab.sh": {
+      "blob_sha1": "06288bf423e8e25cc22f9e317cbc6d9bd048d2f2",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/02_provision_roles.sh": {
+      "blob_sha1": "c733a71c9b186a4d02b9211ebb2cdff16379e41d",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/03_apply_pinned_001_010.sh": {
+      "blob_sha1": "a30dbebe5b787db61b4f91c035d255f8160029d1",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/04_bridge_and_db55.sh": {
+      "blob_sha1": "58e302c56ce647ee76d812e40bfc29074f517ec3",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/05_test_roles_tls_rls.sh": {
+      "blob_sha1": "35f52b291848bb63ea7f9da4bc1980f97c923061",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/06_backup_restore_independent.sh": {
+      "blob_sha1": "ad925ccd2b59dba1e163d9366acd2ae0ffb58c58",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/07_cleanup_lab_ONLY.sh": {
+      "blob_sha1": "165bddcdae73cb8a612cec6773800235fae7af0d",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/08_optional_011_compat_only.sh": {
+      "blob_sha1": "3b743ed1f2eb1a5516f029f04ba726269fba7495",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/_lib.sh": {
+      "blob_sha1": "f6b60593de6fedc58d1b2671c0b63164b69f5673",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/lab-entrypoint.sh": {
+      "blob_sha1": "e29358bf11baa9eeb9cf3d5c58a6e8205de8807c",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/tests/run_static.sh": {
+      "blob_sha1": "eb26c546daf2c97d26ee93cdb5fa3fa171813dd6",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/dev_f3_isolated/tests/test_static.py": {
+      "blob_sha1": "35854006bd2fb0ff33b21aab1c21873d370d4cb4",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/migrations/009_initial_login_attempt_binding.down.sql": {
+      "blob_sha1": "3bf47d1b4021fec916a4ad93f3b0c40b0a6638ff",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/migrations/009_initial_login_attempt_binding.up.sql": {
+      "blob_sha1": "2a694f871bf45aa5540b458bcaea1b2bd343036d",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/migrations/010_initial_login_claim_material.down.sql": {
+      "blob_sha1": "6327b13dc99d23f93188dea6a89d75387f08eec9",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/migrations/010_initial_login_claim_material.up.sql": {
+      "blob_sha1": "3a8ec114ff29c9d8ef795fb85c32b57aecfa8f27",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/staging/db55_no_dispatch_bridge.sql": {
+      "blob_sha1": "a79e46c87857eb2b77fd26863e1cf85fead31b38",
+      "owner": "DATABASE_F3"
+    },
+    "infra/postgres/staging/db55_verify_staging.sql": {
+      "blob_sha1": "e2115d8cebc649fdf05d3fbee4ef435ad5f39a47",
+      "owner": "DATABASE_F3"
+    },
+    ".github/workflows/ui-f3-gate3-isolated.yml": {
+      "blob_sha1": "68f9a8ea61254a02f3ca4ebdf2cedd29550e3ade",
+      "owner": "UI_F3"
+    },
+    ".github/workflows/f3-db-isolated-fresh-install.yml": {
+      "blob_sha1": "cd512b9392fe2f27694dd968a1e2874e1ca062b0",
+      "owner": "DATABASE_F3"
+    }
+  }
+}

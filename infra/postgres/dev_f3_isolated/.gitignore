@@ -1,0 +1,8 @@
+lab.env
+secrets/
+work/
+source/
+*.password
+*.dump
+*.sha256
+*.log

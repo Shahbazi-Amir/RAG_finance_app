@@ -9,17 +9,22 @@ import {getActive,revokeAlias} from '../auth/server/initial-store.ts';
 import {productRequest} from '../auth/server/product-session.ts';
 import {conformsToProductV1} from './product-validation.ts';
 import {stagingRequested,stagingProfile} from '../auth/server/private-staging.ts';
+const ciFixture=()=>!stagingRequested()&&process.env.CI==='true'&&
+  process.env.GITHUB_ACTIONS==='true'&&
+  process.env.AUTH_CI_PRODUCT_CHAT_MODE==='INVITED_RESULT_STUB_CI_ONLY';
 
 const allowed=(parts:string[],method:string):boolean=>
   (parts.length===1&&parts[0]==='conversations'&&['GET','POST'].includes(method))||
   (parts.length===1&&parts[0]==='messages'&&method==='POST')||
   (parts.length===2&&parts[0]==='message-requests'&&
-    ['status','engine-status'].includes(parts[1])&&method==='GET')||
+    ['status','engine-status','invited-live-result'].includes(parts[1])&&method==='GET')||
   (parts.length===3&&parts[0]==='conversations'&&/^[A-Za-z0-9_-]{1,64}$/.test(parts[1])&&
     parts[2]==='messages'&&method==='GET');
 
 export async function forwardHistoryProxy(request:Request,path:string[]):Promise<Response>{
   if(!allowed(path,request.method))return new Response(null,{status:404});
+  if(path[1]==='invited-live-result'&&!ciFixture())
+    return new Response(null,{status:404,headers:noStore});
   // CI-only authenticated path. No browser-selected owner, upstream, or
   // synthetic fallback. The API independently fences the signed session.
   if(process.env.AUTH_CI_LOGIN_MODE==='true'||stagingRequested()){
@@ -37,13 +42,16 @@ export async function forwardHistoryProxy(request:Request,path:string[]):Promise
     const status=path.length===2&&path[0]==='message-requests'&&path[1]==='status'&&request.method==='GET';
     const engineStatus=path.length===2&&path[0]==='message-requests'&&
       path[1]==='engine-status'&&request.method==='GET';
+    const invited=path.length===2&&path[0]==='message-requests'&&
+      path[1]==='invited-live-result'&&request.method==='GET';
     const send=path.length===1&&path[0]==='messages'&&request.method==='POST';
     // The pinned #53 signed API has no POST create-conversation endpoint.
     // A new draft becomes a server conversation only with its first Send.
-    if(!(listed||thread||status||engineStatus||send))
+    if(!(listed||thread||status||engineStatus||invited||send))
       return Response.json({error:'PRODUCT_ROUTE_NOT_AVAILABLE'},{status:503,headers:noStore});
     if(send&&(stagingRequested()?stagingProfile().send_mode!=='NO_DISPATCH_ONLY':
-      process.env.AUTH_CI_PRODUCT_CHAT_MODE!=='NO_DISPATCH_ONLY'))
+      process.env.AUTH_CI_PRODUCT_CHAT_MODE!=='NO_DISPATCH_ONLY'&&
+      !ciFixture()))
       return Response.json({error:'LIVE_RUNNER_NOT_APPROVED'},
         {status:503,headers:noStore});
     let signedQuery='',rawBody='';
@@ -56,7 +64,7 @@ export async function forwardHistoryProxy(request:Request,path:string[]):Promise
          (cursor!==null&&!/^[A-Za-z0-9_-]{1,512}$/.test(cursor)))
         return new Response(null,{status:422,headers:noStore});
       signedQuery='?limit='+limit+(cursor===null?'':'&cursor='+cursor);
-    }else if(status||engineStatus){
+    }else if(status||engineStatus||invited){
       const keys=['requested_conversation_id','client_message_id','idempotency_key'];
       if([...query.keys()].some(k=>!keys.includes(k)||query.getAll(k).length!==1)||
          keys.some(k=>!query.has(k)))
@@ -86,7 +94,7 @@ export async function forwardHistoryProxy(request:Request,path:string[]):Promise
     }
     try{
       const operation=listed?'history':thread?'messages':
-        engineStatus?'engine-status':status?'status':'send';
+        invited?'invited-live-result':engineStatus?'engine-status':status?'status':'send';
       const actual=await productRequest(
         operation,active,signedQuery,thread?path[1]:'',rawBody);
       if(actual.status===401&&handle)await revokeAlias(handle);

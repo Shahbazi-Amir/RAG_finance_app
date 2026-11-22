@@ -18,6 +18,9 @@ from src.phase3.rag_runtime.staging_no_dispatch import (
     ApprovedNoDispatchCLI, invoke_pinned_no_dispatch,
 )
 from src.phase3.rag_runtime.result_contract_gate import validate_no_dispatch_context_ready
+from src.phase3.rag_runtime.runner_spawn_audit import (
+    LinuxRunnerSpawnAudit, SpawnEvidenceUnknown,
+)
 from src.phase3.rag_runtime.staging_preflight import (
     AttemptBinding, PreflightDenied, RunnerLayout,
 )
@@ -148,13 +151,17 @@ class NoDispatchLedger:
 
 class NoDispatchHandler:
     def __init__(self, layout: RunnerLayout, *, runner_sha256: str, ledger: NoDispatchLedger,
-                 max_seconds: int = 180):
+                 max_seconds: int = 180,
+                 spawn_audit: LinuxRunnerSpawnAudit | None = None):
         if (not isinstance(layout, RunnerLayout)
-                or not isinstance(ledger, NoDispatchLedger)):
+                or not isinstance(ledger, NoDispatchLedger)
+                or (spawn_audit is not None
+                    and not isinstance(spawn_audit, LinuxRunnerSpawnAudit))):
             raise PreflightDenied()
         self.layout = layout
         self.profile = ApprovedNoDispatchCLI(runner_sha256, max_seconds)
         self.ledger = ledger
+        self.spawn_audit = spawn_audit
 
     def reserve(self, owner: str, binding: AttemptBinding) -> bool:
         return self.ledger.reserve(owner, binding)
@@ -168,9 +175,21 @@ class NoDispatchHandler:
         try:
             raw = invoke_pinned_no_dispatch(
                 layout=self.layout, profile=self.profile, binding=binding,
-                question=question, environment=os.environ)
+                question=question, environment=os.environ,
+                spawn_audit=self.spawn_audit)
             parsed = validate_no_dispatch_context_ready(
                 raw, question=question, binding=binding)
+            if self.spawn_audit is not None:
+                try:
+                    witness = self.spawn_audit.receipt(binding)
+                    if (witness["state"] != "EXITED_OK"
+                            or witness["witnessed_exec_count"] != 1
+                            or witness["runner_sha256"]
+                               != self.profile.runner_file_sha256):
+                        raise SpawnEvidenceUnknown()
+                except SpawnEvidenceUnknown:
+                    # An OS child may have run but audit is incomplete.
+                    raise TimeoutError() from None
             if not self.ledger.succeed(owner, binding, parsed):
                 raise PreflightDenied()
         except (TimeoutError, OSError):

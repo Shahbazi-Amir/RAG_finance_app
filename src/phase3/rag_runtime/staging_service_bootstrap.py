@@ -19,6 +19,7 @@ from src.phase3.auth.staging_service_profile import (
 from src.phase3.rag_runtime.no_dispatch_handler import (
     NoDispatchHandler, NoDispatchLedger,
 )
+from src.phase3.rag_runtime.runner_spawn_audit import LinuxRunnerSpawnAudit
 from src.phase3.rag_runtime.staging_no_dispatch import _matches_exact_file_sha
 from src.phase3.rag_runtime.staging_preflight import (
     PreflightDenied, RunnerLayout, inspect_no_dispatch,
@@ -74,9 +75,15 @@ def build_private_no_dispatch_handler(
                 or not os.access(layout.cache, os.R_OK | os.X_OK)):
             raise PreflightDenied()
         ledger = NoDispatchLedger(config.ledger_file)
+        # Separate 0600 private OS witness, same approved 0700 ledger directory.
+        # No staging send is accepted unless this audit is writable at startup.
+        audit_file = config.ledger_file.with_name(
+            config.ledger_file.stem + ".spawn-audit.sqlite3")
+        spawn_audit = LinuxRunnerSpawnAudit(audit_file)
     except (OSError, ValueError):
         raise PreflightDenied() from None
     return NoDispatchHandler(
         layout, runner_sha256=profile.runner_sha256,
         ledger=ledger, max_seconds=config.max_seconds,
+        spawn_audit=spawn_audit,
     )
