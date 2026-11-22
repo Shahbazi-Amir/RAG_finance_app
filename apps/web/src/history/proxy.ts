@@ -4,7 +4,7 @@
  * The core limits application-collected bytes, not upstream Node/proxy buffers.
  */
 import { boundedJsonBody } from './bounded-body.ts';
-import {SESSION,cookie,secureBrowser,noStore} from '../auth/server/initial-browser.ts';
+import {SESSION,cookie,secureBrowser,noStore,publicOrigin} from '../auth/server/initial-browser.ts';
 import {getActive,revokeAlias} from '../auth/server/initial-store.ts';
 import {productRequest} from '../auth/server/product-session.ts';
 import {conformsToProductV1} from './product-validation.ts';
