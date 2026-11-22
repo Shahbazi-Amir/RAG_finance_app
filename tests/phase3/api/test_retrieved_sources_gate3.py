@@ -166,6 +166,48 @@ class C018RetrievedSourcesOfflineTests(unittest.TestCase):
             ledger.read_sources("owner_A", self.binding.engine_request_id,
                                 self.binding.trace_id)
 
+    def test_ledger_forged_verified_link_with_recomputed_digest_denied(self):
+        """Even someone tampering with SQLite cannot grant a verified locator."""
+        ledger = NoDispatchLedger(self.root / "source-ledger.sqlite")
+        ledger.reserve("owner_A", self.binding)
+        ledger.start("owner_A", self.binding)
+        ledger.succeed("owner_A", self.binding,
+                       {"top10_count": 2}, self._convert())
+        with sqlite3.connect(ledger.filepath) as conn:
+            raw, = conn.execute(
+                "SELECT receipt_json FROM retrieval_receipts").fetchone()
+            tampered = json.loads(raw)
+            tampered["rows"][0]["verified_locators"] = [
+                {"kind": "url", "url": "https://fixture.invalid"}]
+            rewritten = json.dumps(tampered, sort_keys=True,
+                                   separators=(",", ":"), ensure_ascii=False)
+            digest = hashlib.sha256(rewritten.encode()).hexdigest()
+            conn.execute("""UPDATE retrieval_receipts
+                SET receipt_json=?, receipt_sha256=?""", (rewritten, digest))
+        with self.assertRaises(PreflightDenied):
+            ledger.read_sources("owner_A", self.binding.engine_request_id,
+                                self.binding.trace_id)
+
+    def test_ledger_forged_extra_source_claim_with_recomputed_digest_denied(self):
+        ledger = NoDispatchLedger(self.root / "source-ledger.sqlite")
+        ledger.reserve("owner_A", self.binding)
+        ledger.start("owner_A", self.binding)
+        ledger.succeed("owner_A", self.binding,
+                       {"top10_count": 2}, self._convert())
+        with sqlite3.connect(ledger.filepath) as conn:
+            raw, = conn.execute(
+                "SELECT receipt_json FROM retrieval_receipts").fetchone()
+            tampered = json.loads(raw)
+            tampered["rows"][0]["source_verified"] = True
+            rewritten = json.dumps(tampered, sort_keys=True,
+                                   separators=(",", ":"), ensure_ascii=False)
+            conn.execute("""UPDATE retrieval_receipts
+                SET receipt_json=?, receipt_sha256=?""",
+                (rewritten, hashlib.sha256(rewritten.encode()).hexdigest()))
+        with self.assertRaises(PreflightDenied):
+            ledger.read_sources("owner_A", self.binding.engine_request_id,
+                                self.binding.trace_id)
+
 
 if __name__ == "__main__":
     unittest.main()
