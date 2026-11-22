@@ -13,12 +13,17 @@ import json
 from pathlib import Path
 from typing import Mapping
 
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import ValidationError, SchemaError
+
 CHUNKS_RELATIVE = Path("data/phase2/chunks/nb11_benchmark_v1/baseline_phase1_char_safe_v1.jsonl")
 CHUNKS_SHA256 = "3891c4ecad9332ba753cd605bbccd99da9d063f64934a30ee39e495349cffb50"
 ENGINE_SHA256 = "93233bfdf25e40684fd9120b82ec19c217695fdb632ed4a1f7d2bb2a3abcb17d"
 CONTRACT = "api.retrieved_sources.v1"
 MAX_CHUNKS_BYTES = 100_000_000
 MAX_ROWS = 10
+CONTRACT_SCHEMA_PATH = (Path(__file__).resolve().parents[3] /
+                        "packages/contracts/api.retrieved_sources.v1.schema.json")
 
 
 class EvidenceDenied(Exception):
@@ -43,6 +48,30 @@ def _decode_json(raw: bytes) -> dict:
     if not isinstance(value, dict):
         raise EvidenceDenied()
     return value
+
+
+def validate_public_receipt(receipt: Mapping) -> dict:
+    """Explicit closed server-side contract before persist OR signed GET.
+
+    Stops a modified ledger with a recomputed digest from injecting a URL,
+    verified attribution or any field not granted by this provisional DTO.
+    """
+    if not isinstance(receipt, dict):
+        raise EvidenceDenied()
+    try:
+        schema = _decode_json(CONTRACT_SCHEMA_PATH.read_bytes())
+        Draft202012Validator.check_schema(schema)
+        Draft202012Validator(schema).validate(receipt)
+    except (OSError, UnicodeError, ValueError, TypeError, SchemaError, ValidationError):
+        raise EvidenceDenied() from None
+    rows = receipt.get("rows")
+    if not isinstance(rows, list) or any(
+        row.get("position") != i for i, row in enumerate(rows, 1)):
+        raise EvidenceDenied()
+    if (receipt.get("attempt_id") is None) != (
+            receipt.get("attempt_trace_id") is None):
+        raise EvidenceDenied()
+    return receipt
 
 
 def pinned_chunk_ids(repo_root: Path, expected_sha256: str = CHUNKS_SHA256) -> frozenset[str]:
@@ -115,7 +144,7 @@ def from_c018_stdout(raw: bytes, *, binding, question: str,
                      "source_validation": "UNVERIFIED",
                      "locator_validation": "PENDING_STRUCTURE",
                      "verified_locators": []})
-    return {
+    return validate_public_receipt({
         "kind": "retrieved_sources",
         "contract_version": CONTRACT,
         "attempt_id": binding.engine_request_id,
@@ -125,17 +154,17 @@ def from_c018_stdout(raw: bytes, *, binding, question: str,
         "chunks_sha256": chunks_sha256,
         "generation_calls": summary["generation_calls"],
         "rows": rows,
-    }
+    })
 
 
 def unavailable_receipt(binding, reason: str = "EVIDENCE_INVALID") -> dict:
     """Sanitized missing evidence never creates a pseudo-citation."""
     if reason not in {"EVIDENCE_INVALID", "EVIDENCE_NOT_AVAILABLE"}:
         raise EvidenceDenied()
-    return {"kind": "retrieved_sources", "contract_version": CONTRACT,
+    return validate_public_receipt({"kind": "retrieved_sources", "contract_version": CONTRACT,
             "attempt_id": binding.engine_request_id,
             "attempt_trace_id": binding.trace_id,
             "retrieval_state": reason,
             "engine_sha256": ENGINE_SHA256,
             "chunks_sha256": CHUNKS_SHA256,
-            "generation_calls": 0, "rows": []}
+            "generation_calls": 0, "rows": []})
