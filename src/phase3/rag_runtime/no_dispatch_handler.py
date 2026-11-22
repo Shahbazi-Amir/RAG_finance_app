@@ -23,7 +23,7 @@ from src.phase3.rag_runtime.staging_no_dispatch import (
 from src.phase3.rag_runtime.result_contract_gate import validate_no_dispatch_context_ready
 from src.phase3.rag_runtime.retrieved_sources import (
     EvidenceDenied, CONTRACT as SOURCES_CONTRACT,
-    from_c018_stdout, unavailable_receipt,
+    from_c018_stdout, unavailable_receipt, validate_public_receipt,
 )
 from src.phase3.rag_runtime.runner_spawn_audit import (
     LinuxRunnerSpawnAudit, SpawnEvidenceUnknown,
@@ -146,9 +146,10 @@ class NoDispatchLedger:
                 or receipt.get("attempt_trace_id") != binding.trace_id):
             raise PreflightDenied()
         try:
+            validate_public_receipt(receipt)
             encoded = json.dumps(receipt, sort_keys=True, separators=(",", ":"),
                                  ensure_ascii=False, allow_nan=False)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, EvidenceDenied):
             raise PreflightDenied() from None
         if len(encoded.encode("utf-8")) > 65536:
             raise PreflightDenied()
@@ -221,7 +222,10 @@ class NoDispatchLedger:
                 or receipt.get("attempt_id") != attempt_id
                 or receipt.get("attempt_trace_id") != trace_id):
             raise PreflightDenied()
-        return receipt
+        try:
+            return validate_public_receipt(receipt)
+        except EvidenceDenied:
+            raise PreflightDenied() from None
 
 
 class NoDispatchHandler:
