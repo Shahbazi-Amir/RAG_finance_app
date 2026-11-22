@@ -29,23 +29,12 @@ jobs:
       - name: Compile exact API source
         run: |
           python -m compileall -q src/phase3/rag_runtime apps/api tests/phase3/api
-      - name: HTTP route 401/404/503 and GET-only refresh (fixture identity)
+      - name: Full API unit suite: Login/Session, startup, T1/T2, evidence/GET, error and replay
         run: |
-          python -m unittest discover -s tests/phase3/api -p 'test_retrieved_sources_http_contract.py' -v
-      - name: API Login/Session + Service proof + preflight regressions
+          python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
+      - name: Product contracts and History semantics
         run: |
-          python -m unittest discover -s tests/phase3/api -p 'test_service_proof.py' -v
-          python -m unittest discover -s tests/phase3/api -p 'test_staging_service_profile.py' -v
-          python -m unittest discover -s tests/phase3/api -p 'test_staging_private_asgi.py' -v
-      - name: C018 fixture identities, durable ledger, no replay
-        run: |
-          python -m unittest discover -s tests/phase3/api -p 'test_retrieved_sources_gate3.py' -v
-      - name: Baseline no-dispatch regression (local synthetic child only)
-        run: |
-          python -m unittest discover -s tests/phase3/api -p 'test_staging_no_dispatch.py' -v
-      - name: Linux pidfd/proc spawn audit regression (synthetic child only)
-        run: |
-          python -m unittest discover -s tests/phase3/api -p 'test_staging_c018_spawn_audit.py' -v
+          python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v
 
   web-proxy-offline:
     runs-on: ubuntu-24.04
