@@ -2,11 +2,11 @@
 
 ## Scope and version
 
-- Development package: `f3.db.lab.fresh-install.v1` (candidate; static validated only).
+- Development package: `f3.db.lab.fresh-install.v1` + real shared API/Bootstrap DB authority preflight `foundation.f3_db_candidate_shared.v1`, tested GitHub Actions Run `45082326382`, source SHA `b6b79369006eca3a1e4c8e75a9ba4ab14d0fab74`. The existing Mac demo was not tested or modified.
 - Accepted Mac demo `rag_finance_f3_demo` / `rag_finance_f3_demo_pg17_20261121` is never modified.
 - Tested historical source manifest: `MIGRATIONS_001_010_PINNED.tsv` SHA256 `9ff95a59570f5f6c6188479d9c37cf684ef836c599e89d9faa2bb0e17a4946f7`.
 - Lab runtime pinned PG image: `public.ecr.aws/docker/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a` `linux/amd64`, PostgreSQL 17.11 (verify on host).
-- Exact application integration source examined: `Shahbazi-Amir/RAG_finance_app@5fe21e922b5e6570e319cf528fc481a96a4c8e9e` (`apps/api/private_staging_bootstrap_asgi.py`, `apps/api/private_staging_asgi.py`, storage/repository modules); do not confuse this candidate SHA with deployed SHA.
+- Exact application integration source **actually loaded in two isolated client containers**: commit `c5e271d0fab8ab34c92a2da933ba6b194d1f1e9a`; pinned Product file blob `6072e7586d922737117dee27d61798df0cb9a6fc`, Bootstrap blob `3df807f53c865ebb29f8e8f26d0a8819149b46f9`, staging DB-profile blob `5fc1f3f64708ebb5f6756d5cf4d37d3acf9167b3`. This is actual DB verifier source but **not** launched HTTP service; do not treat it as deployed SHA.
 
 ## Product API credentials (distinct from Bootstrap)
 
@@ -31,17 +31,17 @@ All nine roles: `NOSUPERUSER`, `NOBYPASSRLS`, `NOINHERIT`, `NOCREATEDB`, `NOCREA
 
 ## TLS / DSN constraints
 
-- Lab hostname `demo-db` on Docker **internal-only** network. TLS lab server cert `subjectAltName=DNS:demo-db` signed by ephemeral lab CA.
+- Lab primary `demo-db` and independent restore `restore-db` on Docker **internal-only** network. TLS lab server cert `subjectAltName=DNS:demo-db,DNS:restore-db` signed by ephemeral lab CA. Both names were exercised by `verify-full` for all 9 roles from actual imported API/Bootstrap code.
 - In real Product/Bootstrap environment, configure a private TLS server certificate with SAN covering the actual host, trusted CA and DSNs with `sslmode=verify-full` and an absolute `sslrootcert`; `sslmode=require`, `prefer`, `allow`, or `disable` do **not** satisfy this handoff.
 - Each DSN must name the exact DB, exact PG role, and TLS endpoint. No password in source, logs or checked-in `.env`.
-- Lab DSN shape: `host=demo-db dbname=rag_finance_f3_lab user=<one-of-nine> sslmode=verify-full sslrootcert=/run/lab_secrets/ca.crt passfile=/run/lab_secrets/pgpass`. This path is for the isolated PostgreSQL container only; production API must receive its own protected credentials and CA mount.
+- Lab DB-client DSN shape: `host=demo-db dbname=rag_finance_f3_lab user=<one-of-nine> sslmode=verify-full sslrootcert=/run/role_secrets/ca.crt passfile=/run/role_secrets/pgpass`. Separate *role-only* files are supplied for 2 Product and 7 Bootstrap users in separate disposable client containers. After independent restore they use `host=restore-db dbname=rag_finance_f3_lab_restore` with matching certificate SAN; production must supply its own protected credentials and CA mounts.
 - `POSTGRES_PASSWORD_FILE` is only for fresh lab DB superuser initialization; never expose its credential to Product or Bootstrap.
 
 ## Bridge / RLS / auditor
 
 - Exact Bridge file `infra/postgres/staging/db55_no_dispatch_bridge.sql` from `bfd6b1d9...`, Git blob `a79e46c87857eb2b77fd26863e1cf85fead31b38`; preexisting grant matrix must be checked before its one-time use.
 - Exact verifier `db55_verify_staging.sql` same source, blob `e2115d8cebc649fdf05d3fbee4ef435ad5f39a47`; invocation `-v db55_phase=private_no_dispatch`, `ON_ERROR_STOP=1`, read-only repeatable-read transaction.
-- Independent `db55_lab_auditor` receives schema USAGE only; it must have zero direct private table SELECT and zero function EXECUTE. Restore clone verifies again.
+- Independent `db55_lab_auditor` receives schema USAGE only; it must have zero direct private table SELECT and zero function EXECUTE. Restore clone verifies again. In CI `45082326382`, a complete ten-row migrated Ledger matches exactly after restore; the restored DB is a *different* cluster ID; the 9 role flag matrix and 72 SELECT negatives PASS on the restore. Both app verifiers reconnect to the restore with TLS.
 - RLS/denials must be asserted against actual tables, not substituted with a DB55 pass marker alone.
 - No `011` or external dispatch in this package.
 
@@ -51,6 +51,6 @@ All nine roles: `NOSUPERUSER`, `NOBYPASSRLS`, `NOINHERIT`, `NOCREATEDB`, `NOCREA
 
 ## Open integration requirements
 
-- API/Bootstrap Docker processes need network access to the private PostgreSQL endpoint with correct SAN and client trust; this lab intentionally publishes no host ports. Foundation must choose an approved internal network topology, not weaken TLS or publish PG publicly.
+- **DONE (DB authority only):** Actual pinned Product/Bootstrap verifier functions independently connect with all nine restricted roles over `verify-full` from two Docker client processes on the DB's internal network, and repeat on the restored cluster; `CI=45082326382`, Artifact `f3-db-foundation-candidate-consumption`. **OPEN (product HTTP):** Original ASGI servers bind `127.0.0.1`; Foundation must provide approved same-network-namespace BFF API topology and real BFF/IdP/C018 before full HTTP tests. Do not weaken TLS or publish PG publicly.
 - Exact release SHA and confidential credential provisioning are owned by Foundation/Ops. Mac demo remains a protected baseline.
 - Dedicated external dispatch 011 and its reporter/reconciler roles require a *different* acceptance contract. No live Gateway and no 011 on this path.
