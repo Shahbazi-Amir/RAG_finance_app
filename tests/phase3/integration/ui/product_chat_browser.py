@@ -103,7 +103,7 @@ def main():
             status["message_id"] = user_message
             status["attempt_id"] = "a" * 32
             status["attempt_request_id"] = "req_attempt_uichat_013"
-            status["attempt_trace_id"] = "trace_attempt_uichat_013"
+            status["attempt_trace_id"] = "b" * 32
             status["reserved_answer_id"] = "ans_uichat_013"
             status["status"] = "attempt_pending"
             route.fulfill(status=200, json=status)
@@ -120,7 +120,7 @@ def main():
                 "request_id": "req_engine_status",
                 "trace_id": "trace_engine_status",
                 "attempt_id": "a" * 32,
-                "attempt_trace_id": "trace_attempt_uichat_013",
+                "attempt_trace_id": "b" * 32,
                 "product_status": "attempt_pending",
                 "preflight_state": "CONTEXT_READY",
                 "question_sha256_matches": True,
@@ -143,7 +143,7 @@ def main():
                 "kind": "retrieved_sources",
                 "contract_version": "api.retrieved_sources.v1",
                 "attempt_id": "a" * 32,
-                "attempt_trace_id": "trace_attempt_uichat_013",
+                "attempt_trace_id": "b" * 32,
                 "retrieval_state": "PARTIAL_UNVERIFIED",
                 "engine_sha256": "93233bfdf25e40684fd9120b82ec19c217695fdb632ed4a1f7d2bb2a3abcb17d",
                 "chunks_sha256": "3891c4ecad9332ba753cd605bbccd99da9d063f64934a30ee39e495349cffb50",
