@@ -1,9 +1,9 @@
 'use client';
 import {useCallback,useEffect,useRef,useState,type FormEvent} from 'react';
 import Link from 'next/link';
-import {conversations,messages,newSend,sendMessage,recoverStatus,recoverEngineStatus,HistoryFailure,
+import {conversations,messages,newSend,sendMessage,recoverStatus,recoverEngineStatus,recoverRetrievedSources,HistoryFailure,
   failureLabel,mergeUnique,type ConversationView,type MessageView,
-  type AnswerView,type HistoryStatus,type EngineStatus} from '../history/client';
+  type AnswerView,type HistoryStatus,type EngineStatus,type RetrievedSources} from '../history/client';
 import type {Answer,Citation} from '../mock/transport';
 import {verifiedSourceUrl} from './source-locator';
 import {isVerifiedLiveAnswer,productOutcomeLabel} from './answer-visibility';
@@ -14,7 +14,8 @@ type ListData={items:ConversationView[];next:string|null;more:boolean};
 type ThreadData={items:MessageView[];answers:AnswerView[];next:string|null;more:boolean};
 type Attempt= {record:AttemptCheckpoint;viewId:string;question:string|null;phase:HistoryStatus|'sending'|'transport_unknown'|'invalid_answer'|'status_error';
   attemptId:string|null;messageId:string|null;answer:Answer|null;confirmed:boolean;
-  engine:EngineStatus|null;engineUnavailable:boolean};
+  engine:EngineStatus|null;engineUnavailable:boolean;
+  sources:RetrievedSources|null;sourcesUnavailable:boolean};
 const isTerminal=(phase:Attempt['phase'])=>
   ['answer_committed','invalid_answer','failed','cancelled'].includes(phase);
 function phaseLabel(attempt:Attempt):string {
@@ -169,6 +170,19 @@ export default function ProductChat(){
           engineUnavailable=true;
         }
       }
+      let sources:RetrievedSources|null=null;
+      let sourcesUnavailable=false;
+      if(status.status!=='not_found'&&status.attemptId!==null){
+        try{
+          sources=await recoverRetrievedSources(statusCorrelators(record));
+          if(sources&&(sources.attemptId!==status.attemptId||
+             sources.attemptTraceId!==status.attemptTraceId))
+            throw new HistoryFailure(0,'invalid');
+        }catch(e){
+          if(invalidate(e)||lost.current)return;
+          sourcesUnavailable=true;
+        }
+      }
       if(lost.current)return;
       setAttempts(all=>{
         const previous=all[record.client_message_id];
@@ -177,6 +191,7 @@ export default function ProductChat(){
           ...previous,phase:resultPhase,attemptId:status.attemptId??previous.attemptId,
           messageId:status.messageId,answer:status.answer,
           engine:technical??previous.engine,engineUnavailable,
+          sources:sources??previous.sources,sourcesUnavailable,
           record:status.id?{...previous.record,resolved_conversation_id:status.id}:previous.record,
           viewId:status.id??previous.viewId,
           confirmed:status.status!=='not_found'
@@ -212,7 +227,8 @@ export default function ProductChat(){
               record.requested_conversation_id??'draft:new',
             question:null,phase:'transport_unknown',
             attemptId:null,messageId:null,answer:null,confirmed:false,
-            engine:null,engineUnavailable:false};
+            engine:null,engineUnavailable:false,
+            sources:null,sourcesUnavailable:false};
         return next;
       });
       void loadList();
@@ -270,7 +286,8 @@ export default function ProductChat(){
     sending.current=true;setBusy(true);setError('');
     setDrafts(all=>({...all,[selected]:''}));
     const attempt:Attempt={record,viewId:selected,question,phase:'sending',attemptId:null,
-      messageId:null,answer:null,confirmed:false,engine:null,engineUnavailable:false};
+      messageId:null,answer:null,confirmed:false,engine:null,engineUnavailable:false,
+      sources:null,sourcesUnavailable:false};
     attemptsRef.current={...attemptsRef.current,[record.client_message_id]:attempt};
     setAttempts(all=>({...all,[record.client_message_id]:attempt}));
     try{
@@ -396,6 +413,22 @@ export default function ProductChat(){
             </p>}
             <p>این گزارش فنی پاسخ مدل یا استناد قابل‌نمایش نیست.</p>
           </section>}
+          {a.sources?.retrievalState==='PARTIAL_UNVERIFIED'&&a.sources.rows.length>0&&
+            <section aria-label="قطعه‌های بازیابی‌شدهٔ همین Attempt"
+              data-testid={'retrieved-sources-'+a.record.client_message_id}
+              className="product-evidence">
+              <h2>قطعه‌های بازیابی‌شده (اعتبار استناد تأیید نشده)</h2>
+              <ol>{a.sources.rows.map(row=><li key={row.position}>
+                <span>رتبهٔ بازیابی: {row.position} </span>
+                <span>شناسهٔ قطعه: <code dir="ltr">{row.chunkId}</code></span>
+                <span> شناسهٔ مشاهده‌شدهٔ منبع: <code dir="ltr">{row.sourceId??'ثبت نشده'}</code></span>
+              </li>)}</ol>
+              <p className="history-note">هیچ لینک یا انتساب تأییدشده‌ای موجود نیست؛
+                این فهرست پاسخ تولیدشده یا استناد معتبر نیست.</p>
+            </section>}
+          {a.sourcesUnavailable&&<p role="status" className="history-note">
+            رسید مستقل منابع قابل بازیابی نیست؛ وضعیت فنی بدون تغییر باقی می‌ماند.
+          </p>}
           {a.engineUnavailable&&<p role="status" className="history-note">
             وضعیت فنی جداگانه در دسترس نیست؛ فقط وضعیت اصلی پیگیری می‌شود.
           </p>}
