@@ -147,6 +147,10 @@ def main():
                 timeout=15000)
             expect(page.get_by_text(
                 "بازیابی شواهد کامل شد؛ تولید پاسخ انجام نشده است.")).to_be_visible()
+            expect(page.get_by_test_id("retrieval-evidence-contract-pending")).to_contain_text(
+                "شناسه‌ها و مکان منابع هنوز از قرارداد جداگانهٔ تأییدشدهٔ API دریافت نشده‌اند.")
+            assert page.get_by_test_id("retrieval-evidence-list").count() == 0
+            assert page.locator("a[href*='fixture_source_']").count() == 0
             assert state["posts"] == 1
             # Reload MUST never invoke POST: same original client IDs/status GET.
             page.reload(wait_until="domcontentloaded")
@@ -155,6 +159,10 @@ def main():
             expect(page.get_by_text("در حال پردازش؛ وضعیت از API دریافت شده است.")).to_be_visible()
             expect(page.get_by_text(
                 "بازیابی شواهد کامل شد؛ تولید پاسخ انجام نشده است.")).to_be_visible()
+            expect(page.get_by_test_id("retrieval-evidence-contract-pending")).to_contain_text(
+                "شناسه‌ها و مکان منابع هنوز از قرارداد جداگانهٔ تأییدشدهٔ API دریافت نشده‌اند.")
+            assert page.get_by_test_id("retrieval-evidence-list").count() == 0
+            assert page.locator("a[href*='fixture_source_']").count() == 0
             assert state["posts"] == 1 and state["status_reads"] >= 2
             assert state["engine_reads"] >= 2
             expect(page.locator("nav.history-list")).to_contain_text("گفت‌وگوی تست فارسی")
