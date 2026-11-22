@@ -40,7 +40,7 @@ flags="$(dbpsql -Atc "SELECT
  AND NOT has_function_privilege('history_dispatch_reporter','history_l1.claim_external_dispatch(text,text,text)','EXECUTE')
  AND NOT has_function_privilege('history_dispatch_reconciler','history_l1.claim_external_dispatch(text,text,text)','EXECUTE');")"
 [[ "$flags" == t ]] || { echo STOP_011_RLS_FUNCTION_ACL_MATRIX >&2; exit 70; }
-claim="$(dbpsql -c 'SET ROLE history_app' -Atc "SELECT claim_won FROM history_l1.claim_external_dispatch('synthetic_missing_owner','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','synthetic_trace')")"
+claim="$(dbpsql -q -c 'SET ROLE history_app' -Atc "SELECT claim_won FROM history_l1.claim_external_dispatch('synthetic_missing_owner','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','synthetic_trace')" | tail -n 1)"
 [[ "$claim" == f ]] || { echo STOP_011_UNAUTHORIZED_CLAIM >&2; exit 70; }
 [[ "$(dbpsql -Atc 'SELECT count(*) FROM history_l1.external_dispatch_claims')" == 0 ]] || { echo STOP_011_UNEXPECTED_CLAIM >&2; exit 70; }
 echo 'POST010_011_PINNED_GIT_BLOBS=2/2_PASS'
