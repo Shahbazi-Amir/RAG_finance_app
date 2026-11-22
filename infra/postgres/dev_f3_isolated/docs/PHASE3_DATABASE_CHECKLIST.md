@@ -30,13 +30,13 @@ This document maps the **provided** `Gate3_Docker_Execution_Checklist_Foundation
 |---|---|---|
 | DB-F3-01 source inventory | DONE | Up-to-date source tree inspected at `RAG_finance_app@5fe21e922...`; DB55 source verified at `bfd6b1d9...`; #44/#47/#56 draft SQL refs |
 | DB-F3-02 original immutable 001–010 pins | DONE | Corrected 20-row TSV SHA256 `9ff95a...`; 007 DOWN exact 40-hex git blob; GitHub independent read earlier 20/20 |
-| DB-F3-03 001–010 offline materializer | DONE | `scripts/00_prepare_source.sh`; checks each `git hash-object` before copying 20 SQL + 2 DB55; STATIC only |
-| DB-F3-04 isolated test Compose | DONE | `compose.lab.yaml`; fixed PG17.11 ECR digest, `linux/amd64`, two new unique volumes, no host ports; STATIC only |
-| DB-F3-05 TLS setup + 20 SQL roles | DONE | `01_create_isolated_lab.sh` / `02_provision_roles.sh`; ephemeral CA/SAN, deny nonTLS, strict role flags; STATIC only |
-| DB-F3-06 durably journalled 001–010 | DONE | `03_apply_pinned_001_010.sh`: pre-commit STARTED row, exact hashes and transaction ID, partial state STOP; STATIC only |
-| DB-F3-07 scoped Bridge and DB55 | DONE | `04_bridge_and_db55.sh`: exact source pins, separate limited auditor, read-only verification; STATIC only |
-| DB-F3-08 role/RLS/TLS negative test program | DONE | `05_test_roles_tls_rls.sh`: 9/9 TLS, nonTLS reject, 72/72 Auth SELECT denials, 9/9 API function signatures, RLS; STATIC only |
-| DB-F3-09 independent backup/restore program | DONE | `06_backup_restore_independent.sh`: pg_dump -Fc / SHA256 / second cluster+volume / restored DB55; STATIC only |
+| DB-F3-03 001–010 offline materializer | DONE | `scripts/00_prepare_source.sh`; checks each `git hash-object` before copying 20 SQL + 2 DB55; CI runtime PASS in isolated lab, not Mac |
+| DB-F3-04 isolated test Compose | DONE | `compose.lab.yaml`; fixed PG17.11 ECR digest, `linux/amd64`, two new unique volumes, no host ports; CI runtime PASS in isolated lab, not Mac |
+| DB-F3-05 TLS setup + 20 SQL roles | DONE | `01_create_isolated_lab.sh` / `02_provision_roles.sh`; ephemeral CA/SAN, deny nonTLS, strict role flags; CI runtime PASS in isolated lab, not Mac |
+| DB-F3-06 durably journalled 001–010 | DONE | `03_apply_pinned_001_010.sh`: pre-commit STARTED row, exact hashes and transaction ID, partial state STOP; CI runtime PASS in isolated lab, not Mac |
+| DB-F3-07 scoped Bridge and DB55 | DONE | `04_bridge_and_db55.sh`: exact source pins, separate limited auditor, read-only verification; CI runtime PASS in isolated lab, not Mac |
+| DB-F3-08 role/RLS/TLS negative test program | DONE | `05_test_roles_tls_rls.sh`: 9/9 TLS, nonTLS reject, 72/72 Auth SELECT denials, 9/9 API function signatures, RLS; CI runtime PASS in isolated lab, not Mac |
+| DB-F3-09 independent backup/restore program | DONE | `06_backup_restore_independent.sh`: pg_dump -Fc / SHA256 / second cluster+volume / restored DB55; CI runtime PASS in isolated lab, not Mac |
 | DB-F3-10 **real test lab fresh install** | DONE | Separate real Docker PG17.11 CI on SHA `57b5d007c86deb7003610605d305bdc942a31312`, Run `45052366022`: 10/10 pinned migrations, DB55, 9/9 TLS, 72/72 SELECT denies, backup/restore PASS. Not Mac. |
 | DB-F3-11 source branch / CI validation | DONE | Branch `agent/database-f3-fresh-install-isolated-20261122`, CI `45052366022` both jobs PASS on source SHA `57b5d007c86deb7003610605d305bdc942a31312`; Mac Docker runtime remains Foundation/Ops scope |
 | DB-F3-12 post-010 migrations | DONE | Optional 011 source SHA `b0ba6dbf6100109cb58f8cb49da808839d68c5f0` tested separately after all 001–010 in Run `45052366022` (`DB55/live_011`, ACL/RLS, denied bogus Claim). Also standalone 011 13/13 CI `43710425019` PASS. Product dispatch deployment remains BLOCKED, 012+ not specified. |
