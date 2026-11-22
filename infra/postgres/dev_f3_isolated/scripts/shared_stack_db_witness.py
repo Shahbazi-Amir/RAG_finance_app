@@ -82,8 +82,9 @@ def run():
         raise RuntimeError("BAD_MODE")
     host = os.environ.get("PG_EXPECTED_HOST")
     db = os.environ.get("PG_EXPECTED_DB")
-    assert_equal(host, "demo-db", "UNPINNED_DB_HOST")
-    assert_equal(db, "rag_finance_f3_lab", "UNPINNED_DB_NAME")
+    if (host, db) not in (("demo-db", "rag_finance_f3_lab"),
+                          ("restore-db", "rag_finance_f3_lab_restore")):
+        raise RuntimeError("UNPINNED_LAB_ENDPOINT")
     if not Path("/run/role_secrets/ca.crt").is_file():
         raise RuntimeError("CA_NOT_MOUNTED")
     expected = API_ROLES if mode == "product" else BOOT_EXPECTED
