@@ -403,6 +403,9 @@ def session_retrieved_sources(request: Request):
                 "generation_calls": None,
                 "rows": [],
             }
+        if (receipt.get("chunks_sha256") != CHUNKS_SHA256
+                or receipt.get("engine_sha256") != ENGINE_SHA256):
+            raise PreflightDenied()
         return JSONResponse(status_code=200, content=receipt,
                             headers={"Cache-Control": "no-store"})
     return _signed_read(
