@@ -29,7 +29,7 @@ jobs:
       - name: Compile exact API source
         run: |
           python -m compileall -q src/phase3/rag_runtime apps/api tests/phase3/api
-      - name: Full API unit suite: Login/Session, startup, T1/T2, evidence/GET, error and replay
+      - name: "Full API unit suite: Login/Session, startup, T1/T2, evidence/GET, error and replay"
         run: |
           python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
       - name: Product contracts and History semantics
