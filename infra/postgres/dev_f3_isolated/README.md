@@ -1,6 +1,6 @@
 # RAG_finance — F3 DATABASE isolated fresh install development bundle (2026-11-22)
 
-**Status:** code prepared + STATIC checks only. **NOT** tested against PostgreSQL in this ChatGPT runtime. `docker` / `postgres` / `psql` executables are absent here; the existing Mac demo is inaccessible. Never label the executable flows `LIVE_PASS` until real isolated test receipts are returned.
+**Status:** real isolated PostgreSQL 17.11 Docker CI **PASSED** on source commit `57b5d007c86deb7003610605d305bdc942a31312`, [run 45052366022](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45052366022) (two jobs: base 001–010 and optional post-010 011 on a second fresh lab). The Mac demo is inaccessible from this chat and was NOT touched. This does NOT attest Product API startup, C018 or Gateway.
 
 **Purpose:** one fresh **isolated** PostgreSQL 17.11 lab with 001..010, 20 pinned Git blobs, 2 Product + 7 Bootstrap service-role TLS logins, DB55 `private_no_dispatch`, a durable per-migration `STARTED/APPLIED` ledger, and a backup restored into a **second independent PostgreSQL cluster with a different volume**. No existing demo or Arvan resource is modified. `011` is EXCLUDED from this path.
 
@@ -51,7 +51,7 @@ The first command requires **all** immutable commits `d93dcf...`, `656604...`, `
 
 **Expected milestones:** `SOURCE_BUNDLE=22_SQL_FILES_PIN_VERIFIED`, `F3_LAB_CREATED_ISOLATED=PASS`, `F3_LAB_PROVISION_ROLES_SERVICE=lab-db ROLE_COUNT=20 PASS`, `F3_LAB_MIGRATIONS_001_010_APPLIED=PASS`, `DB55_PRIVATE_NO_DISPATCH_LAB=PASS`, `TLS_VERIFY_FULL_NINE_ROLES=9/9_PASS`, `NEGATIVE_TABLE_SELECT=72/72_PASS`, `BACKUP_SHA256_VERIFIED=PASS`, `RESTORE_INDEPENDENT_CLUSTER=PASS`, `RESTORED_DB55=PASS`.
 
-The scripts have **NOT** emitted these markers here; they are test criteria, not test evidence.
+Markers were actually observed in the isolated CI run `45052366022`, not on the Mac host. See `docs/PHASE3_DATABASE_CHECKLIST.md` and `TEST_RECEIPT_20261122.json`.
 
 ### Evidence / integrity / reproducibility
 
@@ -79,7 +79,7 @@ ALLOW_DELETE_F3_LAB=YES bash scripts/07_cleanup_lab_ONLY.sh
 2. If the pinned PG image is unreachable, Docker/Compose unavailable, source pin absent, volume exists, demo-like path detected, version mismatch, TLS/PG privileges fail, STOP. Do not replace the image, SQL or checks with a guessed version.
 3. Docker Desktop VM free space for two full lab volumes + archive must be measured on Mac; `Docker.raw` logical size is not free VM space.
 4. Do not use an approved demo DB/Volume for testing or rely on its old terminal logs as proof of the new lab. No Product API, BFF, Gateway, C018 or Arvan operations occur in this bundle.
-5. **Separate post-010 migration:** pinned `011_external_dispatch_claim` belongs only to independently approved live external Gateway dispatch and is expressly not executed/tested here. Its requirements are captured in `docs/POST010_MIGRATIONS.md`.
+5. **Separate post-010 migration:** pinned `011_external_dispatch_claim` remains outside the `private_no_dispatch` installation. `scripts/08_optional_011_compat_only.sh` passed after full 001–010 in an **independent** disposable lab, same CI run `45052366022`; Gateway calls = 0. Its live activation requires separate Product/API/Security approval.
 
 ## Contract handoff
 
