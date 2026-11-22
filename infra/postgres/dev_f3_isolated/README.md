@@ -1,6 +1,6 @@
 # RAG_finance — F3 DATABASE isolated fresh install development bundle (2026-11-22)
 
-**Status:** real isolated PostgreSQL 17.11 Docker CI **PASSED** on source commit `57b5d007c86deb7003610605d305bdc942a31312`, [run 45052366022](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45052366022) (two jobs: base 001–010 and optional post-010 011 on a second fresh lab). The Mac demo is inaccessible from this chat and was NOT touched. This does NOT attest Product API startup, C018 or Gateway.
+**Status:** complete disposable PG17.11 Docker candidate including actual pinned Product/Bootstrap DB authority preflight and restored-cluster repeat **PASSED** on source commit `b6b79369006eca3a1e4c8e75a9ba4ab14d0fab74`, [CI run 45082326382](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45082326382) (two jobs: base 001–010 shared DB witness + restore, optional separate 011). The Mac demo was NOT touched. **Not** proof of Product/Bootstrap ASGI HTTP startup, C018 or Gateway.
 
 **Purpose:** one fresh **isolated** PostgreSQL 17.11 lab with 001..010, 20 pinned Git blobs, 2 Product + 7 Bootstrap service-role TLS logins, DB55 `private_no_dispatch`, a durable per-migration `STARTED/APPLIED` ledger, and a backup restored into a **second independent PostgreSQL cluster with a different volume**. No existing demo or Arvan resource is modified. `011` is EXCLUDED from this path.
 
@@ -44,14 +44,16 @@ bash scripts/02_provision_roles.sh
 bash scripts/03_apply_pinned_001_010.sh
 bash scripts/04_bridge_and_db55.sh
 bash scripts/05_test_roles_tls_rls.sh
+bash scripts/09_shared_stack_db_preflight.sh
 bash scripts/06_backup_restore_independent.sh
+bash scripts/10_restored_stack_db_preflight.sh
 ```
 
 The first command requires **all** immutable commits `d93dcf...`, `656604...`, `1678e...`, `bfd6b1...` to be available locally; fetch them in the isolated checkout if necessary. It hashes all 20 SQL files AND 2 DB55 files with `git hash-object`, then writes a private SHA256SUMS. No SQL files are altered or rewritten. DOWN files are integrity inputs only.
 
 **Expected milestones:** `SOURCE_BUNDLE=22_SQL_FILES_PIN_VERIFIED`, `F3_LAB_CREATED_ISOLATED=PASS`, `F3_LAB_PROVISION_ROLES_SERVICE=lab-db ROLE_COUNT=20 PASS`, `F3_LAB_MIGRATIONS_001_010_APPLIED=PASS`, `DB55_PRIVATE_NO_DISPATCH_LAB=PASS`, `TLS_VERIFY_FULL_NINE_ROLES=9/9_PASS`, `NEGATIVE_TABLE_SELECT=72/72_PASS`, `BACKUP_SHA256_VERIFIED=PASS`, `RESTORE_INDEPENDENT_CLUSTER=PASS`, `RESTORED_DB55=PASS`.
 
-Markers were actually observed in the isolated CI run `45052366022`, not on the Mac host. See `docs/PHASE3_DATABASE_CHECKLIST.md` and `TEST_RECEIPT_20261122.json`.
+Markers were actually observed in CI `45082326382`: additionally `PRODUCT_API_REAL_DB_PREFLIGHT=2/2_PASS`, `BOOTSTRAP_API_REAL_DB_PREFLIGHT=7/7_PASS`, `RESTORED_MIGRATION_LEDGER_EXACT_MATCH=PASS`, restored nine-role TLS checks, and an uploaded `foundation.f3_db_candidate_shared.v1` sanitized JSON receipt. See `contracts/FOUNDATION_CANDIDATE_SHARED_DB_HANDOFF.md` for exact boundaries.
 
 ### Evidence / integrity / reproducibility
 
@@ -62,7 +64,7 @@ Markers were actually observed in the isolated CI run `45052366022`, not on the 
 - `db55_no_dispatch_bridge.sql` is installed once after verifying none of six preexisting grant bits were true. Bridge intent is recorded and must be reconciled before retry if ambiguous.
 - `db55_verify_staging.sql` runs as a separate limited auditor via `SET ROLE` under a `READ ONLY` transaction. It is **not** a migration or installer.
 - `05_test_roles_tls_rls.sh` tests `verify-full` for precisely 9 service roles, non-TLS rejection, 9 bootstrap function privileges, 72 catalog-level direct Auth table SELECT denials, role flags, critical FORCE RLS. These checks are lab-only. Real Product/Bootstrap configs must separately pass the actual API preflight.
-- `06_backup_restore_independent.sh` creates a **different** PostgreSQL 17.11 container/volume with an independent `pg_control_system()` system identifier, provisions matching SQL roles, and `pg_restore`s the original dump with real object owners and grants (NOT `--no-owner`). It re-runs DB55 read-only on the restored cluster and compares critical catalog counts/RLS.
+- `06_backup_restore_independent.sh` creates a **different** PostgreSQL 17.11 container/volume with an independent `pg_control_system()` identifier, provisions matching roles, and `pg_restore`s the dump with original owners/grants (NOT `--no-owner`). It compares **all ten original Ledger rows**, DB55, nine role flags, 72 denied Auth SELECT grants, catalog counts and FORCE RLS. `09_shared_stack_db_preflight.sh` imports **actual** pinned Product/Bootstrap verifier functions in two separate DB client containers using distinct role-only passfiles on the private Docker network; `10_restored_stack_db_preflight.sh` exercises both original verifiers against the independent restore with `verify-full`. `11_export_sanitized_receipt.sh` creates an exportable CI JSON receipt with IDs, code pins, row-level Ledger, backup hash and four real-code client preflight witnesses; never outputs credentials.
 - The lab snapshot and credentials are disposable. This is not a full product failover/PITR or credential+PKI disaster recovery test.
 
 ### No automatic cleanup
@@ -78,9 +80,9 @@ ALLOW_DELETE_F3_LAB=YES bash scripts/07_cleanup_lab_ONLY.sh
 1. **Executing host** needs Docker Engine + Compose, Git with the four source commits, Bash, OpenSSL, `shasum`, `grep`, `awk`. Host architecture may be Apple Silicon: Compose requests `linux/amd64` emulation, not a macOS venv.
 2. If the pinned PG image is unreachable, Docker/Compose unavailable, source pin absent, volume exists, demo-like path detected, version mismatch, TLS/PG privileges fail, STOP. Do not replace the image, SQL or checks with a guessed version.
 3. Docker Desktop VM free space for two full lab volumes + archive must be measured on Mac; `Docker.raw` logical size is not free VM space.
-4. Do not use an approved demo DB/Volume for testing or rely on its old terminal logs as proof of the new lab. No Product API, BFF, Gateway, C018 or Arvan operations occur in this bundle.
+4. Do not use an approved demo DB/Volume for testing or rely on its old terminal logs as proof of the new lab. **The real Product/Bootstrap Python DB verifier functions run** in read-only DB client preflight processes. Actual ASGI HTTP servers, signed BFF, IdP, C018, Gateway and Arvan do **not** run.
 5. **Separate post-010 migration:** pinned `011_external_dispatch_claim` remains outside the `private_no_dispatch` installation. `scripts/08_optional_011_compat_only.sh` passed after full 001–010 in an **independent** disposable lab, same CI run `45052366022`; Gateway calls = 0. Its live activation requires separate Product/API/Security approval.
 
 ## Contract handoff
 
-See `contracts/FOUNDATION_API_DB_CONTRACT.md` and `docs/PHASE3_DATABASE_CHECKLIST.md` for role mappings, source SHA, status / blockers, TLS DB settings, and exact negative tests. `foundation.dba_admission.v1` is a product admission gate and should only be issued for a *real* accepted target after actual evidence, not for the unexecuted scripts in this artifact.
+See `contracts/FOUNDATION_API_DB_CONTRACT.md`, `contracts/FOUNDATION_CANDIDATE_SHARED_DB_HANDOFF.md` and `docs/PHASE3_DATABASE_CHECKLIST.md` for full tested consumption sequence, role/DSN mapping, source hashes, TLS SAN, restored receipt and remaining full HTTP dependencies. `foundation.dba_admission.v1` is a product admission gate and should only be issued for a *real* accepted target after actual evidence, not for the unexecuted scripts in this artifact.
