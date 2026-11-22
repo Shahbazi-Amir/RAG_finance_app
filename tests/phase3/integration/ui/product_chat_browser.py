@@ -148,7 +148,7 @@ def main():
             expect(page.get_by_text(
                 "بازیابی شواهد کامل شد؛ تولید پاسخ انجام نشده است.")).to_be_visible()
             expect(page.get_by_test_id("retrieval-evidence-contract-pending")).to_contain_text(
-                "جزئیات منابع هنوز از قرارداد جداگانهٔ تأییدشدهٔ API دریافت نشده‌اند.")
+                "شناسه‌ها و مکان منابع هنوز از قرارداد جداگانهٔ تأییدشدهٔ API دریافت نشده‌اند.")
             assert page.get_by_test_id("retrieval-evidence-list").count() == 0
             assert page.locator("a[href*='fixture_source_']").count() == 0
             assert state["posts"] == 1
@@ -160,7 +160,7 @@ def main():
             expect(page.get_by_text(
                 "بازیابی شواهد کامل شد؛ تولید پاسخ انجام نشده است.")).to_be_visible()
             expect(page.get_by_test_id("retrieval-evidence-contract-pending")).to_contain_text(
-                "جزئیات منابع هنوز از قرارداد جداگانهٔ تأییدشدهٔ API دریافت نشده‌اند.")
+                "شناسه‌ها و مکان منابع هنوز از قرارداد جداگانهٔ تأییدشدهٔ API دریافت نشده‌اند.")
             assert page.get_by_test_id("retrieval-evidence-list").count() == 0
             assert page.locator("a[href*='fixture_source_']").count() == 0
             assert state["posts"] == 1 and state["status_reads"] >= 2
