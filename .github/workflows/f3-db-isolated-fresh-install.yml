@@ -51,3 +51,35 @@ jobs:
           bash scripts/06_backup_restore_independent.sh
           printf 'CI_GIT_SHA=%s\nCI_PG=17.11\nISOLATED_FRESH_INSTALL=PASS\n' "$GITHUB_SHA"
           printf 'NO_DEMO_DB=PASS\nNO_011=PASS\nNO_ARVAN=PASS\n'
+
+  optional-post010-011:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout complete immutable source history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Static syntax and source pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd infra/postgres/dev_f3_isolated
+          bash tests/run_static.sh
+          git cat-file -e 'b0ba6dbf6100109cb58f8cb49da808839d68c5f0^{commit}'
+      - name: Independent full 001-010 then optional 011; no Gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd infra/postgres/dev_f3_isolated
+          export SOURCE_REPO="$GITHUB_WORKSPACE"
+          export LAB_ROOT="$RUNNER_TEMP/f3-db-011-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          bash scripts/00_prepare_source.sh
+          bash scripts/01_create_isolated_lab.sh
+          bash scripts/02_provision_roles.sh
+          bash scripts/03_apply_pinned_001_010.sh
+          bash scripts/04_bridge_and_db55.sh
+          bash scripts/08_optional_011_compat_only.sh
+          echo 'POST010_011_SEPARATE_ISOLATED_CI=PASS'
+          echo 'POST010_NO_GATEWAY_NO_DEMO_DB=PASS'
