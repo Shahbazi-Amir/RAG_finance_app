@@ -137,17 +137,24 @@ def main():
                      "chunk_match": "PASS", "source_validation": "UNVERIFIED",
                      "locator_validation": "PENDING_STRUCTURE", "verified_locators": []}
                     for index in range(1, 11)]
-            if state["source_mode"] == "invalid":
+            mode = state["source_mode"]
+            if mode == "missing":
+                route.fulfill(status=404, content_type="application/json",
+                              body='{"error":"NOT_FOUND"}')
+                return
+            if mode == "invalid":
                 rows[0]["verified_locators"] = [{"url": "https://example.org/unapproved"}]
+            if mode in ("NOT_AVAILABLE", "EVIDENCE_INVALID", "EVIDENCE_NOT_AVAILABLE"):
+                rows = []
             route.fulfill(status=200, json={
                 "kind": "retrieved_sources",
                 "contract_version": "api.retrieved_sources.v1",
                 "attempt_id": "a" * 32,
                 "attempt_trace_id": "b" * 32,
-                "retrieval_state": "PARTIAL_UNVERIFIED",
+                "retrieval_state": mode if mode in ("NOT_AVAILABLE", "EVIDENCE_INVALID", "EVIDENCE_NOT_AVAILABLE") else "PARTIAL_UNVERIFIED",
                 "engine_sha256": "93233bfdf25e40684fd9120b82ec19c217695fdb632ed4a1f7d2bb2a3abcb17d",
                 "chunks_sha256": "3891c4ecad9332ba753cd605bbccd99da9d063f64934a30ee39e495349cffb50",
-                "generation_calls": 0, "rows": rows
+                "generation_calls": None if mode == "NOT_AVAILABLE" else 0, "rows": rows
             })
         else:
             route.fulfill(status=404, content_type="application/json",
@@ -196,6 +203,17 @@ def main():
             page.get_by_test_id("recover-status").click()
             expect(page.get_by_test_id("retrieved-sources-unavailable")).to_be_visible()
             assert page.get_by_test_id("retrieved-sources-observed").count() == 0
+            for mode in ("NOT_AVAILABLE", "EVIDENCE_INVALID", "EVIDENCE_NOT_AVAILABLE"):
+                state["source_mode"] = mode
+                page.get_by_test_id("recover-status").click()
+                expect(page.get_by_test_id("retrieved-sources-empty")).to_be_visible()
+                assert page.get_by_test_id("retrieved-sources-observed").count() == 0
+            state["source_mode"] = "missing"
+            page.get_by_test_id("recover-status").click()
+            expect(page.get_by_test_id("retrieved-sources-pending")).to_be_visible()
+            state["source_mode"] = "valid"
+            page.get_by_test_id("recover-status").click()
+            expect(page.get_by_test_id("retrieved-sources-observed")).to_be_visible()
             assert state["posts"] == 1
             expect(page.locator("nav.history-list")).to_contain_text("گفت‌وگوی تست فارسی")
             # Server 401 purges old per-account list and persisted correlators.
@@ -205,7 +223,7 @@ def main():
             assert page.locator("nav.history-list button").count() == 0
             assert page.evaluate(
                 "() => sessionStorage.getItem('rag-finance-attempt-correlation-v1')") is None
-            print("UI_CHAT_L1_BROWSER_SOURCES_SAME_ATTEMPT_REFRESH_INVALID_FAIL_CLOSED_401_PASS")
+            print("UI_CHAT_L1_BROWSER_SAME_ATTEMPT_REFRESH_INVALID_MISSING_3_EMPTY_STATES_401_PASS")
             context.close()
         finally:
             browser.close()
