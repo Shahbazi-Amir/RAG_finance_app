@@ -16,7 +16,7 @@ This document maps the **provided** `Gate3_Docker_Execution_Checklist_Foundation
 | G3-07 | OPEN | Foundation | Product-wide docker-compose Web/API/runner absent at source 5fe21e9; this package is only a standalone DB lab |
 | G3-08 | BLOCKED | Foundation/API | Shared network namespace or approved API loopback design |
 | G3-09 | BLOCKED | Foundation/UI/API | Real BFF/Keycloak/OIDC/PKI and browser signed mTLS proof |
-| G3-10 | DONE | Database/Ops | **Accepted Mac demo DB as stipulated by owner**, prior local PG17.11 001–010/TLS/RLS/restore Ops evidence; not touched in this task. Fresh development DB remains BLOCKED for runtime tests below |
+| G3-10 | DONE | Database/Ops | **Accepted Mac demo DB as stipulated by owner**, prior local PG17.11 001–010/TLS/RLS/restore Ops evidence; not touched in this task. Fresh 001–010 DB development tests PASS on isolated GitHub Actions; accepted demo unchanged |
 | G3-11 | OPEN | Foundation | Linux-native complete product runtime/image pins; lab PG17.11 digest is only one component |
 | G3-12 | OPEN | CENTRAL/Ops | Isolated DB experimental SQL is authorized in this request; whole product image/build/Runner authorization is separate |
 | G3-13 | BLOCKED | Foundation/Ops | Docker Mac build, UID/volumes/per-service health actual output not accessible here |
@@ -37,15 +37,15 @@ This document maps the **provided** `Gate3_Docker_Execution_Checklist_Foundation
 | DB-F3-07 scoped Bridge and DB55 | DONE | `04_bridge_and_db55.sh`: exact source pins, separate limited auditor, read-only verification; STATIC only |
 | DB-F3-08 role/RLS/TLS negative test program | DONE | `05_test_roles_tls_rls.sh`: 9/9 TLS, nonTLS reject, 72/72 Auth SELECT denials, 9/9 API function signatures, RLS; STATIC only |
 | DB-F3-09 independent backup/restore program | DONE | `06_backup_restore_independent.sh`: pg_dump -Fc / SHA256 / second cluster+volume / restored DB55; STATIC only |
-| DB-F3-10 **real test lab fresh install** | BLOCKED | Host in this chat has no Docker daemon, PG `psql` or `postgres`; no actual Mac terminal; no runtime SQL test was possible |
-| DB-F3-11 source branch / CI validation | OPEN | This deliverable is a standalone reviewable bundle; GitHub branch/commit, Actions tests and working Mac Docker evidence NOT yet attested |
-| DB-F3-12 post-010 migrations | BLOCKED | 011 source pinned and documented but requires separate live external Claim contract/approval; 012+ not specified, no invented migrations |
+| DB-F3-10 **real test lab fresh install** | DONE | Separate real Docker PG17.11 CI on SHA `57b5d007c86deb7003610605d305bdc942a31312`, Run `45052366022`: 10/10 pinned migrations, DB55, 9/9 TLS, 72/72 SELECT denies, backup/restore PASS. Not Mac. |
+| DB-F3-11 source branch / CI validation | DONE | Branch `agent/database-f3-fresh-install-isolated-20261122`, CI `45052366022` both jobs PASS on source SHA `57b5d007c86deb7003610605d305bdc942a31312`; Mac Docker runtime remains Foundation/Ops scope |
+| DB-F3-12 post-010 migrations | DONE | Optional 011 source SHA `b0ba6dbf6100109cb58f8cb49da808839d68c5f0` tested separately after all 001–010 in Run `45052366022` (`DB55/live_011`, ACL/RLS, denied bogus Claim). Also standalone 011 13/13 CI `43710425019` PASS. Product dispatch deployment remains BLOCKED, 012+ not specified. |
 | DB-F3-13 Foundation/API integration | OPEN | Complete DB role/DSN/ACL contract prepared; real PRODUCT/BOOTSTRAP private network + CA + deploy pin validation pending |
 | DB-F3-14 accepted Mac demo invariant | DONE | No Docker, SSH, SQL, migration, backup, restore or transfer was executed against accepted Mac demo in this task |
 
-## Reasons no DONE runtime claim is made
+## Runtime evidence boundary
 
-`STATIC PASS` means source file format/manifest/script syntax, **not** real PostgreSQL execution. Historical DB55 acceptance belongs to the owner's Mac demo only. The new isolated lab has never been started here. CI fixture DB passes from older SHAs are not proof of this new package. On any dynamic test failure, STOP and capture sanitized logs; do not rerun partial migrations or reuse the accepted demo.
+`CI_PASS` Run `45052366022` attests actual isolated disposable PostgreSQL 17.11 Docker execution on source commit `57b5d007c86deb7003610605d305bdc942a31312`, NOT Mac host/production, Product API, paid Gateway, Arvan or accepted demo. A separate CI job validates optional 011 on a second fresh 001–010 lab; no changes to base no-dispatch SQL. Earlier failed development runs were corrected before PASS. Do not rerun partial migrations or reuse accepted demo.
 
 ## Dependency / acceptance order
 
