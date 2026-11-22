@@ -56,7 +56,9 @@
       "const": "93233bfdf25e40684fd9120b82ec19c217695fdb632ed4a1f7d2bb2a3abcb17d"
     },
     "chunks_sha256": {
-      "const": "3891c4ecad9332ba753cd605bbccd99da9d063f64934a30ee39e495349cffb50"
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Actual hash of the exact Chunks input validated by the adapter; production API restricts to pinned C011."
     },
     "generation_calls": {
       "oneOf": [
