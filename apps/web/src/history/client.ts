@@ -19,6 +19,13 @@ export type EnginePreflightState='NOT_STARTED'|'NOT_RECORDED'|'QUEUED'|'RUNNING'
 export type EngineStatus=Readonly<{state:EnginePreflightState;productStatus:HistoryStatus;
   attemptId:string|null;attemptTraceId:string|null;top10Count:number|null;
   generationCalls:number|null;questionHashMatches:boolean|null}>;
+export type RetrievedRow=Readonly<{position:number;chunkId:string;sourceId:string|null;
+  chunkMatch:'PASS';sourceValidation:'UNVERIFIED';
+  locatorValidation:'PENDING_STRUCTURE';verifiedLocators:readonly []}>;
+export type RetrievedSources=Readonly<{attemptId:string|null;attemptTraceId:string|null;
+  retrievalState:'NOT_AVAILABLE'|'PARTIAL_UNVERIFIED'|'EVIDENCE_INVALID'|'EVIDENCE_NOT_AVAILABLE';
+  generationCalls:0|null;rows:readonly RetrievedRow[]}>;
+
 type Wire = Record<string,unknown>;
 
 export class HistoryFailure extends Error {
@@ -274,6 +281,55 @@ export async function recoverEngineStatus(original:StatusCorrelation):Promise<En
     top10Count,generationCalls,
     questionHashMatches:o.question_sha256_matches as boolean|null};
 }
+/** Distinct C018 retrieval observations, NEVER product.v1 citations or LIVE_VERIFIED.
+ * GET uses original signed correlators and must not execute C018 or POST again.
+ */
+export async function recoverRetrievedSources(original:StatusCorrelation):Promise<RetrievedSources|null>{
+  const query=params({requested_conversation_id:original.requested_conversation_id??'',
+    client_message_id:original.client_message_id,idempotency_key:original.idempotency_key});
+  let raw:unknown;
+  try{raw=await api('message-requests/retrieved-sources?'+query);}
+  catch(e){if(e instanceof HistoryFailure&&e.status===404)return null;throw e;}
+  const o=object(raw);
+  const fields=['kind','contract_version','attempt_id','attempt_trace_id',
+    'retrieval_state','engine_sha256','chunks_sha256','generation_calls','rows'];
+  if(Object.keys(o).sort().join('|')!==fields.sort().join('|')||
+     o.kind!=='retrieved_sources'||o.contract_version!=='api.retrieved_sources.v1'||
+     o.engine_sha256!=='93233bfdf25e40684fd9120b82ec19c217695fdb632ed4a1f7d2bb2a3abcb17d'||
+     o.chunks_sha256!=='3891c4ecad9332ba753cd605bbccd99da9d063f64934a30ee39e495349cffb50')invalid();
+  const attemptId=maybeText(o.attempt_id),attemptTraceId=maybeText(o.attempt_trace_id);
+  if((attemptId===null)!==(attemptTraceId===null)||
+     (attemptId!==null&&!/^[0-9a-f]{32}$/.test(attemptId))||
+     (attemptTraceId!==null&&!/^[0-9a-f]{32}$/.test(attemptTraceId)))invalid();
+  const states=['NOT_AVAILABLE','PARTIAL_UNVERIFIED','EVIDENCE_INVALID',
+    'EVIDENCE_NOT_AVAILABLE'] as const;
+  if(!states.includes(o.retrieval_state as typeof states[number])||
+     (o.generation_calls!==0&&o.generation_calls!==null)||
+     !Array.isArray(o.rows)||o.rows.length>10)invalid();
+  const rows:RetrievedRow[]=o.rows.map((rawRow:unknown,index:number)=>{
+    const r=object(rawRow);
+    const rowFields=['position','chunk_id','chunk_match','source_id','source_validation',
+      'locator_validation','verified_locators'];
+    if(Object.keys(r).sort().join('|')!==rowFields.sort().join('|')||
+       r.position!==index+1||r.chunk_match!=='PASS'||
+       r.source_validation!=='UNVERIFIED'||
+       r.locator_validation!=='PENDING_STRUCTURE'||
+       !Array.isArray(r.verified_locators)||r.verified_locators.length!==0)invalid();
+    const chunkId=text(r.chunk_id);
+    const sourceId=maybeText(r.source_id);
+    if(chunkId.length>256||(sourceId!==null&&sourceId.length>256))invalid();
+    return {position:index+1,chunkId,sourceId,chunkMatch:'PASS',
+      sourceValidation:'UNVERIFIED',locatorValidation:'PENDING_STRUCTURE',
+      verifiedLocators:[]};
+  });
+  if(o.retrieval_state!=='PARTIAL_UNVERIFIED'&&rows.length>0)invalid();
+  if(o.retrieval_state==='PARTIAL_UNVERIFIED'&&
+     (attemptId===null||o.generation_calls!==0))invalid();
+  return {attemptId,attemptTraceId,
+    retrievalState:o.retrieval_state as RetrievedSources['retrievalState'],
+    generationCalls:o.generation_calls as 0|null,rows};
+}
+
 export function failureLabel(err:unknown):string{
   if(!(err instanceof HistoryFailure))return 'خطای نامشخص؛ وضعیت ثبت تأیید نشده است.';
   if(err.reason==='unauthorized')return 'نشست شما معتبر نیست؛ دوباره از صفحهٔ ورود وارد شوید.';
