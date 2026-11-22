@@ -56,7 +56,7 @@ jobs:
         run: |
           python -m pip install --index-url https://pypi.org/simple 'playwright==1.64.1'
           python -m playwright install --with-deps chromium
-      - name: Chromium desktop/mobile evidence preview and existing fixture regressions
+      - name: Chromium desktop/mobile preview and same-Attempt retrieval/browser security checks
         env:
           AUTH_CI_PRODUCT_CHAT_MODE: INVITED_RESULT_STUB_CI_ONLY
           UI_GATE3_SCREENSHOT_DIR: ${{ runner.temp }}/ui-gate3-synthetic-screenshots
@@ -75,7 +75,7 @@ jobs:
           }
           python tests/phase3/integration/ui/retrieval_evidence_preview_browser.py
           python tests/phase3/integration/ui/product_chat_browser.py
-          python tests/phase3/integration/ui/invited_fixture_browser.py
+          # Legacy /ci-fixture-review is absent on pinned API7c6 and never claimed here.
           echo UI_GATE3_BROWSER_ALL_FIXTURE_ONLY_PASS
       - name: Upload visibly synthetic UI screenshots only
         if: always()
