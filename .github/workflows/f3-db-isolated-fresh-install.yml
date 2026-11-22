@@ -51,8 +51,17 @@ jobs:
           bash scripts/09_shared_stack_db_preflight.sh
           bash scripts/06_backup_restore_independent.sh
           bash scripts/10_restored_stack_db_preflight.sh
+          bash scripts/11_export_sanitized_receipt.sh
           printf 'CI_GIT_SHA=%s\nCI_PG=17.11\nISOLATED_FRESH_INSTALL=PASS\n' "$GITHUB_SHA"
           printf 'NO_DEMO_DB=PASS\nNO_011=PASS\nNO_ARVAN=PASS\n'
+
+      - name: Upload sanitized Foundation DB candidate consumption receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3-db-foundation-candidate-consumption
+          path: ci_receipts/f3_db_candidate_consumption.json
+          if-no-files-found: error
+          retention-days: 14
 
   optional-post010-011:
     runs-on: ubuntu-24.04
