@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Isolated Next+Chromium source-state DOM check, explicitly synthetic only."""
 import os
+from pathlib import Path
 from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright, expect
 
@@ -35,6 +36,13 @@ def main():
                     assert section.get_by_text("منبع تأیید نشده؛ قابل استناد نیست.").count()==1
                     assert section.get_by_text("مقصد تأیید نشده؛ پیوند غیرفعال است.").count()==1
                     assert section.get_by_text("این منبع پیوند وب معتبر ندارد.").count()==2
+                    screenshot_dir=os.getenv("UI_GATE3_SCREENSHOT_DIR")
+                    if screenshot_dir:
+                        directory=Path(screenshot_dir)
+                        directory.mkdir(parents=True,exist_ok=True)
+                        page.screenshot(path=str(directory/(
+                            f"synthetic_evidence_preview_{size[0]}x{size[1]}.png")),
+                            full_page=True)
                     print(f"UI_GATE3_SYNTHETIC_SOURCE_STATES_BROWSER_{size[0]}x{size[1]}_PASS",
                           flush=True)
                 finally:

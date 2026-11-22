@@ -58,6 +58,7 @@ jobs:
       - name: Chromium desktop/mobile evidence preview and existing fixture regressions
         env:
           AUTH_CI_PRODUCT_CHAT_MODE: INVITED_RESULT_STUB_CI_ONLY
+          UI_GATE3_SCREENSHOT_DIR: ${{ runner.temp }}/ui-gate3-synthetic-screenshots
         shell: bash
         run: |
           set -euo pipefail
@@ -75,3 +76,11 @@ jobs:
           python tests/phase3/integration/ui/product_chat_browser.py
           python tests/phase3/integration/ui/invited_fixture_browser.py
           echo UI_GATE3_BROWSER_ALL_FIXTURE_ONLY_PASS
+      - name: Upload visibly synthetic UI screenshots only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: UI_F3_SYNTHETIC_SCREENSHOTS_NOT_REAL_C018
+          path: ${{ runner.temp }}/ui-gate3-synthetic-screenshots/*.png
+          retention-days: 3
+          if-no-files-found: ignore
