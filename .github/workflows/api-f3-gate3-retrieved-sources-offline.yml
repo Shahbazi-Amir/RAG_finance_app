@@ -24,12 +24,19 @@ jobs:
       - name: Install pinned API test dependencies, no model or Gateway
         run: |
           python -m pip install --disable-pip-version-check --no-cache-dir \
-            'fastapi==0.162.2' 'uvicorn==0.48.0' \
-            'psycopg[binary]==3.3.8' 'jsonschema==4.26.0' \
-            'httpx==0.28.1' 'PyJWT[crypto]==2.15.1'
+            --require-hashes --only-binary=:all: -r locks/requirements-api.lock
+          python -m pip check
       - name: Compile exact API source
         run: |
           python -m compileall -q src/phase3/rag_runtime apps/api tests/phase3/api
+      - name: HTTP route 401/404/503 and GET-only refresh (fixture identity)
+        run: |
+          python -m unittest discover -s tests/phase3/api -p 'test_retrieved_sources_http_contract.py' -v
+      - name: API Login/Session + Service proof + preflight regressions
+        run: |
+          python -m unittest discover -s tests/phase3/api -p 'test_service_proof.py' -v
+          python -m unittest discover -s tests/phase3/api -p 'test_staging_service_profile.py' -v
+          python -m unittest discover -s tests/phase3/api -p 'test_staging_private_asgi.py' -v
       - name: C018 fixture identities, durable ledger, no replay
         run: |
           python -m unittest discover -s tests/phase3/api -p 'test_retrieved_sources_gate3.py' -v
