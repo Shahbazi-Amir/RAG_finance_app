@@ -7,6 +7,9 @@ never triggers auto-resend; stale queued/running states show UNKNOWN.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import os
 import sqlite3
 import stat
@@ -18,6 +21,10 @@ from src.phase3.rag_runtime.staging_no_dispatch import (
     ApprovedNoDispatchCLI, invoke_pinned_no_dispatch,
 )
 from src.phase3.rag_runtime.result_contract_gate import validate_no_dispatch_context_ready
+from src.phase3.rag_runtime.retrieved_sources import (
+    EvidenceDenied, CONTRACT as SOURCES_CONTRACT,
+    from_c018_stdout, unavailable_receipt, validate_public_receipt,
+)
 from src.phase3.rag_runtime.runner_spawn_audit import (
     LinuxRunnerSpawnAudit, SpawnEvidenceUnknown,
 )
@@ -64,6 +71,13 @@ class NoDispatchLedger:
                 generation_calls INTEGER,
                 question_hash_match INTEGER,
                 updated_at INTEGER NOT NULL
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS retrieval_receipts (
+                attempt_id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                trace_id TEXT NOT NULL,
+                receipt_json TEXT NOT NULL,
+                receipt_sha256 TEXT NOT NULL
             )""")
 
     @contextmanager
@@ -120,10 +134,42 @@ class NoDispatchLedger:
     def start(self, owner, binding):
         return self._transition(owner, binding, "QUEUED", "RUNNING")
 
-    def succeed(self, owner, binding, summary):
-        return self._transition(
-            owner, binding, "RUNNING", "CONTEXT_READY",
-            top10=summary["top10_count"], generation=0, matched=1)
+    def succeed(self, owner, binding, summary, receipt=None):
+        if receipt is None:
+            # Retain exact behavior for historical operational-only tests.
+            return self._transition(
+                owner, binding, "RUNNING", "CONTEXT_READY",
+                top10=summary["top10_count"], generation=0, matched=1)
+        if (not isinstance(receipt, dict)
+                or receipt.get("contract_version") != SOURCES_CONTRACT
+                or receipt.get("attempt_id") != binding.engine_request_id
+                or receipt.get("attempt_trace_id") != binding.trace_id):
+            raise PreflightDenied()
+        try:
+            validate_public_receipt(receipt)
+            encoded = json.dumps(receipt, sort_keys=True, separators=(",", ":"),
+                                 ensure_ascii=False, allow_nan=False)
+        except (TypeError, ValueError, EvidenceDenied):
+            raise PreflightDenied() from None
+        if len(encoded.encode("utf-8")) > 65536:
+            raise PreflightDenied()
+        digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        # One durable SQLite transaction: CONTEXT_READY and immutable sources.
+        # On failure both writes roll back; never auto-execute the Runner again.
+        with self._connect() as conn:
+            cur = conn.execute("""UPDATE outcomes
+                SET state='CONTEXT_READY', top10_count=?, generation_calls=0,
+                    question_hash_match=1, updated_at=?
+                WHERE attempt_id=? AND owner_id=? AND trace_id=? AND state='RUNNING'""",
+                (summary["top10_count"], int(time.time()),
+                 binding.engine_request_id, owner, binding.trace_id))
+            if cur.rowcount != 1:
+                return False
+            conn.execute("""INSERT INTO retrieval_receipts
+                (attempt_id, owner_id, trace_id, receipt_json, receipt_sha256)
+                VALUES (?,?,?,?,?)""",
+                (binding.engine_request_id, owner, binding.trace_id, encoded, digest))
+        return True
 
     def fail(self, owner, binding, *, unknown=False):
         return self._transition(
@@ -148,6 +194,39 @@ class NoDispatchLedger:
                 "generation_calls": calls,
                 "question_hash_match": bool(matched) if matched is not None else None}
 
+    def read_sources(self, owner_id: str, attempt_id: str, trace_id: str) -> dict | None:
+        if (not self._valid_owner(owner_id)
+                or not isinstance(attempt_id, str) or len(attempt_id) != 32
+                or not isinstance(trace_id, str) or len(trace_id) != 32):
+            raise PreflightDenied()
+        with self._connect() as conn:
+            row = conn.execute("""SELECT r.receipt_json, r.receipt_sha256
+                FROM retrieval_receipts r JOIN outcomes o
+                ON o.attempt_id=r.attempt_id
+                WHERE r.attempt_id=? AND r.owner_id=? AND r.trace_id=?
+                AND o.owner_id=? AND o.trace_id=? AND o.state='CONTEXT_READY'""",
+                (attempt_id, owner_id, trace_id, owner_id, trace_id)).fetchone()
+        if row is None:
+            return None
+        raw, digest = row
+        if (not isinstance(raw, str) or not isinstance(digest, str)
+                or not hmac.compare_digest(
+                    hashlib.sha256(raw.encode("utf-8")).hexdigest(), digest)):
+            raise PreflightDenied()
+        try:
+            receipt = json.loads(raw)
+        except (ValueError, TypeError):
+            raise PreflightDenied() from None
+        if (not isinstance(receipt, dict)
+                or receipt.get("contract_version") != SOURCES_CONTRACT
+                or receipt.get("attempt_id") != attempt_id
+                or receipt.get("attempt_trace_id") != trace_id):
+            raise PreflightDenied()
+        try:
+            return validate_public_receipt(receipt)
+        except EvidenceDenied:
+            raise PreflightDenied() from None
+
 
 class NoDispatchHandler:
     def __init__(self, layout: RunnerLayout, *, runner_sha256: str, ledger: NoDispatchLedger,
@@ -168,6 +247,9 @@ class NoDispatchHandler:
 
     def read(self, owner: str, attempt_id: str) -> dict:
         return self.ledger.read(owner, attempt_id)
+
+    def read_sources(self, owner: str, attempt_id: str, trace_id: str) -> dict | None:
+        return self.ledger.read_sources(owner, attempt_id, trace_id)
 
     def __call__(self, owner: str, binding: AttemptBinding, question: str):
         if not self.ledger.start(owner, binding):
@@ -190,7 +272,16 @@ class NoDispatchHandler:
                 except SpawnEvidenceUnknown:
                     # An OS child may have run but audit is incomplete.
                     raise TimeoutError() from None
-            if not self.ledger.succeed(owner, binding, parsed):
+            try:
+                sources = from_c018_stdout(
+                    raw, binding=binding, question=question,
+                    repo_root=self.layout.repo,
+                    engine_sha256=self.profile.runner_file_sha256)
+            except EvidenceDenied:
+                # C018 execution is still CONTEXT_READY; source proof alone fails.
+                # Withheld/invalid source evidence cannot become a clickable link.
+                sources = unavailable_receipt(binding)
+            if not self.ledger.succeed(owner, binding, parsed, sources):
                 raise PreflightDenied()
         except (TimeoutError, OSError):
             self.ledger.fail(owner, binding, unknown=True)
