@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rag-finance:api.retrieved_sources.v1",
+  "title": "C018 NoDispatch Retrieved Sources — only unverified observations",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "contract_version",
+    "attempt_id",
+    "attempt_trace_id",
+    "retrieval_state",
+    "engine_sha256",
+    "chunks_sha256",
+    "generation_calls",
+    "rows"
+  ],
+  "properties": {
+    "kind": {
+      "const": "retrieved_sources"
+    },
+    "contract_version": {
+      "const": "api.retrieved_sources.v1"
+    },
+    "attempt_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "attempt_trace_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "retrieval_state": {
+      "enum": [
+        "NOT_AVAILABLE",
+        "PARTIAL_UNVERIFIED",
+        "EVIDENCE_INVALID",
+        "EVIDENCE_NOT_AVAILABLE"
+      ]
+    },
+    "engine_sha256": {
+      "const": "93233bfdf25e40684fd9120b82ec19c217695fdb632ed4a1f7d2bb2a3abcb17d"
+    },
+    "chunks_sha256": {
+      "const": "3891c4ecad9332ba753cd605bbccd99da9d063f64934a30ee39e495349cffb50"
+    },
+    "generation_calls": {
+      "oneOf": [
+        {
+          "const": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "rows": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "position",
+          "chunk_id",
+          "chunk_match",
+          "source_id",
+          "source_validation",
+          "locator_validation",
+          "verified_locators"
+        ],
+        "properties": {
+          "position": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          },
+          "chunk_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "chunk_match": {
+            "const": "PASS"
+          },
+          "source_id": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_validation": {
+            "const": "UNVERIFIED"
+          },
+          "locator_validation": {
+            "const": "PENDING_STRUCTURE"
+          },
+          "verified_locators": {
+            "type": "array",
+            "maxItems": 0
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "retrieval_state": {
+            "const": "PARTIAL_UNVERIFIED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "attempt_id": {
+            "type": "string"
+          },
+          "attempt_trace_id": {
+            "type": "string"
+          },
+          "generation_calls": {
+            "const": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "retrieval_state": {
+            "enum": [
+              "NOT_AVAILABLE",
+              "EVIDENCE_INVALID",
+              "EVIDENCE_NOT_AVAILABLE"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "rows": {
+            "maxItems": 0
+          }
+        }
+      }
+    }
+  ],
+  "description": "Technical source evidence only. No source authority, URL, locator or LIVE_VERIFIED permitted. Not a product.v1 answer."
+}
