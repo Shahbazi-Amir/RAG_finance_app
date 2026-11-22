@@ -1,0 +1,100 @@
+{
+  "contract_version": "f3.db.isolated_fresh_install_ci.v1",
+  "project": "RAG_finance",
+  "scope": "development isolated PostgreSQL only; not Mac demo admission",
+  "repository": "Shahbazi-Amir/RAG_finance_app",
+  "branch": "agent/database-f3-fresh-install-isolated-20261122",
+  "tested_code_sha": "57b5d007c86deb7003610605d305bdc942a31312",
+  "source_base_sha": "d93dcf7cbf9290acd4cd3aa0164ef05689049da4",
+  "test_date_utc": "2026-11-22",
+  "ci_run": {
+    "run_id": 45052366022,
+    "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45052366022",
+    "conclusion": "success",
+    "runner": "ubuntu-24.04",
+    "jobs": [
+      {
+        "job": "isolated-pg17",
+        "job_id": 137300104019,
+        "conclusion": "success",
+        "checks": {
+          "source_bundle_git_blobs_22": "PASS",
+          "postgres_version_17_11": "PASS",
+          "fresh_001_010_pinned": "10/10_PASS",
+          "rerun_without_reapply": "PASS",
+          "db55_private_no_dispatch": "PASS",
+          "tls_verify_full_nine_roles": "9/9_PASS",
+          "non_tls_denied": "PASS",
+          "direct_table_select_denials": "72/72_PASS",
+          "bootstrap_function_grants": "9/9_PASS",
+          "force_rls": "PASS",
+          "backup_sha256": "PASS",
+          "independent_restore_cluster": "PASS",
+          "restored_db55": "PASS",
+          "restored_force_rls": "PASS",
+          "demo_untouched": "PASS_BY_ISOLATION",
+          "migration_011_excluded": "PASS"
+        }
+      },
+      {
+        "job": "optional-post010-011",
+        "job_id": 137300103759,
+        "conclusion": "success",
+        "checks": {
+          "fresh_001_010_in_second_lab": "10/10_PASS",
+          "db55_private_no_dispatch_prior_to_011": "PASS",
+          "migration_011_pinned_up_down": "2/2_PASS",
+          "db55_live_011": "PASS",
+          "function_only_grants_and_rls": "PASS",
+          "unauthorized_claim": "DENIED",
+          "gateway_calls": 0,
+          "mac_demo_untouched": "PASS_BY_ISOLATION"
+        }
+      }
+    ]
+  },
+  "postgresql": {
+    "version": "17.11",
+    "platform": "linux/amd64",
+    "image": "public.ecr.aws/docker/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a",
+    "db": "rag_finance_f3_lab",
+    "container_volumes": "random unique disposable lab and restore; never accepted demo",
+    "no_host_ports": true
+  },
+  "source_pins": {
+    "manifest_001_010_sha256": "9ff95a59570f5f6c6188479d9c37cf684ef836c599e89d9faa2bb0e17a4946f7",
+    "migration_001_008_commit": "d93dcf7cbf9290acd4cd3aa0164ef05689049da4",
+    "migration_009_commit": "656604356dadea953031fcdb74650a5d42df4e9b",
+    "migration_010_commit": "1678e87b7984094b74ec995383b8d4383e5f5ae7",
+    "db55_verifier_commit": "bfd6b1d9ed23e5f4cc6f126b579f90d7c877a7a6",
+    "db55_verifier_blob": "e2115d8cebc649fdf05d3fbee4ef435ad5f39a47",
+    "db55_bridge_blob": "a79e46c87857eb2b77fd26863e1cf85fead31b38",
+    "optional_011_commit": "b0ba6dbf6100109cb58f8cb49da808839d68c5f0",
+    "optional_011_up_blob": "031d2f438f000154eb4e2b374ce42181b3d812b3",
+    "optional_011_down_blob": "ce3e7d8a2394f4a090650623770ad261eee2f4c2"
+  },
+  "additional_011_reference": {
+    "ci_run_id": 43710425019,
+    "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/43710425019",
+    "conclusion": "success",
+    "scope": "separate PostgreSQL DB-only concurrent irreversible dispatch claim; no Gateway"
+  },
+  "current_boundaries": {
+    "accepted_mac_demo_database": "rag_finance_f3_demo",
+    "accepted_mac_demo_volume": "rag_finance_f3_demo_pg17_20261121",
+    "mac_demo_modified": false,
+    "mac_docker_fresh_install": "NOT_TESTED",
+    "product_api_live": "NOT_TESTED",
+    "bootstrap_signed_real_idp": "NOT_TESTED",
+    "rag_runner_C018": "NOT_EXECUTED",
+    "arvan": "NOT_TOUCHED",
+    "external_dispatch_011_enabled": false,
+    "phase3_complete": false,
+    "source_branch_only": true
+  },
+  "notes": [
+    "The CI run uses disposable Docker resources on GitHub's isolated Ubuntu host. No Mac shell, accepted demo SQL, or Arvan access was used.",
+    "The effective 001-010 migration ledger is created and verified in the disposable lab. This does not reconstruct any historical missing ledger of the accepted Mac demo.",
+    "Further production integration requires Foundation/API networking, CA/secret ownership, signed BFF/Keycloak and separate rollout authorization; no migration beyond 011 has a verified requirement."
+  ]
+}
