@@ -443,14 +443,19 @@ export default function ProductChat({fixtureReview=false}:{fixtureReview?:boolea
           {fixtureReview&&a.fixtureUnavailable&&<p role="status" className="history-note">
             پاسخ آزمایشی قابل‌اعتبارسنجی نبود؛ استناد ساختگی نمایش داده نمی‌شود.
           </p>}
-          {a.engine&&<section className="history-note"
+          {a.engine&&<section className="history-note retrieval-evidence-status"
             data-testid={'engine-status-'+a.record.client_message_id}
             aria-label="وضعیت فنی همین درخواست">
+            <h3>شواهد بازیابی</h3>
             <p role="status">{engineLabel(a.engine)}</p>
-            {a.engine.state==='CONTEXT_READY'&&<p>
-              شواهد بازیابی‌شده: {a.engine.top10Count}، تعداد تولید پاسخ: {a.engine.generationCalls}
-            </p>}
-            <p>این گزارش فنی پاسخ مدل یا استناد قابل‌نمایش نیست.</p>
+            {a.engine.state==='CONTEXT_READY'&&<>
+              <p>شواهد بازیابی‌شده: {a.engine.top10Count}، تعداد تولید پاسخ: {a.engine.generationCalls}</p>
+              <p data-testid="retrieval-evidence-contract-pending">
+                شناسه‌ها و مکان منابع هنوز از قرارداد جداگانهٔ تأییدشدهٔ API دریافت نشده‌اند.
+                این تعداد، استناد معتبر یا پاسخ تولیدشده نیست.
+              </p>
+            </>}
+            <p>نتیجهٔ فنی بازیابی با پاسخ تأییدشدهٔ محصول متفاوت است.</p>
           </section>}
           {a.engineUnavailable&&<p role="status" className="history-note">
             وضعیت فنی جداگانه در دسترس نیست؛ فقط وضعیت اصلی پیگیری می‌شود.
