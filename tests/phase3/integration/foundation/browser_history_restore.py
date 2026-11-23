@@ -121,6 +121,42 @@ async def browser_history(page,label,expected_ids,expected_owner,expected_messag
     return ids
 
 
+async def mobile_320_keyboard_accessibility(page):
+    """Test actual authenticated Keycloak session, without mocked UI routes."""
+    await page.set_viewport_size({"width":320,"height":568})
+    try:
+        await expect(page.locator("main.history-shell")).to_be_visible(timeout=20000)
+        assert await page.evaluate(
+            "document.documentElement.scrollWidth <= innerWidth + 2"), "MOBILE_320_OVERFLOW"
+        assert await page.locator("main.history-shell").evaluate(
+            "(el) => getComputedStyle(el).direction")=="rtl", "MOBILE_NOT_RTL"
+        menu=page.get_by_role("button",name="بازکردن فهرست گفت‌وگوها")
+        await expect(menu).to_be_visible()
+        await menu.focus()
+        assert await menu.evaluate(
+            "(el) => getComputedStyle(el).outlineStyle")!="none", "NO_FOCUS_OUTLINE"
+        await menu.click()
+        await expect(page.get_by_role(
+            "dialog",name="فهرست گفتگوها")).to_be_visible()
+        await expect(menu).to_have_attribute("aria-expanded","true")
+        close=page.get_by_role("button",name="بستن فهرست")
+        await expect(close).to_be_focused()
+        await expect(page.locator("section.history-main")).to_have_attribute("inert","")
+        await expect(page.locator(".history-skip")).to_have_attribute("inert","")
+        await page.keyboard.press("Escape")
+        await expect(menu).to_have_attribute("aria-expanded","false")
+        await expect(menu).to_be_focused()
+        assert await page.locator("section.history-main").get_attribute("inert") is None
+        await menu.click()
+        await expect(page.get_by_role(
+            "dialog",name="فهرست گفتگوها")).to_be_visible()
+        await page.set_viewport_size({"width":1280,"height":800})
+        await expect(page.locator("aside[aria-modal='true']")).to_have_count(0)
+        assert await page.locator("section.history-main").get_attribute("inert") is None
+    finally:
+        await page.set_viewport_size({"width":1280,"height":800})
+
+
 async def signed_pagination(page,known):
     cursor=None
     all_ids=[]
@@ -262,6 +298,8 @@ async def execute():
             await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
             await signed_pagination(page_a,ids_a)
             await signed_pagination(page_b,ids_b)
+            await mobile_320_keyboard_accessibility(page_a)
+            await mobile_320_keyboard_accessibility(page_b)
             await owner_b_denied(page_b,ids_a)
             await send_denied(page_a)
             assert inventory(demo)[1]==receipt_before
@@ -306,6 +344,7 @@ async def execute():
                 "browser_pagination_and_detail_sql_equal":True,
                 "browser_detail_message_id_and_body_sql_equal":True,
                 "all_a_conversations_cross_owner_404":True,
+                "real_authenticated_browser_mobile_320_rtl_keyboard_pre_post_restore":True,
                 "b_direct_a_detail_404":True,
                 "send_bff_503_no_extra_receipts":True,
                 "fresh_pg_volume_independent_cluster":True,
