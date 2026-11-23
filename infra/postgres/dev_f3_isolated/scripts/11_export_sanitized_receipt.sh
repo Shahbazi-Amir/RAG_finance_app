@@ -113,3 +113,18 @@ target.write_text(json.dumps(receipt,ensure_ascii=False,indent=2,sort_keys=True)
 print("SANITIZED_FOUNDATION_CANDIDATE_CONSUMPTION_RECEIPT=PASS")
 print("SANITIZED_RECEIPT_SHA256="+hashlib.sha256(target.read_bytes()).hexdigest())
 PY
+
+# Append source catalog evidence to the same artifact set; no table data or credentials.
+catalog="$LAB_WORK/physical_erd_data_dictionary.jsonl"
+plans="$LAB_WORK/query_plan_empty_fixture.txt"
+[[ -s "$catalog" && -s "$plans" && -s "$LAB_WORK/catalog_snapshot_sha256.txt" ]] || {
+  echo STOP_CATALOG_EVIDENCE_NOT_COLLECTED >&2; exit 70;
+}
+[[ "$(grep -c '^{' "$catalog")" == 14 ]] || { echo STOP_CATALOG_NOT_FOURTEEN_TABLES >&2;exit 70; }
+( cd "$LAB_WORK" && shasum -a 256 -c catalog_snapshot_sha256.txt ) >/dev/null || {
+  echo STOP_CATALOG_SHA256_MISMATCH >&2;exit 70;
+}
+install -m 0600 "$catalog" "$GITHUB_WORKSPACE/ci_receipts/physical_erd_data_dictionary.jsonl"
+install -m 0600 "$plans" "$GITHUB_WORKSPACE/ci_receipts/query_plan_empty_fixture.txt"
+install -m 0600 "$LAB_WORK/catalog_snapshot_sha256.txt" "$GITHUB_WORKSPACE/ci_receipts/catalog_snapshot_sha256.txt"
+echo 'CATALOG_14_TABLES_SHA256_EXPORT=PASS'
