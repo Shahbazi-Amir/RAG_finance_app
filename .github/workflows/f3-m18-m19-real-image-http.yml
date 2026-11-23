@@ -29,7 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           docker build --pull --platform linux/amd64 --file infra/phase3_l1/Dockerfile.api             --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "f3-api-l1:$GITHUB_SHA" .
-          test "$(docker image inspect -f '{{.Config.Labels "org.opencontainers.image.revision"}}' "f3-api-l1:$GITHUB_SHA")" = "$GITHUB_SHA"
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "f3-api-l1:$GITHUB_SHA")" = "$GITHUB_SHA"
           test "$(docker image inspect -f '{{.Architecture}}' "f3-api-l1:$GITHUB_SHA")" = amd64
           test "$(docker run --rm --network none "f3-api-l1:$GITHUB_SHA" id -u)" = 11001
           docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA"
@@ -40,7 +40,7 @@ jobs:
         run: |
           set -euo pipefail
           docker build --pull --platform linux/amd64 --file infra/phase3_l1/Dockerfile.web             --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "f3-web-l1:$GITHUB_SHA" .
-          test "$(docker image inspect -f '{{.Config.Labels "org.opencontainers.image.revision"}}' "f3-web-l1:$GITHUB_SHA")" = "$GITHUB_SHA"
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "f3-web-l1:$GITHUB_SHA")" = "$GITHUB_SHA"
           test "$(docker image inspect -f '{{.Architecture}}' "f3-web-l1:$GITHUB_SHA")" = amd64
           test "$(docker run --rm --network none "f3-web-l1:$GITHUB_SHA" id -u)" = 11003
           docker run --detach --rm --name f3-web-l1 --network host             -e CI=true -e GITHUB_ACTIONS=true             -e AUTH_CI_PRODUCT_CHAT_MODE=INVITED_RESULT_STUB_CI_ONLY             "f3-web-l1:$GITHUB_SHA"
