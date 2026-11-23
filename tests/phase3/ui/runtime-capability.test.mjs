@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {blockedCapability,selectRuntimeCapability,decodeRuntimeCapability} from
+import {blockedCapability,selectRuntimeCapability,decodeRuntimeCapability,appOnlySendBlocked} from
   '../../../apps/web/src/ui/runtime-capability.ts';
 import {GET} from '../../../apps/web/app/api/product-capabilities/route.ts';
 import {forwardHistoryProxy} from '../../../apps/web/src/history/proxy.ts';
@@ -88,5 +88,13 @@ test('app-only BFF Send denies before body consumption, upstream fetch or reserv
   }finally{
     if(old===undefined)delete process.env.PHASE3_APP_MODE;else process.env.PHASE3_APP_MODE=old;
     globalThis.fetch=oldFetch;
+  }
+});
+
+test('unknown declared app profile never enables a Send endpoint',()=>{
+  assert.equal(appOnlySendBlocked(undefined),false);
+  assert.equal(appOnlySendBlocked('NO_DISPATCH_ONLY'),false);
+  for(const value of ['APP_ONLY','APP_ONLY ','APP_ONYL','live','', 'LIVE_ENGINE']){
+    assert.equal(appOnlySendBlocked(value),true,value);
   }
 });
