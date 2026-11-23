@@ -1,0 +1,41 @@
+/** App-only UI capability policy. This is NOT producer readiness or a
+ * browser authority token. The signed BFF must independently reject Send
+ * before body read or durable reservation in app-only mode.
+ *
+ * Only an explicitly trusted private NO_DISPATCH_ONLY profile or a pinned
+ * CI-only intercepted browser fixture can expose the Send button. Neither
+ * mode permits an Answer, Qdrant, model or Gateway dispatch.
+ */
+export type RuntimeCapability=ReadOnlyCapability;
+export type ReadOnlyCapability=Readonly<{
+  kind:'ui_runtime_capabilities';
+  contract_version:'ui.runtime_capabilities.v1';
+  send_mode:'DISABLED'|'NO_DISPATCH_ONLY';
+  engine_available:false;
+  generation_available:false;
+}>;
+
+const disabled:ReadOnlyCapability={
+  kind:'ui_runtime_capabilities',contract_version:'ui.runtime_capabilities.v1',
+  send_mode:'DISABLED',engine_available:false,generation_available:false
+};
+export function blockedCapability():ReadOnlyCapability{return disabled;}
+export function selectRuntimeCapability(input:{
+  appOnly:boolean;
+  approvedNoDispatch:boolean;
+  ciFixture:boolean;
+}):ReadOnlyCapability{
+  return input.appOnly||!(input.approvedNoDispatch||input.ciFixture)
+    ?disabled:{...disabled,send_mode:'NO_DISPATCH_ONLY'};
+}
+export function decodeRuntimeCapability(value:unknown):ReadOnlyCapability|null{
+  if(value===null||typeof value!=='object'||Array.isArray(value))return null;
+  const o=value as Record<string,unknown>;
+  if(Object.keys(o).sort().join('|')!==
+       ['kind','contract_version','send_mode','engine_available','generation_available'].sort().join('|')||
+     o.kind!=='ui_runtime_capabilities'||
+     o.contract_version!=='ui.runtime_capabilities.v1'||
+     !['DISABLED','NO_DISPATCH_ONLY'].includes(String(o.send_mode))||
+     o.engine_available!==false||o.generation_available!==false)return null;
+  return o as ReadOnlyCapability;
+}
