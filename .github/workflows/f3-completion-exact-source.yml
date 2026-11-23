@@ -28,6 +28,11 @@ jobs:
           assert hashlib.sha256(b).hexdigest()==m['owners']['API_F3']['api_lock_sha256']
           print('F3_COMPLETION_OWNER_SOURCE_AND_API_LOCK_PASS',len(m['file_pins']))
           PY
+      - name: Verify all 393 F3 ID records; do not infer Gate acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/f3_candidate_registry.py --out ci_receipts/f3_registry --self-test
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
@@ -59,6 +64,14 @@ jobs:
       - name: Source-only result
         if: always()
         run: echo 'OFFLINE_SOURCE_ONLY; NO_MAC_NO_REAL_C018_NO_GATEWAY_NO_DEPLOY'
+      - name: Export exact-SHA candidate 393-row register
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f3-candidate-393-registry-not-acceptance
+          path: ci_receipts/f3_registry/
+          retention-days: 14
+          if-no-files-found: warn
   source-web-supply-chain:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
