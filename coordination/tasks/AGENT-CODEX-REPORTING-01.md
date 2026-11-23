@@ -153,3 +153,11 @@ Status is review. Supervisor approval is pending.
 - Tested: checked the existing account, realm, client role defaults, group and credential absence over trusted localhost Admin REST. execute-actions-email returned 204 on the single renewal. Fresh browser launched after verifying local TLS for both configured hosts. Expiry of the previous link is invitee-reported. Delivery and action-token completion for the new link remain unverified.
 - Pending: invitee opens the new link in the mapped Chrome profile and completes both actions. Then verify account state and continue product E2E. No duplicate user, no Phase 2 changes, Arvan HOLD. Supervisor acceptance pending.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — local invitation handoff for real password form
+
+- Status: blocked on invitee link handoff. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), operational evidence only. Reporting baseline codex 8905dbc, execution baseline ops/mac-first-start 5764fff.
+- Implemented: bounded local invitation-only clipboard receiver with exact issuer, host and realm path restrictions. Report-only updates to this ledger, MAC_FIRST_START_FA.md, MAC_FIRST_START_FA.html and CURRENT_STATUS.md.
+- Tested: existing account remains unverified and has no password. Browser DOM automation is unavailable on the existing mail browser. No exact invitation was found in the initial clipboard check or within the 150-second receiver window. Independent mounted C018 SQLite storage passed PRAGMA quick_check in immutable read-only mode. No retrieval or model call.
+- Pending: invitee copies the current link on the Mac and the receiver opens the actual Keycloak action in isolated Chrome. Password form, identity completion and product E2E remain pending. No second renewal or duplicate identity. Arvan HOLD.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
