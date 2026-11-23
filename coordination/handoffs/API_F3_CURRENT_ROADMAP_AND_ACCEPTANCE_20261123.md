@@ -4,11 +4,11 @@
 
 ## A. Primary API roadmap, by the original 91 IDs
 
-Historical/source starts: **61 PARTIAL (67.03%)**, **30 NOT_VERIFIED (32.97%)**; accepted primary rows **0/91 (0%)**. The latest audit ledger captures **20/91 (21.98%) named directly tested *limited L1 subcases***, leaving **71/91** without *new individually bound* tests from the API turns, which does NOT erase earlier aggregate CI. These subsets overlap; never add 67.03% and 21.98% or treat 20 limited L1 subcases as completed rows.
+Historical/source starts: **61 PARTIAL (67.03%)**, **30 NOT_VERIFIED (32.97%)**; accepted primary rows **0/91 (0%)**. The latest audit ledger captures **22/91 (24.18%) named directly tested *limited L1 subcases***, leaving **69/91** without *new individually bound* tests from the API turns, which does NOT erase earlier aggregate CI. These subsets overlap; never add 67.03% and 24.18% or treat 22 limited L1 subcases as completed rows.
 
 ```text
 Partial implementation started       61 / 91  67.03%  █████████████░░░░░░░
-Individually bound limited L1         20 / 91  21.98%  ████░░░░░░░░░░░░░░░░
+Individually bound limited L1         22 / 91  24.18%  █████░░░░░░░░░░░░░░░
 Entire API row acceptance             0 / 91   0.00%  ░░░░░░░░░░░░░░░░░░░░
 Module gate acceptance                0 / 26   0.00%  ░░░░░░░░░░░░░░░░░░░░
 ```
@@ -19,12 +19,12 @@ Module gate acceptance                0 / 26   0.00%  ░░░░░░░░�
 | M07 Knowledge Release Loader | 10 | 10 | 0 | 1 | 0 |
 | M08 Retrieval Runtime | 10 | 10 | 0 | 3 | 0 |
 | M09 Model Gateway | 10 | 0 | 10 | 1 | 0 |
-| M10 Answer Orchestration | 10 | 10 | 0 | 2 | 0 |
+| M10 Answer Orchestration | 10 | 10 | 0 | 3 | 0 |
 | M11 Citation & Attribution | 11 | 11 | 0 | 4 | 0 |
 | M12 Safety/No-answer Policy | 10 | 0 | 10 | 1 | 0 |
-| M13 Product API | 10 | 10 | 0 | 5 | 0 |
+| M13 Product API | 10 | 10 | 0 | 6 | 0 |
 | M17 Cache/Rate/Cost | 10 | 0 | 10 | 1 | 0 |
-| **TOTAL** | **91** | **61** | **30** | **20** | **0** |
+| **TOTAL** | **91** | **61** | **30** | **22** | **0** |
 
 Whole Phase 3 denominator **262 distinct P3M activities**, **26 independent Gates**; the user-delivered view includes **252** (151 PARTIAL, 58 NOT_VERIFIED, 43 NOT_RUN) and omits Module01's **10** tasks. The Foundation P3OP 105 IDs are crosswalk aliases, not extra tasks. Any unobserved other-owner acceptance must be checked at CENTRAL; source CI and API-only notes cannot sign off on it.
 
@@ -41,8 +41,9 @@ Whole Phase 3 denominator **262 distinct P3M activities**, **26 independent Gate
 | **[#72](https://github.com/Shahbazi-Amir/RAG_finance_app/pull/72)** | `633c515ed392c9e767771ab4620aef1292dfe307` first tested source | Reject duplicate ranked C018 chunk IDs on ingest/ledger replay and reconcile valid source receipt count with C018 summary. Preserve UNVERIFIED fallback with no rows. 10 new negative/positive tests | [45223379162](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45223379162): **187 API +54 contract =241 unique PASS** |
 | **[#74](https://github.com/Shahbazi-Amir/RAG_finance_app/pull/74)** | `b5e32e621e4247a12e1ad5251aace20714a21990` code tested | 64KiB max and exact canonical JSON replay in local private Retrieval ledger even with recomputed checksum, deny duplicate keys/sensitive raw query/nonfinite/whitespace; 5 new tests, no real producer or HMAC claim | [45225025441](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45225025441): **192 API +54 contracts =246 unique PASS** |
 | **[#75](https://github.com/Shahbazi-Amir/RAG_finance_app/pull/75)** | `93ad0c21dd98ed1bc8f3f36261c1d6b4c307cebf` tested source | JSON Schema FormatChecker + syntactic authority/credentials/port/backslash/control handling for Product Citation HTTPS URL. 6 L1 tests; no real URL reachability, C019 provenance, author attribution or Source approval | [45226300758](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45226300758): **198 API +54 contracts =252 unique PASS** |
+| **[#76](https://github.com/Shahbazi-Amir/RAG_finance_app/pull/76)** | `ec861c44e3b56902303fb3e395c8393dd8fdd60d` tested executable source | Fence persisted T2 identity across no-dispatch reserve/start/fail/succeed incl product_request_id; one new authentic signed mTLS/RS256 BFF→FastAPI→restricted PG17 A/B History/Refresh/Revoke CI test; remove stale #36 authentication shadow-copy in CI | [Offline 45232210573](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45232210573): **203 API +54 contracts =257 unique PASS**; [isolated signed PG 45233478171](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45233478171): **10 Keycloak +5 signed Product API +5 T2 binding PASS**. No Mac L2/C018 child/paid generation |
 
-These stacked PRs have base chain **#61 ← #66 ← #68 ← #70 ← #71 ← #72 ← #74 ← #75**. #64 Foundation latest integrated source has NOT been shown to contain #70/#71/#72/#74/#75. Deployed Mac SHA **NOT_OBSERVED**. Any green GitHub Actions tests are offline **L1**, not signed real Mac **L2**. Do not claim CI "synthetic origin" to be genuine Phase2 producer provenance.
+These stacked PRs have base chain **#61 ← #66 ← #68 ← #70 ← #71 ← #72 ← #74 ← #75 ← #76**. #64 Foundation latest integrated source has NOT been shown to contain #70/#71/#72/#74/#75/#76. Deployed Mac SHA **NOT_OBSERVED**. Any green GitHub Actions tests are offline **L1**, not signed real Mac **L2**. Do not claim CI "synthetic origin" to be genuine Phase2 producer provenance.
 
 ## C. Remaining checklist by executable paths and external hold
 
@@ -60,10 +61,10 @@ These stacked PRs have base chain **#61 ← #66 ← #68 ← #70 ← #71 ← #72 
 
 ## D. Concrete next action gate and no-authority zone
 
-1. **API owner independent now:** all missing per-ID negative+positive source tests (71 IDs currently without new individually attributable limited L1), no mutation to accepted schemas, maintain exact pinned CI.
+1. **API owner independent now:** all missing per-ID negative+positive source tests (69 IDs currently without new individually attributable limited L1), no mutation to accepted schemas, maintain exact pinned CI.
 2. **Foundation/Ops:** isolate current source sha with UI #65 and DB #59 on an approved candidate Mac namespace; capture sanitized runtime/OS/HTTP/DB evidence tied to image/source sha. No legacy stack impact.
 3. **CENTRAL+DB+UI:** approve one versioned Consent/Feedback/Delete/Retention transaction; only then implement real endpoints and migrate/verify restore safely.
 4. **ENGINE+Phase2:** release accepted NB23 and genuine C019/Locator; no `LIVE_VERIFIED` without this.
 5. **CENTRAL cost/security:** separate explicit permission before Gateway/model generation or DB011/T3 production, then benchmark, security, stage and Go/No-Go.
 
-**Current acceptance**: API **0/91**, Gates **0/26**. **This user turn (both cycles #74 and #75): 16 → 20 limited direct L1 row IDs (+4/91, +4.40 percentage points) and 241 → 252 unique passing tests (+11). Final full-row acceptance remains 0/91.**; **0/91 remains fully accepted**. **Full completion cannot be performed by the API-only Draft code lane without the external artifacts/approvals above.** All unchecked rows remain open and have owner/criteria/next action in the [live 91-row matrix](./API_F3_91_ROW_L1_SOURCE_MATRIX_20261123.csv).
+**Current acceptance**: API **0/91**, Gates **0/26**. **THIS PROMPT: 20 → 22 directly tested *limited* L1 row subcases (+2/91 = +2.20 percentage points); 252 → 257 unique offline API+contract tests (+5), plus a new real signed HTTPS/mTLS+RS256 FastAPI↔disposable PostgreSQL17.11 A/B History/Refresh/Revoke test PASS. Complete-row acceptance remains 0/91 and all 26 Gates remain open.**; **0/91 remains fully accepted**. **Full completion cannot be performed by the API-only Draft code lane without the external artifacts/approvals above.** All unchecked rows remain open and have owner/criteria/next action in the [live 91-row matrix](./API_F3_91_ROW_L1_SOURCE_MATRIX_20261123.csv).

@@ -1,7 +1,7 @@
 name: F3 real isolated Docker images and Web HTTP smoke M18 M19
 on:
   push:
-    branches: [integration/f3-m18-m19-container-build-20261123]
+    branches: [integration/f3-m18-m19-container-build-20261123, integration/f3-foundation-20261124-app-only-candidate]
   workflow_dispatch:
 permissions:
   contents: read
@@ -69,7 +69,7 @@ jobs:
             imgs[name]={"image_id":x["Id"],"platform":x["Os"]+"/"+x["Architecture"],
                         "source_label":x["Config"]["Labels"]["org.opencontainers.image.revision"]}
           doc={"schema":"f3.m18_m19.real_ci_image.v1","git_sha":sha,"images":imgs,
-               "actual_build":"PASS","api_tests_in_container":"196_OF_198_PASS_TWO_ENGINE_MOUNT_DEPENDENT_BLOCKED","web_http_200":"PASS",
+               "actual_build":"PASS","api_tests_in_container":"ENGINE_INDEPENDENT_SUBSET_EXECUTED_SEE_JOB_LOG","web_http_200":"PASS",
                "bad_host_404":"PASS","real_api_tls_http":"NOT_RUN","mac":"NOT_RUN",
                "real_c018":"NOT_RUN","pg_app_connected":"NOT_RUN",
                "oci_security_scan":"NOT_RUN","release_gate":"NOT_ACCEPTED",
