@@ -384,7 +384,7 @@ class RealProductSession011(unittest.TestCase):
             self.assertEqual(page.status_code, 200, page.text)
             doc = page.json()
             self.assertEqual(doc["kind"], "conversation_messages_page")
-            self.assertEqual(doc["scope_user_id"], a["owner_id"])
+            self.assertEqual(doc["owner_user_id"], a["owner_id"])
             self.assertIn(question, [x["text"] for x in doc["items"]])
             self.assertTrue(all(x["owner_user_id"] == a["owner_id"]
                                 for x in doc["items"]))
