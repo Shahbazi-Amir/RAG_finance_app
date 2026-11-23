@@ -257,7 +257,7 @@ class RealProductSession011(unittest.TestCase):
             return created["conversation"]["conversation_id"]
 
     def list(self, pending, *, override=None, token=None, query=""):
-        t = token or self.signed(pending, query=query.encode(), override=override)[0]
+        t = token or self.signed(pending, query=query.removeprefix("?").encode(), override=override)[0]
         return self.request("GET", LIST, t, query=query)
 
     def test_API011_01_pending_denied_then_A_B_real_owner_lists_and_005_replay(self):
