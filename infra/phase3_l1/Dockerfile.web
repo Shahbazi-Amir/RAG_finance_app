@@ -15,5 +15,11 @@ WORKDIR /srv/release/apps/web
 COPY --from=build /srv/release/apps/web /srv/release/apps/web
 COPY --from=build /srv/release/packages/contracts /srv/release/packages/contracts
 RUN groupadd -g 11003 web && useradd -u 11003 -g 11003 -m -d /home/web web && chown -R 11003:11003 /srv/release/apps/web
+# This app-only candidate has no Engine service; runtime controls remain
+# server-enforced by the BFF, not a JavaScript/HTML feature flag.
+ENV PHASE3_APP_MODE=APP_ONLY
 USER 11003:11003
-CMD ["npm","run","start"]
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=4s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3000/api/product-capabilities').then(r=>{if(!r.ok)process.exit(1);return r.json()}).then(j=>process.exit(j.send_mode==='DISABLED'?0:1)).catch(()=>process.exit(1))"
+CMD ["./node_modules/.bin/next","start","-H","0.0.0.0","-p","3000"]
