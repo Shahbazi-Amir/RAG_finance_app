@@ -208,3 +208,25 @@ PY
 install -m 0600 "$adversarial" "$GITHUB_WORKSPACE/ci_receipts/history_rls_adversarial_receipt.json"
 echo 'HISTORY_READ_WRITE_OWNER_FK_AND_DEDUPE_NEGATIVE_RECEIPT=PASS'
 echo 'HISTORY_TRUSTED_ACTOR_FENCE_SIGNED_HTTP=NOT_RUN'
+
+# Original backup corruption/truncation fail-closed preflight evidence.
+# No corrupt dump or clean raw pg_dump is ever attached to public CI artifacts.
+backup_fault="$LAB_WORK/backup_integrity_fault_receipt.json"
+[[ -s "$backup_fault" ]] || { echo STOP_BACKUP_INTEGRITY_FAULT_RECEIPT_MISSING >&2;exit 70; }
+python3 - "$backup_fault" <<'PY'
+import json,sys
+from pathlib import Path
+r=json.loads(Path(sys.argv[1]).read_text())
+assert r["contract_version"]=="f3.db.synthetic_backup_integrity_fault.v1"
+assert r["single_byte_changed_sha256_mismatch"]=="FAIL_CLOSED_BEFORE_RESTORE"
+assert r["truncated_dump_sha256_mismatch"]=="FAIL_CLOSED_BEFORE_RESTORE"
+assert r["healthy_dump_sha256_rechecked"]=="PASS"
+assert r["healthy_source_and_independent_restore_cluster_ids_unchanged"] is True
+assert r["corrupt_archives_restored"] is False and r["corrupt_restore_sql_attempts"]==0
+assert r["encrypted_offsite_backup"]=="NOT_TESTED" and r["pitr"]=="NOT_TESTED"
+assert r["real_disaster_recovery"]=="NOT_TESTED"
+assert r["rpo_rto_signed"]=="NOT_DEFINED" and r["module_gate"]=="NOT_ACCEPTED"
+PY
+install -m 0600 "$backup_fault" "$GITHUB_WORKSPACE/ci_receipts/backup_integrity_fault_receipt.json"
+echo 'BACKUP_CORRUPT_AND_TRUNCATED_NEGATIVE_RECEIPT=PASS'
+echo 'BACKUP_PRODUCTION_PITR_AND_ENCRYPTION_GATE=NOT_TESTED'
