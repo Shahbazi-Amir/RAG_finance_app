@@ -121,7 +121,8 @@ def load_app_only_config(path: Path) -> AppOnlyConfig:
 
 def assert_app_only_environment(environ) -> None:
     """CI switches, dispatch toggles and model handles cannot enable app-only."""
-    if (environ.get("API_RUNNER_EXECUTION_MODE") != "APP_ONLY"
+    if (environ.get("PHASE3_APP_MODE") != "APP_ONLY"
+            or environ.get("API_RUNNER_EXECUTION_MODE") != "APP_ONLY"
             or environ.get("CI") == "true"
             or environ.get("GITHUB_ACTIONS") == "true"
             or any(environ.get(key) for key in _NO_ENGINE_FLAGS)):
@@ -163,8 +164,10 @@ class AppOnlyASGI:
             return await JSONResponse(
                 {"error": "SERVICE_UNAVAILABLE"}, status_code=503,
                 headers={"Cache-Control": "no-store"})(scope, receive, private_send)
-        if (scope.get("raw_path") == b"/v1/messages"
+        if (scope.get("path") == "/v1/messages"
                 and scope.get("method") == "POST"):
+            # Routing uses the percent-decoded ASGI path. A raw-path-only
+            # comparison could let /v1/%6dessages bypass the pre-body fence.
             # No body parsing, trusted-user mutation, PG T1/T2, runner queue,
             # synthetic Answer, citation, or Gateway network call.
             from apps.api import history_api
@@ -172,7 +175,7 @@ class AppOnlyASGI:
                 503, "ENGINE_NOT_CONFIGURED", "technical",
                 "Message sending is unavailable until the engine is enabled.",
             )(scope, receive, private_send)
-        if (scope.get("raw_path") == b"/internal/ready"
+        if (scope.get("raw_path") in {b"/internal/ready", b"/health/ready"}
                 and scope.get("method") == "GET"
                 and not scope.get("query_string")):
             try:
