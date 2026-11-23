@@ -1,0 +1,61 @@
+# CI/isolated app-only internal topology. NO public ports, no account data,
+# engine lock, Qdrant, model service, Runner, IdP, or PG credentials.
+# The API only exposes liveness and denied Send/History until signed transport
+# and DB are approved; /health/live is NOT product readiness.
+# Only start with a fresh explicit F3_PROJECT_NAME; never re-use the Mac demo.
+name: ${F3_PROJECT_NAME:?unique isolated project required}
+services:
+  api:
+    image: rag-f3-app-only-api:${F3_RELEASE_TAG:?pin candidate tag}
+    build:
+      context: ../..
+      dockerfile: infra/phase3_l1/Dockerfile.api
+      args:
+        SOURCE_SHA: ${F3_SOURCE_SHA:?pin commit SHA}
+    pull_policy: never
+    platform: linux/amd64
+    init: true
+    user: "11001:11001"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=16m,uid=11001,gid=11001
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1.0
+    restart: "no"
+    networks:
+      private: {aliases: [app-only-api]}
+    environment:
+      PHASE3_APP_MODE: APP_ONLY
+  web:
+    image: rag-f3-app-only-web:${F3_RELEASE_TAG:?pin candidate tag}
+    build:
+      context: ../..
+      dockerfile: infra/phase3_l1/Dockerfile.web
+      args:
+        SOURCE_SHA: ${F3_SOURCE_SHA:?pin commit SHA}
+    pull_policy: never
+    platform: linux/amd64
+    init: true
+    user: "11003:11003"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=32m,uid=11003,gid=11003
+      - /srv/release/apps/web/.next/cache:rw,nosuid,size=64m,uid=11003,gid=11003
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    restart: "no"
+    environment:
+      PHASE3_APP_MODE: APP_ONLY
+    depends_on:
+      api: {condition: service_healthy}
+    networks: [private]
+networks:
+  private:
+    internal: true
+    attachable: false
