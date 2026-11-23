@@ -330,6 +330,110 @@ class RealProductSession011(unittest.TestCase):
             ).fetchone()["allowed"])
         print("API011_REVOKE_PROOF_BODY_OWNER_AND_RESTRICTED_ROLE_PASS", flush=True)
 
+    def test_API011_04_real_signed_messages_status_refresh_and_revoke_two_owners(self):
+        """Actual HTTPS client cert + RS256 signed BFF + restricted PG17.
+
+        One committed T1/T2, owner-scoped History, read-only refresh,
+        cross-owner masking and revoke. No C018 or model dispatch.
+        """
+        from urllib.parse import urlencode
+        a, b = self.login("A"), self.login("B")
+        self.assertNotEqual(a["owner_id"], b["owner_id"])
+        question = "CI_PRIVATE_A_MESSAGE_NOT_FOR_B"
+        req = {
+            "kind": "create_conversation_request",
+            "contract_version": "product.v1",
+            "client_conversation_id": history_api.uid(),
+            "idempotency_key": "cihist_" + uuid.uuid4().hex,
+            "title": "CI_PRIVATE_A_CONVERSATION",
+        }
+        with psycopg.connect(os.environ["DB_APP_DSN"], autocommit=True,
+                             row_factory=dict_row) as c:
+            created = history_api.create_conversation(
+                c, a["owner_id"], req, history_api.uid(), history_api.uid())
+            cid = created["conversation"]["conversation_id"]
+            send = {
+                "kind": "send_message_request",
+                "contract_version": "product.v1",
+                "requested_conversation_id": cid,
+                "client_message_id": history_api.uid(),
+                "idempotency_key": "cihist_" + uuid.uuid4().hex,
+                "question": question,
+            }
+            persisted = history_api.send_t1(
+                c, a["owner_id"], send, history_api.uid(), history_api.uid())
+            attempt = history_api.start_t2(
+                c, a["owner_id"], cid, send["client_message_id"],
+                send["idempotency_key"], history_api.uid(), history_api.uid())
+        path = "/v1/conversations/" + cid + "/messages"
+        status_path = "/v1/message-requests/status"
+        query = "?" + urlencode({
+            "requested_conversation_id": cid,
+            "client_message_id": send["client_message_id"],
+            "idempotency_key": send["idempotency_key"],
+        })
+        def signed_get(actor, endpoint, q=""):
+            token, _ = self.signed(
+                actor, method="GET", path=endpoint, query=q.encode("ascii"))
+            return self.request("GET", endpoint, token, query=q)
+
+        # A real HTTP response from PostgreSQL, not an in-process history
+        # dependency override or forged client-side actor.
+        for _ in range(2):
+            page = signed_get(a, path)
+            self.assertEqual(page.status_code, 200, page.text)
+            doc = page.json()
+            self.assertEqual(doc["kind"], "conversation_messages_page")
+            self.assertEqual(doc["scope_user_id"], a["owner_id"])
+            self.assertIn(question, [x["text"] for x in doc["items"]])
+            self.assertTrue(all(x["owner_user_id"] == a["owner_id"]
+                                for x in doc["items"]))
+            status = signed_get(a, status_path, query)
+            self.assertEqual(status.status_code, 200, status.text)
+            data = status.json()
+            self.assertEqual(data["kind"], "message_request_status")
+            self.assertEqual(data["status"], "attempt_pending")
+            self.assertEqual(data["attempt_id"], attempt["id"])
+            self.assertEqual(data["message_id"], persisted["message_id"])
+            self.assertIsNone(data["answer"])
+        # Owner B has an active valid session but cannot learn the resource.
+        for endpoint, q in ((path, ""), (status_path, query)):
+            denied = signed_get(b, endpoint, q)
+            self.assertEqual(denied.status_code, 404, denied.text)
+            self.assertNotIn(question, denied.text)
+            self.assertEqual(denied.headers.get("cache-control"), "no-store")
+        # Refreshes only read; no additional T1/T2 or synthetic T3.
+        with psycopg.connect(os.environ["DB_MIG_DSN"], autocommit=True,
+                             row_factory=dict_row) as admin:
+            count = admin.execute(
+                "SELECT count(*) AS n FROM history_l1.execution_attempts "
+                "WHERE owner_id=%s AND send_receipt_id IN "
+                "(SELECT id FROM history_l1.send_receipts "
+                "WHERE owner_id=%s AND client_message_id=%s)",
+                (a["owner_id"], a["owner_id"], send["client_message_id"])
+            ).fetchone()["n"]
+            self.assertEqual(count, 1)
+            answers = admin.execute(
+                "SELECT count(*) AS n FROM history_l1.answers "
+                "WHERE owner_id=%s AND attempt_id=%s",
+                (a["owner_id"], attempt["id"])
+            ).fetchone()["n"]
+            self.assertEqual(answers, 0)
+        operation_id = str(uuid.uuid4())
+        raw = json.dumps({"operation_id": operation_id},
+                         separators=(",", ":")).encode("ascii")
+        revocation = self.request(
+            "POST", REVOKE, self.signed(a, "POST", REVOKE, raw)[0],
+            body=raw)
+        self.assertEqual(revocation.status_code, 200, revocation.text)
+        self.assertEqual(signed_get(a, path).status_code, 401)
+        self.assertEqual(signed_get(a, status_path, query).status_code, 401)
+        # Independent B remains admitted; A is not made readable by B.
+        self.assertEqual(self.list(b).status_code, 200)
+        self.assertEqual(signed_get(b, status_path, query).status_code, 404)
+        print("API_F3_REAL_SIGNED_PG_T1_T2_HISTORY_REFRESH_AB_REVOKE_PASS",
+              flush=True)
+
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
         """Actual verified HTTPS callback, same pinned redirect for Code exchange."""
         from cryptography.hazmat.primitives import serialization
