@@ -13,3 +13,7 @@ Source expected exact Git SHA must be supplied as `F3_SOURCE_SHA` and verified a
 - Missing Product roles or bad TLS/RS256: API fails before listen, no Send or History.
 - Missing BFF config: UI fails closed; no anonymous real Product data.
 - Web container has no standalone network: its server listens 127.0.0.1 in API namespace by design. It will NOT work from another network without an approved ingress.
+
+## First wiring correction
+PG17 is configured for TLS with Ops-supplied private server key (0600 owned by PostgreSQL runtime UID), CA, X.509 cert and strict scram-sha-256 pg_hba.conf; no permissive host trust. A plain postgres default would reject the API's required sslmode=verify-full and is NOT a valid candidate.
+BFF `store_dir` is now a **fresh unique host bind directory** `F3_WEB_STORE_DIR`, mode 0700 and owned by UID11003, not an auto-created root-owned Docker volume. The original signed BFF rejects wrong store ownership; do not chmod/chown an existing demo directory. The postgres and web stored files must be on fresh independent paths, recorded by Ops with hash/ownership receipts.

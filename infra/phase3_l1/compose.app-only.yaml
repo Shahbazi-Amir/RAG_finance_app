@@ -12,11 +12,29 @@ services:
       POSTGRES_DB: rag_finance_f3_app_only
       POSTGRES_PASSWORD_FILE: /run/pg/password
       PGDATA: /var/lib/postgresql/data/pgdata
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/run/pg/pki/server.crt
+      - -c
+      - ssl_key_file=/run/pg/pki/server.key
+      - -c
+      - ssl_ca_file=/run/pg/pki/ca.crt
+      - -c
+      - hba_file=/run/pg/pki/pg_hba.conf
+      - -c
+      - password_encryption=scram-sha-256
     volumes:
       - pgdata:/var/lib/postgresql/data
       - type: bind
         source: ${F3_PG_PASSWORD_FILE:?fresh_pg_password_file}
         target: /run/pg/password
+        read_only: true
+      - type: bind
+        source: ${F3_PG_PKI_DIR:?ops_pg17_ca_server_cert_hba_dir}
+        target: /run/pg/pki
         read_only: true
     networks: [pg_private]
     healthcheck:
@@ -118,7 +136,9 @@ services:
         source: ${F3_WEB_PKI_DIR:?ops_bff_private_pki}
         target: /run/web/pki
         read_only: true
-      - webstore:/run/web/session-store
+      - type: bind
+        source: ${F3_WEB_STORE_DIR:?fresh_UID11003_mode0700_bff_session_dir}
+        target: /run/web/session-store
     depends_on:
       bootstrap:
         condition: service_healthy
@@ -137,5 +157,3 @@ networks:
 volumes:
   pgdata:
     name: ${F3_COMPOSE_PROJECT:?}_pg17_new_only
-  webstore:
-    name: ${F3_COMPOSE_PROJECT:?}_bff_store_new_only
