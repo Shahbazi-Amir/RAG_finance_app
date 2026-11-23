@@ -1,0 +1,24 @@
+name: F3 progress checkpoint exact-source arithmetic and negative tests
+on:
+  push:
+    branches: [integration/f3-preflight-hardening-progress-20261123]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  checkpoint-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify exact source-pinned summary and fail-closed negative mutations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/f3_progress_checkpoint_verify.py coordination/f3_execution/progress_cycles/20261123.json --self-test
+          echo 'PROGRESS_COVERAGE_NOT_GATE_ACCEPTANCE'

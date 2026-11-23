@@ -1,0 +1,232 @@
+{
+  "schema": "foundation.f3.cycle_checkpoint.v1",
+  "cycle_date": "2026-11-23",
+  "source_git_parent": "ac6aaf616c7e4c630e456316d96185d882de5580",
+  "source_git_ci": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45223368556",
+  "source_csv_sha256": {
+    "FULL_PHASE3_262_EXECUTION_CHECKLIST.csv": "e41b04ff65c0197edd8fb112168bdb3e9e50067da498f27349743f82d4ed9f06",
+    "FOUNDATION_121_EXECUTION_CHECKLIST.csv": "60436bde053a32bf0d1c7ae66f6eb26505a068efb028b822798707168c60b375",
+    "26_INDEPENDENT_GATES.csv": "ae913593902e2aeccd7f1e69550afe32841eeb989b1f8f1f1907f911b4059011",
+    "105_OPERATIONAL_ALIASES_NONCOUNTING.csv": "61387fd6b21e80547161e020e526d9f73d4bb866080dee2a7bda945ec6133335"
+  },
+  "foundation": {
+    "total": 121,
+    "PARTIAL": 40,
+    "NOT_VERIFIED": 38,
+    "NOT_RUN": 43,
+    "accepted": 0,
+    "partial_coverage_pct": 33.06
+  },
+  "full": {
+    "total": 262,
+    "PARTIAL": 151,
+    "NOT_VERIFIED": 68,
+    "NOT_RUN": 43,
+    "accepted": 0,
+    "partial_coverage_pct": 57.63
+  },
+  "gates": {
+    "total": 26,
+    "accepted": 0,
+    "remaining": 26
+  },
+  "aliases": {
+    "total_noncounting": 105,
+    "accepted": 0
+  },
+  "modules": [
+    [
+      "P3M00",
+      8,
+      0,
+      8,
+      0
+    ],
+    [
+      "P3M01",
+      10,
+      0,
+      10,
+      0
+    ],
+    [
+      "P3M02",
+      10,
+      10,
+      0,
+      0
+    ],
+    [
+      "P3M03",
+      9,
+      9,
+      0,
+      0
+    ],
+    [
+      "P3M04",
+      9,
+      9,
+      0,
+      0
+    ],
+    [
+      "P3M05",
+      10,
+      10,
+      0,
+      0
+    ],
+    [
+      "P3M06",
+      9,
+      9,
+      0,
+      0
+    ],
+    [
+      "P3M07",
+      10,
+      10,
+      0,
+      0
+    ],
+    [
+      "P3M08",
+      10,
+      10,
+      0,
+      0
+    ],
+    [
+      "P3M09",
+      10,
+      0,
+      10,
+      0
+    ],
+    [
+      "P3M10",
+      10,
+      10,
+      0,
+      0
+    ],
+    [
+      "P3M11",
+      11,
+      11,
+      0,
+      0
+    ],
+    [
+      "P3M12",
+      10,
+      0,
+      10,
+      0
+    ],
+    [
+      "P3M13",
+      10,
+      10,
+      0,
+      0
+    ],
+    [
+      "P3M14",
+      12,
+      12,
+      0,
+      0
+    ],
+    [
+      "P3M15",
+      10,
+      10,
+      0,
+      0
+    ],
+    [
+      "P3M16",
+      10,
+      0,
+      10,
+      0
+    ],
+    [
+      "P3M17",
+      10,
+      0,
+      10,
+      0
+    ],
+    [
+      "P3M18",
+      10,
+      10,
+      0,
+      0
+    ],
+    [
+      "P3M19",
+      11,
+      11,
+      0,
+      0
+    ],
+    [
+      "P3M20",
+      11,
+      0,
+      0,
+      11
+    ],
+    [
+      "P3M21",
+      10,
+      0,
+      10,
+      0
+    ],
+    [
+      "P3M22",
+      10,
+      10,
+      0,
+      0
+    ],
+    [
+      "P3M23",
+      10,
+      0,
+      0,
+      10
+    ],
+    [
+      "P3M24",
+      11,
+      0,
+      0,
+      11
+    ],
+    [
+      "P3M25",
+      11,
+      0,
+      0,
+      11
+    ]
+  ],
+  "this_turn": {
+    "new_tool": "Source-hash-pinned 393-row status reporter and negative tests",
+    "tests_local": 22,
+    "foundation_coverage_delta_pp": 0,
+    "full_coverage_delta_pp": 0,
+    "accepted_gate_delta": 0,
+    "acceptance_delta": 0,
+    "latest_mac_e2e": "NOT_RUN",
+    "arvan": "HOLD"
+  },
+  "acceptance_scope": "SOURCE_ONLY_NOT_ACCEPTED"
+}
