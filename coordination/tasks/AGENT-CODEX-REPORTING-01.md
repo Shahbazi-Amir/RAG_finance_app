@@ -97,3 +97,11 @@ Status is review. Supervisor approval is pending.
 - Tested: docker version confirmed server access. docker ps -a inventory found zero known mail containers. lsof found zero visible SMTP listeners on 25/465/587/1025. Parameterized realm lookup confirmed one enabled realm, closed registration, and zero matching SMTP and user rows. Reviewed execution helper and local operational configuration. No email or identity writes.
 - Blocker: provide one approved Staging SMTP setup for an invitee-controlled test inbox through secure handoff. Invitation, OIDC, signed request, C018 and Refresh remain pending. Arvan HOLD and supervisor acceptance pending.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — Gmail STARTTLS and private management access
+
+- Status: blocked. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), operational evidence only. Reporting baseline codex 0951842 and execution baseline ops/mac-first-start b57bf7a.
+- Implemented: restored Docker Desktop and the seven existing staging containers in place. Report changes only in this ledger, docs/codex_execution/MAC_FIRST_START_FA.md, MAC_FIRST_START_FA.html, and CURRENT_STATUS.md.
+- Tested: Gmail TCP connection through docker exec and an unauthenticated SMTP STARTTLS probe using Python ssl.create_default_context with Gmail hostname verification. Negotiated TLS 1.3. Trusted curl request to ingress /admin/ returned 403. Keycloak had no published admin port. No SMTP auth, email send, invite, or runtime product attempt.
+- Blocker: an authorized private Keycloak administration URL is needed for the account holder to enter the App Password in Staging > Realm settings > Email > Authentication > Password. Ingress access restrictions preserved. Arvan HOLD. Supervisor acceptance pending.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
