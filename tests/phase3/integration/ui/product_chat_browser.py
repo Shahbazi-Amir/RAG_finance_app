@@ -29,7 +29,8 @@ def main():
              "logged_in": True, "request": None,
              "source_reads": 0, "source_mode": "valid",
              "owner_mode": "original", "thread_mode": "original",
-             "list_mode": "valid", "status_mode": "valid", "engine_mode": "valid"}
+             "list_mode": "valid", "status_mode": "valid",
+             "thread_text_mode": "normal", "engine_mode": "valid"}
     conversation_id = "conv_uichat_013"
     user_message = "msg_uichat_013"
 
@@ -98,7 +99,9 @@ def main():
                 user["conversation_id"] = conversation_id
                 user["owner_user_id"] = body["owner_user_id"]
                 user["message_id"] = user_message
-                user["text"] = state["request"]["question"]
+                user["text"] = ("STALE_THREAD_ROW_MUST_NOT_RETURN"
+                                if state["thread_text_mode"] == "old"
+                                else state["request"]["question"])
                 body["items"] = [user]
             if state["thread_mode"] == "changed":
                 body["owner_user_id"] = "usr_owner_B_403_3"
@@ -316,6 +319,49 @@ def main():
             expect(page.get_by_test_id("history-send")).to_be_disabled()
             assert state["posts"] == 1
             page.locator(".history-mobile-close").click()
+            # Hold a successful *older* signed-scoped thread GET after the
+            # transport response was issued, then pass through owner-list 503
+            # and recovery. Old data must not replace the newly fetched row.
+            # This exercises the privacy epoch (not merely the thread counter,
+            # which may restart at 1 when the old list is cleared).
+            state["thread_text_mode"] = "old"
+            page.evaluate("""() => {
+                const previous = window.fetch.bind(window);
+                window.__heldOldThread = {armed:true,ready:false};
+                window.fetch = (...args) => {
+                  const url = typeof args[0] === 'string' ? args[0] : args[0].url;
+                  if (window.__heldOldThread.armed &&
+                      url.includes('/api/history/conversations/conv_uichat_013/messages?')) {
+                    window.__heldOldThread.armed = false;
+                    return previous(...args).then(response => new Promise(resolve => {
+                      window.__heldOldThread.ready = true;
+                      window.__heldOldThread.release = () => resolve(response);
+                    }));
+                  }
+                  return previous(...args);
+                };
+            }""")
+            page.get_by_test_id("recover-status").click()
+            page.wait_for_function("window.__heldOldThread?.ready === true", timeout=15000)
+            state["thread_text_mode"] = "normal"
+            state["list_mode"] = "unavailable"
+            menu.click()
+            page.get_by_test_id("refresh-history").click()
+            expect(page.get_by_test_id("history-owner-revalidation-required")).to_be_visible()
+            assert page.get_by_test_id("history-message-" + user_message).count() == 0
+            state["list_mode"] = "valid"
+            page.get_by_test_id("refresh-history").click()
+            thread_row = page.get_by_test_id("history-message-" + user_message)
+            expect(thread_row).to_contain_text("پرسش فارسی دربارهٔ نرخ بهره")
+            page.evaluate("window.__heldOldThread.release()")
+            page.wait_for_timeout(150)
+            expect(thread_row).to_contain_text("پرسش فارسی دربارهٔ نرخ بهره")
+            assert page.get_by_text("STALE_THREAD_ROW_MUST_NOT_RETURN").count() == 0
+            assert state["posts"] == 1
+            page.locator(".history-mobile-close").click()
+            # A stale History GET cannot cross a failed signed owner-list
+            # validation even if a new GET reuses a per-thread epoch number.
+            print("UI_F3_L1_503_STALE_THREAD_RESPONSE_PRIVACY_EPOCH_FENCED_PASS")
             # Hold an already received owner-A status response until *after*
             # a signed owner-B list invalidates this tab. A late GET must not
             # restore the deleted old Attempt/Source or re-send the question.
