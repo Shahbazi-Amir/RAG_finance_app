@@ -114,3 +114,21 @@ FINAL: CI-only technical evidence PASS; signed Mac HTTP/IdP, C018 and production
 **Execution order (supersedes older list):** 00 → 01 → 02 → 03 → 03 exact no-replay → 04 → 05 → 09 → 06 → 10 → **22** → 13 → 12 → 14 → 15 → 16 → 17 → 19 → 20 → 21 → **11 last**. Step 22 needs source/restore complete, 10 APPLIED ledger rows in each, different PG system IDs, and empty-but-existing restore-tested.marker. It checks the physical catalog against a PostgreSQL semantic owner-default ACL (not raw relacl representation), performs NO FORCE RLS and DISABLE RLS negative mutations in a new restore-clone database, then removes the clone. A mismatch fails the workflow; sanitized artifact exports ONLY the SHA256 and bounded statuses; no private catalog/pg_dump is attached.
 
 **Repin required:** Foundation snapshot f7d738aa763179eba28c7847e6225640bb88b176 has installer 03 and 20-file manifest identical, but 11 old blob 9f0908fef1f93dd66856fde6285ea5a60031aab2, scripts 19–22 absent and workflow older. Foundation owns integration/F3_SOURCE_PINS.json and must consume tested source commit and blob matrix on an explicit integrated candidate; verify fresh independent CI plus authorized Mac role/IdP L2 separately. 011 remains an OPTIONAL independent branch/test; do not run on base, no Gateway. This new DB CI does not grant module Gate, external deployment, RPO/RTO SLA or anti-resurrection.
+
+
+---
+## M04-A07 new tested version and 14th required receipt (latest, supersedes older 11-export counts)
+
+Exact executable `48110525aa9ac118b6b3749c956930c61cec11fe`, [CI 45233599373 SUCCESS](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45233599373), artifact [14848595915](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45233599373/artifacts/14848595915) with **14 sanitized files**.
+
+| Consumer path | Git blob SHA | Execution requirement |
+|---|---|---|
+| `scripts/23_m04_migration_full_cycle.sh` | `a547a58ac1555795dd73c18415973bbc955177d8` | After script 15, before 16. Actual empty disposable clone 010..001 DOWN and 001..010 UP; schema-only SHA equality; NEW probe Ledger; replay exact post-migration DB55 bridge; drop clone |
+| `scripts/11_export_sanitized_receipt.sh` | `b9dff8a9f736d36af3916900995afb798826b3e5` | Adds required `m04_migration_full_cycle_receipt.json` schema + consistency guard (14th file) |
+| `.github/workflows/f3-db-isolated-fresh-install.yml` | `dadd5ec47d8f312b7de35533241c275961195821` | Run script 23 after 15 with protected standard PG17.11 runner, 011 remains SKIPPED |
+| `scripts/03_apply_pinned_001_010.sh` | `9cc9458c55b82f03811b346259ccf2ae3dce318d` | Unchanged hardened installer |
+| `MIGRATIONS_001_010_PINNED.tsv` | `f67f5e985c45ae9b6a6c68417ebc54ba05ec7fdf` | Unchanged 20 original UP/DOWN SQL blobs, SHA256 `9ff95a59570f5f6c6188479d9c37cf684ef836c599e89d9faa2bb0e17a4946f7` |
+
+Order now: `00→01→02→03→03→04→05→09→06→10→22→13→12→14→15→23→16→17→19→20→21→11` (workflow actual order). Use original role/DB55/manifest pins. `CREATE DATABASE ... TEMPLATE` does not copy *database-level privileges*, hence script 23 recreates scoped lab grants on probe only. Docker Compose stdin can consume process substitution, hence manifest loops use FD3. A full-cycle reset loses POST-migration DB55 bridge function grants, hence exact bridge replay with new experimental ledger in probe is required. These code-fixes are part of validated source SHA, not speculative future policy.
+
+No Mac/approved data-bearing full rollback, no live Gateway/011/Arvan, no 012+, no signed RPO/RTO, no app API/IdP/C018: **NOT_RUN / NOT_ACCEPTED**. Foundation must repin the exact executable and all new blobs, rerun on independent integrated candidate before Gate.

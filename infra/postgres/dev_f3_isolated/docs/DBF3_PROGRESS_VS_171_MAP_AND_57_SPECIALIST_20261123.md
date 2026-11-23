@@ -72,3 +72,17 @@
 **Foundation integrated comparison:** آخرین snapshot بررسی‌شدهٔ Foundation f7d738aa763179eba28c7847e6225640bb88b176 هنوز 03 و manifest منطبق دارد ولی script 11 قدیمی با Git blob 9f0908fef1f93dd66856fde6285ea5a60031aab2 و scriptهای 19/20/21/22 غایب‌اند. پس یکسان بودن تعدادی از blobهای تاریخی 001–010 به معنای repin کامل یا admission نیست؛ Foundation باید برای همان integrated SHA و pipeline مستقل نسخهٔ واقعی را ثبت و CI تازه بگیرد. integration/F3_SOURCE_PINS.json نسخهٔ مشاهده‌شده نیز metadata قدیمی DB دارد؛ بدون بازبینی owner تغییر نده.
 
 **شمارش پس از چرخه:** ۴ DONE محدود / ۲۹ OPEN / ۲۴ BLOCKED، یعنی **۴/۵۷ = ۷٫۰۲٪** و **۵۳/۵۷ = ۹۲٫۹۸٪ مانده**. از ۱۷۱ ردیف مشترک دوباره‌شماری نشده است؛ Gate/ACCEPTED جدیدی ثبت نشده. برنامهٔ بعدی: (۱) Foundation/Ops repin+isolated Mac candidate source-bound، (۲) API/Security signed owner/epoch/revoke same-TX و قرارداد consent/feedback/hard-delete، (۳) Ops سیاست Backup رمزگذاری‌شده، retention و RPO/RTO مصوب، (۴) Engine Release/NB23 و provenance؛ تا رسیدن ورودی، مسیر 011، 012+ و هر dispatch بیرونی مستقل و HOLD هستند.
+
+
+---
+## جدیدترین چرخهٔ پذیرش محدود DB/CI — P3M04-A07 بسته شد
+
+**Before:** 4/57 = 7.02% (29 OPEN, 24 BLOCKED). **After successful exact-SHA CI 45233599373:** **5/57 = 8.77% (28 OPEN, 24 BLOCKED)**. Net **+1 DONE / +1.75 percentage points**, only in 57 specialist DB/CI tasks; **module/product Gate remains NOT_ACCEPTED**. Not 5/171, no acceptance in official Foundation-owned register.
+
+| ID | قبلی → جدید | شرط محقق‌شده | کد واقعی | SHA / آزمون | مانده و مالک |
+|---|---|---|---|---|---|
+| P3M04-A07 | OPEN → **DONE محدود DB_CI_ONLY** | empty 10x DOWN/UP roundtrip canonical schema SHA equal; new Ledger 10, 14 FORCE RLS/DB55; separate populated owner A/B sessions 009–010 upgrade/restore in independent PG | script 23 + workflow + exporter 14th receipt; SQL 001–010 untouched | [CI 45233599373 PASS](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45233599373) executable `48110525aa9ac118b6b3749c956930c61cec11fe`, artifact `14848595915` | Foundation/Ops/CENTRAL: Mac L2, approved production data-bearing rollback, full Phase3 migration, signed Gate **still open** |
+
+The 14th sanitized receipt is `m04_migration_full_cycle_receipt.json`. Full destructive reversal was restricted to EMPTY disposable clone; real populated 001/003 down prohibited. Prior failed CI runs are preserved in Actions and not treated as passing. **Executable pins**: script 23 `a547a58ac1555795dd73c18415973bbc955177d8`, script 11 `b9dff8a9f736d36af3916900995afb798826b3e5`, workflow `dadd5ec47d8f312b7de35533241c275961195821`, 03 unchanged `9cc9458c55b82f03811b346259ccf2ae3dce318d`, 20-SQL manifest unchanged `f67f5e985c45ae9b6a6c68417ebc54ba05ec7fdf` / SHA256 `9ff95a59570f5f6c6188479d9c37cf684ef836c599e89d9faa2bb0e17a4946f7`.
+
+**Next executable candidate:** P3M10-A10 concurrent duplicate/replay boundary and P3M04-A02 representative constraint/query plan. Do NOT label DONE without actual version-bound CI and API/owner acceptance required by their row; migration 012+ and Consent/Feedback/deletion remain on policy HOLD. Prioritized [29 original OPEN IDs](DBF3_M04_A07_CLOSURE_AND_NEXT_29_OPEN_QUEUE_20261123.md) (one now closed).
