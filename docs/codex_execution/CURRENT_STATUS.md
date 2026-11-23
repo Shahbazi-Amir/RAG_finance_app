@@ -1,12 +1,17 @@
-# Current status
+# وضعیت فعلی راه‌اندازی روی مک
 
-| Area | Status |
+| بخش | وضعیت واقعی |
 | --- | --- |
-| Backup | PARTIAL. Documented encrypted artifacts and component coverage. |
-| Restore test | PARTIAL. Prior component successes documented. Full-stack recovery and independent globals replay remain open. |
-| Docker | NOT CHECKED |
-| API | NOT CHECKED |
-| C018 | NOT CHECKED for current readiness. Historical SQLite integrity only. |
-| Supervisor acceptance | Pending |
+| Docker | PASS. نسخهٔ 28.0.4، چهار CPU و حدود ۵٫۷۹ GiB حافظه. |
+| هفت سرویس | ۷ از ۷. پنج healthcheck، آمادگی Keycloak و HTTPS معتبر ingress. |
+| پشتیبان و بازیابی | PARTIAL. SHA-256 بایگانی Keycloak تأیید شده و بازیابی کامل همهٔ اجزا در انتظار است. |
+| دعوت Staging | BLOCKED. Realm تنظیم‌شده فعال است و SMTP و کاربر ندارد. ابزار دعوت روی شاخهٔ اجرایی آماده است. |
+| تأیید ایمیل، نشست و Signed BFF | BLOCKED. ورود مرورگری تا فرم Keycloak در checkpoint قبلی مشاهده شد. |
+| Product API | PARTIAL. Healthcheck موفق است و درخواست محصول با نشست معتبر در انتظار است. |
+| C018 و UI | BLOCKED. اجرای Retrieval، نمایش منابع، شمارنده‌ها و Refresh آزموده نشده‌اند. |
+| آروان | HOLD |
+| پذیرش سرپرست | در انتظار |
 
-Next operational action, once authorized, is an isolated end-to-end restore drill under [the recovery plan](RECOVERY_PLAN.md).
+قدم بعدی، آماده‌کردن مسیر SMTP تأییدشدهٔ Realm برای صندوق آزمایشی تحت کنترل دعوت‌شونده است.
+
+[گزارش فارسی](MAC_FIRST_START_FA.md) · [گزارش HTML](MAC_FIRST_START_FA.html) · [برنامهٔ بازیابی](RECOVERY_PLAN.md)

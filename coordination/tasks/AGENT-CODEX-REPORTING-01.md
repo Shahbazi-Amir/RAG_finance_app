@@ -81,3 +81,11 @@ Status is review. Supervisor approval is pending.
 - Verified by source inspection: docs/operations/phase3_private_staging_integration_v0.md, src/phase3/auth/bootstrap_oidc.py, apps/web/app/api/auth/callback/route.ts, infra/auth-ci/README.md and pinned Keycloak Admin REST references. Previous runtime passes were not repeated. Markdown/HTML parity and git diff --check verified.
 - Blocker: one authorized Staging invitation deliverable through an operator-approved email route to a test inbox controlled by the invitee. No live invitation, session, Signed BFF, C018 or Refresh test was run. Arvan HOLD. Supervisor acceptance pending.
 - [Persian design and evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — executable invitation and live SMTP blocker
+
+- Status: blocked. P3M22-A06 (Module 22, activity 6) and P3OP11-R07 (§Launch checklist), operational evidence only. Report baseline codex 1aa4caf. Execution baseline ops/mac-first-start 2a5948f with local executable invitation helper committed at b57bf7a. No application code pushed.
+- Implemented: local execution helper infra/mac-first-start/staging_invitation_v1.py. Report-only push updates this ledger plus docs/codex_execution/MAC_FIRST_START_FA.md, MAC_FIRST_START_FA.html, and CURRENT_STATUS.md.
+- Tested: Docker status, five healthchecks, management /health/ready, nginx configuration and CA-verified HTTPS. Parsed the live Bootstrap issuer and used parameterized read-only psql to match exactly one enabled non-master realm with closed registration, zero SMTP rows, and zero users. Helper CLI, issuer and role restrictions, and staged invitation operations checked with local mocks. Initial Docker permission review timed out and the bounded retry succeeded.
+- Blocker: an approved Staging SMTP route for a controlled test inbox is absent. No production identity mutation, C018 invocation, or live session/signature/Refresh proof. Existing images, volumes and backup retained. Arvan HOLD. Supervisor acceptance pending.
+- [Persian Markdown](../../docs/codex_execution/MAC_FIRST_START_FA.md) and [HTML](../../docs/codex_execution/MAC_FIRST_START_FA.html).

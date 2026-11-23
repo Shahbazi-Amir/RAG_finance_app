@@ -127,3 +127,19 @@ Chrome در پروفایل موقت و با پین فقط برای گواهی‌
 [مرجع رسمی مدیریت کاربران و ایمیل Keycloak](https://www.keycloak.org/docs/26.8.0/server_admin/)
 
 [مرجع رسمی Admin REST](https://www.keycloak.org/docs-api/26.8.0/rest-api/index.html)
+
+## آماده‌سازی اجرایی دعوت و مانع تحویل ایمیل
+
+مبنای گزارش codex در 1aa4caf و مبنای اجرای ops/mac-first-start در 2a5948f بود. Docker 28.0.4 با ۴ CPU و ۶٬۲۱۲٬۰۳۰٬۴۶۴ بایت RAM در دسترس بود. هفت کانتینر فعال بودند. پنج healthcheck خود Docker موفق بودند. Keycloak از /health/ready روی پورت مدیریتی ۹۰۰۰ پاسخ ۲۰۰ داد و Nginx با nginx -t -c /run/ingress/nginx.conf و HTTPS محلی با CA موجود، HTTP 200 و TLS_VERIFY=0 را ثبت کرد. آزمون‌های قبلی discovery و ورود مرورگری تکرار نشدند.
+
+شناسه‌های ایمیج‌های زنده در docker inspect به‌ترتیب demo-db و idp-db برابر ff87138949ad، Product API برابر 438ba61c69ea، Auth Bootstrap برابر 8e5d6a79f945، Web BFF برابر ead7afb7f9ec، Web HTTPS برابر caf4e1e032a2 و Keycloak برابر 338942f0b25e بودند. Compose لایهٔ ops در infra/mac-first-start/compose.api.yaml با تنظیم Keycloak از 2a5948f حفظ شد. هیچ جایگزینی کانتینر، ایمیج، Compose یا Volume لازم نشد. بایگانی Keycloak و SHA-256 از checkpoint پیشین تأیید شده‌اند. بازیابی کامل همهٔ اجزا همچنان شاهد ندارد.
+
+issuer از /run/ops/bootstrap.json کانتینر Auth Bootstrap خوانده و فقط نام realm غیر master از مسیر HTTPS از آن استخراج شد. کوئری psql پارامتری و فقط‌خواندنی در idp-db برای همان realm دقیقاً یک سطر Realm، یک Realm فعال، صفر Realm با ثبت‌نام عمومی، صفر ورودی realm_smtp_config و صفر کاربر نشان داد. نتیجهٔ SMTP در همین بررسی زنده مانع عملی ارسال دعوت است. آدرس گیرنده، اعتبارنامه و لینک دعوت وارد گزارش یا Git نشدند.
+
+ابزار نسخه‌دار infra/mac-first-start/staging_invitation_v1.py در SHA محلی b57bf7af40e7f5606cf456b3573dd4f8e721676c روی ops/mac-first-start ثبت شده است. check سپس invite و در مرحله‌ای مستقل password-email اجرا می‌شوند. ورودی غیرمحرمانه شامل issuer دقیق Bootstrap، مسیر CA محلی و میزبان SMTP تأییدشده است. توکن اپراتور Realm و نشانی صندوق با ورودی پنهان ترمینال دریافت می‌شوند. مقصد به loopback با SNI و CA محدود است. ابزار قبل از ساخت حساب SMTP با TLS، بسته بودن ثبت‌نام و نقش‌های پیش‌فرض را بررسی می‌کند. بعد از ایجاد بدون گذرواژه، وضعیت دقیق حساب و نقش‌ها را می‌خواند و سپس از send-verify-email استفاده می‌کند. مرحلهٔ دوم فقط پس از verification ثبت‌شده توسط Keycloak از execute-actions-email برای UPDATE_PASSWORD استفاده می‌کند.
+
+بررسی‌های اجراشده شامل python3 infra/mac-first-start/staging_invitation_v1.py --help، بررسی مرز issuer با runpy و جایگزین‌های محلی HTTP با unittest.mock بودند. سناریوهای SMTP غایب با صفر نوشتن، ساخت و درخواست ایمیل تأیید، درخواست ایمیل تنظیم رمز بعد از تأیید، و رد کردن نقش پیش‌فرض خارج از کلاینت حساب بررسی شدند. این نتایج شاهد آزمایش محلی ابزار هستند. اجرای واقعی Admin REST یا تحویل پیام به دلیل نبود SMTP تأییدشده انجام نشد. بررسی سرویس Docker در تلاش اول با timeout بازبینی مجوز روبه‌رو شد و تلاش محدود بعدی نتیجه داد.
+
+قرارداد C018 در apps/api/PRIVATE_STAGING_ASGI_HANDOFF.md پین 93233bfdf25e40684fd9120b82ec19c217695fdb632ed4a1f7d2bb2a3abcb17d و CONTEXT_READY را مشخص می‌کند. پین مستند شاهد اجرای موتور یا اعتبارسنجی شاخص نیست. به‌دلیل نبود نشست، سؤال تعیین‌شده ارسال نشد و هیچ Attempt تازه، منبع نتیجه، شمارندهٔ تأییدشدهٔ Generation/Gateway یا Refresh ثبت نشد. شاهد زندهٔ Product API محدود به healthcheck است. اقدام بعدی آماده‌کردن مسیر SMTP تأییدشدهٔ Realm برای یک صندوق آزمایشی تحت کنترل دعوت‌شونده است. آروان HOLD و پذیرش سرپرست در انتظار است.
+
+[مرجع رسمی Keycloak Admin REST](https://www.keycloak.org/docs-api/26.8.0/rest-api/index.html)
