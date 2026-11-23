@@ -145,3 +145,11 @@ Status is review. Supervisor approval is pending.
 - Tested: system resolver returned a non-loopback address for the IdP. Python TLS with the existing CA and both hostnames verified local certificates. Discovery matched the configured issuer. Token-free request to the actual action-token endpoint returned the Keycloak 400 page. Active-tab lookup found no usable existing invitation URL. Token validity and invitee completion are untested.
 - Pending: invitee opens the existing link and completes Keycloak confirmation. No duplicate invitation or account. Product E2E and supervisor acceptance remain pending. Arvan HOLD.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — one-hour renewal for the existing invitee
+
+- Status: blocked on invitee action. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), operational evidence only. Reporting baseline codex 69abad8, execution baseline ops/mac-first-start 5764fff.
+- Implemented: issued one official one-hour VERIFY_EMAIL and UPDATE_PASSWORD message for the exact existing Staging account and opened a clean private Chrome window. Report-only paths are this ledger, MAC_FIRST_START_FA.md, MAC_FIRST_START_FA.html and CURRENT_STATUS.md.
+- Tested: checked the existing account, realm, client role defaults, group and credential absence over trusted localhost Admin REST. execute-actions-email returned 204 on the single renewal. Fresh browser launched after verifying local TLS for both configured hosts. Expiry of the previous link is invitee-reported. Delivery and action-token completion for the new link remain unverified.
+- Pending: invitee opens the new link in the mapped Chrome profile and completes both actions. Then verify account state and continue product E2E. No duplicate user, no Phase 2 changes, Arvan HOLD. Supervisor acceptance pending.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
