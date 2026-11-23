@@ -111,7 +111,10 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
 
     def signed_page(self,pending,url=None,query=""):
         if url is not None:self.h.url=url
-        answer=self.h.list(pending,query=query)
+        # HTTP raw query is WITHOUT '?': exactly the bytes signed by BFF.
+        signed,_=self.h.signed(pending,method="GET",path=LIST,
+                               query=query.removeprefix("?").encode("ascii"))
+        answer=self.h.request("GET",LIST,signed,query=query)
         self.assertEqual(answer.status_code,200,answer.text[:500])
         return answer.json()
 
