@@ -93,6 +93,24 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         self.assertIs(app._app, product_session_api.app)
         self.assertIsNone(product_session_api._SERVER_NO_DISPATCH_TASK)
 
+    def test_invalid_bff_public_key_denied_without_traceback_or_socket(self):
+        """Malformed RS256 key must exit 78, not expose internals or run."""
+        from contextlib import redirect_stderr
+        from io import StringIO
+        from apps.api.private_app_only_asgi import main
+        sink = StringIO()
+        with patch.dict(os.environ, {
+            "CI": "false", "GITHUB_ACTIONS": "false",
+            "PHASE3_APP_MODE": "APP_ONLY",
+            "API_RUNNER_EXECUTION_MODE": "APP_ONLY",
+        }):
+            with patch("apps.api.private_app_only_asgi._test_tls_material"):
+                with patch("apps.api.private_app_only_asgi.verify_staging_database_authority"):
+                    with redirect_stderr(sink):
+                        code = main(["--config", str(self.config_file)])
+        self.assertEqual(code, 78)
+        self.assertEqual(sink.getvalue().strip(), "APP_ONLY_STARTUP_DENIED")
+
     def test_config_exact_and_redacted_no_runner_no_ledger(self):
         cfg = load_app_only_config(self.config_file)
         self.assertIsInstance(cfg, AppOnlyConfig)
