@@ -41,7 +41,7 @@ after="$LAB_WORK/m04_roundtrip_private_schema.sql"
 snapshot rag_finance_f3_lab "$before"
 # Reverse dependency order. 001 and 003 are DESTRUCTIVE; the probe is EMPTY.
 # 006/008 use one outer transaction as required by their own SQL contracts.
-while IFS=$'\t' read -r v direction commit path blob; do
+while IFS=$'\t' read -r v direction commit path blob <&3; do
  [[ "$direction" == DOWN ]] || continue
  filename="$(basename "$path")"
  [[ -f "$LAB_SOURCE/$filename" && "$(git hash-object "$LAB_SOURCE/$filename")" == "$blob" ]] || exit 70
@@ -55,11 +55,11 @@ while IFS=$'\t' read -r v direction commit path blob; do
    > "$LAB_WORK/m04_down_$v.log" 2>&1 || { echo "STOP_M04_DOWN_$v" >&2;exit 70; }
  fi
  echo "M04_ROLLBACK_DOWN_VERSION=$v"
-done < <(tail -n +2 "$LAB_SOURCE/manifest.tsv" | awk -F '\t' '$2=="DOWN"{print}' | sort -r)
+done 3< <(tail -n +2 "$LAB_SOURCE/manifest.tsv" | awk -F '\t' '$2=="DOWN"{print}' | sort -r)
 remaining="$(dbpsql -Atc "SELECT coalesce(string_agg(nspname,',' ORDER BY nspname),'NONE') FROM pg_namespace WHERE nspname IN ('auth_l1','history_l1')")"
 [[ "$remaining" == NONE ]] || { echo "STOP_M04_REVERSE_SCHEMAS_REMAIN=$remaining" >&2; exit 70; }
 # Forward reinstall in ORIGINAL PINNED order, with new disposable durable ledger.
-while IFS=$'\t' read -r v direction commit path blob; do
+while IFS=$'\t' read -r v direction commit path blob <&3; do
  [[ "$direction" == UP ]] || continue
  filename="$(basename "$path")"; sql="$LAB_SOURCE/$filename"
  [[ -s "$sql" && "$(git hash-object "$sql")" == "$blob" ]] || exit 70
@@ -74,7 +74,7 @@ while IFS=$'\t' read -r v direction commit path blob; do
  dbpsql -q -c "UPDATE db55_audit.migration_runs
   SET status='APPLIED',applied_at=clock_timestamp(),applied_txid=txid_current()
   WHERE version='$v' AND status='STARTED'" >/dev/null
-done < <(tail -n +2 "$LAB_SOURCE/manifest.tsv")
+done 3< <(tail -n +2 "$LAB_SOURCE/manifest.tsv")
 [[ "$(dbpsql -Atc "SELECT count(*) FROM db55_audit.migration_runs
  WHERE status='APPLIED' AND applied_txid IS NOT NULL AND applied_at>=started_at")" == 10 ]] || {
  echo STOP_M04_NEW_LEDGER_INCOMPLETE >&2;exit 70; }
