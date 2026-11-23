@@ -130,3 +130,25 @@ jobs:
           test "$(docker inspect -f '{{.State.Running}}' f3-app-only-api-test)" = true
           test "$(docker inspect -f '{{.Config.User}}' f3-app-only-api-test)" = "11001:11001"
           echo F3_DOCKER_APP_ONLY_API_REAL_NONROOT_LISTENER_PASS_NO_MOTOR
+
+      - name: Build actual non-root app-only Web image with pinned Next, no Engine assets
+        run: |
+          set -euo pipefail
+          docker build --pull=false --file infra/phase3_l1/Dockerfile.web --build-arg SOURCE_SHA="$(git rev-parse HEAD)" -t rag-f3-app-only-web:ci .
+          docker image inspect rag-f3-app-only-web:ci --format '{{.Id}} {{.Config.User}} {{.Config.Healthcheck.Test}}'
+      - name: Isolated Web+API containers internal DNS, zero Send and unavailable signed History
+        run: |
+          set -euo pipefail
+          docker network create --internal f3-app-only-private-ci
+          trap 'docker rm -f f3-web-private-ci f3-api-private-ci 2>/dev/null || true; docker network rm f3-app-only-private-ci 2>/dev/null || true' EXIT
+          docker run -d --name f3-api-private-ci --network f3-app-only-private-ci --network-alias app-only-api --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m --pids-limit 64 --memory 256m rag-f3-app-only-api:ci
+          docker run -d --name f3-web-private-ci --network f3-app-only-private-ci --read-only --tmpfs /tmp:rw,nosuid,size=32m,uid=11003,gid=11003 --tmpfs /srv/release/apps/web/.next/cache:rw,nosuid,size=64m,uid=11003,gid=11003 --pids-limit 128 --memory 512m rag-f3-app-only-web:ci
+          for n in $(seq 1 60); do
+            if docker exec f3-web-private-ci node -e "fetch('http://127.0.0.1:3000/api/product-capabilities').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))" >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec f3-web-private-ci node -e "fetch('http://app-only-api:8080/health/live').then(r=>r.json()).then(j=>process.exit(j.process_alive===true&&j.application_ready===false?0:1)).catch(()=>process.exit(1))"
+          docker exec f3-web-private-ci node -e "fetch('http://127.0.0.1:3000/api/product-capabilities').then(r=>r.json()).then(j=>process.exit(j.send_mode==='DISABLED'&&j.engine_available===false?0:1)).catch(()=>process.exit(1))"
+          docker exec f3-web-private-ci node -e "fetch('http://127.0.0.1:3000/api/history/messages',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}).then(r=>r.json().then(j=>process.exit(r.status===503&&j.error==='ENGINE_NOT_AVAILABLE'?0:1))).catch(()=>process.exit(1))"
+          docker exec f3-web-private-ci node -e "fetch('http://app-only-api:8080/health/ready').then(r=>process.exit(r.status===503?0:1)).catch(()=>process.exit(1))"
+          echo F3_REAL_TWO_CONTAINERS_INTERNAL_DNS_WEB_BFF_SEND503_API_READY503_NO_ENGINE_PASS
