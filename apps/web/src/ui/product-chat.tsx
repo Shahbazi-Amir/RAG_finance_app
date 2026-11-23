@@ -339,6 +339,9 @@ export default function ProductChat(){
     const trigger=menuTrigger.current;
     const close=nav?.querySelector<HTMLButtonElement>('.history-mobile-close');
     close?.focus();
+    const desktop=window.matchMedia('(min-width: 761px)');
+    const onDesktop=()=>{if(desktop.matches)setMobileOpen(false);};
+    desktop.addEventListener('change',onDesktop);
     const onKeys=(event:KeyboardEvent)=>{
       if(event.key==='Escape'){event.preventDefault();setMobileOpen(false);return;}
       if(event.key!=='Tab'||!nav)return;
@@ -346,6 +349,11 @@ export default function ProductChat(){
         'button:not([disabled]),a[href]')).filter(el=>el.getClientRects().length>0);
       if(!focusables.length)return;
       const first=focusables[0],last=focusables[focusables.length-1];
+      // A programmatic focus escape must not expose the background to
+      // keyboard or assistive-tech users while the modal drawer is active.
+      if(!nav.contains(document.activeElement)){
+        event.preventDefault();(event.shiftKey?last:first).focus();return;
+      }
       if(event.shiftKey&&document.activeElement===first){
         event.preventDefault();last.focus();
       }else if(!event.shiftKey&&document.activeElement===last){
@@ -353,7 +361,12 @@ export default function ProductChat(){
       }
     };
     window.addEventListener('keydown',onKeys);
-    return ()=>{window.removeEventListener('keydown',onKeys);trigger?.focus();};
+    return ()=>{
+      window.removeEventListener('keydown',onKeys);
+      desktop.removeEventListener('change',onDesktop);
+      if(trigger?.getClientRects().length)trigger.focus();
+      else document.getElementById('product-main')?.focus();
+    };
   },[mobileOpen]);
   useEffect(()=>{
     const timer=window.setInterval(()=>{
@@ -432,6 +445,9 @@ export default function ProductChat(){
   const pendingDrafts=verifiedPage?[...new Set(Object.values(attempts).filter(a=>
     a.viewId.startsWith('draft:')&&!isTerminal(a.phase)).map(a=>a.viewId))]:[];
   return <main className="history-shell product-shell" dir="rtl">
+    <a href="#product-main" className="history-skip" inert={mobileOpen}>
+      رفتن به محتوای اصلی گفت‌وگو
+    </a>
     <aside ref={mobileMenu} id="product-chat-sidebar" className={'history-sidebar'+(mobileOpen?' is-mobile-open':'')}
       role={mobileOpen?'dialog':undefined} aria-modal={mobileOpen?'true':undefined}
       aria-label="فهرست گفتگوها">
@@ -478,7 +494,9 @@ export default function ProductChat(){
         <Link href="/login" className="history-link">حساب کاربری و خروج امن</Link>
       </div>
     </aside>
-    <section className="history-main" aria-label="گفت‌وگوی فارسی">
+    {mobileOpen&&<button type="button" className="history-mobile-scrim"
+      aria-hidden="true" tabIndex={-1} onClick={()=>setMobileOpen(false)}/>}
+    <section className="history-main" aria-labelledby="product-main" inert={mobileOpen}>
       <header className="history-mobile-topbar">
         <button className="mobile-menu-trigger" type="button"
           ref={menuTrigger} aria-label="بازکردن فهرست گفت‌وگوها" aria-controls="product-chat-sidebar"
@@ -486,10 +504,8 @@ export default function ProductChat(){
         <span className="mobile-brand">راگ مالی</span>
         <Link href="/login" className="history-link">حساب و خروج</Link>
       </header>
-      {mobileOpen&&<button type="button" className="history-mobile-scrim"
-        aria-label="بستن فهرست" onClick={()=>setMobileOpen(false)}/>}
       <header className="history-heading">
-        <h1>گفت‌وگوی مالی</h1>
+        <h1 id="product-main" tabIndex={-1}>گفت‌وگوی مالی</h1>
         <p>پرسش فارسی، تاریخچهٔ خصوصی و وضعیت واقعی هر Attempt؛ بدون پاسخ نمونه.</p>
         <p className="history-note" data-testid="educational-boundary">
           شواهد بازیابی فنی به‌تنهایی پاسخ یا توصیهٔ مالی تأییدشده نیستند.
