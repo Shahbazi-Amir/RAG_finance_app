@@ -60,3 +60,41 @@ jobs:
           echo 'NO_RUNNER_NO_QDRANT_NO_MODEL_NO_GATEWAY_NO_T3'
           echo 'DOCKER_LIVENESS_LISTENER_ONLY; BFF_MTLS_DB_READINESS_NOT_CI_NETWORK_ATTESTED'
           echo 'CENTRAL_APPROVAL_AND_REAL_MAC_E2E_NOT_CLAIMED'
+  app-only-web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22.16.0'}
+      - name: Install exact Next lock
+        run: npm ci --prefix apps/web --no-audit --no-fund
+      - name: Typecheck, lint, all UI unit tests and Next production build
+        run: |
+          set -euo pipefail
+          npm --prefix apps/web run typecheck
+          npm --prefix apps/web run lint
+          npm --prefix apps/web run test
+          npm --prefix apps/web run build
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - name: Install pinned synthetic browser harness
+        run: |
+          python -m pip install 'playwright==1.64.1'
+          python -m playwright install --with-deps chromium
+      - name: Real Next HTTP + Chromium 1280, 390, 320 app-only no Send
+        env:
+          PHASE3_APP_MODE: APP_ONLY
+        run: |
+          set -euo pipefail
+          npm --prefix apps/web run start > "$RUNNER_TEMP/app-only-next.log" 2>&1 &
+          NEXT_PID=$!
+          trap 'kill "$NEXT_PID" || true' EXIT
+          ok=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3000/api/product-capabilities >/dev/null; then ok=1; break; fi
+            sleep 2
+          done
+          if [ "$ok" != 1 ]; then tail -n 70 "$RUNNER_TEMP/app-only-next.log"; exit 1; fi
+          python tests/phase3/integration/ui/app_only_real_browser.py
