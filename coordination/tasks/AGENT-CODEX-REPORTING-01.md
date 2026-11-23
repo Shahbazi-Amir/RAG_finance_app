@@ -89,3 +89,11 @@ Status is review. Supervisor approval is pending.
 - Tested: Docker status, five healthchecks, management /health/ready, nginx configuration and CA-verified HTTPS. Parsed the live Bootstrap issuer and used parameterized read-only psql to match exactly one enabled non-master realm with closed registration, zero SMTP rows, and zero users. Helper CLI, issuer and role restrictions, and staged invitation operations checked with local mocks. Initial Docker permission review timed out and the bounded retry succeeded.
 - Blocker: an approved Staging SMTP route for a controlled test inbox is absent. No production identity mutation, C018 invocation, or live session/signature/Refresh proof. Existing images, volumes and backup retained. Arvan HOLD. Supervisor acceptance pending.
 - [Persian Markdown](../../docs/codex_execution/MAC_FIRST_START_FA.md) and [HTML](../../docs/codex_execution/MAC_FIRST_START_FA.html).
+
+### MAC-FIRST-START-01 — approved SMTP availability check
+
+- Status: blocked. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), operational evidence only. Reporting baseline codex ad24281 and execution baseline ops/mac-first-start b57bf7a.
+- Implemented: report updates only in docs/codex_execution/MAC_FIRST_START_FA.md, MAC_FIRST_START_FA.html, CURRENT_STATUS.md, and this checkpoint.
+- Tested: docker version confirmed server access. docker ps -a inventory found zero known mail containers. lsof found zero visible SMTP listeners on 25/465/587/1025. Parameterized realm lookup confirmed one enabled realm, closed registration, and zero matching SMTP and user rows. Reviewed execution helper and local operational configuration. No email or identity writes.
+- Blocker: provide one approved Staging SMTP setup for an invitee-controlled test inbox through secure handoff. Invitation, OIDC, signed request, C018 and Refresh remain pending. Arvan HOLD and supervisor acceptance pending.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
