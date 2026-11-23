@@ -86,6 +86,40 @@ class LedgerTest(unittest.TestCase):
         self.assertFalse(manifest["acceptance"]["real_postgresql_oidc_mac_l2_verified"])
         self.assertFalse(manifest["acceptance"]["full_phase3_accepted"])
 
+    def test_all_58_divergences_have_exact_blobs_and_open_owner_decisions(self):
+        manifest_path=ROOT/"coordination/integration/FOUR_PR_58_PATH_THREE_WAY_AUDIT_20261124.json"
+        audit=json.loads(manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(audit["contract_version"],"integration.f3.three_way_audit.v1")
+        self.assertFalse(audit["p0_1_accepted"])
+        summary=audit["summary"]
+        self.assertEqual(summary["total_unique_divergent_paths"],58)
+        self.assertEqual(summary["source_selected"],36)
+        self.assertEqual(summary["foundation_security"],6)
+        self.assertEqual(summary["retained_pending"],16)
+        self.assertEqual(summary["custom"],0)
+        records=audit["paths"]
+        self.assertEqual(len({row["path"] for row in records}),58)
+        for row in records:
+            self.assertFalse(row["owner_signed_acceptance"])
+            self.assertTrue(row["source_options"])
+            self.assertTrue(all(re.fullmatch(r"[0-9a-f]{40}",x["commit_sha"])
+                                and re.fullmatch(r"[0-9a-f]{40}",x["blob_sha"])
+                                for x in row["source_options"]))
+            blob=subprocess.run(["git","hash-object",row["path"]],
+                                cwd=ROOT,text=True,capture_output=True,check=True).stdout.strip()
+            self.assertEqual(blob,row["integrated_blob_sha"],row["path"])
+            if row["decision"]=="EXACT_SOURCE_SELECTED":
+                self.assertTrue(row["selected_owner_blobs"])
+                self.assertIn(blob,[x["blob_sha"] for x in row["source_options"]])
+            elif row["decision"] in {
+                "FOUNDATION_SECURITY_COMPAT",
+                "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
+            }:
+                self.assertEqual(blob,row["foundation_blob_sha"],row["path"])
+                self.assertFalse(row["selected_owner_blobs"])
+            else:
+                self.fail("unreviewed divergent path: "+row["path"])
+
     def test_no_acceptance_without_real_receipts(self):
         _,rows=read(LEDGER)
         self.assertEqual(sum(r["acceptance_status"]=="ACCEPTED" for r in rows),0)
