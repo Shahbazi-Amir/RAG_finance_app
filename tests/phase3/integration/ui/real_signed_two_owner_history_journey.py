@@ -215,13 +215,13 @@ async def verify_list_and_thread(page, owner, width):
         and "/api/history/conversations/" + target + "/messages?limit=30" in r.url,
         timeout=18000
     ) as message_response:
-        # React thread is loaded on selection; listening must start BEFORE
-        # a distinct click in the invoking caller. This fallback is just a
-        # real user-operated refresh via navigation when request was too fast.
-        await page.goto(BASE + "/history")
-        await open_mobile_drawer(page, width)
-        await page.get_by_test_id("conversation-" + target).click()
+        # A real navigation resets React state. The first PG-listed
+        # conversation is selected only AFTER a fresh signed list; the
+        # messages GET cannot precede this wait. No interception.
+        await page.goto(BASE + "/history", wait_until="domcontentloaded")
     reply = await message_response.value
+    await expect(page.get_by_test_id("conversation-" + target)).to_be_attached(
+        timeout=15000)
     assert reply.status == 200, "PG_THREAD_FIRST_PAGE_NOT_200"
     data = await reply.json()
     assert data["owner_user_id"] == owner["owner_id"]
