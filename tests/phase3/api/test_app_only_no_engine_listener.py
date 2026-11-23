@@ -14,7 +14,7 @@ from apps.api.app_only_asgi import app, approved_ci_profile
 
 class AppOnlyNoEngineBoundary(unittest.TestCase):
     def setUp(self):
-        self.client = TestClient(app)
+        self.client = TestClient(app, base_url="http://127.0.0.1")
 
     def test_liveness_is_not_readiness(self):
         live = self.client.get("/health/live")
