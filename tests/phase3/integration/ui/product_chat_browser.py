@@ -292,6 +292,16 @@ def main():
             assert page.evaluate(
                 "() => sessionStorage.getItem('rag-finance-attempt-correlation-v1')") is None
             assert state["posts"] == 1
+            # A second tab, on a new validated owner-B response, never
+            # inherits the former tab's A Attempt or captured source rows.
+            tab_b = context.new_page()
+            tab_b.route("**/api/history/**", intercept)
+            tab_b.goto(base, wait_until="domcontentloaded")
+            expect(tab_b.get_by_text("هنوز گفت‌وگویی ثبت نشده است.")).to_be_visible()
+            assert tab_b.get_by_test_id("retrieved-sources-observed").count() == 0
+            assert tab_b.evaluate(
+                "() => sessionStorage.getItem('rag-finance-attempt-correlation-v1')") is None
+            tab_b.close()
             state["owner_mode"] = "original"
             # Server 401 still purges even on a fresh page.
             state["logged_in"] = False
