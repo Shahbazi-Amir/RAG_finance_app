@@ -231,7 +231,12 @@ def main():
             assert menu.evaluate("(el) => getComputedStyle(el).outlineStyle") != "none"
             menu.click()
             expect(menu).to_have_attribute("aria-expanded", "true")
-            expect(page.locator(".history-mobile-close")).to_be_focused()
+            close_control=page.locator(".history-mobile-close")
+            expect(close_control).to_be_focused()
+            page.keyboard.press("Shift+Tab")
+            expect(page.locator(".history-sidebar-bottom .history-link")).to_be_focused()
+            page.keyboard.press("Tab")
+            expect(close_control).to_be_focused()
             page.keyboard.press("Escape")
             expect(menu).to_have_attribute("aria-expanded", "false")
             expect(menu).to_be_focused()
@@ -307,6 +312,7 @@ def main():
             state["list_mode"] = "valid"
             page.get_by_test_id("refresh-history").click()
             expect(page.get_by_test_id("retrieved-sources-observed")).to_be_visible()
+            expect(page.get_by_test_id("history-message-" + user_message)).to_be_visible()
             expect(page.get_by_test_id("history-send")).to_be_disabled()
             assert state["posts"] == 1
             page.locator(".history-mobile-close").click()
@@ -391,6 +397,9 @@ def main():
             account_page = context.new_page()
             account_page.goto(base + "/account", wait_until="domcontentloaded")
             expect(account_page.get_by_role("heading", name="حساب و حریم خصوصی")).to_be_visible()
+            account_page.keyboard.press("Tab")
+            assert account_page.evaluate(
+                "() => getComputedStyle(document.activeElement).outlineStyle !== 'none'")
             expect(account_page.get_by_text("امکان درخواست حذف از این رابط هنوز فعال نیست.")).to_be_visible()
             assert account_page.locator('form[action*="delete"]').count() == 0
             assert account_page.locator('form[action*="feedback"]').count() == 0
