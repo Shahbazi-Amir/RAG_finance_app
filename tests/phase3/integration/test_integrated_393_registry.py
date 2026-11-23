@@ -1,0 +1,74 @@
+"""Full cardinality and source-exact ledger reconciliation (no approvals inferred)."""
+from __future__ import annotations
+
+import csv
+import re
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[3]
+LEDGER = ROOT / "coordination/integration/PHASE3_393_CANONICAL_APP_ONLY_EXECUTION_LEDGER_20261124.csv"
+MAIN = ROOT / "coordination/handoffs/UI_F3_CANONICAL_262_ACTIVITIES_26_GATES.csv"
+OP = ROOT / "coordination/handoffs/UI_F3_OPERATIONAL_105_MAP_80_FOCUS.csv"
+FIELDS = (
+    "id", "entry_kind", "canonical_counted", "owner", "canonical_criterion",
+    "dependency", "app_only_slice", "implementation_status", "tested_scope",
+    "acceptance_status", "git_sha", "run_or_env", "artifact_link", "blocker",
+    "next_action",
+)
+
+def read(path: Path):
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        reader=csv.DictReader(f)
+        assert reader.fieldnames
+        rows=list(reader)
+        assert all(None not in row for row in rows),path
+        return reader.fieldnames,rows
+
+
+class LedgerTest(unittest.TestCase):
+    def test_all_393_source_ids_one_to_one(self):
+        header,rows=read(LEDGER)
+        self.assertEqual(header,list(FIELDS))
+        self.assertEqual(len(rows),393)
+        ids=[r["id"] for r in rows]
+        self.assertEqual(len(set(ids)),393)
+        _,main=read(MAIN)
+        _,op=read(OP)
+        act={r["id"] for r in main if r["type"]=="P3M_ACTIVITY"}
+        gates={r["id"]+"-GATE" for r in main if r["type"]=="P3M_INDEPENDENT_GATE"}
+        mapped={r["id"] for r in op}
+        self.assertEqual((len(act),len(gates),len(mapped)),(262,26,105))
+        self.assertEqual(set(ids),act|gates|mapped)
+        self.assertEqual(len(act|gates|mapped),393)
+
+    def test_exact_canonical_criteria_and_provenance_not_reinterpreted(self):
+        _,rows=read(LEDGER)
+        index={r["id"]:r for r in rows}
+        _,original=read(MAIN)
+        for r in original:
+            key=r["id"]+("-GATE" if r["type"]=="P3M_INDEPENDENT_GATE" else "")
+            self.assertEqual(index[key]["canonical_criterion"],r["specific_requirement"])
+            self.assertEqual(index[key]["git_sha"],r["registry_sha"])
+            self.assertEqual(index[key]["dependency"],r["owner_and_dependency"])
+        _,overlay=read(OP)
+        for r in overlay:
+            self.assertEqual(index[r["id"]]["canonical_criterion"],r["criterion"])
+            self.assertEqual(index[r["id"]]["dependency"],r["mapped_original_P3M_IDs"])
+            self.assertEqual(index[r["id"]]["canonical_counted"],"NO")
+
+    def test_no_acceptance_without_real_receipts(self):
+        _,rows=read(LEDGER)
+        self.assertEqual(sum(r["acceptance_status"]=="ACCEPTED" for r in rows),0)
+        self.assertTrue(all(r["acceptance_status"]=="NOT_ACCEPTED" for r in rows))
+        self.assertTrue(all(r["app_only_slice"]=="UNFROZEN_CENTRAL_DECISION" for r in rows))
+        self.assertTrue(all(r["owner"] and r["canonical_criterion"]
+                            and r["dependency"] and r["next_action"] for r in rows))
+        self.assertTrue(all(re.fullmatch(r"[0-9a-f]{40}",r["git_sha"]) for r in rows))
+        self.assertTrue(all(r["entry_kind"] in {
+            "MAIN_ACTIVITY","MODULE_GATE","OPERATIONAL_CROSSWALK"
+        } for r in rows))
+
+
+if __name__=="__main__":
+    unittest.main()
