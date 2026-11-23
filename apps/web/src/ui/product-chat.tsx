@@ -290,6 +290,7 @@ export default function ProductChat(){
   useEffect(()=>{
     if(!mobileOpen)return;
     const nav=mobileMenu.current;
+    const trigger=menuTrigger.current;
     const close=nav?.querySelector<HTMLButtonElement>('.history-mobile-close');
     close?.focus();
     const onKeys=(event:KeyboardEvent)=>{
@@ -306,7 +307,7 @@ export default function ProductChat(){
       }
     };
     window.addEventListener('keydown',onKeys);
-    return ()=>{window.removeEventListener('keydown',onKeys);menuTrigger.current?.focus();};
+    return ()=>{window.removeEventListener('keydown',onKeys);trigger?.focus();};
   },[mobileOpen]);
   useEffect(()=>{
     const timer=window.setInterval(()=>{
