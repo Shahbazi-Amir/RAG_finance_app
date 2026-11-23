@@ -56,7 +56,15 @@ second_lab="$LAB_WORK/ledger_fault_probe_$(openssl rand -hex 4)"
   VALUES('001','$commit','$blob','$sha','STARTED','$cluster');" > "$LAB_WORK/duplicate_probe.log" 2>&1; then
     echo STOP_DUPLICATE_LEDGER_ROW_ALLOWED >&2;exit 70
   fi
-  grep -Fq 'duplicate key' "$LAB_WORK/duplicate_probe.log" || exit 70
+  if ! grep -Eiq 'duplicate key|unique constraint|23505' "$LAB_WORK/duplicate_probe.log"; then
+    echo 'STOP_DUPLICATE_NEGATIVE_WRONG_SQL_FAILURE' >&2
+    # Fixture IDs and values only, NO real user data or credentials.
+    tail -n 8 "$LAB_WORK/duplicate_probe.log" >&2
+    exit 70
+  fi
+  [[ "$(dbpsql -Atc "SELECT count(*) FROM db55_audit.migration_runs")" == 10 ]] || {
+    echo STOP_DUPLICATE_LEDGER_COUNT_DRIFT >&2;exit 70;
+  }
   echo 'LEDGER_FAULT_STAGE=DUPLICATE_REJECTED'
   # SOURCE SHA or cluster mismatch must not be silently accepted.
   dbpsql -q -c "UPDATE db55_audit.migration_runs SET sql_sha256=repeat('e',64) WHERE version='001';" >/dev/null
