@@ -44,6 +44,7 @@ _NO_ENGINE_FLAGS = (
 
 @dataclass(frozen=True, repr=False)
 class AppOnlyConfig:
+    host: str
     port: int
     cert_file: Path
     key_file: Path
@@ -67,7 +68,7 @@ def load_app_only_config(path: Path) -> AppOnlyConfig:
         data = json.loads(path.read_text(encoding="utf-8"))
         if (not isinstance(data, dict) or set(data) != APP_ONLY_FIELDS
                 or data.get("contract_version") != APP_ONLY_VERSION
-                or data.get("listen_host") != "127.0.0.1"
+                or data.get("listen_host") not in {"127.0.0.1", "0.0.0.0"}
                 or type(data.get("listen_port")) is not int
                 or not 1 <= data["listen_port"] <= 65535
                 or not isinstance(data.get("bff_leaf_cert_sha256"), str)
@@ -89,7 +90,8 @@ def load_app_only_config(path: Path) -> AppOnlyConfig:
                 raise StagingConfigDenied()
             _protected_file(p, secret=key == "key_file")
         return AppOnlyConfig(
-            port=data["listen_port"], cert_file=paths["cert_file"],
+            host=data["listen_host"], port=data["listen_port"],
+            cert_file=paths["cert_file"],
             key_file=paths["key_file"], client_ca=paths["client_ca"],
             bff_leaf_cert_sha256=data["bff_leaf_cert_sha256"],
             issuer=data["bff_issuer"], audience=data["bff_audience"],
@@ -196,7 +198,7 @@ def run_app_only(config_file: Path) -> None:
     if uvicorn.__version__ != "0.48.0":
         raise StagingConfigDenied()
     server_cfg = uvicorn.Config(
-        app=app, host="127.0.0.1", port=cfg.port,
+        app=app, host=cfg.host, port=cfg.port,
         loop="asyncio", http=make_verified_h11_protocol(boundary),
         ws="none", lifespan="on", workers=1, reload=False,
         proxy_headers=False, access_log=False,
