@@ -20,6 +20,14 @@ const allowed=(parts:string[],method:string):boolean=>
 
 export async function forwardHistoryProxy(request:Request,path:string[]):Promise<Response>{
   if(!allowed(path,request.method))return new Response(null,{status:404});
+  // App-only is a policy fence, not a display flag. Reject Send before body
+  // read, upstream calls, durable T1/T2 reservation or any engine dispatch.
+  // This check wins over CI stubs, private staging and legacy loopback proxy.
+  if(process.env.PHASE3_APP_MODE==='APP_ONLY'&&
+     request.method==='POST'&&path.length===1&&path[0]==='messages')
+    return Response.json({error:'ENGINE_NOT_AVAILABLE'},{
+      status:503,headers:{'Cache-Control':'no-store'}
+    });
   // CI-only authenticated path. No browser-selected owner, upstream, or
   // synthetic fallback. The API independently fences the signed session.
   if(process.env.AUTH_CI_LOGIN_MODE==='true'||stagingRequested()){
