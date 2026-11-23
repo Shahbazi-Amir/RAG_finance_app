@@ -721,12 +721,6 @@
       "source_sha": "535678051f3847661c8f048819c8a6784a804e35",
       "git_blob": "c5d4140dfdc804b40f58ba3680ab8ce97f568041",
       "reason": "verified exact owner or app-only test/workflow pin"
-    },
-    ".github/workflows/f3-app-only-runtime-ci.yml": {
-      "owner": "APP_ONLY_CANDIDATE",
-      "source_sha": "d6f369fee5a9f0c2d9491860463c0a636336e750",
-      "git_blob": "fa6436c99fca1f70fc4a1a4e026184eb7fa8ea83",
-      "reason": "verified exact owner or app-only test/workflow pin"
     }
   },
   "status": {
@@ -751,5 +745,7 @@
     "overlap_count": 0
   },
   "app_only_source_parent": "b7c8928e596001de83c5f8dbd1b86284f46a57a9",
-  "app_only_scope": "NO_ENGINE_NO_RUNNER_NO_QDRANT_NO_MODEL; Mac L2 and owner approval NOT_RUN"
+  "app_only_scope": "NO_ENGINE_NO_RUNNER_NO_QDRANT_NO_MODEL; Mac L2 and owner approval NOT_RUN",
+  "app_only_workflow_path": ".github/workflows/f3-app-only-runtime-ci.yml",
+  "app_only_workflow_note": "Workflow self-hash intentionally excluded to avoid cyclic pin: source file hashes are verified at runtime; workflow run SHA pins itself."
 }
