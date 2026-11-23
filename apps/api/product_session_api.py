@@ -51,6 +51,7 @@ from src.phase3.auth.staging_service_profile import (
 from src.phase3.auth.service_proof import (
     BFFServiceVerifier, TrustRejected, assertion_from_asgi_headers, wire_request,
 )
+from src.phase3.auth.private_http_no_store import PrivateHttpNoStore
 from src.phase3.auth.transactional_admission import (
     AdmissionSerializationUnavailable, protected_transaction,
 )
@@ -61,6 +62,8 @@ from src.phase3.storage.postgres.service_replay import PostgresDurableReplayStor
 
 app = FastAPI(title="Product Session API H1 isolated", docs_url=None,
               redoc_url=None, openapi_url=None)
+# Defense-in-depth: private responses stay uncached even for framework 4xx.
+app.add_middleware(PrivateHttpNoStore)
 _REPLAY = PostgresDurableReplayStore()
 # Server-injected only after Ops verifies runner CLI/digest and DB authority.
 # An environment toggle alone NEVER installs or authorizes this handler.
