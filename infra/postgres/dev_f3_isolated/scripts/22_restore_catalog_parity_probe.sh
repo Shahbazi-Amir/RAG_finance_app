@@ -101,7 +101,29 @@ done
 snapshot lab-db rag_finance_f3_lab "$source_file"
 snapshot restore-db rag_finance_f3_lab_restore "$restore_file"
 digest() { shasum -a 256 "$1" | awk '{print $1}'; }
-[[ "$(digest "$source_file")" == "$(digest "$restore_file")" ]] || { echo STOP_RESTORE_CATALOG_OR_GRANTS_MISMATCH >&2; exit 70; }
+if [[ "$(digest "$source_file")" != "$(digest "$restore_file")" ]]; then
+  # Metadata-only diagnosis. Never emit table rows, function bodies or secrets.
+  python3 - "$source_file" "$restore_file" <<'PY'
+from collections import Counter
+from pathlib import Path
+import sys
+a=Counter(Path(sys.argv[1]).read_text().splitlines())
+b=Counter(Path(sys.argv[2]).read_text().splitlines())
+only_a=list((a-b).elements())
+only_b=list((b-a).elements())
+print("CATALOG_DELTA_SOURCE_ONLY_ROWS="+str(len(only_a)))
+print("CATALOG_DELTA_RESTORE_ONLY_ROWS="+str(len(only_b)))
+for tag,items in (("SOURCE",only_a),("RESTORE",only_b)):
+    bykind=Counter(v.split("|",1)[0] for v in items)
+    for kind,count in sorted(bykind.items()):
+        print("CATALOG_DELTA_"+tag+"_SECTION_"+kind+"="+str(count))
+    for v in items[:12]:
+        fields=v.split("|")
+        print("CATALOG_DELTA_"+tag+"_OBJECT="+("|".join(fields[:2]))[:125])
+PY
+  echo STOP_RESTORE_CATALOG_OR_GRANTS_MISMATCH >&2
+  exit 70
+fi
 # Modify ONLY a new disposable DB copied inside the already disposable restore cluster.
 probe=rag_finance_f3_catalog_parity_probe
 admin() { DB_SERVICE=restore-db DB_NAME=postgres dbpsql -Atq "$@"; }
