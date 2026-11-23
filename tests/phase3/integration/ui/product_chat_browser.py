@@ -228,6 +228,15 @@ def main():
             print("UI_APP_ONLY_BROWSER_DISABLED_SEND_AND_HISTORY_GET_ONLY_PASS")
             page = context.new_page()
             page.route("**/api/history/**", intercept)
+            # Explicit synthetic-only client capability fixture. The running
+            # Next server NEVER advertises an unapproved Send mode, even in CI.
+            page.route("**/api/product-capabilities", lambda route: route.fulfill(
+                status=200, json={
+                    "kind": "ui_runtime_capabilities",
+                    "contract_version": "ui.runtime_capabilities.v1",
+                    "send_mode": "NO_DISPATCH_ONLY",
+                    "engine_available": False, "generation_available": False
+                }))
             page.goto(base, wait_until="domcontentloaded")
             expect(page.get_by_text("هنوز گفت‌وگویی ثبت نشده است.")).to_be_visible()
             expect(page.get_by_test_id("create-conversation")).to_be_enabled()
