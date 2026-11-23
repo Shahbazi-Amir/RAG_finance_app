@@ -24,6 +24,9 @@ from psycopg.rows import dict_row
 from apps.api import history_api as history
 from apps.api.product_message_fixture import answer_from_fixture
 from src.phase3.rag_runtime.staging_no_dispatch import prepare_post_commit_no_dispatch
+from src.phase3.rag_runtime.claim_citation_graph import (
+    CitationGraphDenied, inspect_answer_citation_graph,
+)
 from src.phase3.rag_runtime.dispatch_claim_bridge import (
     DispatchClaimDenied, claim_within_signed_t2,
     after_definitive_commit, owner_scoped_claim_status, flag_reporter_unknown,
@@ -559,11 +562,15 @@ def _run_fixture_send(request, raw_body, payload):
                       request_id=attempt["attempt_request_id"],
                       trace_id=attempt["attempt_trace_id"])
         history.check_wire(answer, "answer")
+        # JSON Schema cannot express Claim↔Citation reciprocal ID references.
+        # This adds structural integrity to CI fixture T3, never LIVE evidence.
+        inspect_answer_citation_graph(answer)
         if answer["provenance"]["origin"] != "SYNTHETIC":
             raise ValueError("FIXTURE_PROVENANCE_REQUIRED")
     except TimeoutError:
         failure = (504, "PROVIDER_TIMEOUT")
-    except (OSError, ValueError, ValidationError, StopIteration):
+    except (OSError, ValueError, ValidationError, StopIteration,
+            CitationGraphDenied):
         failure = (502, "PROVIDER_REQUEST_FAILED")
 
     with _conn("history") as conn, conn.transaction():
