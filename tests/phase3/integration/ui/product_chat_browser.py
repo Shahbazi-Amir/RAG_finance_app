@@ -189,7 +189,9 @@ def main():
             expect(page.get_by_text("هنوز گفت‌وگویی ثبت نشده است.")).to_be_visible()
             page.get_by_test_id("create-conversation").click()
             page.get_by_test_id("history-question").fill("پرسش فارسی دربارهٔ نرخ بهره")
-            page.get_by_test_id("history-send").click()
+            # Deliver two native button clicks in the same JS turn. The
+            # sending.current ref must allow one (and only one) POST.
+            page.get_by_test_id("history-send").evaluate("(button) => { button.click(); button.click(); }")
             expect(page.get_by_text("در حال پردازش؛ وضعیت از API دریافت شده است.")).to_be_visible(
                 timeout=15000)
             expect(page.get_by_text(
