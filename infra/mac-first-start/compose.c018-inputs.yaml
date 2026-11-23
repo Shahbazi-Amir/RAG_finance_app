@@ -1,0 +1,19 @@
+services:
+  product-api:
+    volumes:
+      - type: bind
+        source: ${MAC_C018_INPUT_COPY:?provide the independently verified input copy}/repo
+        target: /opt/rag-finance-staging/RAG_finance
+        read_only: true
+      - type: bind
+        source: ${MAC_C018_INPUT_COPY:?provide the independently verified input copy}/artifacts
+        target: /opt/rag-finance-staging/_RAG_finance_NB22E_v4_outputs
+        read_only: true
+      - type: bind
+        source: ${MAC_C018_INPUT_COPY:?provide the independently verified input copy}/dense
+        target: /opt/rag-finance-staging/RAG_finance/data/phase2/index/dense_index_v1/qdrant
+        read_only: true
+      - type: bind
+        source: ${MAC_C018_OFFLINE_CACHE:?provide the vetted local model cache}
+        target: /opt/rag-finance-staging/hf/hub
+        read_only: true
