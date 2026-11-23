@@ -1,0 +1,37 @@
+name: F3 DB compare exact old and new pinned baselines on one isolated runner
+on:
+  push:
+    branches: [agent/database-f3-fresh-install-isolated-20261122]
+    paths:
+      - 'infra/postgres/dev_f3_isolated/scripts/18_compare_pinned_baselines_isolated.sh'
+      - '.github/workflows/f3-db-two-pinned-baselines-comparison.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  two-pinned-baselines:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Full history for two pinned source worktrees
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Static suite including baseline comparison script
+        run: |
+          set -euo pipefail
+          bash infra/postgres/dev_f3_isolated/tests/run_static.sh
+          bash -n infra/postgres/dev_f3_isolated/scripts/18_compare_pinned_baselines_isolated.sh
+      - name: Fresh PG17.11 source, DB55, independent restore on both pinned DB baselines
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash infra/postgres/dev_f3_isolated/scripts/18_compare_pinned_baselines_isolated.sh
+      - name: Save only sanitized two-source comparison receipts
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3-db-0e301a-to-996dfc9-independent-comparison
+          path: ci_comparison/*
+          if-no-files-found: error
+          retention-days: 14

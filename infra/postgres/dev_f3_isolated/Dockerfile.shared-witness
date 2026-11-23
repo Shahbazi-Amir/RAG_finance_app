@@ -1,0 +1,9 @@
+# CI-only read-only client. Runtime network is internal; no external OAuth, C018 or Gateway.
+FROM python:3.13.10-slim-bookworm
+RUN python -m pip install --no-cache-dir \
+    'fastapi==0.162.2' 'httpx==0.28.1' 'psycopg[binary]==3.3.8' \
+    'jsonschema==4.26.0' 'uvicorn==0.48.0' 'h11==0.16.0' \
+    'cryptography==46.0.3' 'PyJWT==2.10.1'
+COPY scripts/shared_stack_db_witness.py /opt/db-witness/witness.py
+WORKDIR /appsrc
+ENTRYPOINT ["python3", "-I", "/opt/db-witness/witness.py"]

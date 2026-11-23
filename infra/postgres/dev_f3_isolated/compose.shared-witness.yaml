@@ -1,0 +1,37 @@
+# ONLY add read-only database authority check processes to the same private Docker network.
+# Do not start Product HTTP or Bootstrap HTTP without real IdP/C018 and BFF mTLS.
+services:
+  product-db-witness:
+    build:
+      context: .
+      dockerfile: Dockerfile.shared-witness
+    image: ${LAB_PROJECT:?}-db-witness:ci
+    entrypoint: ["python3", "-I", "/opt/db-witness/witness.py", "product"]
+    environment:
+      PG_EXPECTED_HOST: demo-db
+      PG_EXPECTED_DB: rag_finance_f3_lab
+    volumes:
+      - ${LAB_API_SRC:?}:/appsrc:ro
+      - ${LAB_API_PRODUCT_SECRETS:?}:/run/role_secrets:ro
+    networks:
+      - private
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+  bootstrap-db-witness:
+    build:
+      context: .
+      dockerfile: Dockerfile.shared-witness
+    image: ${LAB_PROJECT:?}-db-witness:ci
+    entrypoint: ["python3", "-I", "/opt/db-witness/witness.py", "bootstrap"]
+    environment:
+      PG_EXPECTED_HOST: demo-db
+      PG_EXPECTED_DB: rag_finance_f3_lab
+    volumes:
+      - ${LAB_API_SRC:?}:/appsrc:ro
+      - ${LAB_API_BOOTSTRAP_SECRETS:?}:/run/role_secrets:ro
+    networks:
+      - private
+    read_only: true
+    security_opt:
+      - no-new-privileges:true

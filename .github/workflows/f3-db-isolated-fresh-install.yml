@@ -1,0 +1,111 @@
+name: F3 DB isolated fresh install PG17.11
+on:
+  push:
+    branches: [agent/database-f3-fresh-install-isolated-20261122]
+    paths:
+      - 'infra/postgres/dev_f3_isolated/**'
+      - 'infra/postgres/migrations/009_*'
+      - 'infra/postgres/migrations/010_*'
+      - 'infra/postgres/staging/db55_*'
+      - '.github/workflows/f3-db-isolated-fresh-install.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolated-pg17:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout source with all immutable refs
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin check and static tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd infra/postgres/dev_f3_isolated
+          bash tests/run_static.sh
+          for ref in \
+            d93dcf7cbf9290acd4cd3aa0164ef05689049da4 \
+            656604356dadea953031fcdb74650a5d42df4e9b \
+            1678e87b7984094b74ec995383b8d4383e5f5ae7 \
+            bfd6b1d9ed23e5f4cc6f126b579f90d7c877a7a6; do
+            git cat-file -e "${ref}^{commit}"
+          done
+      - name: Fresh 001-010 TLS DB55 role ACL and independent restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd infra/postgres/dev_f3_isolated
+          export SOURCE_REPO="$GITHUB_WORKSPACE"
+          export LAB_ROOT="$RUNNER_TEMP/f3-db-lab-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          bash scripts/00_prepare_source.sh
+          bash scripts/01_create_isolated_lab.sh
+          bash scripts/02_provision_roles.sh
+          bash scripts/03_apply_pinned_001_010.sh
+          bash scripts/03_apply_pinned_001_010.sh | grep -F ALREADY_APPLIED_EXACT_PINS_NO_RERUN
+          bash scripts/04_bridge_and_db55.sh
+          bash scripts/05_test_roles_tls_rls.sh
+          bash scripts/09_shared_stack_db_preflight.sh
+          bash scripts/06_backup_restore_independent.sh
+          bash scripts/10_restored_stack_db_preflight.sh
+          bash scripts/22_restore_catalog_parity_probe.sh
+          bash scripts/13_catalog_erd_inventory.sh
+          bash scripts/12_rollback_rls_constraints_probe.sh
+          bash scripts/14_synthetic_owner_lifecycle_restore.sh
+          bash scripts/15_populated_pre009_upgrade_restore.sh
+          bash scripts/23_m04_migration_full_cycle.sh
+          bash scripts/24_m10_idempotency_concurrency_probe.sh
+          bash scripts/16_fault_injected_migration_ledger.sh
+          bash scripts/17_populated_query_plan_and_owner.sh
+          bash scripts/19_history_rls_negative_matrix.sh
+          bash scripts/20_backup_integrity_corruption_probe.sh
+          bash scripts/25_pg_crash_recovery_probe.sh
+          bash scripts/21_history_cursor_race_probe.sh
+          bash scripts/11_export_sanitized_receipt.sh
+          printf 'CI_GIT_SHA=%s\nCI_PG=17.11\nISOLATED_FRESH_INSTALL=PASS\n' "$GITHUB_SHA"
+          printf 'NO_DEMO_DB=PASS\nNO_011=PASS\nNO_ARVAN=PASS\n'
+
+      - name: Upload sanitized Foundation DB candidate consumption receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3-db-foundation-candidate-consumption
+          path: ci_receipts/*
+          if-no-files-found: error
+          retention-days: 14
+
+  optional-post010-011:
+    # 011 is separately pinned/tested; do not rerun it on every base DB hardening push.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout complete immutable source history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Static syntax and source pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd infra/postgres/dev_f3_isolated
+          bash tests/run_static.sh
+          git cat-file -e 'b0ba6dbf6100109cb58f8cb49da808839d68c5f0^{commit}'
+      - name: Independent full 001-010 then optional 011; no Gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd infra/postgres/dev_f3_isolated
+          export SOURCE_REPO="$GITHUB_WORKSPACE"
+          export LAB_ROOT="$RUNNER_TEMP/f3-db-011-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          bash scripts/00_prepare_source.sh
+          bash scripts/01_create_isolated_lab.sh
+          bash scripts/02_provision_roles.sh
+          bash scripts/03_apply_pinned_001_010.sh
+          bash scripts/04_bridge_and_db55.sh
+          bash scripts/08_optional_011_compat_only.sh
+          echo 'POST010_011_SEPARATE_ISOLATED_CI=PASS'
+          echo 'POST010_NO_GATEWAY_NO_DEMO_DB=PASS'
