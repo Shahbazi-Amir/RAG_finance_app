@@ -28,7 +28,7 @@ def main():
     state = {"posts": 0, "status_reads": 0, "engine_reads": 0,
              "logged_in": True, "request": None,
              "source_reads": 0, "source_mode": "valid",
-             "owner_mode": "original"}
+             "owner_mode": "original", "status_mode": "valid", "engine_mode": "valid"}
     conversation_id = "conv_uichat_013"
     user_message = "msg_uichat_013"
 
@@ -110,6 +110,8 @@ def main():
             status["attempt_trace_id"] = "b" * 32
             status["reserved_answer_id"] = "ans_uichat_013"
             status["status"] = "attempt_pending"
+            if state["status_mode"] == "invalid":
+                status["unexpected_debug"] = "not-a-contract-field"
             route.fulfill(status=200, json=status)
         elif path.endswith("/api/history/message-requests/engine-status") and method == "GET":
             check_original_query(route.request.url)
@@ -118,6 +120,9 @@ def main():
             assert original
             # A separate API #53 *technical* document: not product Answer,
             # never a live Runner claim or a Citation.
+            if state["engine_mode"] == "invalid":
+                route.fulfill(status=200, json={"kind": "forged_extra", "answer": "fake"})
+                return
             route.fulfill(status=200, json={
                 "kind": "no_dispatch_execution_status",
                 "contract_version": "api.no_dispatch_status.v1",
@@ -257,6 +262,23 @@ def main():
             expect(page.get_by_test_id("retrieved-sources-observed")).to_be_visible()
             assert state["posts"] == 1
             expect(page.locator("nav.history-list")).to_contain_text("گفت‌وگوی تست فارسی")
+            # A malformed Product Status must clear previously displayed
+            # evidence, not retain stale observations from a past GET.
+            state["status_mode"] = "invalid"
+            page.get_by_test_id("recover-status").click()
+            expect(page.get_by_text("خواندن وضعیت ناموفق بود؛ نتیجه نامعلوم است.")).to_be_visible()
+            assert page.get_by_test_id("retrieved-sources-observed").count() == 0
+            state["status_mode"] = "valid"
+            page.get_by_test_id("recover-status").click()
+            expect(page.get_by_test_id("retrieved-sources-observed")).to_be_visible()
+            # Bad technical status cannot keep an old CONTEXT_READY display.
+            state["engine_mode"] = "invalid"
+            page.get_by_test_id("recover-status").click()
+            expect(page.get_by_text("وضعیت فنی جداگانه در دسترس نیست؛ فقط وضعیت اصلی پیگیری می‌شود.")).to_be_visible()
+            assert page.get_by_text("بازیابی شواهد کامل شد؛ تولید پاسخ انجام نشده است.").count() == 0
+            state["engine_mode"] = "valid"
+            page.get_by_test_id("recover-status").click()
+            expect(page.get_by_text("بازیابی شواهد کامل شد؛ تولید پاسخ انجام نشده است.")).to_be_visible()
             # A different valid owner in a separately signed list response
             # must clear the former owner's message/Attempt/cache before display.
             state["owner_mode"] = "changed"
