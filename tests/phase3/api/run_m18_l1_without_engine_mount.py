@@ -3,6 +3,9 @@ tests remain BLOCKED, not passed. No changes to original test suite.
 """
 import sys
 import unittest
+import os
+# Match unittest discover's import root even when invoked by direct script path.
+sys.path.insert(0, os.getcwd())
 
 BLOCKED = {
     "test_staging_preflight.PinnedStagingPreflight.test_cli_requires_no_dispatch_and_reports_only_safe_bools",
