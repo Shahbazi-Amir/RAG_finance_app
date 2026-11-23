@@ -769,6 +769,96 @@ class RealProductSession011(unittest.TestCase):
         print("API_F3_REAL_PG_REPLAY_H11_PROCESS_RESTART_AB_STABLE_PASS",
               flush=True)
 
+    def test_API011_10_unknown_cancel_status_is_durable_and_never_retried(self):
+        """Real PG17 + BFF RS256 mTLS: UNKNOWN and CANCELLED keep original T2.
+
+        APP_ONLY sends no new message; this validates *pre-existing*
+        synthetic T1/T2 state read over original Product.v1 signed History,
+        not engine/provider completion or a new Send endpoint.
+        """
+        from repository import mark_attempt
+        from urllib.parse import urlencode
+        a, b = self.login("A"), self.login("B")
+        cid = self.seed(a, "CI_UNKNOWN_CANCELLATION_" + uuid.uuid4().hex)
+        sent = {
+            "kind": "send_message_request",
+            "contract_version": "product.v1",
+            "requested_conversation_id": cid,
+            "client_message_id": history_api.uid(),
+            "idempotency_key": "ciunknown_" + uuid.uuid4().hex,
+            "question": "CI_T2_PREVIOUSLY_COMMITTED_NOT_FOR_MODEL",
+        }
+        with psycopg.connect(os.environ["DB_APP_DSN"], autocommit=True,
+                             row_factory=dict_row) as conn:
+            t1 = history_api.send_t1(
+                conn, a["owner_id"], sent, history_api.uid(), history_api.uid())
+            t2 = start_t2(
+                conn, a["owner_id"], cid, sent["client_message_id"],
+                sent["idempotency_key"], history_api.uid(), history_api.uid())
+            # Real crash/timeout ambiguity is represented by the repository
+            # state only; never reinterpret UNKNOWN as permission to Send.
+            mark_attempt(conn, a["owner_id"], t2["id"], "attempt_unknown")
+        path = "/v1/message-requests/status"
+        q = "?" + urlencode({
+            "requested_conversation_id": cid,
+            "client_message_id": sent["client_message_id"],
+            "idempotency_key": sent["idempotency_key"],
+        })
+        def read(actor, query=q):
+            token, _ = self.signed(
+                actor, path=path, query=query.removeprefix("?").encode("ascii"))
+            return self.request("GET", path, token, query=query)
+        for expected in ("attempt_unknown", "cancelled"):
+            for _ in range(3):
+                reply = read(a)
+                self.assertEqual(reply.status_code, 200, reply.text)
+                doc = reply.json()
+                self.assertEqual(doc["status"], expected)
+                self.assertEqual(doc["attempt_id"], t2["id"])
+                self.assertEqual(doc["message_id"], t1["message_id"])
+                self.assertEqual(doc["owner_user_id"], a["owner_id"])
+                self.assertIsNone(doc["answer"])
+                self.assertIsNone(doc["answer_id"])
+            denied = read(b)
+            self.assertEqual(denied.status_code, 404, denied.text)
+            wrong = read(a, query=q.replace(
+                sent["idempotency_key"],
+                "ciunknown_nonexistent_" + uuid.uuid4().hex))
+            self.assertEqual(wrong.status_code, 404, wrong.text)
+            with psycopg.connect(os.environ["DB_APP_DSN"], autocommit=True,
+                                 row_factory=dict_row) as conn:
+                same = start_t2(
+                    conn, a["owner_id"], cid, sent["client_message_id"],
+                    sent["idempotency_key"], history_api.uid(), history_api.uid())
+                self.assertEqual(same["id"], t2["id"])
+                if expected == "attempt_unknown":
+                    mark_attempt(conn, a["owner_id"], t2["id"], "cancelled")
+        with psycopg.connect(os.environ["DB_MIG_DSN"], autocommit=True,
+                             row_factory=dict_row) as admin:
+            actual = admin.execute(
+                "SELECT e.id,e.state,count(ans.id) AS answers "
+                "FROM history_l1.execution_attempts AS e "
+                "LEFT JOIN history_l1.answers AS ans "
+                "ON ans.owner_id=e.owner_id AND ans.attempt_id=e.id "
+                "WHERE e.owner_id=%s AND e.id=%s "
+                "GROUP BY e.id,e.state",
+                (a["owner_id"], t2["id"])
+            ).fetchone()
+            self.assertIsNotNone(actual)
+            self.assertEqual(actual["id"], t2["id"])
+            self.assertEqual(actual["state"], "cancelled")
+            self.assertEqual(actual["answers"], 0)
+            attempts = admin.execute(
+                "SELECT count(*) AS n FROM history_l1.execution_attempts "
+                "WHERE owner_id=%s AND send_receipt_id IN "
+                "(SELECT id FROM history_l1.send_receipts "
+                "WHERE owner_id=%s AND client_message_id=%s)",
+                (a["owner_id"], a["owner_id"], sent["client_message_id"])
+            ).fetchone()["n"]
+            self.assertEqual(attempts, 1)
+        print("API_F3_REAL_SIGNED_PG_UNKNOWN_CANCELLED_ONE_T2_NO_T3_PASS",
+              flush=True)
+
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
         """Actual verified HTTPS callback, same pinned redirect for Code exchange."""
         from cryptography.hazmat.primitives import serialization
