@@ -28,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker build --pull --platform linux/amd64 --file infra/phase3_l1/Dockerfile.api             --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "f3-api-l1:$GITHUB_SHA" .
+          docker build --pull --platform linux/amd64 --file infra/phase3_l1/Dockerfile.api --build-arg "BASE=docker.io/library/python:3.13.5" --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "f3-api-l1:$GITHUB_SHA" .
           test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "f3-api-l1:$GITHUB_SHA")" = "$GITHUB_SHA"
           test "$(docker image inspect -f '{{.Architecture}}' "f3-api-l1:$GITHUB_SHA")" = amd64
           test "$(docker run --rm --network none "f3-api-l1:$GITHUB_SHA" id -u)" = 11001
@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker build --pull --platform linux/amd64 --file infra/phase3_l1/Dockerfile.web             --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "f3-web-l1:$GITHUB_SHA" .
+          docker build --pull --platform linux/amd64 --file infra/phase3_l1/Dockerfile.web --build-arg "BASE=docker.io/library/node:22.23.5" --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "f3-web-l1:$GITHUB_SHA" .
           test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "f3-web-l1:$GITHUB_SHA")" = "$GITHUB_SHA"
           test "$(docker image inspect -f '{{.Architecture}}' "f3-web-l1:$GITHUB_SHA")" = amd64
           test "$(docker run --rm --network none "f3-web-l1:$GITHUB_SHA" id -u)" = 11003
@@ -72,7 +72,11 @@ jobs:
                "actual_build":"PASS","api_tests_in_container":"196_OF_198_PASS_TWO_ENGINE_MOUNT_DEPENDENT_BLOCKED","web_http_200":"PASS",
                "bad_host_404":"PASS","real_api_tls_http":"NOT_RUN","mac":"NOT_RUN",
                "real_c018":"NOT_RUN","pg_app_connected":"NOT_RUN",
-               "oci_security_scan":"NOT_RUN","release_gate":"NOT_ACCEPTED"}
+               "oci_security_scan":"NOT_RUN","release_gate":"NOT_ACCEPTED",
+               "api_ci_base":"docker.io/library/python:3.13.5",
+               "web_ci_base":"docker.io/library/node:22.23.5",
+               "ci_base_registry_fallback":"ECR_429_TEMPORARY_CI_ONLY_TAG_NOT_RELEASE_DIGEST",
+               "approved_ECR_runtime_base_digest_verified":"NOT_RUN"}
           with open("ci_receipts/f3_l1/real_image_http_receipt.json","w") as f:json.dump(doc,f,indent=2)
           print("F3_REAL_L1_IMAGE_HTTP_RECEIPT_PASS_NOT_MAC")
           PY
