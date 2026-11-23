@@ -684,8 +684,8 @@
     },
     "tests/phase3/api/test_app_only_no_engine.py": {
       "owner": "APP_ONLY_CANDIDATE",
-      "source_sha": "af68868c80e6cda8efcf8c028c5f0708e45adf69",
-      "git_blob": "120252abdabcdc684e55f77bb1335467f908d401",
+      "source_sha": "5ec8b3d09ee1e4cb52a2e6bfba516395a258a9fc",
+      "git_blob": "b66ff9f4339ddcd3e2d5d93625ea956140356035",
       "reason": "app-only integrated original source; no engine or target L2 claim"
     },
     "tests/phase3/integration/api/test_app_only_mtls_network.py": {
