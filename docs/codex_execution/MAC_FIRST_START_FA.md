@@ -37,3 +37,13 @@ Manifest مکمل ۵ Volume و ۴ مجموعهٔ پایگاه را ثبت کرد
 آزمون جدا از snapshot با UID 11001 و mountهای فقط‌خواندنی CONFIG_PASS را ثبت کرد. پس از بررسی‌های preflight، import در repository.py:16 برای خواندن packages/contracts/product.v1.schema.json با PermissionError متوقف شد. اصلاح در شاخهٔ محلی ops/mac-first-start با commit 4752c2b ثبت شد. Dockerfile.api دسترسی گروه سرویس را فقط روی درخت‌های کد و قرارداد تنظیم می‌کند. compose.api.yaml مسیر بررسی سلامت را با /run/api-private/api.json همسان می‌کند. کلیدها، اعتبارنامه‌ها و کنترل‌های Startup دست‌نخورده‌اند.
 
 ساخت آفلاین Docker با linux/amd64، --pull=false و --network=none موفق شد. import ماژول API و schema به‌عنوان UID سرویس در مرحلهٔ build اجرا شد. manifest ایمیج اصلاحی 2754f21404d9e88c2b2dd2f8b8850cde049a3d3648e04291d9f5368cf13d5ac6 است. هنوز سرویس اصلی تعویض نشده است. راهنمای فعلی شاخهٔ Gate 3 اجرای retrieval ایزوله با NO_DISPATCH_ONLY را پیش‌بینی کرده است و Generation و Gateway مسیر جدا دارند.
+
+## بازیابی لایهٔ API و شروع نسخهٔ اصلاحی
+
+در بستهٔ محلی mac-first-start-api-84d58b1، آزمون SHA256SUMS برای هر هفت مورد موفق شد. آرشیو پس از احراز HMAC، رمزگشایی و gzip -dc با docker load روی همان daemon بارگذاری شد. شناسهٔ کامل 6c6a05dcd26af99bc406b4e2f9d64fca29f635d894d8daabbada429b8b2dce10 تطبیق داشت. docker run با network none، کاربر 11001، root filesystem فقط‌خواندنی و بدون Volume، ISOLATED_ENTRYPOINT_IMPORT_PASS ثبت کرد. Restore کل پشته همچنان PARTIAL است. دستور دقیق بازیابی در RESTORE_REPORT.md کنار آرشیو آمده است.
+
+پیش از جایگزینی، API اصلاحی با همان تنظیمات و mountهای فقط‌خواندنی و ledger موقت جدا از CONFIG_PASS، PREPARE_PASS و PROTOCOL_PASS گذشت. سپس docker compose up -d --no-deps --no-build --pull never product-api در همان پروژه اجرا شد. کانتینر جدید d98dfeaca7c41 با ایمیج 2754f21404d9e healthy شد. لاگ Uvicorn مبدأ https://127.0.0.1:8443 و healthcheck با خروج ۰ و PRIVATE_STAGING_PREFLIGHT_PASS ثبت کردند. Volumeهای اصلی حفظ شدند.
+
+مسیر بازگشت، اعمال Compose اولیه با API_IMAGE_NAME=rag-finance-f3/api-local-recovery:84d58b1 و up -d --no-deps --no-build --pull never product-api است. در بازگشت، خطای قبلی API نیز بازمی‌گردد. دانستن شناسهٔ snapshot جایگزین بررسی کنترل‌های امنیتی نسخهٔ اجراشده نیست.
+
+ایمیج اولیهٔ Bootstrap نیز فایل entrypoint با مالک root و mode 0600 داشت. ساخت آفلاین نسخهٔ اصلاحی در commit محلی f1a83c4، import با UID 11002 را تأیید کرد. فایل Dockerfile.bootstrap و override محلی در شاخهٔ ops/mac-first-start قرار دارند. شناسهٔ ایمیج جدید 8e5d6a79f945ec928d04d94408dbd0ca7e436dc48fbe70174da1af0a8a03de3f است. آزمون runtime سرویس‌های وابسته در جریان است.
