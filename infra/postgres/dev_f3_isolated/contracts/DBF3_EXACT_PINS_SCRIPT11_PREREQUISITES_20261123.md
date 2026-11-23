@@ -99,3 +99,18 @@ In [CI 45209570132](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/run
 - RPO/RTO, PITR, encryption/key custody, backup retention and real outage workload require numeric signed choices, not a 2-row synthetic restore measurement.
 
 FINAL: CI-only technical evidence PASS; signed Mac HTTP/IdP, C018 and production-scale deletion/DR NOT_RUN; all 26 module Gates remain under Foundation/CENTRAL authority.
+
+---
+## Revision after exact successful CI 45226799736 — use over older prereq lists
+
+**EXECUTABLE tested** 24b4def0efd16f33d3a8391a479978c0846490aa. CI [45226799736](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45226799736) SUCCESS; artifact [14842991989](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45226799736/artifacts/14842991989) stores **13 sanitized files**, not historical 9/12. The following is **inside private disposable DB test only**, no Mac accepted DB/volume touched and no 011 run.
+
+- Exact new script: scripts/22_restore_catalog_parity_probe.sh, Git blob 5869b15413d058acb2424199d8fcaa9d274f822c.
+- Revised exporter: scripts/11_export_sanitized_receipt.sh, Git blob 5872c2554c7704bda0eab97c6230b9a77c1c28eb, requires restore_catalog_parity_receipt.json and rejects absent/invalid content.
+- Revised workflow: .github/workflows/f3-db-isolated-fresh-install.yml, Git blob ca1dbca48727f2b5786e90663e98289106773215.
+- Unchanged 03: 9cc9458c55b82f03811b346259ccf2ae3dce318d; SQL manifest blob f67f5e985c45ae9b6a6c68417ebc54ba05ec7fdf, SHA256 9ff95a59570f5f6c6188479d9c37cf684ef836c599e89d9faa2bb0e17a4946f7.
+- Unchanged 19/20/21 Git blobs: 5d26843eaa129c923c4275e558c60627c15018c9 / d7e5e1cb4bb0b04cf86e87e3eb8a232da78fc391 / 8732a4788cb3ecf821c15d811119f8cacc3eedd1.
+
+**Execution order (supersedes older list):** 00 → 01 → 02 → 03 → 03 exact no-replay → 04 → 05 → 09 → 06 → 10 → **22** → 13 → 12 → 14 → 15 → 16 → 17 → 19 → 20 → 21 → **11 last**. Step 22 needs source/restore complete, 10 APPLIED ledger rows in each, different PG system IDs, and empty-but-existing restore-tested.marker. It checks the physical catalog against a PostgreSQL semantic owner-default ACL (not raw relacl representation), performs NO FORCE RLS and DISABLE RLS negative mutations in a new restore-clone database, then removes the clone. A mismatch fails the workflow; sanitized artifact exports ONLY the SHA256 and bounded statuses; no private catalog/pg_dump is attached.
+
+**Repin required:** Foundation snapshot f7d738aa763179eba28c7847e6225640bb88b176 has installer 03 and 20-file manifest identical, but 11 old blob 9f0908fef1f93dd66856fde6285ea5a60031aab2, scripts 19–22 absent and workflow older. Foundation owns integration/F3_SOURCE_PINS.json and must consume tested source commit and blob matrix on an explicit integrated candidate; verify fresh independent CI plus authorized Mac role/IdP L2 separately. 011 remains an OPTIONAL independent branch/test; do not run on base, no Gateway. This new DB CI does not grant module Gate, external deployment, RPO/RTO SLA or anti-resurrection.

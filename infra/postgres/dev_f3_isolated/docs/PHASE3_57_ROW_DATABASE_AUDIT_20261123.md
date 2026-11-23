@@ -89,3 +89,17 @@
 ## Crosswalk عدم دوباره‌شماری
 
 P3OP02/03/07 و DB01-IDها طبق فایل مأموریت به همین ردیف‌ها نگاشت می‌شوند؛ به شمارش 57 شناسهٔ اصلی اضافه نمی‌شوند. مالک رسمی رجیستر اصلی Foundation است؛ این فایل صرفاً گزارش تخصصی DB است.
+
+---
+### 2026-11-23 — witness delta after source 24b4def0; no status inflation
+CI [45226799736](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45226799736) **SUCCESS** (PG17.11 disposable source+independent restore) و artifact [14842991989](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45226799736/artifacts/14842991989). Script 22 exact blob 5869b15413d058acb2424199d8fcaa9d274f822c compares catalog/policies/constraints/indexes/function defs and nine-role effective ACLs, normalizing PostgreSQL owner-default ACL when relacl is NULL. Full active catalog fingerprint parity PASS; the two destructive RLS changes on extra disposable restore clone were detected and clone removed. This is **not** a signed-client or Mac/DR authorization proof. Script 11 is now blob 5872c2554c7704bda0eab97c6230b9a77c1c28eb and thirteen sanitized receipts; 011 skipped.
+
+| ID | قبلی → جدید | CI-only evidence delta | مانده برای همان معیار قبولی |
+|---|---|---|---|
+| P3M04-A02 | OPEN → OPEN | Constraints/index definitions in restore/source fingerprint PASS | Load/query plan روی کاربری واقعی و threshold امضاشده |
+| P3M06-A01 | OPEN → OPEN | 14/14 FORCE RLS و 2/2 drift detection | API/BFF/IdP واقعی و signed owner identity |
+| P3M06-A02 | OPEN → OPEN | Canonicalized ACL + nine-role grants source/restore PASS | Negative endpoint and worker policies |
+| P3M22-A06 | DONE narrow DB CI → DONE narrow DB CI | Independent restored schema and ACL parity expanded | Mac independent target and approved full DR |
+| P3M22-A09 | OPEN → OPEN | isolated RLS catalog-drift rejection, not disaster drill | Real partial/full failure recovery and RPO/RTO |
+
+**Totals unchanged:** 4 DONE limited, 29 OPEN, 24 BLOCKED = 57; acceptance for all shared rows pending Foundation/API/CENTRAL. Previous row table is historical baseline; this delta adds evidence, never silently rewrites old tested SHAs.
