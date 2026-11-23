@@ -105,3 +105,11 @@ Status is review. Supervisor approval is pending.
 - Tested: Gmail TCP connection through docker exec and an unauthenticated SMTP STARTTLS probe using Python ssl.create_default_context with Gmail hostname verification. Negotiated TLS 1.3. Trusted curl request to ingress /admin/ returned 403. Keycloak had no published admin port. No SMTP auth, email send, invite, or runtime product attempt.
 - Blocker: an authorized private Keycloak administration URL is needed for the account holder to enter the App Password in Staging > Realm settings > Email > Authentication > Password. Ingress access restrictions preserved. Arvan HOLD. Supervisor acceptance pending.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — private Keycloak admin route review
+
+- Status: blocked. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), operational evidence only. Reporting baseline codex 9f7a8fe and execution baseline ops/mac-first-start b57bf7a.
+- Implemented: updated this ledger and docs/codex_execution/MAC_FIRST_START_FA.md, MAC_FIRST_START_FA.html, and CURRENT_STATUS.md. No listener, access grant, or runtime setting changed.
+- Tested: docker inspect showed no published Keycloak ports. Boolean-only checks found no hostname-admin in the running config file or environment and confirmed the ingress admin deny rule. Seven containers were running. Official Keycloak guidance confirms that a separate admin hostname needs proxy-level restrictions.
+- Blocker: approval for a loopback-only TLS admin route and an existing authorized Staging operator. SMTP authentication and Test Email remain unexecuted. Arvan HOLD. Supervisor acceptance pending.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).

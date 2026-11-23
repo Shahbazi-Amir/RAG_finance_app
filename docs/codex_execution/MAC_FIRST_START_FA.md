@@ -167,3 +167,17 @@ issuer از /run/ops/bootstrap.json کانتینر Auth Bootstrap خوانده �
 OIDC، Signed BFF و C018 به دعوت واقعی وابسته‌اند. سؤال محصول ارسال نشد و منابع، شمارنده‌ها و Refresh آزموده نشدند. آروان HOLD و پذیرش سرپرست در انتظار است.
 
 [راهنمای رسمی تنظیم ایمیل Keycloak](https://www.keycloak.org/docs/26.8.1/server_admin/#_email)
+
+## بررسی دسترسی خصوصی مدیریت Keycloak
+
+مبنای گزارش codex در 9f7a8fe و مبنای اجرای محلی ops/mac-first-start در b57bf7a بود. docker ps هفت کانتینر فعال و پنج healthcheck موفق نشان داد. اتصال Gmail STARTTLS از checkpoint قبلی به ارث رسید. SMTP AUTH و Test Email هنوز اجرا نشده‌اند.
+
+ترکیب Compose و تنظیمات مؤثر Keycloak بررسی شد. دستور اجرا فایل /tmp/kc.conf را مصرف می‌کند. بررسی فقط وجود کلید نشان داد hostname-admin در این فایل و KC_HOSTNAME_ADMIN در محیط هر دو غایب بودند. docker inspect برای ۸۰۸۰، ۸۴۴۳ و ۹۰۰۰ هیچ Host binding نشان نداد. web-https شبکهٔ کانتینر میزبان خود را شریک است. بررسی شرطی Nginx وجود قانون رد /admin/ را بدون خواندن مقادیر محرمانه در خروجی تأیید کرد. مسیر خصوصی موجود یا تحویل مصوب اعتبارنامهٔ اپراتور برای این Realm در مواد بررسی‌شده یافت نشد.
+
+قرارداد staging و ADR کنترل بازنشانی وظیفهٔ عملیات، هویت اپراتور و امتیاز مدیریت را جدا نگه می‌دارند. طبق راهنمای Keycloak، الگوی پیشنهادی برای بررسی اپراتور یک hostname-admin مستقل با گواهی معتبر همان نام، شنوندهٔ محدود به 127.0.0.1 یا ::1 و حفظ deny در ingress فعلی است. hostname-admin به‌تنهایی دسترسی REST را محدود نمی‌کند. فعال‌سازی پس از مجوز صریح اپراتور و تعیین شیوهٔ ورود موجود انجام می‌شود. هیچ listener، تونل، نقش، حساب، override یا تغییر Realm در این نوبت ایجاد نشد.
+
+پس از دسترسی تصویب‌شده، صاحب حساب رمز Google را شخصاً در Staging → Realm settings → Email → Authentication → Password وارد می‌کند. سپس Test Email و دعوت با ابزار نسخهٔ ۱ قابل اجرا هستند. تأیید ایمیل و تنظیم گذرواژه به اقدام صاحب صندوق وابسته‌اند. C018 و آزمون‌های محصول اجرا نشدند. آروان HOLD و پذیرش سرپرست در انتظار است.
+
+[راهنمای رسمی hostname-admin](https://www.keycloak.org/server/hostname#_exposing_the_administration_console_on_a_separate_hostname)
+
+[راهنمای رسمی محدودسازی Reverse Proxy](https://www.keycloak.org/server/reverseproxy)
