@@ -4,10 +4,11 @@
   "owners": {
     "DATABASE_F3": {
       "tested_source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "current_head": "322fc16f6602d52c16facd2d598834228bacf58d",
+      "current_head": "4461406829cdadc5a358b2af591c827e91e711ae",
       "CI_run": "45218702399",
       "receipt_scope": "Fresh PG17.11 001-010+DB55, 15-17, owner-fence negative and independent restore; separate011 not installed",
-      "head_unverified_changes_excluded": true
+      "head_unverified_changes_excluded": true,
+      "current_head_integrated_ci_pending": true
     },
     "API_F3": {
       "tested_source_sha": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
@@ -16,7 +17,8 @@
       "api_lock_sha256": "399a4e796403bd8fc5b8165c030ad4d4d8479fb946e363e29a5722ea88d35ff5",
       "documentation_only_head": "5d9df47c7ca52133ca8706bd748d535233bae050",
       "api_runtime_pin": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
-      "documentation_evidence": "API #63 262 rows / 91 API IDs; no runtime delta"
+      "documentation_evidence": "API #63 262 rows / 91 API IDs; no runtime delta",
+      "integrated_signed_pg_ci": "Pending exact candidate SHA signed PG workflow"
     },
     "UI_F3": {
       "tested_source_sha": "535678051f3847661c8f048819c8a6784a804e35",
@@ -214,9 +216,9 @@
     },
     "infra/postgres/dev_f3_isolated/scripts/11_export_sanitized_receipt.sh": {
       "owner": "DATABASE_F3",
-      "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "git_blob": "8df5c4e28718b5e396b1f6df69c2358d8d878a7c",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "4461406829cdadc5a358b2af591c827e91e711ae",
+      "git_blob": "8ac7ea78dee35bcd90d3fff066a56cc8f06bae23",
+      "reason": "exact DB owner #59 integrated source; isolated CI still required"
     },
     "infra/postgres/dev_f3_isolated/scripts/shared_stack_db_witness.py": {
       "owner": "DATABASE_F3",
@@ -226,9 +228,9 @@
     },
     ".github/workflows/f3-db-isolated-fresh-install.yml": {
       "owner": "DATABASE_F3",
-      "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "git_blob": "bb8bc55a6b383e00e3adb59511b7e0cd41218eda",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "4461406829cdadc5a358b2af591c827e91e711ae",
+      "git_blob": "4701c68b3159557b290a2bb96315ae7928cc5a36",
+      "reason": "exact DB owner #59 integrated source; isolated CI still required"
     },
     ".github/workflows/ui-f3-api61-completion.yml": {
       "owner": "UI_F3",
@@ -721,6 +723,24 @@
       "source_sha": "535678051f3847661c8f048819c8a6784a804e35",
       "git_blob": "c5d4140dfdc804b40f58ba3680ab8ce97f568041",
       "reason": "verified exact owner or app-only test/workflow pin"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/22_restore_catalog_parity_probe.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "4461406829cdadc5a358b2af591c827e91e711ae",
+      "git_blob": "5869b15413d058acb2424199d8fcaa9d274f822c",
+      "reason": "exact DB owner #59 integrated source; isolated CI still required"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/23_m04_migration_full_cycle.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "4461406829cdadc5a358b2af591c827e91e711ae",
+      "git_blob": "a547a58ac1555795dd73c18415973bbc955177d8",
+      "reason": "exact DB owner #59 integrated source; isolated CI still required"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/24_m10_idempotency_concurrency_probe.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "4461406829cdadc5a358b2af591c827e91e711ae",
+      "git_blob": "395078707143c85de2d8f58c0b365445176bbf6a",
+      "reason": "exact DB owner #59 integrated source; isolated CI still required"
     }
   },
   "status": {
@@ -747,5 +767,6 @@
   "app_only_source_parent": "b7c8928e596001de83c5f8dbd1b86284f46a57a9",
   "app_only_scope": "NO_ENGINE_NO_RUNNER_NO_QDRANT_NO_MODEL; Mac L2 and owner approval NOT_RUN",
   "app_only_workflow_path": ".github/workflows/f3-app-only-runtime-ci.yml",
-  "app_only_workflow_note": "Workflow self-hash intentionally excluded to avoid cyclic pin: source file hashes are verified at runtime; workflow run SHA pins itself."
+  "app_only_workflow_note": "Workflow self-hash intentionally excluded to avoid cyclic pin: source file hashes are verified at runtime; workflow run SHA pins itself.",
+  "api_session_workflow_path": ".github/workflows/api-session-011.yml"
 }
