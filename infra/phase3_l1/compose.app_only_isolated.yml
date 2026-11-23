@@ -48,8 +48,13 @@ services:
     # Only developer/CI loopback. Never bind to 0.0.0.0 on the host.
     ports:
       - "127.0.0.1:${F3_WEB_HOST_PORT:-3100}:3000"
-    networks: [app_private]
+    networks: [app_private, browser_loopback]
 
 networks:
+  # API: private-only, no host port or external egress.
   app_private:
     internal: true
+  # Web alone needs Docker's ingress bridge for host-loopback port mapping.
+  # This is CI-only, no secrets, no IdP; not an egress-isolation guarantee.
+  browser_loopback:
+    internal: false

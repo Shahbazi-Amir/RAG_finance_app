@@ -96,13 +96,17 @@ jobs:
           compose=(docker compose -p f3app-only-ci -f infra/phase3_l1/compose.app_only_isolated.yml)
           "${compose[@]}" config --quiet
           "${compose[@]}" up -d --no-build
-          trap '"${compose[@]}" ps || true; "${compose[@]}" down --remove-orphans >/dev/null 2>&1 || true' EXIT
+          trap '"${compose[@]}" ps || true; "${compose[@]}" logs --tail 35 --no-color web api || true; "${compose[@]}" down --remove-orphans >/dev/null 2>&1 || true' EXIT
           ok=0
-          for i in $(seq 1 60); do
+          for i in $(seq 1 25); do
             if curl --fail --silent --show-error --max-time 3 http://127.0.0.1:3100/api/product-capabilities -o /tmp/f3-app-compose-cap.json 2>/dev/null; then ok=1; break; fi
             sleep 2
           done
-          test "$ok" = 1
+          if [[ "$ok" != 1 ]]; then
+            echo "F3_COMPOSE_LOOPBACK_CAPABILITY_NOT_READY" >&2
+            curl -s -o /dev/null -w "HTTP=%{http_code}\n" --max-time 2 http://127.0.0.1:3100/api/product-capabilities || true
+            exit 1
+          fi
           python3 - <<'PY'
           import json
           x=json.load(open('/tmp/f3-app-compose-cap.json'))

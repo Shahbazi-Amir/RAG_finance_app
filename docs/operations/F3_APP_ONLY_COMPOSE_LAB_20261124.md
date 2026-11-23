@@ -1,6 +1,6 @@
 # F3 app-only isolated Compose — never the signed target
 
-This lab consumes the immutable, exact-SHA API/Web CI image tags and supplies only a two-process **restricted** runtime. It never loads secrets, Engine, Qdrant, PostgreSQL, OAuth, an Auth fixture, or production data. No volume mounts, no old Mac Docker project, no listener mapped for API. Web port `127.0.0.1:3100` is localhost only; the internal Docker network denies container egress.
+This lab consumes the immutable, exact-SHA API/Web CI image tags and supplies only a two-process **restricted** runtime. It never loads secrets, Engine, Qdrant, PostgreSQL, OAuth, an Auth fixture, or production data. No volume mounts, no old Mac Docker project, no listener mapped for API. Web port `127.0.0.1:3100` is localhost only; the API-only network denies API egress; Web has a separate ingress bridge for localhost port publishing and is not an egress-isolation guarantee. Never insert secrets or production sessions.
 
 ## Reproduce with already-built, verified images
 
