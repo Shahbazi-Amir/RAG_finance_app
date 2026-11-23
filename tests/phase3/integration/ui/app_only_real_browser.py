@@ -9,9 +9,9 @@ import os
 from playwright.sync_api import sync_playwright, expect
 
 def main():
-    origin=os.environ.get("UI_APP_ONLY_BASE_URL","http://127.0.0.1:3000")
+    origin=os.environ.get("UI_APP_ONLY_BASE_URL","http://127.0.0.1:3100")
     parsed=urlparse(origin)
-    if parsed.scheme!="http" or parsed.hostname!="127.0.0.1" or parsed.port!=3000:
+    if parsed.scheme!="http" or parsed.hostname!="127.0.0.1" or parsed.port!=3100:
         raise RuntimeError("APP_ONLY_TEST_REQUIRES_ISOLATED_LOOPBACK")
     with sync_playwright() as pw:
         browser=pw.chromium.launch(headless=True)
