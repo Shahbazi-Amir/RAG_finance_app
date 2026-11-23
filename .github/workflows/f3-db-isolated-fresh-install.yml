@@ -1,13 +1,14 @@
 name: F3 DB isolated fresh install PG17.11
 on:
   push:
-    branches: [agent/database-f3-fresh-install-isolated-20261122]
+    branches: [agent/database-f3-fresh-install-isolated-20261122, agent/f3-app-only-api-listener-20261123]
     paths:
       - 'infra/postgres/dev_f3_isolated/**'
       - 'infra/postgres/migrations/009_*'
       - 'infra/postgres/migrations/010_*'
       - 'infra/postgres/staging/db55_*'
       - '.github/workflows/f3-db-isolated-fresh-install.yml'
+      - 'integration/F3_COMPLETION_SOURCE_PINS.json'
   workflow_dispatch:
 permissions:
   contents: read
