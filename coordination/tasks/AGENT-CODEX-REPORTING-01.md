@@ -129,3 +129,11 @@ Status is review. Supervisor approval is pending.
 - Tested: read-only aggregate Admin role and credential query, protected config field presence, installed bootstrap-admin help and official recovery documentation. Origin and form destination verified before entering the existing credential from protected config through a process-local Chrome debugging pipe. Post-login console path and Realm settings DOM confirmed. No credential, token, or cookie output.
 - Pending: account holder enters App Password in the already authenticated browser, tests SMTP and confirms receipt. Invitation and product end-to-end remain open. Review and rotate the ingress proof before product auth. Stop the local listener after admin work. Supervisor acceptance pending and Arvan HOLD.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — real SMTP test and Staging invitation
+
+- Status: blocked on invitee action. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), operational evidence only. Reporting baseline codex 6eecc03 and execution baseline ops/mac-first-start 5764fff.
+- Implemented: real SMTP test, one restricted Staging account and one accepted verification-and-password invitation. Only report and checkpoint files pushed.
+- Tested: aggregate SMTP policy SQL, Keycloak 26.8.2 button predicate, official admin-cli and Admin REST over loopback TLS. testSMTPConnection returned 204. Account creation returned 201. Invite recovered from SMTP reachability failures after sanitized log checks, TCP rechecks and exact account readback, then execute-actions-email returned 204. Inbox delivery and email verification remain pending. No identity flags written by the operator.
+- Pending: invitee opens the link and completes the required actions. Then verify the account, rotate ingress proof before product sign-in, test the product session and C018 route, and stop the temporary listener after management work. Arvan HOLD and supervisor acceptance pending.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
