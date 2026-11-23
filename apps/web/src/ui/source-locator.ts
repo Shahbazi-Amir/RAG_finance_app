@@ -3,17 +3,12 @@
  * No guessed hostname, source catalog lookup, or string-from-title fallback.
  */
 import type {Source} from '../mock/transport';
+import {publicHttpsUrl} from './public-https.ts';
 
 export function verifiedSourceUrl(source:Source):string|null {
   if(source.resolution_status!=='verified'||
      source.attribution_status!=='verified'||
      source.display_title_origin==='SYNTHETIC'||
-     source.locator?.kind!=='url'||
-     !source.locator.url)return null;
-  try{
-    const url=new URL(source.locator.url);
-    if(url.protocol!=='https:'||!url.hostname||
-       url.username||url.password||url.port)return null;
-    return url.href;
-  }catch{return null;}
+     source.locator?.kind!=='url'||!source.locator.url)return null;
+  return publicHttpsUrl(source.locator.url);
 }

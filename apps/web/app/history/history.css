@@ -90,3 +90,22 @@
  .product-shell .history-sidebar.is-mobile-open{z-index:49}
  .product-shell .history-mobile-scrim{z-index:48}
 }
+
+/* Gate3 source evidence: status and row identifiers remain readable in RTL. */
+.retrieval-evidence-status,.retrieval-evidence-list{
+  border-right:3px solid #bfd5c3;padding:9px 12px;background:#f7faf7;
+  border-radius:6px;overflow-wrap:anywhere
+}
+.retrieval-evidence-status h3,.retrieval-evidence-list h3{
+  font-size:14px;line-height:1.8;color:#214c36;margin:0 0 5px
+}
+.retrieval-evidence-list ol{padding-inline-start:20px;margin:8px 0 0}
+.retrieval-evidence-list code{direction:ltr;unicode-bidi:isolate;overflow-wrap:anywhere}
+
+/* UI-11 keyboard visibility: independently of inherited mock styling. */
+.product-shell button:focus-visible,.product-shell a:focus-visible,
+.product-shell textarea:focus-visible{
+  outline:3px solid #b45309;outline-offset:3px
+}
+.product-citation code,.product-answer code{direction:ltr;unicode-bidi:isolate;
+  overflow-wrap:anywhere}

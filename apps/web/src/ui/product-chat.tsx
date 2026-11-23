@@ -6,6 +6,8 @@ import {conversations,messages,newSend,sendMessage,recoverStatus,recoverEngineSt
   type AnswerView,type HistoryStatus,type EngineStatus,type RetrievedSources} from '../history/client';
 import type {Answer,Citation} from '../mock/transport';
 import {verifiedSourceUrl} from './source-locator';
+import {sourceCredits,confidenceLabel} from './source-metadata';
+import RetrievedSourcesPanel from './retrieved-sources-panel';
 import {isVerifiedLiveAnswer,productOutcomeLabel} from './answer-visibility';
 import {readCheckpoints,retainCheckpoint,forgetCheckpoints,statusCorrelators,
   type AttemptCheckpoint} from './attempt-checkpoints';
@@ -47,10 +49,13 @@ function engineLabel(s:EngineStatus):string{
 function CitationView({citation}:{citation:Citation}){
   const s=citation.source;
   const href=verifiedSourceUrl(s);
+  const credits=sourceCredits(s);
   return <li className="product-citation">
     <span>شناسهٔ منبع: <code dir="ltr">{s.source_id??'ثبت نشده'}</code></span>
     {s.display_title&&s.display_title_origin!=='SYNTHETIC'&&
       <span>عنوان: {s.display_title}</span>}
+    {credits.map(c=><span key={c.role}>{c.label}: {c.name}</span>)}
+    {s.attribution_status!=='verified'&&<span className="history-note">انتساب این منبع تأیید نشده است.</span>}
     <span>شناسهٔ استناد: <code dir="ltr">{citation.citation_id}</code></span>
     <span>نقل‌قول مستقیم منبع: در این قرارداد ارائه نشده است.</span>
     {s.locator?.kind==='book_page'&&s.locator.page!==null&&
@@ -68,6 +73,7 @@ function AnswerPanel({answer}:{answer:Answer}){
   return <div className="product-answer" data-testid={'answer-'+answer.answer_id}>
     {answer.answer_text&&<p className="history-message-text">{answer.answer_text}</p>}
     {productOutcomeLabel(answer)&&<p role="status" className="history-note">{productOutcomeLabel(answer)}</p>}
+    <p className="history-note" data-testid="answer-confidence">{confidenceLabel(answer)}</p>
     {answer.claims.length>0&&<section aria-label="شواهد این پاسخ" className="product-evidence">
       <h2>شواهد همین پاسخ</h2>
       {answer.claims.map(claim=><div key={claim.claim_id} className="product-claim">
@@ -150,7 +156,8 @@ export default function ProductChat(){
       const old=attemptsRef.current[record.client_message_id];
       if(old?.attemptId&&status.attemptId&&old.attemptId!==status.attemptId){
         setAttempts(all=>({...all,[record.client_message_id]:{
-          ...all[record.client_message_id],phase:'status_error'}}));
+          ...all[record.client_message_id],phase:'status_error',
+          sources:null,sourcesUnavailable:true,engine:null}}));
         return;
       }
       const resultPhase=status.status==='answer_committed'&&!isVerifiedLiveAnswer(status.answer)
@@ -191,7 +198,7 @@ export default function ProductChat(){
           ...previous,phase:resultPhase,attemptId:status.attemptId??previous.attemptId,
           messageId:status.messageId,answer:status.answer,
           engine:technical??previous.engine,engineUnavailable,
-          sources:sources??previous.sources,sourcesUnavailable,
+          sources,sourcesUnavailable,
           record:status.id?{...previous.record,resolved_conversation_id:status.id}:previous.record,
           viewId:status.id??previous.viewId,
           confirmed:status.status!=='not_found'
@@ -320,7 +327,7 @@ export default function ProductChat(){
   const pendingDrafts=[...new Set(Object.values(attempts).filter(a=>
     a.viewId.startsWith('draft:')&&!isTerminal(a.phase)).map(a=>a.viewId))];
   return <main className="history-shell product-shell" dir="rtl">
-    <aside className={'history-sidebar'+(mobileOpen?' is-mobile-open':'')}
+    <aside id="product-chat-sidebar" className={'history-sidebar'+(mobileOpen?' is-mobile-open':'')}
       role={mobileOpen?'dialog':undefined} aria-modal={mobileOpen?'true':undefined}
       aria-label="فهرست گفتگوها">
       <button type="button" className="history-mobile-close" aria-label="بستن فهرست"
@@ -369,7 +376,8 @@ export default function ProductChat(){
     <section className="history-main" aria-label="گفت‌وگوی فارسی">
       <header className="history-mobile-topbar">
         <button className="mobile-menu-trigger" type="button"
-          aria-label="بازکردن فهرست گفت‌وگوها" onClick={()=>setMobileOpen(true)}>☰</button>
+          aria-label="بازکردن فهرست گفت‌وگوها" aria-controls="product-chat-sidebar"
+          aria-expanded={mobileOpen} onClick={()=>setMobileOpen(true)}>☰</button>
         <span className="mobile-brand">راگ مالی</span>
         <Link href="/login" className="history-link">حساب و خروج</Link>
       </header>
@@ -413,22 +421,8 @@ export default function ProductChat(){
             </p>}
             <p>این گزارش فنی پاسخ مدل یا استناد قابل‌نمایش نیست.</p>
           </section>}
-          {a.sources?.retrievalState==='PARTIAL_UNVERIFIED'&&a.sources.rows.length>0&&
-            <section aria-label="قطعه‌های بازیابی‌شدهٔ همین Attempt"
-              data-testid={'retrieved-sources-'+a.record.client_message_id}
-              className="product-evidence">
-              <h2>قطعه‌های بازیابی‌شده (اعتبار استناد تأیید نشده)</h2>
-              <ol>{a.sources.rows.map(row=><li key={row.position}>
-                <span>رتبهٔ بازیابی: {row.position} </span>
-                <span>شناسهٔ قطعه: <code dir="ltr">{row.chunkId}</code></span>
-                <span> شناسهٔ مشاهده‌شدهٔ منبع: <code dir="ltr">{row.sourceId??'ثبت نشده'}</code></span>
-              </li>)}</ol>
-              <p className="history-note">هیچ لینک یا انتساب تأییدشده‌ای موجود نیست؛
-                این فهرست پاسخ تولیدشده یا استناد معتبر نیست.</p>
-            </section>}
-          {a.sourcesUnavailable&&<p role="status" className="history-note">
-            رسید مستقل منابع قابل بازیابی نیست؛ وضعیت فنی بدون تغییر باقی می‌ماند.
-          </p>}
+          {a.attemptId&&<RetrievedSourcesPanel
+            receipt={a.sources} unavailable={a.sourcesUnavailable}/>}
           {a.engineUnavailable&&<p role="status" className="history-note">
             وضعیت فنی جداگانه در دسترس نیست؛ فقط وضعیت اصلی پیگیری می‌شود.
           </p>}

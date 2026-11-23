@@ -1,5 +1,4 @@
-import {cookie,csrf,freshCookie,INIT,SESSION,secureBrowser,appendCookie,noStore,
-  publicOrigin} from '../../src/auth/initial/index.ts';
+import {cookie,csrf,freshCookie,INIT,SESSION,secureBrowser,appendCookie,noStore} from '../../src/auth/initial/index.ts';
 import {stagingRequested,stagingProfile} from '../../src/auth/server/private-staging.ts';
 import {getActive} from '../../src/auth/initial/index.ts';
 export const dynamic='force-dynamic';
