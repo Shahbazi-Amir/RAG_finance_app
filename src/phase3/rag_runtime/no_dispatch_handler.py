@@ -149,12 +149,13 @@ class NoDispatchLedger:
         # C018 summary. Unavailable/invalid source evidence intentionally
         # contains no rows and may retain an observed top10_count > 0.
         count = summary.get("top10_count") if isinstance(summary, dict) else None
-        if (type(count) is not int or not 0 <= count <= 10
-                or (receipt.get("retrieval_state") == "PARTIAL_UNVERIFIED"
-                    and count != len(receipt.get("rows", [])))):
+        if type(count) is not int or not 0 <= count <= 10:
             raise PreflightDenied()
         try:
             validate_public_receipt(receipt)
+            if (receipt["retrieval_state"] == "PARTIAL_UNVERIFIED"
+                    and count != len(receipt["rows"])):
+                raise PreflightDenied()
             encoded = json.dumps(receipt, sort_keys=True, separators=(",", ":"),
                                  ensure_ascii=False, allow_nan=False)
         except (TypeError, ValueError, EvidenceDenied):
