@@ -127,7 +127,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Install pinned CI-only Python adapters
-        run: python -m pip install --no-cache-dir --index-url https://pypi.org/simple -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.34.3'
+        run: python -m pip install --no-cache-dir --index-url https://pypi.org/simple -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.48.0'
       - name: Verify only temporary loopback database and versions
         run: |
           set -euo pipefail
