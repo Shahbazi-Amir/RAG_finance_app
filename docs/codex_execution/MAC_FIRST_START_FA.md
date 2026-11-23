@@ -71,3 +71,11 @@ Keycloak در ۷۶۱۷۹۷ میلی‌ثانیه Quarkus augmentation را کا�
 دو مرورگر به‌صورت جداگانه و با نام دامنه و اعتبارسنجی گواهی عادی آزمایش شدند. Chrome در Page.navigate و Firefox در گرفتن تصویر پس از ۱۸۰ ثانیه timeout شدند. HTTP 200 سلامت ingress را نشان می‌دهد؛ مشاهدهٔ واقعی UI تأیید نشده است. شمارش تجمعی در snapshot زندهٔ پایگاه، حساب فعال staging یا master نشان نداد. نشست OIDC، درخواست امضاشده، C018، نمایش منابع و Refresh اجرا نشده‌اند. منبع نسخهٔ API فعال 5fe21e9 است. مسیر نسخه‌دار منابع در شاخهٔ مستقل c2edbbf وجود دارد و در پشتهٔ مک اعتبارسنجی نشده است.
 
 [راهنمای رسمی تنظیم Analytics](https://docs.liquibase.com/secure/reference-guide-5-2/parameters/analytics-enabled)
+
+## اجرای نسخهٔ آفلاین Keycloak و وضعیت ادامه
+
+پس از بازیابی منطقی IdP در محیط جدا، Docker از لایهٔ بهینه‌شدهٔ Keycloak تصویر محلی 338942f0b25e ساخت. یک اجرای network none وجود فایل generated-bytecode.jar را تأیید کرد. Compose در شاخهٔ محلی ops/mac-first-start به SHA 2a5948f رسید. فقط Keycloak با توقف کنترل‌شده و up -d --no-deps --no-build --pull never اجرا شد. کانتینر جدید 39a6d2d1828a با همان mountهای خصوصی و پایگاه اصلی Running شد. نسخهٔ قدیمی و تصویر بازیابی موجودند. بایگانی رمزگذاری‌شدهٔ لایهٔ Keycloak هنگام این مشاهده در جریان بود.
+
+پس از آغاز Keycloak آفلاین، HTTPS دوباره HTTP 200 و TLS_VERIFY=0 داد و discovery در دورهٔ شروع HTTP 502 داد. در مشاهدهٔ بعدی هفت کانتینر Running بودند. سه healthcheck Docker شامل demo-db، idp-db و web-bff موفق بودند. با احتساب پاسخ HTTPS، چهار سرویس شاهد سلامت عملیاتی داشتند. بررسی دوره‌ای API و Bootstrap پس از چند نتیجهٔ موفق، دوباره با خروج ۷۸ یا timeout افت کرد. API همچنان روی HTTPS داخلی گوش می‌دهد. پایداری در ظرفیت فعلی تأیید نشده است.
+
+Docker Desktop در دو بررسی ۲ CPU و حدود ۳٫۸۲ GiB حافظهٔ قابل استفاده گزارش کرد. اختلاف زمان اجرای بررسی‌ها تا چند دقیقه، زمان build اولیهٔ Keycloak، و timeout هر دو مرورگر ثبت شدند. علت هر ۷۸ جدید جدا از نقص مجوز فایل قبلی بررسی می‌شود. قدم بعدی افزایش منابع Docker Desktop به ۳ CPU و ۶ GB RAM برای تکرار readiness است. رابط CLI این نصب فرمان تغییر Resources ندارد. آروان HOLD است. Gate، فریز قبولی و تأیید سرپرست ثبت نشدند.
