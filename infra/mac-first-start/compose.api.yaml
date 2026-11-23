@@ -55,6 +55,9 @@ services:
       - /tmp:uid=101,gid=101,mode=0700
 
   idp-keycloak:
+    image: rag-finance-f3/idp-local-recovery:6a3d426
+    command: ["--config-file=/tmp/kc.conf", start, --optimized, --import-realm]
+    stop_grace_period: 90s
     environment:
       LIQUIBASE_ANALYTICS_ENABLED: "false"
 
