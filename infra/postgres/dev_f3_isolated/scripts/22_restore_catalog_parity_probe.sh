@@ -28,7 +28,7 @@ SELECT item FROM (
           SELECT (CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END)
             ||'/'||a.grantor::regrole::text||'/'||a.privilege_type
             ||'/'||a.is_grantable::text AS entry
-          FROM aclexplode(c.relacl) a
+          FROM aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
         ) e),'NULL') AS item
  FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
  WHERE n.nspname IN ('history_l1','auth_l1') AND c.relkind IN ('r','p')
