@@ -1,0 +1,257 @@
+name: Phase3 four-PR APP_ONLY integrated source, real listener and container build
+
+on:
+  push:
+    branches: [integration/f3-app-only-four-pr-candidate-20261124]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integrated-code-and-real-loopback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      CI: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Bind one exact source tree and forbid unapproved SQL 011
+        run: |
+          set -euo pipefail
+          echo "FOUR_PR_INTEGRATED_SHA=$(git rev-parse HEAD)"
+          test -f apps/web/app/api/product-capabilities/route.ts
+          test -f apps/api/app_only_asgi.py
+          test -f tests/phase3/api/test_full_binding_fence.py
+          test -f infra/postgres/dev_f3_isolated/scripts/11_export_sanitized_receipt.sh
+          test -f infra/postgres/dev_f3_isolated/scripts/22_restore_catalog_parity_probe.sh
+          test -f infra/postgres/dev_f3_isolated/scripts/23_m04_migration_full_cycle.sh
+          test -f infra/postgres/dev_f3_isolated/scripts/24_m10_idempotency_concurrency_probe.sh
+          test ! -f infra/postgres/migrations/011_product_answer_claims.up.sql
+          echo F3_FOUR_PR_REQUIRED_SOURCES_PINNED_PASS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install API smoke/contract pins, never engine lock
+        run: |
+          python -m pip install --disable-pip-version-check --no-cache-dir -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.48.0' 'playwright==1.64.1'
+      - name: Web lock, typecheck, lint, 131+ existing tests and production build
+        run: |
+          set -euo pipefail
+          npm ci --prefix apps/web --no-audit --no-fund
+          npm --prefix apps/web run typecheck
+          npm --prefix apps/web run lint
+          npm --prefix apps/web run test
+          npm --prefix apps/web run build
+      - name: API ASGI all isolated unit and original engine-enabled regression, not dispatch
+        run: |
+          set -euo pipefail
+          python -m compileall -q apps/api src/phase3/auth src/phase3/rag_runtime
+          python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
+          python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v
+          python -m unittest discover -s tests/phase3/integration/ui -p 'test_l2_no_dispatch_receipt_gate.py' -v
+      - name: All 393 canonical IDs exact source mapping and no false acceptance
+        run: python -m unittest discover -s tests/phase3/integration -p 'test_integrated_393_registry.py' -v
+      - name: Isolated app-only SHA namespace and Compose preflight (no image pull)
+        env:
+          CI: 'true'
+          F3_PROJECT_NAME: f3-app-only-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          F3_RELEASE_TAG: ci
+          F3_SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          bash scripts/phase3/app_only_candidate_preflight.sh --inspect-unused
+          if F3_PROJECT_NAME=rag_finance_f3_demo bash scripts/phase3/app_only_candidate_preflight.sh; then echo UNSAFE_PROJECT_ACCEPTED; exit 1; fi
+          if F3_SOURCE_SHA=0000000000000000000000000000000000000000 bash scripts/phase3/app_only_candidate_preflight.sh; then echo SHA_DRIFT_ACCEPTED; exit 1; fi
+          if F3_RELEASE_TAG=latest bash scripts/phase3/app_only_candidate_preflight.sh; then echo UNPINNED_TAG_ACCEPTED; exit 1; fi
+          echo F3_APP_ONLY_READONLY_SOURCE_PREFLIGHT_POS_NEG_PASS
+      - name: Original DB scripts static guard and protected-path negative only
+        run: bash infra/postgres/dev_f3_isolated/tests/run_static.sh
+      - name: Real isolated APP_ONLY Uvicorn listener, no Engine dependencies
+        env:
+          PHASE3_APP_MODE: APP_ONLY
+        run: |
+          set -euo pipefail
+          python -m uvicorn apps.api.app_only_asgi:app --host 127.0.0.1 --port 8118 --no-access-log > "$RUNNER_TEMP/app-only-api.log" 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          for n in $(seq 1 40); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8118/health/live >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS --max-time 3 http://127.0.0.1:8118/health/live >/dev/null
+          test "$(curl -s --max-time 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:8118/health/ready)" = 503
+          test "$(curl -s --max-time 3 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"question":"unsafe"}' http://127.0.0.1:8118/v1/messages)" = 503
+          test "$(curl -s --max-time 3 -o /dev/null -w '%{http_code}' -H 'x-owner-user-id: forgedA' http://127.0.0.1:8118/v1/conversations)" = 503
+          echo F3_APP_ONLY_REAL_ASGI_LIVE_READY503_SEND503_OWNER503_NO_ENGINE_PASS
+      - name: Install pinned browser for synthetic History and real Next APP_ONLY
+        run: python -m playwright install --with-deps chromium
+      - name: Existing React desktop/mobile A-B 401/503 regression (synthetic intercepted History only)
+        run: |
+          set -euo pipefail
+          (cd apps/web && ./node_modules/.bin/next start -H 127.0.0.1 -p 3000) > "$RUNNER_TEMP/next-fixture.log" 2>&1 &
+          child=$!
+          trap 'kill "$child" 2>/dev/null || true' EXIT
+          for n in $(seq 1 40); do
+            if curl -fsS --max-time 2 http://127.0.0.1:3000/api/product-capabilities >/dev/null; then break; fi
+            sleep 1
+          done
+          python tests/phase3/integration/ui/product_chat_browser.py
+      - name: Real Next APP_ONLY run with disabled Send and 503 before API
+        env:
+          PHASE3_APP_MODE: APP_ONLY
+        run: |
+          set -euo pipefail
+          (cd apps/web && ./node_modules/.bin/next start -H 127.0.0.1 -p 3100) > "$RUNNER_TEMP/next-app-only.log" 2>&1 &
+          child=$!
+          trap 'kill "$child" 2>/dev/null || true' EXIT
+          for n in $(seq 1 40); do
+            if curl -fsS --max-time 2 http://127.0.0.1:3100/api/product-capabilities >/dev/null; then break; fi
+            sleep 1
+          done
+          python tests/phase3/integration/ui/app_only_real_browser.py
+          echo F3_FOUR_PR_APP_ONLY_WEB_BFF_API_ISOLATED_L1_PASS
+
+  build-api-app-only-container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build real non-root API image with locked requirements and no Engine wheelhouse
+        run: |
+          set -euo pipefail
+          docker build --pull=false --file infra/phase3_l1/Dockerfile.api --build-arg SOURCE_SHA="$(git rev-parse HEAD)" -t rag-f3-app-only-api:ci .
+          docker image inspect rag-f3-app-only-api:ci --format '{{.Id}} {{.Config.User}} {{.Config.Healthcheck.Test}}'
+      - name: Run actual no-network container, prove health and 503 without dispatch
+        run: |
+          set -euo pipefail
+          docker run -d --name f3-app-only-api-test --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m --pids-limit 64 --memory 256m rag-f3-app-only-api:ci
+          trap 'docker rm -f f3-app-only-api-test || true' EXIT
+          for n in $(seq 1 35); do
+            if docker exec f3-app-only-api-test python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/live',timeout=2)" >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec f3-app-only-api-test python3 -c "import urllib.request; from urllib.error import HTTPError; u='http://127.0.0.1:8080'; assert urllib.request.urlopen(u+'/health/live').status==200; exec('try:\\n urllib.request.urlopen(u+\"/health/ready\")\\nexcept HTTPError as e:\\n assert e.code==503')"
+          test "$(docker inspect -f '{{.State.Running}}' f3-app-only-api-test)" = true
+          test "$(docker inspect -f '{{.Config.User}}' f3-app-only-api-test)" = "11001:11001"
+          echo F3_DOCKER_APP_ONLY_API_REAL_NONROOT_LISTENER_PASS_NO_MOTOR
+
+      - name: Build actual non-root app-only Web image with pinned Next, no Engine assets
+        run: |
+          set -euo pipefail
+          docker build --pull=false --file infra/phase3_l1/Dockerfile.web --build-arg SOURCE_SHA="$(git rev-parse HEAD)" -t rag-f3-app-only-web:ci .
+          docker image inspect rag-f3-app-only-web:ci --format '{{.Id}} {{.Config.User}} {{.Config.Healthcheck.Test}}'
+      - name: Isolated Web+API containers internal DNS, zero Send and unavailable signed History
+        run: |
+          set -euo pipefail
+          docker network create --internal f3-app-only-private-ci
+          trap 'docker rm -f f3-web-private-ci f3-api-private-ci 2>/dev/null || true; docker network rm f3-app-only-private-ci 2>/dev/null || true' EXIT
+          docker run -d --name f3-api-private-ci --network f3-app-only-private-ci --network-alias app-only-api --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m --pids-limit 64 --memory 256m rag-f3-app-only-api:ci
+          docker run -d --name f3-web-private-ci --network f3-app-only-private-ci --read-only --tmpfs /tmp:rw,nosuid,size=32m,uid=11003,gid=11003 --tmpfs /srv/release/apps/web/.next/cache:rw,nosuid,size=64m,uid=11003,gid=11003 --pids-limit 128 --memory 512m rag-f3-app-only-web:ci
+          for n in $(seq 1 60); do
+            if docker exec f3-web-private-ci node -e "fetch('http://127.0.0.1:3000/api/product-capabilities').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))" >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec f3-web-private-ci node -e "fetch('http://app-only-api:8080/health/live').then(r=>r.json()).then(j=>process.exit(j.process_alive===true&&j.application_ready===false?0:1)).catch(()=>process.exit(1))"
+          docker exec f3-web-private-ci node -e "fetch('http://127.0.0.1:3000/api/product-capabilities').then(r=>r.json()).then(j=>process.exit(j.send_mode==='DISABLED'&&j.engine_available===false?0:1)).catch(()=>process.exit(1))"
+          docker exec f3-web-private-ci node -e "fetch('http://127.0.0.1:3000/api/history/messages',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}).then(r=>r.json().then(j=>process.exit(r.status===503&&j.error==='ENGINE_NOT_AVAILABLE'?0:1))).catch(()=>process.exit(1))"
+          docker exec f3-web-private-ci node -e "fetch('http://app-only-api:8080/health/ready').then(r=>process.exit(r.status===503?0:1)).catch(()=>process.exit(1))"
+          echo F3_REAL_TWO_CONTAINERS_INTERNAL_DNS_WEB_BFF_SEND503_API_READY503_NO_ENGINE_PASS
+
+      - name: Real Compose isolated Web API no public ports and source pins
+        env:
+          CI: 'true'
+          F3_PROJECT_NAME: f3-app-only-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          F3_RELEASE_TAG: ci
+          F3_SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # The preflight never pulls, starts, deletes or even inspects demo.
+          bash scripts/phase3/app_only_candidate_preflight.sh --inspect-unused
+          # Deliberately bad project / source must be denied without mutation.
+          if F3_PROJECT_NAME=rag_finance_f3_demo bash scripts/phase3/app_only_candidate_preflight.sh; then exit 1; fi
+          if F3_SOURCE_SHA=0000000000000000000000000000000000000000 bash scripts/phase3/app_only_candidate_preflight.sh; then exit 1; fi
+          file=infra/phase3_l1/compose.app-only.internal.yml
+          docker compose -f "$file" config -q
+          docker compose -f "$file" config --format json | python3 -c 'import json,sys; x=json.load(sys.stdin); assert set(x["services"])=={"api","web"}; assert all("ports" not in v for v in x["services"].values()); assert x["networks"]["private"]["internal"] is True; assert x["services"]["api"]["read_only"] is True; assert x["services"]["web"]["read_only"] is True; print("F3_COMPOSE_NO_PUBLIC_PORTS_READ_ONLY_INTERNAL_PASS")'
+          trap 'docker compose -f "$file" down --remove-orphans 2>/dev/null || true' EXIT
+          docker compose -f "$file" up -d --no-build --pull never
+          web_id="$(docker compose -f "$file" ps -q web)"
+          test -n "$web_id"
+          test -z "$(docker port "$web_id" 2>/dev/null)"
+          docker compose -f "$file" exec -T web node -e "fetch('http://app-only-api:8080/health/live').then(r=>r.json()).then(j=>process.exit(j.process_alive&&!j.application_ready?0:1)).catch(()=>process.exit(1))"
+          docker compose -f "$file" exec -T web node -e "fetch('http://127.0.0.1:3000/api/product-capabilities').then(r=>r.json()).then(j=>process.exit(j.send_mode==='DISABLED'&&!j.generation_available?0:1)).catch(()=>process.exit(1))"
+          echo F3_APP_ONLY_REAL_COMPOSE_PRIVATE_WEB_API_NO_ENGINE_PASS
+
+  integrated-isolated-pg17:
+    name: Integrated PG17.11 pinned 001-010, TLS RLS DB55 backup restore
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout source with all immutable refs
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin check and static tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd infra/postgres/dev_f3_isolated
+          bash tests/run_static.sh
+          for ref in \
+            d93dcf7cbf9290acd4cd3aa0164ef05689049da4 \
+            656604356dadea953031fcdb74650a5d42df4e9b \
+            1678e87b7984094b74ec995383b8d4383e5f5ae7 \
+            bfd6b1d9ed23e5f4cc6f126b579f90d7c877a7a6; do
+            git cat-file -e "${ref}^{commit}"
+          done
+      - name: Fresh 001-010 TLS DB55 role ACL and independent restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd infra/postgres/dev_f3_isolated
+          export SOURCE_REPO="$GITHUB_WORKSPACE"
+          export LAB_ROOT="$RUNNER_TEMP/f3-INTEGRATED-app-only-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          bash scripts/00_prepare_source.sh
+          bash scripts/01_create_isolated_lab.sh
+          bash scripts/02_provision_roles.sh
+          bash scripts/03_apply_pinned_001_010.sh
+          bash scripts/03_apply_pinned_001_010.sh | grep -F ALREADY_APPLIED_EXACT_PINS_NO_RERUN
+          bash scripts/04_bridge_and_db55.sh
+          bash scripts/05_test_roles_tls_rls.sh
+          bash scripts/09_shared_stack_db_preflight.sh
+          bash scripts/06_backup_restore_independent.sh
+          bash scripts/10_restored_stack_db_preflight.sh
+          bash scripts/22_restore_catalog_parity_probe.sh
+          bash scripts/13_catalog_erd_inventory.sh
+          bash scripts/12_rollback_rls_constraints_probe.sh
+          bash scripts/14_synthetic_owner_lifecycle_restore.sh
+          bash scripts/15_populated_pre009_upgrade_restore.sh
+          bash scripts/23_m04_migration_full_cycle.sh
+          bash scripts/24_m10_idempotency_concurrency_probe.sh
+          bash scripts/16_fault_injected_migration_ledger.sh
+          bash scripts/17_populated_query_plan_and_owner.sh
+          bash scripts/19_history_rls_negative_matrix.sh
+          bash scripts/20_backup_integrity_corruption_probe.sh
+          bash scripts/25_pg_crash_recovery_probe.sh
+          bash scripts/21_history_cursor_race_probe.sh
+          bash scripts/11_export_sanitized_receipt.sh
+          printf 'CI_GIT_SHA=%s\nCI_PG=17.11\nISOLATED_FRESH_INSTALL=PASS\n' "$GITHUB_SHA"
+          printf 'NO_DEMO_DB=PASS\nNO_011=PASS\nNO_ARVAN=PASS\n'
+
+      - name: Upload sanitized Foundation DB candidate consumption receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3-integrated-four-pr-pg17-restore-sanitzed
+          path: ci_receipts/*
+          if-no-files-found: error
+          retention-days: 14

@@ -253,3 +253,96 @@ PY
 install -m 0600 "$cursor" "$GITHUB_WORKSPACE/ci_receipts/history_cursor_race_receipt.json"
 echo 'HISTORY_KEYSET_TWO_OWNER_ANCHOR_AND_INSERT_RACE_RECEIPT=PASS'
 echo 'HISTORY_SIGNED_CURSOR_HTTP_AND_REAL_CONCURRENT_LOAD=NOT_RUN'
+
+# Exact source/independent restore SQL catalog parity and two RLS drift negatives.
+# The private catalog is not exported; only the SHA256 and bounded status are.
+parity="$LAB_WORK/restore_catalog_parity_receipt.json"
+[[ -s "$parity" ]] || { echo STOP_RESTORE_CATALOG_PARITY_MISSING >&2; exit 70; }
+python3 - "$parity" <<'PY'
+import json,sys
+from pathlib import Path
+r=json.loads(Path(sys.argv[1]).read_text())
+assert r["contract_version"]=="f3.db.synthetic_restore_catalog_parity.v1"
+assert r["restore_equals_source"] is True
+assert r["source_table_count"]==14 and r["checked_roles"]==9
+assert r["negative_no_force_rls"]=="DETECTED_IN_DISPOSABLE_CLONE"
+assert r["negative_disabled_rls"]=="DETECTED_IN_DISPOSABLE_CLONE"
+assert r["negative_probe_removed"] and r["original_clusters_unchanged"]
+assert r["mac_runtime"]=="NOT_RUN" and r["signed_actor_fence"]=="NOT_TESTED"
+assert r["module_gate"]=="NOT_ACCEPTED"
+PY
+install -m 0600 "$parity" "$GITHUB_WORKSPACE/ci_receipts/restore_catalog_parity_receipt.json"
+echo 'RESTORE_CATALOG_PARITY_13TH_SANITIZED_RECEIPT=PASS'
+
+# M04-A07 exact empty 001-010 down/reinstall consistency + populated independent restore.
+m04="$LAB_WORK/m04_migration_full_cycle_receipt.json"
+[[ -s "$m04" ]] || { echo STOP_M04_A07_CONSISTENCY_MISSING >&2;exit 70; }
+python3 - "$m04" <<'PY'
+import json,sys
+from pathlib import Path
+r=json.loads(Path(sys.argv[1]).read_text())
+assert r["contract_version"]=="f3.db.p3m04_a07_full_cycle.v1"
+assert r["full_empty_001_010_down_and_forward"]=="PASS_10_DOWN_10_UP"
+assert r["source_equals_roundtrip"] is True
+assert r["schema_only_source_sha256"]==r["schema_only_roundtrip_sha256"]
+assert len(r["schema_only_source_sha256"])==64
+assert r["new_probe_ledger_applied"]==10 and r["force_rls_tables_after_roundtrip"]==14
+assert r["db55_after_roundtrip"]=="PASS_PRIVATE_NO_DISPATCH"
+assert r["populated_pre009_upgrade"]=="PASS_TWO_OWNERS_BOTH_CLUSTERS_009_010"
+assert r["populated_restore"]=="PASS_SEPARATE_PG_CLUSTER"
+assert r["data_bearing_001_003_destructive_reverse"]=="NOT_PERMITTED"
+assert r["probe_removed"] is True and r["original_lab_untouched"] is True
+assert r["mac_runtime"]=="NOT_RUN" and r["module_gate"]=="NOT_ACCEPTED"
+PY
+install -m 0600 "$m04" "$GITHUB_WORKSPACE/ci_receipts/m04_migration_full_cycle_receipt.json"
+echo 'M04_A07_14TH_SANITIZED_CONSISTENCY_RECEIPT=PASS'
+
+# Synthetic DB-only simultaneous duplicate/NULL idempotency, not HTTP end-to-end.
+m10="$LAB_WORK/m10_idempotency_concurrency_receipt.json"
+[[ -s "$m10" ]] || { echo STOP_M10_CONCURRENCY_RECEIPT_ABSENT >&2;exit 70; }
+python3 - "$m10" <<'PY'
+import json,sys
+from pathlib import Path
+r=json.loads(Path(sys.argv[1]).read_text())
+assert r["contract_version"]=="f3.db.synthetic_m10_client_idempotency_concurrency.v1"
+assert r["concurrent_sql_clients"]==2
+assert r["concurrent_insert_commits"]==1 and r["concurrent_duplicate_key_denials"]==1
+assert r["nullable_request_idempotency_key"]=="NULLS_NOT_DISTINCT_CONFIRMED"
+assert r["simulated_lost_ack_replay"]=="DENIED_NO_SECOND_COMMIT"
+assert r["cross_owner_same_client_key"]=="ALLOWED_SCOPED"
+assert r["one_attempt_per_send_receipt"]=="SECOND_DENIED"
+assert r["owner_a_visible_receipts"]==1 and r["owner_b_visible_receipts"]==1
+assert r["unset_owner_visible_receipts"]==0
+assert r["clone_removed"] is True and r["source_lab_unchanged"] is True
+assert r["real_http_retry_or_crash"]=="NOT_RUN"
+assert r["signed_idp_same_tx_actor"]=="NOT_PROVEN"
+assert r["module_gate"]=="NOT_ACCEPTED"
+PY
+install -m 0600 "$m10" "$GITHUB_WORKSPACE/ci_receipts/m10_idempotency_concurrency_receipt.json"
+echo 'M10_A10_15TH_SANITIZED_DB_CONCURRENCY_RECEIPT=PASS'
+
+# Real process SIGKILL on a synthetic independent PostgreSQL restore cluster.
+pg_crash="$LAB_WORK/pg_crash_recovery_receipt.json"
+[[ -s "$pg_crash" ]] || { echo STOP_PG_CRASH_RECOVERY_RECEIPT_ABSENT >&2;exit 70; }
+python3 - "$pg_crash" <<'PY'
+import json,sys
+from pathlib import Path
+r=json.loads(Path(sys.argv[1]).read_text())
+assert r["contract_version"]=="f3.db.synthetic_pg17_crash_and_wal_recovery.v1"
+assert r["fault"]=="SIGKILL_POSTGRES_CONTAINER"
+assert r["database_offline_connection_denied"] is True
+assert r["postgres_wal_recovery"]=="PASS"
+assert r["source_and_restore_cluster_ids_stable"] is True
+assert r["committed_conversations_after"]==2 and r["committed_messages_after"]==2
+assert r["uncommitted_insert_after"]==0
+assert r["owner_a_visible"]==1 and r["owner_b_visible"]==1 and r["no_owner_visible"]==0
+assert r["force_rls_tables_after_restart"]==14 and r["db55_after_restart"]=="PASS"
+assert r["prior_corrupt_backup_pre_restore_negatives"]=="2_OF_2_FAILED_CLOSED"
+assert r["original_backup_sha256_intact"] and r["test_probe_removed"]
+assert r["mac_runtime"]=="NOT_RUN" and r["full_machine_failure"]=="NOT_RUN"
+assert r["offsite_encrypted_key_custody"]=="NOT_DEFINED"
+assert r["pitr"]=="NOT_RUN" and r["approved_rpo_rto"]=="NOT_DEFINED"
+assert r["module_gate"]=="NOT_ACCEPTED"
+PY
+install -m 0600 "$pg_crash" "$GITHUB_WORKSPACE/ci_receipts/pg_crash_recovery_receipt.json"
+echo 'M22_A09_16TH_SANITIZED_PG_CRASH_RECOVERY_RECEIPT=PASS'

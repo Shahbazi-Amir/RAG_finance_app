@@ -1,0 +1,340 @@
+{
+  "kind": "f3_app_only_four_pr_integration_manifest",
+  "contract_version": "integration.f3.app_only.v1",
+  "scope": "CI_ISOLATED_NO_ENGINE_NO_MAC_NO_PRODUCTION",
+  "generated_from_tree_sha": "dbf1be62ef7e8bf0e2ec891c5bc451376bf2161d",
+  "parent_branches_exact_shas": {
+    "fd": "b7c8928e596001de83c5f8dbd1b86284f46a57a9",
+    "ui": "a039e26c7c84f3fb945862152e17ca655fd7b30c",
+    "api": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+    "db": "44421600269d0b9cfa59cea340f337ef1bc997c4"
+  },
+  "merge_bases": {
+    "foundation_ui_api": "c5e271d0fab8ab34c92a2da933ba6b194d1f1e9a",
+    "foundation_db": "d93dcf7cbf9290acd4cd3aa0164ef05689049da4"
+  },
+  "p3_counts": {
+    "main": 262,
+    "gates": 26,
+    "operational_crosswalk_noncounting": 105
+  },
+  "runtime_guarantees": [
+    "APP_ONLY_SEND_DENIED_BEFORE_BODY",
+    "ZERO_ENGINE_IMPORT_IN_APP_ONLY_ASGI",
+    "REAL_INTERNAL_API_HTTP_LISTENER",
+    "OWNER_HISTORY_NOT_YET_L2_ACCEPTED",
+    "NO_SQL_011_APPLIED"
+  ],
+  "candidate_tree_selected_changes": [
+    {
+      "path": ".github/workflows/api-f3-stream-integrity-offline.yml",
+      "original_source": "api",
+      "source_blob_sha": "90a52881ab40e0de8033e70f53dd91f0e60b1890",
+      "integrated_blob_sha": "90a52881ab40e0de8033e70f53dd91f0e60b1890",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": ".github/workflows/api-session-011.yml",
+      "original_source": "api",
+      "source_blob_sha": "ed7bf4ee7dde750c1f32f4b1086482d2946a05b1",
+      "integrated_blob_sha": "ed7bf4ee7dde750c1f32f4b1086482d2946a05b1",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": ".github/workflows/f3-db-isolated-fresh-install.yml",
+      "original_source": "db",
+      "source_blob_sha": "d2b753e9d3a873f2b3c061010e1346f5d8d95f01",
+      "integrated_blob_sha": "d2b753e9d3a873f2b3c061010e1346f5d8d95f01",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": ".github/workflows/ui-f3-post62-owner-fence.yml",
+      "original_source": "ui",
+      "source_blob_sha": "fe105f3b218839322a70730df72280716688a25b",
+      "integrated_blob_sha": "fe105f3b218839322a70730df72280716688a25b",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "apps/api/history_api.py",
+      "original_source": "db",
+      "source_blob_sha": "ac4d8a25c7e94af0956673dbb63780e078e6f527",
+      "integrated_blob_sha": "84199d167b2615540317c66fef26998f1cea031b",
+      "resolution": "FOUNDATION_SECURITY_COMPAT"
+    },
+    {
+      "path": "apps/web/app/api/auth/logout/route.ts",
+      "original_source": "api",
+      "source_blob_sha": "26325db1d7f1d277634a8cdb3a6f4de9b84fd222",
+      "integrated_blob_sha": "26325db1d7f1d277634a8cdb3a6f4de9b84fd222",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "apps/web/app/api/product-capabilities/route.ts",
+      "original_source": "ui",
+      "source_blob_sha": "5054faed15b17a5e1ec22b81cfa96a70741aec7e",
+      "integrated_blob_sha": "5054faed15b17a5e1ec22b81cfa96a70741aec7e",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "apps/web/app/history/history.css",
+      "original_source": "ui",
+      "source_blob_sha": "8e8ebe0fe9d52dbe88285c2abd3d8544561055fa",
+      "integrated_blob_sha": "8e8ebe0fe9d52dbe88285c2abd3d8544561055fa",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "apps/web/app/login/route.ts",
+      "original_source": "api",
+      "source_blob_sha": "d70e30f65fc30ca4d484e4c9242861b3c2045406",
+      "integrated_blob_sha": "d70e30f65fc30ca4d484e4c9242861b3c2045406",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "apps/web/src/history/product-validation.ts",
+      "original_source": "ui",
+      "source_blob_sha": "6371ce42c52996d1574fe4049b2fbff2f9f66e12",
+      "integrated_blob_sha": "5afeb1adcb991df2046bf327ba91932929a56d70",
+      "resolution": "FOUNDATION_SECURITY_COMPAT"
+    },
+    {
+      "path": "apps/web/src/history/proxy.ts",
+      "original_source": "ui",
+      "source_blob_sha": "6b9377d16714b49921492e6c7f2c9b775ae2f639",
+      "integrated_blob_sha": "6b9377d16714b49921492e6c7f2c9b775ae2f639",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "apps/web/src/ui/answer-visibility.ts",
+      "original_source": "api",
+      "source_blob_sha": "6aabc3bb7f50da79e7256fa2fb028ab6a0a00f93",
+      "integrated_blob_sha": "0cf494596aafd00e8618f9f75c7baab637714b19",
+      "resolution": "FOUNDATION_SECURITY_COMPAT"
+    },
+    {
+      "path": "apps/web/src/ui/product-chat.tsx",
+      "original_source": "ui",
+      "source_blob_sha": "ec4771ca73820453681ed9ce7342949ed58c02f1",
+      "integrated_blob_sha": "ec4771ca73820453681ed9ce7342949ed58c02f1",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "apps/web/src/ui/runtime-capability.ts",
+      "original_source": "ui",
+      "source_blob_sha": "6edb30ada09f5ae612e5937766726c37971d96cd",
+      "integrated_blob_sha": "6edb30ada09f5ae612e5937766726c37971d96cd",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "apps/web/src/ui/source-locator.ts",
+      "original_source": "api",
+      "source_blob_sha": "4f2b38d912abce163de88db28a2cf3e6defed74f",
+      "integrated_blob_sha": "6a19733a5ef49b8749002d47a1c7b91b3d020711",
+      "resolution": "FOUNDATION_SECURITY_COMPAT"
+    },
+    {
+      "path": "coordination/handoffs/API_F3_91_ROW_L1_SOURCE_MATRIX_20261123.csv",
+      "original_source": "api",
+      "source_blob_sha": "59f8cc1fe1939201031cd78a56d4fdbe1bb9db92",
+      "integrated_blob_sha": "59f8cc1fe1939201031cd78a56d4fdbe1bb9db92",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "coordination/handoffs/API_F3_CURRENT_ROADMAP_AND_ACCEPTANCE_20261123.md",
+      "original_source": "api",
+      "source_blob_sha": "f5c23ae3343c7d4e2c733883c8de7c57b52978d7",
+      "integrated_blob_sha": "f5c23ae3343c7d4e2c733883c8de7c57b52978d7",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "coordination/handoffs/API_F3_PR76_SIGNED_HISTORY_REAL_PROGRESS_20261123.md",
+      "original_source": "api",
+      "source_blob_sha": "c97a875e7d688d176f302095e3300c3ce2f98329",
+      "integrated_blob_sha": "c97a875e7d688d176f302095e3300c3ce2f98329",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "coordination/handoffs/UI_F3_20261123_UPDATED_EXECUTION.md",
+      "original_source": "ui",
+      "source_blob_sha": "2c86219f82cae48bcd988e0b822959d4f88ddcc4",
+      "integrated_blob_sha": "2c86219f82cae48bcd988e0b822959d4f88ddcc4",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "coordination/handoffs/UI_F3_APP_ONLY_20261123_EXECUTED.md",
+      "original_source": "ui",
+      "source_blob_sha": "dbe74d5f5156ae11a2649e69b79a7949f1139fee",
+      "integrated_blob_sha": "dbe74d5f5156ae11a2649e69b79a7949f1139fee",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "coordination/handoffs/UI_F3_L2_NO_DISPATCH_EVIDENCE_CYCLE_20261123.md",
+      "original_source": "ui",
+      "source_blob_sha": "6e63097df940345942f896d8b88eadf0623f2044",
+      "integrated_blob_sha": "6e63097df940345942f896d8b88eadf0623f2044",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "infra/postgres/dev_f3_isolated/contracts/DBF3_EXACT_PINS_SCRIPT11_PREREQUISITES_20261123.md",
+      "original_source": "db",
+      "source_blob_sha": "afd14cab56ec443ed30042d8204883b7c55e9080",
+      "integrated_blob_sha": "afd14cab56ec443ed30042d8204883b7c55e9080",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "infra/postgres/dev_f3_isolated/docs/DBF3_M04_A07_CLOSURE_AND_NEXT_29_OPEN_QUEUE_20261123.md",
+      "original_source": "db",
+      "source_blob_sha": "4fad7295504214db177271d76f413ab52a7fee9c",
+      "integrated_blob_sha": "4fad7295504214db177271d76f413ab52a7fee9c",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "infra/postgres/dev_f3_isolated/docs/DBF3_PROGRESS_VS_171_MAP_AND_57_SPECIALIST_20261123.md",
+      "original_source": "db",
+      "source_blob_sha": "e2fa90399e412ae09d905759e7c564eb28e13636",
+      "integrated_blob_sha": "e2fa90399e412ae09d905759e7c564eb28e13636",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "infra/postgres/dev_f3_isolated/docs/PHASE3_57_ROW_DATABASE_AUDIT_20261123.md",
+      "original_source": "db",
+      "source_blob_sha": "26dbafebfb1048fd1100c10b776cd1b6b0296922",
+      "integrated_blob_sha": "26dbafebfb1048fd1100c10b776cd1b6b0296922",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "infra/postgres/dev_f3_isolated/scripts/11_export_sanitized_receipt.sh",
+      "original_source": "db",
+      "source_blob_sha": "592fdeeb454dbce78a42b864a9e1d7460c9800ab",
+      "integrated_blob_sha": "592fdeeb454dbce78a42b864a9e1d7460c9800ab",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "infra/postgres/dev_f3_isolated/scripts/22_restore_catalog_parity_probe.sh",
+      "original_source": "db",
+      "source_blob_sha": "5869b15413d058acb2424199d8fcaa9d274f822c",
+      "integrated_blob_sha": "5869b15413d058acb2424199d8fcaa9d274f822c",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "infra/postgres/dev_f3_isolated/scripts/23_m04_migration_full_cycle.sh",
+      "original_source": "db",
+      "source_blob_sha": "a547a58ac1555795dd73c18415973bbc955177d8",
+      "integrated_blob_sha": "a547a58ac1555795dd73c18415973bbc955177d8",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "infra/postgres/dev_f3_isolated/scripts/24_m10_idempotency_concurrency_probe.sh",
+      "original_source": "db",
+      "source_blob_sha": "395078707143c85de2d8f58c0b365445176bbf6a",
+      "integrated_blob_sha": "395078707143c85de2d8f58c0b365445176bbf6a",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "infra/postgres/dev_f3_isolated/scripts/25_pg_crash_recovery_probe.sh",
+      "original_source": "db",
+      "source_blob_sha": "53e921ce3bfcd907867d663cd61a465dcc6dd7ee",
+      "integrated_blob_sha": "53e921ce3bfcd907867d663cd61a465dcc6dd7ee",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "packages/contracts/ui.runtime_capabilities.v1.schema.json",
+      "original_source": "ui",
+      "source_blob_sha": "a6a86ce0b0d56b0d8452efc32360572907cd8fa3",
+      "integrated_blob_sha": "a6a86ce0b0d56b0d8452efc32360572907cd8fa3",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "src/phase3/auth/transactional_admission.py",
+      "original_source": "db",
+      "source_blob_sha": "7f2dc3163da2ead1f0b8e5c80ef5fea1415c8060",
+      "integrated_blob_sha": "0b95a0392a1808d7ca7d821222ee329447cab79d",
+      "resolution": "FOUNDATION_SECURITY_COMPAT"
+    },
+    {
+      "path": "src/phase3/rag_runtime/no_dispatch_handler.py",
+      "original_source": "api",
+      "source_blob_sha": "62d1b8019b2ffb9a22f66c9a3457674748baef6d",
+      "integrated_blob_sha": "62d1b8019b2ffb9a22f66c9a3457674748baef6d",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "src/phase3/storage/postgres/repository.py",
+      "original_source": "db",
+      "source_blob_sha": "b3bbef6bf20fc1c8113c010e8649808b90311d98",
+      "integrated_blob_sha": "14f97dd680425b74f8e12fa1696d423a20bf7d76",
+      "resolution": "FOUNDATION_SECURITY_COMPAT"
+    },
+    {
+      "path": "tests/phase3/api/test_full_binding_fence.py",
+      "original_source": "api",
+      "source_blob_sha": "d8d181d0e04dbf976f520a2166b039832d92b8ef",
+      "integrated_blob_sha": "d8d181d0e04dbf976f520a2166b039832d92b8ef",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "tests/phase3/integration/api/test_product_session_011.py",
+      "original_source": "api",
+      "source_blob_sha": "ff44a2b4b86270748058db41f3b6b2e16de4b3ed",
+      "integrated_blob_sha": "ff44a2b4b86270748058db41f3b6b2e16de4b3ed",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "tests/phase3/integration/ui/app_only_real_browser.py",
+      "original_source": "ui",
+      "source_blob_sha": "f6acf48a955aeb5f5f1404f560aaa3bc14a0b098",
+      "integrated_blob_sha": "f6acf48a955aeb5f5f1404f560aaa3bc14a0b098",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "tests/phase3/integration/ui/l2_no_dispatch_receipt_gate.py",
+      "original_source": "ui",
+      "source_blob_sha": "c018988751d5fe36d760384409cb0994d8a96c32",
+      "integrated_blob_sha": "c018988751d5fe36d760384409cb0994d8a96c32",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "tests/phase3/integration/ui/product_chat_browser.py",
+      "original_source": "ui",
+      "source_blob_sha": "54d60d26cc77126e20a0e1940cc5c3d8037a17df",
+      "integrated_blob_sha": "54d60d26cc77126e20a0e1940cc5c3d8037a17df",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "tests/phase3/integration/ui/test_l2_no_dispatch_receipt_gate.py",
+      "original_source": "ui",
+      "source_blob_sha": "55d61ccb69466b64044d1afb8f6b1b7b92933ffc",
+      "integrated_blob_sha": "55d61ccb69466b64044d1afb8f6b1b7b92933ffc",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "tests/phase3/ui/bff-service.test.mjs",
+      "original_source": "ui",
+      "source_blob_sha": "a79466c2f02ce71a9f56b5ce5f5e2c729f08d0ef",
+      "integrated_blob_sha": "a79466c2f02ce71a9f56b5ce5f5e2c729f08d0ef",
+      "resolution": "SOURCE_PRESERVED"
+    },
+    {
+      "path": "tests/phase3/ui/runtime-capability.test.mjs",
+      "original_source": "ui",
+      "source_blob_sha": "c5d4140dfdc804b40f58ba3680ab8ce97f568041",
+      "integrated_blob_sha": "c5d4140dfdc804b40f58ba3680ab8ce97f568041",
+      "resolution": "SOURCE_PRESERVED"
+    }
+  ],
+  "source_resolutions": [
+    "apps/web/src/history/product-validation.ts",
+    "apps/web/src/ui/source-locator.ts",
+    "apps/web/src/ui/answer-visibility.ts",
+    "src/phase3/auth/transactional_admission.py",
+    "apps/api/history_api.py",
+    "src/phase3/storage/postgres/repository.py"
+  ],
+  "acceptance": {
+    "candidate_merge_implemented": true,
+    "real_postgresql_oidc_mac_l2_verified": false,
+    "site_deployed": false,
+    "engine_invoked": false,
+    "full_phase3_accepted": false
+  },
+  "generated_from_commit_sha": "d4f800722114a5e4c292f8e5989919f38f1a2030"
+}

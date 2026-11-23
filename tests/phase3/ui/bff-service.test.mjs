@@ -87,15 +87,19 @@ function runtimeImports(source){
 function clientBoundary(root,entry){
   const visited=new Set();
   const rootPath=resolve(root);
-  // The checked-in public product.v1 JSON schema is the ONLY allowed runtime
-  // import outside apps/web. No other shared package or server module passes.
-  const publicSchema=resolve(rootPath,'../../packages/contracts/product.v1.schema.json');
+  // Only these two explicitly versioned, checked-in, public JSON schemas
+  // may cross the browser bundle boundary; never permit other shared
+  // packages, server files, secrets or arbitrary JSON by directory.
+  const publicSchemas=new Set([
+    resolve(rootPath,'../../packages/contracts/product.v1.schema.json'),
+    resolve(rootPath,'../../packages/contracts/ui.runtime_capabilities.v1.schema.json')
+  ]);
   function visit(file){
     const full=resolve(file);
-    assert.ok(full.startsWith(rootPath+sep)||full===publicSchema,
+    assert.ok(full.startsWith(rootPath+sep)||publicSchemas.has(full),
       'CLIENT_IMPORT_OUTSIDE_APP: '+full);
     if(visited.has(full))return;
-    if(full===publicSchema){
+    if(publicSchemas.has(full)){
       JSON.parse(readFileSync(full,'utf8'));
       visited.add(full);
       return;
