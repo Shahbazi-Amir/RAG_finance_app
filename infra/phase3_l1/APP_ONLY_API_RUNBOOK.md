@@ -94,6 +94,15 @@ by an app-only image tag or this README.
 
 ## API #84 signed-HTTP closure delta (2026-11-24)
 
+**Required stable cursor configuration:** provision `API_CURSOR_KEY` as a
+private owner-controlled unpredictable ≥32-byte value in the API process,
+with `API_CURSOR_TTL_SECONDS` between `1` and `3600` (suggested lab `300`).
+Neither value comes from a browser or URL, and the key must persist across
+app restart/replica and prior cursor validity window. The signed listener
+fails startup before binding if either value is missing or invalid. Treat
+missing cursor authority as readiness 503 / not deployed, never fake a page.
+
+
 The #84 deny-only `apps/api/app_only_asgi.py` remains as a **safe offline fallback
 source test**, not the API container process anymore. The image's actual CMD
 is `python3 -m apps.api.private_app_only_asgi --config /run/secrets/phase3-app-only.json`.
