@@ -54,9 +54,10 @@ while IFS=$'\t' read -r v direction commit path blob; do
   dbpsql -c "SET ROLE $role" -f "/run/source/$filename" \
    > "$LAB_WORK/m04_down_$v.log" 2>&1 || { echo "STOP_M04_DOWN_$v" >&2;exit 70; }
  fi
+ echo "M04_ROLLBACK_DOWN_VERSION=$v"
 done < <(tail -n +2 "$LAB_SOURCE/manifest.tsv" | awk -F '\t' '$2=="DOWN"{print}' | sort -r)
-[[ "$(dbpsql -Atc "SELECT count(*) FROM pg_namespace WHERE nspname IN ('auth_l1','history_l1')")" == 0 ]] || {
- echo STOP_M04_REVERSE_SCHEMAS_REMAIN >&2;exit 70; }
+remaining="$(dbpsql -Atc "SELECT coalesce(string_agg(nspname,',' ORDER BY nspname),'NONE') FROM pg_namespace WHERE nspname IN ('auth_l1','history_l1')")"
+[[ "$remaining" == NONE ]] || { echo "STOP_M04_REVERSE_SCHEMAS_REMAIN=$remaining" >&2; exit 70; }
 # Forward reinstall in ORIGINAL PINNED order, with new disposable durable ledger.
 while IFS=$'\t' read -r v direction commit path blob; do
  [[ "$direction" == UP ]] || continue
