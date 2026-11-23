@@ -111,9 +111,9 @@ class NoDispatchLedger:
                 # Any existing row is permanently non-requeueable even after
                 # FAILED, UNKNOWN, service restarts or parallel POSTs.
                 existing = conn.execute(
-                    "SELECT owner_id,trace_id FROM outcomes WHERE attempt_id=?",
+                    "SELECT owner_id,trace_id,product_request_id FROM outcomes WHERE attempt_id=?",
                     (binding.engine_request_id,)).fetchone()
-                if existing is None or existing != (owner_id, binding.trace_id):
+                if existing is None or existing != (owner_id, binding.trace_id, binding.product_request_id):
                     raise PreflightDenied()
                 return False
             return True
@@ -126,9 +126,10 @@ class NoDispatchLedger:
             cur = conn.execute("""UPDATE outcomes
                 SET state=?,top10_count=?,generation_calls=?,
                     question_hash_match=?,updated_at=?
-                WHERE attempt_id=? AND owner_id=? AND trace_id=? AND state=?""",
+                WHERE attempt_id=? AND owner_id=? AND trace_id=? AND product_request_id=? AND state=?""",
                 (to_state, top10, generation, matched, int(time.time()),
-                 binding.engine_request_id, owner_id, binding.trace_id, from_state))
+                 binding.engine_request_id, owner_id, binding.trace_id,
+                 binding.product_request_id, from_state))
             return cur.rowcount == 1
 
     def start(self, owner, binding):
@@ -169,9 +170,10 @@ class NoDispatchLedger:
             cur = conn.execute("""UPDATE outcomes
                 SET state='CONTEXT_READY', top10_count=?, generation_calls=0,
                     question_hash_match=1, updated_at=?
-                WHERE attempt_id=? AND owner_id=? AND trace_id=? AND state='RUNNING'""",
+                WHERE attempt_id=? AND owner_id=? AND trace_id=? AND product_request_id=? AND state='RUNNING'""",
                 (summary["top10_count"], int(time.time()),
-                 binding.engine_request_id, owner, binding.trace_id))
+                 binding.engine_request_id, owner, binding.trace_id,
+                 binding.product_request_id))
             if cur.rowcount != 1:
                 return False
             conn.execute("""INSERT INTO retrieval_receipts
