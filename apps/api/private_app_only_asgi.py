@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from starlette.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from apps.api.private_staging_asgi import (
     _harden_tls_context, _protected_file, _test_tls_material,
@@ -196,7 +197,12 @@ class AppOnlyASGI:
                 # No synthetic owner, no Auth override. Cryptographic
                 # issuer/audience/method/path/session/PG binding is checked
                 # inside the original signed, transaction-fenced function.
-                product_session_api._signed_history(
+                # The real PG session/replay transaction is synchronous.
+                # Never block the ASGI event loop for a slow dependency:
+                # separate requests (including deny-before-body Send) must
+                # remain schedulable while readiness probes PG.
+                await run_in_threadpool(
+                    product_session_api._signed_history,
                     Request(scope, receive), b"", b"/health/ready",
                     lambda _ctx: None,
                 )
