@@ -111,6 +111,7 @@ export default function ProductChat(){
   const attemptsRef=useRef(attempts);
   const threadEpochs=useRef<Record<string,number>>({});
   const listEpoch=useRef(0);
+  const restoreQueue=useRef<AttemptCheckpoint[]>([]);
   useEffect(()=>{attemptsRef.current=attempts},[attempts]);
   const invalidate=useCallback((e:unknown):boolean=>{
     if(!(e instanceof HistoryFailure&&e.reason==='unauthorized'))return false;
@@ -151,6 +152,11 @@ export default function ProductChat(){
         invalidate(new HistoryFailure(401,'unauthorized'));return;
       }
       setList({items:[],next:null,more:false});
+      // An unavailable owner revalidation cannot attest to the cached
+      // conversation's identity. Hide messages immediately, retaining
+      // only GET-only non-secret checkpoint state for a later valid owner.
+      threadEpochs.current={};
+      setThreads({});
       setListState('error');setError(failureLabel(e));
     }
   },[invalidate,matchOwner]);
@@ -272,11 +278,20 @@ export default function ProductChat(){
             sources:null,sourcesUnavailable:false};
         return next;
       });
+      restoreQueue.current=saved;
       void loadList();
-      for(const record of saved)void probe(record);
     });
     return ()=>{active=false;};
-  },[loadList,probe]);
+  },[loadList]);
+  useEffect(()=>{
+    // A saved correlation has no authorization power and contains no owner.
+    // Do not issue any recovery GET until the signed BFF conversation page
+    // establishes a valid, consistent current owner.
+    if(listState!=='ready'||lost.current)return;
+    const saved=restoreQueue.current;
+    restoreQueue.current=[];
+    for(const record of saved)void probe(record);
+  },[listState,probe]);
   useEffect(()=>{
     if(!selected||selected.startsWith('draft:'))return;
     let active=true;
@@ -325,21 +340,21 @@ export default function ProductChat(){
   },[mobileOpen]);
   useEffect(()=>{
     const timer=window.setInterval(()=>{
-      if(lost.current||document.visibilityState==='hidden')return;
+      if(lost.current||listState!=='ready'||document.visibilityState==='hidden')return;
       for(const attempt of Object.values(attemptsRef.current)){
         if(!isTerminal(attempt.phase))void probe(attempt.record);
       }
     },4500);
     return ()=>window.clearInterval(timer);
-  },[probe]);
+  },[probe,listState]);
   function newConversation(){
-    if(lost.current)return;
+    if(lost.current||listState!=='ready')return;
     const id='draft:'+crypto.randomUUID();
     setSelected(id);setDrafts(all=>({...all,[id]:''}));setMobileOpen(false);
   }
   async function submit(e:FormEvent<HTMLFormElement>){
     e.preventDefault();
-    if(lost.current||sending.current)return;
+    if(lost.current||sending.current||listState!=='ready')return;
     const question=(drafts[selected]??'').trim();
     if(!question)return;
     // A draft is a UI-only ID. The API allocates a real conversation on T1.
@@ -390,12 +405,15 @@ export default function ProductChat(){
         'تعارض شناسهٔ ارسال؛ درخواست جدیدی ارسال نمی‌شود.':failureLabel(e));
     }finally{sending.current=false;setBusy(false);}
   }
-  const messagesFor=threads[selected];
+  // Cached messages and attempt observations are invisible whenever the
+  // currently authenticated owner cannot be revalidated.
+  const verifiedPage=listState==='ready';
+  const messagesFor=verifiedPage?threads[selected]:undefined;
   const renderedIds=new Set(messagesFor?.items.map(m=>m.id)??[]);
   const answers=new Map((messagesFor?.answers??[]).map(a=>[a.messageId,a.payload]));
-  const selectedAttempts=Object.values(attempts).filter(a=>a.viewId===selected);
-  const pendingDrafts=[...new Set(Object.values(attempts).filter(a=>
-    a.viewId.startsWith('draft:')&&!isTerminal(a.phase)).map(a=>a.viewId))];
+  const selectedAttempts=verifiedPage?Object.values(attempts).filter(a=>a.viewId===selected):[];
+  const pendingDrafts=verifiedPage?[...new Set(Object.values(attempts).filter(a=>
+    a.viewId.startsWith('draft:')&&!isTerminal(a.phase)).map(a=>a.viewId))]:[];
   return <main className="history-shell product-shell" dir="rtl">
     <aside ref={mobileMenu} id="product-chat-sidebar" className={'history-sidebar'+(mobileOpen?' is-mobile-open':'')}
       role={mobileOpen?'dialog':undefined} aria-modal={mobileOpen?'true':undefined}
@@ -406,7 +424,7 @@ export default function ProductChat(){
         <strong>راگ مالی</strong></div>
       <div className="history-actions">
         <button type="button" className="nav-new-chat" onClick={newConversation}
-          data-testid="create-conversation" disabled={listState==='unauthorized'}>
+          data-testid="create-conversation" disabled={!verifiedPage}>
           گفت‌وگوی تازه
         </button>
         <span className="history-note">گفت‌وگو با ثبت اولین پرسش در سرور ایجاد می‌شود.</span>
@@ -466,6 +484,11 @@ export default function ProductChat(){
         برای مشاهدهٔ گفت‌وگوها باید <Link href="/login">وارد حساب شوید</Link>.
       </p>}
       {error&&<p className="history-error" role="alert">{error}</p>}
+      {listState==='error'&&<p role="status" data-testid="history-owner-revalidation-required"
+        className="history-note">
+        اتصال برای تأیید مالک و نشست برقرار نیست؛ پیام‌های قبلی موقتاً پنهان
+        و ارسال پرسش تا بازخوانی موفق غیرفعال است.
+      </p>}
       <div className="history-messages" aria-live="polite">
         {!messagesFor&&!selectedAttempts.length&&listState!=='unauthorized'&&
           <p className="history-empty">پرسشتان را بنویسید یا گفت‌وگویی از فهرست باز کنید.</p>}
@@ -520,11 +543,11 @@ export default function ProductChat(){
         <label htmlFor="product-question" className="sr-only">پرسش فارسی</label>
         <div className="composer">
           <textarea id="product-question" rows={2} data-testid="history-question"
-            value={drafts[selected]??''} disabled={busy}
+            value={drafts[selected]??''} disabled={busy||!verifiedPage}
             onChange={e=>setDrafts(all=>({...all,[selected]:e.target.value}))}
             placeholder="سؤال خود را به فارسی بنویسید…"/>
           <button type="submit" className="primary" data-testid="history-send"
-            disabled={busy||!(drafts[selected]??'').trim()}>ارسال پرسش</button>
+            disabled={busy||!verifiedPage||!(drafts[selected]??'').trim()}>ارسال پرسش</button>
         </div>
         <p className="under-composer">
           با Refresh یا قطع ارتباط، درخواست تکرار نمی‌شود؛ فقط وضعیت آن از سرور خوانده می‌شود.
