@@ -83,3 +83,17 @@ Docker Desktop در دو بررسی ۲ CPU و حدود ۳٫۸۲ GiB حافظهٔ
 بازآزمایی مستقیم و فقط‌خواندنی API در همان کانتینر، StagingConfigDenied را در verify_staging_database_authority و شاخهٔ except psycopg.Error در خط ۲۱۲ ثبت کرد. بنابراین خطای دوره‌ای جدید از مسیر ارتباط با PostgreSQL است. از خروجی پالایش‌شدهٔ این آزمون نمی‌توان Timeout اتصال را از دیگر خطاهای psycopg جدا کرد. از تغییر نقش‌ها، pg_hba، مهلت اتصال یا TLS بدون شاهد خودداری شد.
 
 در آخرین بازآزمایی پس از هشت دقیقه اجرای Keycloak بهینه‌شده، HTTPS همچنان HTTP 200 و TLS_VERIFY=0 و discovery HTTP 502 داد. هر هفت کانتینر Running بودند. پنج سرویس دارای healthcheck Docker، از جمله هر دو PostgreSQL، هم‌زمان unhealthy شدند. فقط ingress شاهد سلامت عملیاتی فعلی داشت. بایگانی رمزگذاری‌شدهٔ تصویر Keycloak در حال پیشرفت بود. تنظیم منابع پس از پایان بایگانی تغییر کند.
+
+## ادامهٔ راه‌اندازی پس از افزایش منابع Docker
+
+مبنای گزارش شاخهٔ codex در 50d26aa و مبنای اجرای محلی شاخهٔ ops/mac-first-start در 2a5948f بود. نسخهٔ کاری اصلی در 67ffa71 به‌صورت detached و تمیز مشاهده شد. اعتبار بایگانی Keycloak و SHA-256 از checkpoint تأییدشده به ارث رسید.
+
+فرمان docker info --format با فیلدهای NCPU و MemTotal مقدار ۴ CPU و ۶٬۲۱۲٬۰۳۰٬۴۶۴ بایت حافظه (۵٫۷۹ GiB) را نشان داد. تعداد CPU یک واحد بالاتر از هدف ۳ CPU بود و تنظیمات تغییر نکرد. پس از راه‌اندازی Docker هیچ‌یک از هفت سرویس فعال نبودند. ابتدا دو PostgreSQL و سپس پنج کانتینر وابسته با docker start و نام‌های موجود راه‌اندازی شدند. ایمیج‌ها و اتصال Volumeهای اصلی حفظ شدند.
+
+آزمون پایداری با docker ps و docker inspect روی State.Health.Log در چند نمونه تا دقیقهٔ پنجم انجام شد. demo-db و idp-db هرکدام پنج خروج موفق اخیر داشتند. Product API و Auth Bootstrap پس از یک خطای آغازین، هرکدام سه خروج موفق متوالی داشتند. Web BFF چهار خروج موفق متوالی داشت. شمارندهٔ restart این پنج سرویس صفر بود. Web HTTPS در درخواست loopback با CA محلی HTTP 200 و TLS_VERIFY=0 داد. Keycloak پس از حدود ۸۷ ثانیه روی JVM شروع شد و GET /health/ready روی پورت مدیریتی ۹۰۰۰ HTTP 200 داد. هر هفت سرویس در نمونهٔ نهایی فعال بودند. خرابی هم‌زمان checkpoint قبلی در این پنجره تکرار نشد.
+
+آزمون OIDC با اتصال به 127.0.0.1، SNI میزبان staging و اعتبارسنجی CA محلی انجام شد. discovery در شروع ۵۰۲ و سپس ۵۰۳ داد. بعد از readiness، discovery و JWKS با HTTP 200 پاسخ دادند، issuer و مبدأ سه endpoint با realm پیکربندی‌شده تطبیق کردند و JWKS کلید داشت. GET /login موفق بود. POST /api/auth/login بدون Sec-Fetch-Site با 403 رد شد. با cookie فرم، CSRF، Origin و Sec-Fetch-Site: same-origin همان مسیر واقعی HTTP 303 به Keycloak داد. درخواست اولیهٔ مقصد در ۱۵ ثانیه timeout شد و تکرار با مهلت ۵۵ ثانیه فرم ورود واقعی Keycloak را با HTTP 200 و فیلد گذرواژه دریافت کرد. هیچ اعتبارنامه یا توکنی ثبت نشد.
+
+Chrome در پروفایل موقت ابتدا ERR_CERT_AUTHORITY_INVALID داد. آزمون دوم پس از اعتبارسنجی جداگانهٔ گواهی و استفاده از پین SPKI همان میزبان‌ها در پروفایل موقت، در Page.navigate پس از ۱۵۰ ثانیه timeout شد. شواهد HTTP فرم ورود از آزمونی مستقل به دست آمد. نمایش گفت‌وگو در مرورگر و callback احراز هویت مشاهده نشدند.
+
+در PostgreSQL IdP کوئری تجمیعی SELECT count(*) FILTER برای user_entity.enabled با JOIN realm و تفکیک master از بقیه ۱ و ۰ را نشان داد. مانع ادامه، نبود حساب دعوت‌شدهٔ فعال در realm staging و دسترسی مصوب متناظر برنامه است. ورود با حساب master جایگزین این مسیر نیست. Product API در حالت NO_DISPATCH_ONLY بود. نشست دعوت‌شده، درخواست امضاشدهٔ محصول، اجرای C018، بازگشت نتیجه به UI و Refresh اجرا نشدند. آروان HOLD و پذیرش سرپرست در انتظار است.

@@ -56,3 +56,11 @@ Status is review. Supervisor approval is pending.
 - Recheck from 71148b4 (same MAC-FIRST-START-01 / P3M22-A06 / P3OP11-R07). A sanitized direct Docker preflight isolated the renewed denial to the psycopg error branch of the live DB authority check. Added this evidence to both reports. The exact database transport failure and stable recovery remain open.
 
 - Final observed status from a46ae51 (MAC-FIRST-START-01 / P3M22-A06 / P3OP11-R07). Trusted ingress returned 200 and OIDC discovery returned 502. All seven containers were running, with all five Docker healthchecks now unhealthy. Updated both reports. Wait for the private archive stream before changing Docker Desktop capacity.
+
+### MAC-FIRST-START-01 — post-resource runtime recheck
+
+- Status: review. P3M22-A06 (Module 22, activity 6) and P3OP11-R07 (§Launch checklist), operational evidence only. Reporting baseline codex 50d26aa. Execution baseline ops/mac-first-start 2a5948f and detached workspace 67ffa71. Prior verified Keycloak snapshot retained.
+- Implemented: started the seven existing containers in place. Updated this checkpoint and docs/codex_execution/MAC_FIRST_START_FA.md and docs/codex_execution/MAC_FIRST_START_FA.html. Resources observed at 4 CPU and 6212030464 bytes. Existing images and mounts retained.
+- Tested: docker ps and docker inspect State.Health.Log confirmed five healthy services with repeated zero exit codes. Trusted loopback ingress returned 200. Keycloak readiness on port 9000, issuer discovery and JWKS returned 200. The actual login form POST returned 303 with browser fetch metadata and the live authorization endpoint returned a password form with 200 on retry. See the report for retry limits and the original browser error.
+- Pending: Chrome DOM proof timed out. Aggregate IdP SQL found zero enabled non-master accounts. Invited-user callback, signed Product API request, C018, the UI result and Refresh are blocked pending an active invited staging identity with the corresponding application admission. Arvan HOLD. Supervisor acceptance pending.
+- [Persian evidence and reproducible checks](../../docs/codex_execution/MAC_FIRST_START_FA.md).
