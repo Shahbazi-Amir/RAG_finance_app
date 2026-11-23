@@ -53,6 +53,15 @@ def inventory(demo):
     return records,receipts,system_id
 
 
+def message_inventory(demo):
+    """Capture exact persisted user messages, not merely conversation counts."""
+    with connect() as c:
+        return c.execute(
+            "SELECT owner_id,conversation_id,id,body FROM history_l1.messages "
+            "WHERE owner_id IN (%s,%s) ORDER BY owner_id,conversation_id,id",
+            (demo.owners["A"], demo.owners["B"])).fetchall()
+
+
 def create_extra_question(demo,label):
     owner=demo.owners[label]
     with psycopg.connect(os.environ["DB_APP_DSN"],autocommit=True,
@@ -74,7 +83,7 @@ def create_extra_question(demo,label):
     return cid
 
 
-async def browser_history(page,label,expected_ids):
+async def browser_history(page,label,expected_ids,expected_owner,expected_messages):
     await page.reload()
     await expect(page.locator('[data-testid^="conversation-"]').first).to_be_visible(
         timeout=20000)
@@ -103,7 +112,12 @@ async def browser_history(page,label,expected_ids):
             ORIGIN+"/api/history/conversations/"+cid+"/messages?limit=20")
         assert response.status==200,("SELF_DETAIL",label,response.status)
         body=await response.json()
-        assert body["owner_user_id"],cid
+        assert body["owner_user_id"]==expected_owner,("DETAIL_OWNER_MISMATCH",label,cid)
+        expected={(m[2],m[3]) for m in expected_messages
+                  if m[0]==expected_owner and m[1]==cid}
+        actual=[(item["message_id"],item["text"]) for item in body["items"]]
+        assert len(actual)==len(set(actual)) and set(actual)==expected, (
+            "BROWSER_SQL_MESSAGE_ID_BODY_PARITY",label,cid,len(actual),len(expected))
     return ids
 
 
@@ -124,11 +138,12 @@ async def signed_pagination(page,known):
     assert set(all_ids)==set(known) and len(all_ids)==len(set(all_ids))
 
 
-async def owner_b_denied(page_b,a_id):
-    resp=await page_b.request.get(
-        ORIGIN+"/api/history/conversations/"+a_id+"/messages?limit=20")
-    assert resp.status==404,("B_READ_A",resp.status)
-    assert "F3_REAL_POSTGRES_A" not in await resp.text()
+async def owner_b_denied(page_b,a_ids):
+    for a_id in sorted(a_ids):
+        resp=await page_b.request.get(
+            ORIGIN+"/api/history/conversations/"+a_id+"/messages?limit=20")
+        assert resp.status==404,("B_READ_A",a_id,resp.status)
+        assert "F3_REAL_POSTGRES_A" not in await resp.text()
 
 
 async def send_denied(page):
@@ -238,15 +253,16 @@ async def execute():
             a_id=create_extra_question(demo,"A")
             b_id=create_extra_question(demo,"B")
             source,receipt_before,source_cluster=inventory(demo)
+            messages_before=message_inventory(demo)
             ids_a={r[1] for r in source if r[0]==demo.owners["A"]}
             ids_b={r[1] for r in source if r[0]==demo.owners["B"]}
             assert len(ids_a)==3 and len(ids_b)==3 and ids_a.isdisjoint(ids_b)
             assert a_id in ids_a and b_id in ids_b
-            await browser_history(page_a,"A",ids_a)
-            await browser_history(page_b,"B",ids_b)
+            await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
+            await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
             await signed_pagination(page_a,ids_a)
             await signed_pagination(page_b,ids_b)
-            await owner_b_denied(page_b,a_id)
+            await owner_b_denied(page_b,ids_a)
             await send_denied(page_a)
             assert inventory(demo)[1]==receipt_before
             print("F3_REAL_BROWSER_KEYCLOAK_NEXT_PG17_AB_PAGING_DETAIL_SEND503_PRE_RESTORE_PASS",
@@ -255,14 +271,15 @@ async def execute():
             restored=restore_separate_volume(demo,source,source_cluster)
             # Continue same real two browser contexts, same session cookie,
             # same Keycloak process and Next/BFF/API, now independent PG volume.
-            await browser_history(page_a,"A",ids_a)
-            await browser_history(page_b,"B",ids_b)
+            await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
+            await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
             await signed_pagination(page_a,ids_a)
             await signed_pagination(page_b,ids_b)
-            await owner_b_denied(page_b,a_id)
+            await owner_b_denied(page_b,ids_a)
             await send_denied(page_a)
             after,receipt_after,new_cluster=inventory(demo)
             assert source==after and receipt_before==receipt_after
+            assert message_inventory(demo)==messages_before,("RESTORED_MESSAGES_SQL_DRIFT",)
             assert new_cluster==restored[2] and new_cluster!=source_cluster
 
             # Genuine Logout form and old cookie on original Chromium context.
@@ -279,7 +296,7 @@ async def execute():
             surviving=await page_b.request.get(
                 ORIGIN+"/api/history/conversations?limit=2")
             assert surviving.status==200
-            await owner_b_denied(page_b,a_id)
+            await owner_b_denied(page_b,ids_a)
             result={
                 "schema":"foundation.f3.real_browser_pg_restored_same_context.v1",
                 "sha":os.environ["GITHUB_SHA"],
@@ -287,6 +304,8 @@ async def execute():
                 "genuine_two_browser_context_oidc":True,
                 "browser_default_history_sql_equal":True,
                 "browser_pagination_and_detail_sql_equal":True,
+                "browser_detail_message_id_and_body_sql_equal":True,
+                "all_a_conversations_cross_owner_404":True,
                 "b_direct_a_detail_404":True,
                 "send_bff_503_no_extra_receipts":True,
                 "fresh_pg_volume_independent_cluster":True,
