@@ -171,3 +171,11 @@ Status is review. Supervisor approval is pending.
 - Tested: original action reached Keycloak DOM and a required-action route. Admin REST confirmed verified email and password credential for the existing account. Nginx candidate syntax and reload succeeded. Trusted product /login returned 200 and normal ingress /admin/ returned 403 after the temporary listener stopped. Actual product OIDC password form witnessed in browser DOM. Browser control disconnected once and the replacement browser showed the same real form. Read-only product SQL showed zero identity links and zero active sessions.
 - Pending: user enters the new product-account password directly in Chrome. Product session, signed request, real C018 invocation, source display, no-generation evidence and Refresh are not yet witnessed. No duplicate account or invitation. Arvan HOLD and supervisor acceptance pending.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — strict TLS repair for the OIDC callback
+
+- Status: blocked on the single post-repair interactive login. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), operational evidence only. Reporting baseline codex 9024dcf. Execution baseline ops/mac-first-start 5764fff, local certificate profiles committed at 1d5c1ee.
+- Implemented: infra/mac-first-start/ingress-ca-v3.cnf and ingress-leaf-v3.cnf. Corrected public certificate extensions with existing keys. Kept legacy public certificate rollback pair and adjusted only ingress leaf and Bootstrap trust mounts. No private values published. Report push updates this ledger, Persian Markdown/HTML and CURRENT_STATUS.md.
+- Tested: historical 3 callback 503 and 3 UNKNOWN attempts. Reproduced OpenSSL verify code 85. Validated replacement and legacy pairs, ingress syntax, mounted byte equality, strict discovery/JWKS and token endpoint invalid-request 400 with configured client, BFF private TLS, and ingress proof agreement. Opened only one OIDC browser after these checks, with password form witnessed.
+- Pending: callback, product session, signed UI request, real retrieval, sources and Refresh. Stop after a failed interactive attempt. Arvan HOLD and supervisor acceptance pending.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
