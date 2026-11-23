@@ -99,14 +99,19 @@ class RealProductSession011(unittest.TestCase):
                 API_PRODUCT_PROOF_ISSUER=ISSUER,
                 API_PRODUCT_PROOF_AUDIENCE=AUDIENCE,
                 API_PRODUCT_PROOF_KID=KID,
+                # The identical AppOnlyASGI guard used in live deployment
+                # surrounds original signed Product API on real CI HTTPS/PG.
+                API_RUNNER_EXECUTION_MODE="APP_ONLY",
+                PHASE3_APP_MODE="APP_ONLY",
+                APP_ONLY_CI_API_PORT=str(cls.api_port),
+                APP_ONLY_CI_CLIENT_CERT=str(cls.fixture.cert),
+                APP_ONLY_CI_SERVER_CERT=str(cls.temp / "server.pem"),
+                APP_ONLY_CI_SERVER_KEY=str(cls.temp / "server.key"),
+                APP_ONLY_CI_CLIENT_CA=str(cls.fixture.ca),
             )
             command = [
-                sys.executable, "-m", "uvicorn", "apps.api.product_session_api:app",
-                "--host", "127.0.0.1", "--port", str(cls.api_port),
-                "--ssl-certfile", str(cls.temp / "server.pem"),
-                "--ssl-keyfile", str(cls.temp / "server.key"),
-                "--ssl-ca-certs", cls.fixture.ca, "--ssl-cert-reqs", "2",
-                "--no-access-log",
+                sys.executable, "-u",
+                str(Path(__file__).with_name("app_only_signed_pg_ci_h11.py")),
             ]
             child = subprocess.Popen(command, cwd=ROOT, env=env,
                                      stdout=subprocess.DEVNULL,
