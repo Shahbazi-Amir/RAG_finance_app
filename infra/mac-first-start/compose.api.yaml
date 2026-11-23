@@ -23,3 +23,17 @@ services:
   auth-bootstrap:
     extra_hosts: !reset []
     image: rag-finance-f3/bootstrap:mac-first-start-5fe21e9
+  web-https:
+    user: "101:101"
+    entrypoint: [nginx, -c, /run/ingress/nginx.conf, -g, "daemon off;"]
+    volumes: !override
+      - mac_ingress_private:/run/ingress:ro
+    tmpfs: !override
+      - /var/cache/nginx:uid=101,gid=101,mode=0700
+      - /var/run:uid=101,gid=101,mode=0700
+      - /tmp:uid=101,gid=101,mode=0700
+
+volumes:
+  mac_ingress_private:
+    external: true
+    name: rag-f3-db-rotate-local_mac_ingress_private_v1
