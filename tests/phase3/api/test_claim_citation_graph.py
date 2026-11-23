@@ -119,6 +119,49 @@ class ClaimCitationGraphTests(unittest.TestCase):
         self.answer["citations"][0]["source"]["secret_owner"] = "owner_B"
         self.deny(self.answer)
 
+    def _with_website_url(self, url):
+        # A verified-resolution flag is only untrusted fixture metadata.
+        # It MUST NOT be interpreted as signed C019/Source authority.
+        source = self.answer["citations"][0]["source"]
+        source.update({
+            "resolution_status": "verified",
+            "source_type": "website",
+            "source_id": "website_fixture_one",
+            "locator": {
+                "kind": "url", "url": url,
+                "page": None, "timestamp_ms": None,
+            },
+        })
+        return self.answer
+
+    def test_valid_structural_https_url_is_not_source_authentication(self):
+        answer = self._with_website_url(
+            "https://example.invalid/a?chapter=1#reference")
+        receipt = inspect_answer_citation_graph(answer)
+        self.assertTrue(receipt.graph_consistent)
+        self.assertFalse(receipt.source_verified)
+        self.assertFalse(receipt.live_verified)
+        self.assertFalse(receipt.authorizes_product_t3)
+
+    def test_empty_https_authority_is_refused_even_with_resolution_verified(self):
+        self.deny(self._with_website_url("https://"))
+
+    def test_url_with_embedded_credentials_is_refused(self):
+        self.deny(self._with_website_url(
+            "https://user:password@example.invalid/source"))
+
+    def test_url_with_control_whitespace_is_refused(self):
+        self.deny(self._with_website_url(
+            "https://example.invalid/\nPRIVATE_QUESTION"))
+
+    def test_url_with_backslash_authority_confusion_is_refused(self):
+        self.deny(self._with_website_url(
+            "https://example.invalid\\@other.invalid/path"))
+
+    def test_invalid_https_port_is_refused(self):
+        self.deny(self._with_website_url(
+            "https://example.invalid:99999/path"))
+
     def test_route_fixture_rejects_broken_graph_before_product_t3(self):
         broken = copy.deepcopy(self.valid)
         broken["claims"][0]["citation_ids"] = ["nonexistent_citation"]

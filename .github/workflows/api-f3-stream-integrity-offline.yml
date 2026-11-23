@@ -2,7 +2,7 @@ name: API_F3 Product stream integrity isolated L1
 
 on:
   push:
-    branches: [agent/api-f3-stream-integrity-l1-20261123, agent/api-f3-send-peer-fence-20261123, agent/api-f3-claim-citation-graph-20261123, agent/api-f3-retrieval-unique-chunks-20261123, agent/api-f3-ledger-canonical-receipts-20261123]
+    branches: [agent/api-f3-stream-integrity-l1-20261123, agent/api-f3-send-peer-fence-20261123, agent/api-f3-claim-citation-graph-20261123, agent/api-f3-retrieval-unique-chunks-20261123, agent/api-f3-ledger-canonical-receipts-20261123, agent/api-f3-citation-https-syntax-20261123]
   workflow_dispatch:
 
 permissions:

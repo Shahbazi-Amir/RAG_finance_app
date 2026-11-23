@@ -12,8 +12,9 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
+from urllib.parse import urlsplit
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import SchemaError, ValidationError
 
 _SCHEMA_FILE = (Path(__file__).resolve().parents[3] /
@@ -53,8 +54,32 @@ def _validator() -> Draft202012Validator:
                   "$defs": defs,
                   **defs["answer"]}
         Draft202012Validator.check_schema(schema)
-        return Draft202012Validator(schema)
+        return Draft202012Validator(schema, format_checker=FormatChecker())
     except (OSError, ValueError, KeyError, TypeError, SchemaError):
+        raise CitationGraphDenied() from None
+
+
+def _validate_structural_https_url(url: str) -> None:
+    """Syntax only: neither checks URL reachability nor authenticates a source.
+
+    HTML clients must not be handed syntactically empty/misleading 'https://'
+    links as verified citations. Owner-controlled allowlists and source authority
+    remain separate, required release decisions.
+    """
+    if (not isinstance(url, str) or not url.startswith("https://")
+            or any(ord(char) <= 32 for char in url)
+            or "\\" in url):
+        raise CitationGraphDenied()
+    try:
+        parsed = urlsplit(url)
+        if (parsed.scheme != "https" or not parsed.netloc
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+                or (parsed.port is not None
+                    and not 1 <= parsed.port <= 65535)):
+            raise CitationGraphDenied()
+    except (ValueError, UnicodeError):
         raise CitationGraphDenied() from None
 
 
@@ -74,6 +99,13 @@ def inspect_answer_citation_graph(answer: Mapping) -> StructuralCitationReceipt:
         _validator().validate(answer)
         claims = answer["claims"]
         citations = answer["citations"]
+        # format: uri without a configured FormatChecker is non-asserting in
+        # JSON Schema. Check HTTPS authority syntax even when a synthetic
+        # fixture self-declares resolution=verified; do not trust that claim.
+        for citation in citations:
+            locator = citation["source"]["locator"]
+            if locator is not None and locator["kind"] == "url":
+                _validate_structural_https_url(locator["url"])
         claim_ids = {claim["claim_id"] for claim in claims}
         citation_ids = {cite["citation_id"] for cite in citations}
         if len(claim_ids) != len(claims) or len(citation_ids) != len(citations):
