@@ -1,7 +1,7 @@
-name: Foundation F3 DB0e API61 UI62 exact-source CI — OFFLINE ONLY
+name: Foundation F3 DB996 API61 UI65 exact-source CI — OFFLINE ONLY
 on:
   push:
-    branches: [integration/f3-ui62-db0e-phase3-20261123]
+    branches: [integration/f3-ui65-db996-phase3-20261123]
   workflow_dispatch:
 permissions:
   contents: read
@@ -42,7 +42,7 @@ jobs:
           python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.23.5'
+          node-version: '24'
       - name: Next/BFF install, security/contract tests and build
         run: |
           npm ci --prefix apps/web --no-audit --no-fund
@@ -53,6 +53,54 @@ jobs:
       - name: Source-only result
         if: always()
         run: echo 'OFFLINE_SOURCE_ONLY; NO_MAC_NO_REAL_C018_NO_GATEWAY_NO_DEPLOY'
+  source-web-supply-chain:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Source and Web/Python exact lock inventory + high-confidence tracked-secret scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python scripts/f3_source_supply_chain.py --self-test
+          python scripts/f3_source_supply_chain.py --repo . --out ci_receipts/supply_chain
+          python -m json.tool ci_receipts/supply_chain/source_web_api_cyclonedx.json >/dev/null
+          python -m json.tool ci_receipts/supply_chain/source_secret_scan.json >/dev/null
+      - name: Production Web npm advisory scan (network; fail closed on high/critical)
+        shell: bash
+        run: |
+          set -uo pipefail
+          npm audit --prefix apps/web --package-lock-only --omit=dev --json > ci_receipts/supply_chain/npm_audit_raw.json
+          audit_rc=$?
+          echo "NPM_AUDIT_EXIT=$audit_rc"
+          python scripts/f3_source_supply_chain.py --npm-audit-json ci_receipts/supply_chain/npm_audit_raw.json --out ci_receipts/supply_chain
+          status=$?
+          rm -f ci_receipts/supply_chain/npm_audit_raw.json
+          exit "$status"
+      - name: Publish sanitized source/Web SBOM and audit receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3-source-web-api-supply-chain-not-image
+          path: |
+            ci_receipts/supply_chain/source_web_api_cyclonedx.json
+            ci_receipts/supply_chain/source_secret_scan.json
+            ci_receipts/supply_chain/source_supply_chain_status.json
+            ci_receipts/supply_chain/npm_production_audit_summary.json
+          retention-days: 14
+          if-no-files-found: warn
+
   db-isolated:
     runs-on: ubuntu-24.04
     timeout-minutes: 50
@@ -73,6 +121,7 @@ jobs:
           bash scripts/01_create_isolated_lab.sh
           bash scripts/02_provision_roles.sh
           bash scripts/03_apply_pinned_001_010.sh
+          bash scripts/03_apply_pinned_001_010.sh | grep -F ALREADY_APPLIED_EXACT_PINS_NO_RERUN
           bash scripts/04_bridge_and_db55.sh
           bash scripts/05_test_roles_tls_rls.sh
           bash scripts/09_shared_stack_db_preflight.sh
@@ -81,6 +130,9 @@ jobs:
           bash scripts/13_catalog_erd_inventory.sh
           bash scripts/12_rollback_rls_constraints_probe.sh
           bash scripts/14_synthetic_owner_lifecycle_restore.sh
+          bash scripts/15_populated_pre009_upgrade_restore.sh
+          bash scripts/16_fault_injected_migration_ledger.sh
+          bash scripts/17_populated_query_plan_and_owner.sh
           bash scripts/11_export_sanitized_receipt.sh
           echo 'F3_DB0E_PG17_RLS_RESTORE_ONLY_PASS'
       - uses: actions/upload-artifact@v4
@@ -100,7 +152,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.23.5'
+          node-version: '24'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
