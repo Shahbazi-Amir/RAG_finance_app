@@ -50,6 +50,8 @@ jobs:
           python -m pip install --disable-pip-version-check 'playwright==1.64.1'
           python -m playwright install --with-deps chromium
       - name: Strict signed browser harness compilation and fail-closed prerequisite check
+        env:
+          PHASE3_APP_MODE: APP_ONLY
         run: |
           set -euo pipefail
           python -m py_compile tests/phase3/integration/ui/app_only_entry_baseline_real_browser.py
