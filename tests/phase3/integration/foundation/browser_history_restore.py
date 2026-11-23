@@ -192,8 +192,16 @@ def restore_separate_volume(demo,original_records,source_system_id):
         new_id=c.execute("SELECT system_identifier FROM pg_control_system()").fetchone()[0]
         assert source_system_id!=new_id,("RESTORE_NOT_INDEPENDENT_CLUSTER",)
     # GitHub Actions standalone service is the ONLY source target we can stop.
-    service=command(["docker","ps","-q","--filter","publish=5432"]).splitlines()
-    assert len(service)==1,("PG_SOURCE_PORT_COLLISION",len(service))
+    # Docker's publish=5432 filter can also match the restored CONTAINER
+    # port 5432 (host port 5433). Match the HOST binding exactly instead.
+    service=[]
+    for cid in command(["docker","ps","-q"]).splitlines():
+        ports=json.loads(command(["docker","inspect","--format",
+                     "{{json .NetworkSettings.Ports}}",cid]))
+        if any(bind.get("HostPort")=="5432"
+               for bind in (ports.get("5432/tcp") or [])):
+            service.append(cid)
+    assert len(service)==1,("PG_SOURCE_HOST_PORT_COLLISION",len(service))
     original_image=command(["docker","inspect","--format","{{.Config.Image}}",service[0]]).strip()
     assert original_image=="postgres:17.11",("NOT_GITHUB_PG17_SERVICE",original_image)
     command(["docker","stop",service[0]])
