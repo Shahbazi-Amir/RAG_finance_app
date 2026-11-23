@@ -253,3 +253,23 @@ PY
 install -m 0600 "$cursor" "$GITHUB_WORKSPACE/ci_receipts/history_cursor_race_receipt.json"
 echo 'HISTORY_KEYSET_TWO_OWNER_ANCHOR_AND_INSERT_RACE_RECEIPT=PASS'
 echo 'HISTORY_SIGNED_CURSOR_HTTP_AND_REAL_CONCURRENT_LOAD=NOT_RUN'
+
+# Exact source/independent restore SQL catalog parity and two RLS drift negatives.
+# The private catalog is not exported; only the SHA256 and bounded status are.
+parity="$LAB_WORK/restore_catalog_parity_receipt.json"
+[[ -s "$parity" ]] || { echo STOP_RESTORE_CATALOG_PARITY_MISSING >&2; exit 70; }
+python3 - "$parity" <<'PY'
+import json,sys
+from pathlib import Path
+r=json.loads(Path(sys.argv[1]).read_text())
+assert r["contract_version"]=="f3.db.synthetic_restore_catalog_parity.v1"
+assert r["restore_equals_source"] is True
+assert r["source_table_count"]==14 and r["checked_roles"]==9
+assert r["negative_no_force_rls"]=="DETECTED_IN_DISPOSABLE_CLONE"
+assert r["negative_disabled_rls"]=="DETECTED_IN_DISPOSABLE_CLONE"
+assert r["negative_probe_removed"] and r["original_clusters_unchanged"]
+assert r["mac_runtime"]=="NOT_RUN" and r["signed_actor_fence"]=="NOT_TESTED"
+assert r["module_gate"]=="NOT_ACCEPTED"
+PY
+install -m 0600 "$parity" "$GITHUB_WORKSPACE/ci_receipts/restore_catalog_parity_receipt.json"
+echo 'RESTORE_CATALOG_PARITY_13TH_SANITIZED_RECEIPT=PASS'
