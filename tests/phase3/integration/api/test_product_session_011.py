@@ -117,6 +117,8 @@ class RealProductSession011(unittest.TestCase):
             ]
             cls.api_worker_log = cls.temp / "app_only_signed_h11_ci.log"
             cls.api_worker_log_file = cls.api_worker_log.open("wb")
+            cls.api_worker_env = dict(env)
+            cls.api_worker_command = list(command)
             child = subprocess.Popen(command, cwd=ROOT, env=env,
                                      stdout=subprocess.DEVNULL,
                                      stderr=cls.api_worker_log_file)
@@ -647,6 +649,89 @@ class RealProductSession011(unittest.TestCase):
             {r["id"]: r["owner_id"] for r in rows},
             {**{i: a["owner_id"] for i in ids}, b_id: b["owner_id"]})
         print("API_F3_REAL_SIGNED_PG_CURSOR_PAGINATION_AB_DETAIL_PASS",
+              flush=True)
+
+    def test_API011_09_replay_persists_after_real_api_process_restart(self):
+        """Real HTTPS mTLS, key ID, committed PG replay and History after API restart.
+
+        Fresh GETs must preserve exact owner/rows; reusing a previously
+        consumed, still-unexpired assertion must be denied *across workers*.
+        This does not claim Send idempotency or provider exactly-once.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        a, b = self.login("A"), self.login("B")
+        cid = self.seed(a, "CI_PERSISTENT_RESTART_" + uuid.uuid4().hex)
+        self.seed(b, "CI_RESTART_DISTINCT_B_" + uuid.uuid4().hex)
+        fresh, claims = self.signed(a, path=LIST)
+        first = self.list(a, token=fresh)
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertIn(cid, [x["conversation_id"] for x in first.json()["items"]])
+        self.assertEqual(self.list(a, token=fresh).status_code, 401)
+
+        # Independent signed GETs exercise transactional admission without
+        # creating a new T1/T2 or accepting a browser-chosen owner.
+        def get_fresh(_):
+            token, _ = self.signed(a, path=LIST, query=b"limit=20")
+            return self.request("GET", LIST, token, query="?limit=20")
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            replies = list(pool.map(get_fresh, range(6)))
+        for reply in replies:
+            self.assertEqual(reply.status_code, 200, reply.text)
+            self.assertIn(cid, [x["conversation_id"]
+                                for x in reply.json()["items"]])
+        with psycopg.connect(os.environ["DB_MIG_DSN"], autocommit=True,
+                             row_factory=dict_row) as admin:
+            def counts():
+                return admin.execute(
+                    "SELECT "
+                    "(SELECT count(*) FROM history_l1.send_receipts "
+                    " WHERE owner_id=%s) AS t1,"
+                    "(SELECT count(*) FROM history_l1.execution_attempts "
+                    " WHERE owner_id=%s) AS t2,"
+                    "(SELECT count(*) FROM history_l1.answers "
+                    " WHERE owner_id=%s) AS t3",
+                    (a["owner_id"], a["owner_id"], a["owner_id"])
+                ).fetchone()
+            before = counts()
+
+            # Stop the very process serving HTTPS H11: this is NOT
+            # an in-process TestClient or a Python mock of restart.
+            old_worker = self.__class__.children[0]
+            old_worker.terminate()
+            old_worker.wait(timeout=6)
+            self.__class__.children.pop(0)
+            fresh_worker = subprocess.Popen(
+                self.__class__.api_worker_command,
+                cwd=ROOT, env=self.__class__.api_worker_env,
+                stdout=subprocess.DEVNULL,
+                stderr=self.__class__.api_worker_log_file,
+            )
+            self.__class__.children.insert(0, fresh_worker)
+            for _ in range(90):
+                if fresh_worker.poll() is not None:
+                    raise AssertionError("RESTARTED_SIGNED_API_EARLY_EXIT")
+                try:
+                    probe = self.request("GET", LIST)
+                    if probe.status_code == 401:
+                        break
+                except (httpx.ConnectError, httpx.ReadError,
+                        httpx.RemoteProtocolError):
+                    pass
+                time.sleep(0.05)
+            else:
+                raise AssertionError("RESTARTED_SIGNED_API_NOT_READY")
+            self.assertLess(int(time.time()), claims["exp"],
+                            "Replay proof expired during process restart")
+            # Single-use RSA proof MUST remain consumed after process restart.
+            self.assertEqual(self.list(a, token=fresh).status_code, 401)
+            after = self.list(a)
+            self.assertEqual(after.status_code, 200, after.text)
+            self.assertIn(cid, [x["conversation_id"]
+                                for x in after.json()["items"]])
+            self.assertEqual(after.json()["scope_user_id"], a["owner_id"])
+            self.assertEqual(self.list(b).status_code, 200)
+            self.assertEqual(counts(), before)
+        print("API_F3_REAL_PG_REPLAY_H11_PROCESS_RESTART_AB_STABLE_PASS",
               flush=True)
 
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
