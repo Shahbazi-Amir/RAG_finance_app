@@ -18,7 +18,7 @@ class InvitationError(Exception):
 
 class LoopbackHTTPS(HTTPSConnection):
     def connect(self):
-        with_connection = socket.create_connection(("127.0.0.1", 443), self.timeout)
+        with_connection = socket.create_connection(("127.0.0.1", self.port), self.timeout)
         try:
             self.sock = self._context.wrap_socket(with_connection, server_hostname=self.host)
         except BaseException:
@@ -41,9 +41,13 @@ def main():
     parser.add_argument("action", choices=("check", "invite", "password-email"))
     parser.add_argument("--issuer", required=True, help="Exact issuer from the staging Bootstrap configuration")
     parser.add_argument("--ca", required=True, help="Path to the trusted local staging CA")
+    parser.add_argument("--admin-loopback-port", type=int, required=True,
+                        help="Published port of the temporary localhost-only admin listener")
     parser.add_argument("--approved-smtp-host", required=True, help="SMTP host approved by the staging operator")
     args = parser.parse_args()
 
+    if not 1 <= args.admin_loopback_port <= 65535:
+        parser.error("--admin-loopback-port must be between 1 and 65535")
     realm_path = stage_path(args.issuer)
     context = ssl.create_default_context(cafile=args.ca)
     if not sys.stdin.isatty():
@@ -57,7 +61,8 @@ def main():
         raise InvitationError("INVALID_ADMIN_TOKEN") from None
 
     def request(method, path, expected, payload=None):
-        connection = LoopbackHTTPS("idp-staging.ragfinance.ir", timeout=25, context=context)
+        connection = LoopbackHTTPS("idp-staging.ragfinance.ir", port=args.admin_loopback_port,
+                                   timeout=25, context=context)
         try:
             headers = {"Authorization": f"Bearer {token}"}
             body = None
