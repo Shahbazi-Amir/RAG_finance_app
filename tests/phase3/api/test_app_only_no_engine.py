@@ -60,6 +60,7 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         cfg = load_app_only_config(self.config_file)
         self.assertIsInstance(cfg, AppOnlyConfig)
         self.assertEqual(cfg.port, 18443)
+        self.assertEqual(cfg.host, "127.0.0.1")
         self.assertNotIn("history_app", repr(cfg))
         self.assertNotIn("runner", repr(cfg).lower())
         self.assertFalse("engine_version" in self.doc)
@@ -86,7 +87,7 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             load_app_only_config(link)
 
     def test_non_loopback_port_type_and_missing_tls_file_denied(self):
-        for update in ({"listen_host": "0.0.0.0"},
+        for update in ({"listen_host": "evil.example"},
                        {"listen_port": True},
                        {"listen_port": 0},
                        {"server_tls_key_file": "/tmp/does-not-exist-private-app-only.key"}):
