@@ -85,6 +85,23 @@ jobs:
           python tests/phase3/integration/ui/product_chat_browser.py
           # Legacy /ci-fixture-review is absent on pinned API7c6 and never claimed here.
           echo UI_GATE3_BROWSER_ALL_FIXTURE_ONLY_PASS
+      - name: Actual isolated Next APP_ONLY Chromium and BFF no-Send smoke (not Mac L2)
+        env:
+          PHASE3_APP_MODE: APP_ONLY
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix apps/web run start > "$RUNNER_TEMP/ui-app-only-next.log" 2>&1 &
+          app_only_pid=$!
+          trap 'kill "$app_only_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 2 http://127.0.0.1:3000/api/product-capabilities >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS --max-time 5 http://127.0.0.1:3000/api/product-capabilities >/dev/null || {
+            tail -70 "$RUNNER_TEMP/ui-app-only-next.log"; exit 1;
+          }
+          python tests/phase3/integration/ui/app_only_real_browser.py
       - name: Upload visibly synthetic UI screenshots only
         if: always()
         uses: actions/upload-artifact@v4
