@@ -1,0 +1,7 @@
+ARG BOOTSTRAP_BASE_IMAGE=rag-finance-f3/bootstrap:unbuilt
+FROM ${BOOTSTRAP_BASE_IMAGE}
+USER 0
+RUN chgrp -R 11002 /srv/release/apps/api /srv/release/src/phase3 /srv/release/packages/contracts && \
+    chmod -R g+rX,g-w,o-rwx /srv/release/apps/api /srv/release/src/phase3 /srv/release/packages/contracts
+USER 11002:11002
+RUN python3 -B -c 'from apps.api import private_staging_bootstrap_asgi'
