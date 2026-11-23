@@ -1,0 +1,142 @@
+name: F3 app-only real API/Web image and bounded HTTP L1
+on:
+  push:
+    branches: [integration/f3-app-only-foundation-completion-20261123]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  actual-container-app-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Integrated source blobs, API lock, syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile apps/api/app_only_asgi.py tests/phase3/api/test_app_only_asgi.py
+          python3 - <<'PY'
+          import subprocess,json,hashlib
+          m=json.load(open('integration/F3_COMPLETION_SOURCE_PINS.json'))
+          for path,pin in m['file_pins'].items():
+              assert subprocess.check_output(['git','hash-object',path],text=True).strip()==pin['git_blob'],path
+          assert hashlib.sha256(open('locks/requirements-api.lock','rb').read()).hexdigest()==m['owners']['API_F3']['api_lock_sha256']
+          print("F3_APP_ONLY_OWNER_SOURCE_AND_LOCK_PASS")
+          PY
+      - name: Build and test actual API image, no PKI/Engine/PG data fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull --platform linux/amd64 \
+            -f infra/phase3_l1/Dockerfile.api --build-arg BASE=docker.io/library/python:3.13.5 \
+            --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "f3-app-api:$GITHUB_SHA" .
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "f3-app-api:$GITHUB_SHA")" = "$GITHUB_SHA"
+          test "$(docker run --rm --network none "f3-app-api:$GITHUB_SHA" id -u)" = 11001
+          docker run --rm --network none "f3-app-api:$GITHUB_SHA" \
+            python3 -c 'from apps.api.app_only_asgi import app; print("APP_ONLY_ASGI_SOURCE_IMPORT_PASS")'
+          docker run --rm --network none --tmpfs /tmp "f3-app-api:$GITHUB_SHA" \
+            python3 tests/phase3/api/run_m18_l1_without_engine_mount.py
+          # Without Ops 0600 config the actual default production CMD must fail closed.
+          set +e
+          docker run --rm --network none "f3-app-api:$GITHUB_SHA" >/tmp/app_only_denied.txt 2>&1
+          code=$?
+          set -e
+          test "$code" -eq 78
+          grep -F APP_ONLY_STARTUP_DENIED /tmp/app_only_denied.txt >/dev/null
+          echo 'F3_APP_ONLY_API_IMAGE_START_CONFIG_DENIED_WITHOUT_OPS_PASS'
+      - name: Start real API container and HTTP negative no-Engine smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --rm --name f3-app-only-api --network host \
+            -e CI=true -e GITHUB_ACTIONS=true -e API_RUNTIME_PROFILE=APP_ONLY \
+            "f3-app-api:$GITHUB_SHA" python3 -m apps.api.app_only_asgi --ci-loopback-only
+          trap 'docker logs --tail 50 f3-app-only-api || true; docker rm -f f3-app-only-api >/dev/null 2>&1 || true' EXIT
+          ok=0
+          for i in $(seq 1 75); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8080/health/live -o /tmp/app-live.json; then ok=1; break; fi
+            sleep 2
+          done
+          test "$ok" = 1
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/app-live.json'))
+          assert x['process']=='live' and not x['dependencies_verified']
+          PY
+          status="$(curl -s -o /tmp/app-ready.json -w '%{http_code}' http://127.0.0.1:8080/health/ready)"
+          test "$status" = 503
+          status="$(curl -fsS -o /tmp/app-caps.json -w '%{http_code}' http://127.0.0.1:8080/v1/capabilities)"
+          test "$status" = 200
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/app-caps.json'))
+          assert x['send_enabled'] is False and x['retrieval']=='unavailable' and x['generation']=='unavailable'
+          PY
+          status="$(curl -s -o /tmp/app-send.json -w '%{http_code}' -H 'Content-Type: application/json' \
+            -d '{"question":"no engine must not persist","client_message_id":"x"}' \
+            http://127.0.0.1:8080/v1/messages)"
+          test "$status" = 503
+          grep -F ENGINE_UNAVAILABLE /tmp/app-send.json >/dev/null
+          status="$(curl -s -o /tmp/app-history.json -w '%{http_code}' http://127.0.0.1:8080/v1/conversations)"
+          test "$status" = 503
+          grep -F APP_DEPENDENCIES_NOT_READY /tmp/app-history.json >/dev/null
+          echo 'F3_APP_ONLY_ACTUAL_API_HTTP_LIVE200_READY503_CAPS200_SEND503_HISTORY503_PASS'
+      - name: Build real non-root Next Web container and exercise loopback CI-only preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull --platform linux/amd64 \
+            -f infra/phase3_l1/Dockerfile.web --build-arg BASE=docker.io/library/node:22.23.5 \
+            --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "f3-app-web:$GITHUB_SHA" .
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "f3-app-web:$GITHUB_SHA")" = "$GITHUB_SHA"
+          test "$(docker run --rm --network none "f3-app-web:$GITHUB_SHA" id -u)" = 11003
+          docker run -d --rm --name f3-app-only-web --network host \
+            -e CI=true -e GITHUB_ACTIONS=true -e AUTH_CI_PRODUCT_CHAT_MODE=INVITED_RESULT_STUB_CI_ONLY \
+            "f3-app-web:$GITHUB_SHA"
+          trap 'docker logs --tail 50 f3-app-only-web || true; docker rm -f f3-app-only-web >/dev/null 2>&1 || true' EXIT
+          ok=0
+          for i in $(seq 1 75); do
+            if curl -fsS --max-time 2 http://127.0.0.1:3000/ci-evidence-preview -o /tmp/web-preview; then ok=1; break; fi
+            sleep 2
+          done
+          test "$ok" = 1
+          grep -F 'آزمون صرفاً ساختگی نمایش منابع' /tmp/web-preview >/dev/null
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: malicious.invalid' http://127.0.0.1:3000/ci-evidence-preview)" = 404
+          echo 'F3_APP_ONLY_WEB_IMAGE_SYNTHETIC_HTTP_200_404_PASS_NOT_AUTH_E2E'
+      - name: Persist source-bound image IDs and exact evidence boundary
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ci_receipts/app_only
+          python3 - <<'PY'
+          import os,json,subprocess
+          sha=os.environ['GITHUB_SHA']
+          images={}
+          for name in ['api','web']:
+              img=json.loads(subprocess.check_output(['docker','image','inspect','f3-app-'+name+':'+sha]))[0]
+              images[name]={'local_image_id':img['Id'],'source_label':img['Config']['Labels']['org.opencontainers.image.revision'],
+                            'platform':img['Os']+'/'+img['Architecture']}
+          out={'contract_version':'f3.app_only_image_http_l1.v1','source_sha':sha,'images':images,
+               'api_real_container_start':'CI_LOOPBACK_ONLY_PASS',
+               'api_send_no_engine':'503_BEFORE_STORAGE',
+               'api_live':'200_PASS','api_full_readiness':'503_DEPENDENCIES_UNVERIFIED',
+               'web_synthetic_http':'200_PASS_HOST404_PASS',
+               'source_api_tests':'208_PASS_2_ENGINE_FILES_BLOCKED',
+               'real_bff_oidc_pg_history':'NOT_RUN','mac':'NOT_RUN','C018':'NOT_RUN',
+               'registry_source':'DOCKERHUB_VERSION_TAG_CI_FALLBACK_NOT_APPROVED_DIGEST',
+               'oci_vulnerability_scan':'NOT_RUN','gate':'NOT_ACCEPTED'}
+          with open('ci_receipts/app_only/image_http_receipt.json','w') as f:json.dump(out,f,indent=2)
+          print('F3_APP_ONLY_ACTUAL_CI_IMAGE_HTTP_RECEIPT_PASS_NOT_MAC')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f3-app-only-real-image-http-ci-receipt
+          path: ci_receipts/app_only/image_http_receipt.json
+          if-no-files-found: warn
+          retention-days: 14
