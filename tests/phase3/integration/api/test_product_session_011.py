@@ -113,9 +113,11 @@ class RealProductSession011(unittest.TestCase):
                 sys.executable, "-u",
                 str(Path(__file__).with_name("app_only_signed_pg_ci_h11.py")),
             ]
+            cls.api_worker_log = cls.temp / "app_only_signed_h11_ci.log"
+            cls.api_worker_log_file = cls.api_worker_log.open("wb")
             child = subprocess.Popen(command, cwd=ROOT, env=env,
                                      stdout=subprocess.DEVNULL,
-                                     stderr=subprocess.DEVNULL)
+                                     stderr=cls.api_worker_log_file)
             cls.children.append(child)
             tls = ssl.create_default_context(cafile=cls.fixture.ca)
             tls.load_cert_chain(cls.fixture.cert, cls.fixture.key)
@@ -123,6 +125,17 @@ class RealProductSession011(unittest.TestCase):
             cls.url = "https://127.0.0.1:" + str(cls.api_port)
             for _ in range(80):
                 if child.poll() is not None:
+                    cls.api_worker_log_file.flush()
+                    # The worker emits only a Python traceback, never
+                    # a DSN/config dump. Redact sensitive assignments anyway.
+                    import re
+                    tail = cls.api_worker_log.read_text(
+                        encoding="utf-8", errors="replace")[-2500:]
+                    tail = re.sub(
+                        r"(?i)(password|token|secret|key)=\\S+",
+                        r"\\1=<redacted>", tail)
+                    print("API_F3_SIGNED_H11_CI_STARTUP_DIAGNOSTIC: " + tail,
+                          flush=True)
                     raise AssertionError("REAL_PRODUCT_API_EARLY_EXIT")
                 try:
                     with httpx.Client(verify=tls, trust_env=False,
@@ -145,6 +158,9 @@ class RealProductSession011(unittest.TestCase):
             try: child.wait(timeout=4)
             except subprocess.TimeoutExpired:
                 child.kill();child.wait(timeout=4)
+        if getattr(cls, "api_worker_log_file", None):
+            cls.api_worker_log_file.close()
+            cls.api_worker_log_file = None
         if getattr(cls, "hcb", None):
             cls.hcb.stop()
         if getattr(cls, "base", None):
