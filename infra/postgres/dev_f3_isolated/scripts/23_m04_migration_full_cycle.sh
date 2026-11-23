@@ -32,7 +32,7 @@ admin -c "GRANT CONNECT ON DATABASE $probe TO history_app,auth_revoker,db55_lab_
 
 # Only the disposable probe inherits prior ledger; clear it BEFORE any destructive test.
 export DB_SERVICE=lab-db DB_NAME="$probe"
-dbpsql -q -c 'DELETE FROM db55_audit.migration_runs' >/dev/null
+dbpsql -q -c 'DELETE FROM db55_audit.migration_runs; DELETE FROM db55_audit.bridge_runs' >/dev/null
 [[ "$(dbpsql -Atc "SELECT count(*) FROM db55_audit.migration_runs")" == 0 ]] || exit 70
 snapshot(){
  local db="$1" out="$2"
@@ -87,6 +87,17 @@ done 3< <(tail -n +2 "$LAB_SOURCE/manifest.tsv")
 [[ "$(dbpsql -Atc "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
  WHERE n.nspname IN ('auth_l1','history_l1') AND c.relkind='r'
  AND c.relrowsecurity AND c.relforcerowsecurity")" == 14 ]] || exit 70
+# The DB55 bridge is POST-migration DDL; a full schema rollback removes its
+# function/schema GRANTs. Its copied ledger was cleared in this clone.
+[[ "$(git hash-object "$LAB_SOURCE/db55_no_dispatch_bridge.sql")" == a79e46c87857eb2b77fd26863e1cf85fead31b38 ]] || exit 70
+dbpsql -q -c 'GRANT USAGE ON SCHEMA auth_l1,history_l1 TO db55_lab_auditor' >/dev/null
+dbpsql -q -c "INSERT INTO db55_audit.bridge_runs(id,bridge_sha1,status) VALUES
+ (1,'a79e46c87857eb2b77fd26863e1cf85fead31b38','STARTED')" >/dev/null
+dbpsql -f /run/source/db55_no_dispatch_bridge.sql > "$LAB_WORK/m04_bridge_reinstalled.log" 2>&1 || {
+ echo STOP_M04_BRIDGE_REINSTALL >&2;exit 70; }
+dbpsql -q -c "UPDATE db55_audit.bridge_runs SET status='APPLIED',
+ applied_at=clock_timestamp() WHERE id=1 AND status='STARTED'" >/dev/null
+[[ "$(dbpsql -Atc "SELECT count(*) FROM db55_audit.bridge_runs WHERE status='APPLIED'")" == 1 ]] || exit 70
 dbpsql -c 'SET ROLE db55_lab_auditor' -v db55_phase=private_no_dispatch \
  -f /run/source/db55_verify_staging.sql > "$LAB_WORK/m04_full_cycle_db55.log" 2>&1 || {
  echo STOP_M04_REUP_DB55 >&2;exit 70; }
