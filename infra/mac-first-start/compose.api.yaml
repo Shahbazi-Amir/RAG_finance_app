@@ -54,6 +54,10 @@ services:
       - /var/run:uid=101,gid=101,mode=0700
       - /tmp:uid=101,gid=101,mode=0700
 
+  idp-keycloak:
+    environment:
+      LIQUIBASE_ANALYTICS_ENABLED: "false"
+
 volumes:
   mac_ingress_private:
     external: true
