@@ -2,7 +2,7 @@ name: API_F3 Product stream integrity isolated L1
 
 on:
   push:
-    branches: [agent/api-f3-stream-integrity-l1-20261123, agent/api-f3-send-peer-fence-20261123]
+    branches: [agent/api-f3-stream-integrity-l1-20261123, agent/api-f3-send-peer-fence-20261123, agent/api-f3-claim-citation-graph-20261123]
   workflow_dispatch:
 
 permissions:
@@ -41,6 +41,9 @@ jobs:
       - name: Send private TLS peer boundary negative tests
         run: |
           python -m unittest discover -s tests/phase3/api -p 'test_send_peer_boundary.py' -v
+      - name: Claim-Citation reciprocal graph positive and negative
+        run: |
+          python -m unittest discover -s tests/phase3/api -p 'test_claim_citation_graph.py' -v
       - name: Full API regressions
         run: |
           python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
