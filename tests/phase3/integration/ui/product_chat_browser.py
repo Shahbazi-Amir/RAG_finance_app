@@ -29,7 +29,7 @@ def main():
              "logged_in": True, "request": None,
              "source_reads": 0, "source_mode": "valid",
              "owner_mode": "original", "thread_mode": "original",
-             "status_mode": "valid", "engine_mode": "valid"}
+             "list_mode": "valid", "status_mode": "valid", "engine_mode": "valid"}
     conversation_id = "conv_uichat_013"
     user_message = "msg_uichat_013"
 
@@ -50,6 +50,10 @@ def main():
                           body='{"error":"AUTH_REQUIRED"}')
             return
         if path.endswith("/api/history/conversations") and method == "GET":
+            if state["list_mode"] == "unavailable":
+                route.fulfill(status=503, content_type="application/json",
+                              body='{"error":"SIGNED_PRODUCT_API_UNAVAILABLE"}')
+                return
             body = fixture("valid_paginated_conversations")
             body["page"]["limit"] = 2
             body["page"]["has_more"] = False
@@ -288,6 +292,24 @@ def main():
             state["engine_mode"] = "valid"
             page.get_by_test_id("recover-status").click()
             expect(page.get_by_text("بازیابی شواهد کامل شد؛ تولید پاسخ انجام نشده است.")).to_be_visible()
+            # A failed signed owner revalidation cannot preserve old owner
+            # messages/Attempt evidence or permit a new POST. Recovery remains
+            # GET-only after the same valid BFF owner returns.
+            state["list_mode"] = "unavailable"
+            menu.click()
+            page.get_by_test_id("refresh-history").click()
+            expect(page.get_by_test_id("history-owner-revalidation-required")).to_be_visible()
+            assert page.get_by_test_id("retrieved-sources-observed").count() == 0
+            assert page.locator(".history-messages article").count() == 0
+            expect(page.get_by_test_id("history-send")).to_be_disabled()
+            expect(page.get_by_test_id("history-question")).to_be_disabled()
+            assert state["posts"] == 1
+            state["list_mode"] = "valid"
+            page.get_by_test_id("refresh-history").click()
+            expect(page.get_by_test_id("retrieved-sources-observed")).to_be_visible()
+            expect(page.get_by_test_id("history-send")).to_be_disabled()
+            assert state["posts"] == 1
+            page.locator(".history-mobile-close").click()
             # Hold an already received owner-A status response until *after*
             # a signed owner-B list invalidates this tab. A late GET must not
             # restore the deleted old Attempt/Source or re-send the question.
