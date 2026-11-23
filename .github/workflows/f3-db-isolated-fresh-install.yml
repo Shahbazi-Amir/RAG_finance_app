@@ -51,6 +51,7 @@ jobs:
           bash scripts/09_shared_stack_db_preflight.sh
           bash scripts/06_backup_restore_independent.sh
           bash scripts/10_restored_stack_db_preflight.sh
+          bash scripts/13_catalog_erd_inventory.sh
           bash scripts/12_rollback_rls_constraints_probe.sh
           bash scripts/11_export_sanitized_receipt.sh
           printf 'CI_GIT_SHA=%s\nCI_PG=17.11\nISOLATED_FRESH_INSTALL=PASS\n' "$GITHUB_SHA"
@@ -60,11 +61,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: f3-db-foundation-candidate-consumption
-          path: ci_receipts/f3_db_candidate_consumption.json
+          path: ci_receipts/*
           if-no-files-found: error
           retention-days: 14
 
   optional-post010-011:
+    # 011 is separately pinned/tested; do not rerun it on every base DB hardening push.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
