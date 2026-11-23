@@ -1,0 +1,7 @@
+[leaf]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = DNS:ragfinance.ir,DNS:idp-staging.ragfinance.ir
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always
