@@ -808,6 +808,9 @@
     "engine": "DISABLED",
     "production_approval": "NOT_GRANTED",
     "additional_foundation_workflow_trigger": "api-session-011 integrated SHA; synthetic IdP/PG only; independent CI pending",
-    "final_ci_authority": "Same integrated Git SHA: source/supply-chain/db/browser; real API+Web image+Compose; signed API/PG/IdP synthetic test. CI still must finish before an acceptance claim"
+    "final_ci_authority": "Same integrated Git SHA: source/supply-chain/db/browser; real API+Web image+Compose; signed API/PG/IdP synthetic test. CI still must finish before an acceptance claim",
+    "decision_register_blob": "7c4ad33de6aae0bb680dfce1fb473195b793cea8",
+    "decision_record": "P0-6 owner action table recorded in coordination/open_decisions.md, no centralized approval claimed",
+    "qa_release_rule": "Freeze this candidate only if all three exact-head isolated CI workflows return SUCCESS"
   }
 }
