@@ -4,27 +4,10 @@
  * This is consumer defense-in-depth, not a substitute for server Claim checks.
  */
 import type {Answer,Source} from '../mock/transport';
-import {verifiedSourceUrl} from './source-locator.ts';
+import {verifiedSourceLocatorLabel} from './source-locator.ts';
 
-function nonempty(v:unknown):v is string{
-  return typeof v==='string'&&v.trim().length>0;
-}
 function trustedCitationSource(source:Source):boolean{
-  if(source.resolution_status!=='verified'||source.attribution_status!=='verified'||
-     source.display_title_origin==='SYNTHETIC'||!nonempty(source.source_id))return false;
-  const loc=source.locator;
-  if(!loc)return false;
-  switch(loc.kind){
-    case 'url':return verifiedSourceUrl(source)!==null;
-    case 'book_page':return typeof loc.page==='number'&&Number.isSafeInteger(loc.page)&&loc.page>0;
-    case 'book_anchor':return nonempty(loc.work_id)&&
-      nonempty(loc.edition_id)&&nonempty(loc.anchor);
-    case 'transcript_timestamp':return typeof loc.timestamp_ms==='number'&&Number.isSafeInteger(loc.timestamp_ms)&&
-      loc.timestamp_ms>=0;
-    case 'transcript_segment':return nonempty(loc.episode_id)&&
-      nonempty(loc.segment_anchor);
-    default:return false;
-  }
+  return verifiedSourceLocatorLabel(source)!==null;
 }
 export function isVerifiedLiveAnswer(answer:Answer|null):answer is Answer {
   if(answer===null||answer.provenance.origin!=='LIVE_VERIFIED'||
