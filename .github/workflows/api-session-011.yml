@@ -2,12 +2,17 @@ name: API-SESSION-011 — pinned Login to real fenced History and private revoke
 
 on:
   push:
-    branches: [agent/api-product-session-history-revoke-011]
+    branches: [agent/api-product-session-history-revoke-011, agent/api-f3-pg-history-binding-20261123, agent/f3-app-only-api-listener-20261123]
     paths:
       - 'src/phase3/auth/**'
       - 'apps/api/product_session_api.py'
       - 'tests/phase3/integration/api/test_product_session_011.py'
+      - 'tests/phase3/api/test_full_binding_fence.py'
+      - 'src/phase3/rag_runtime/no_dispatch_handler.py'
       - 'coordination/tasks/AGENT-API-AUTH-BOUNDARY-01.md'
+      - 'coordination/handoffs/API_F3_PR76_SIGNED_HISTORY_REAL_PROGRESS_20261123.md'
+      - 'coordination/handoffs/API_F3_CURRENT_ROADMAP_AND_ACCEPTANCE_20261123.md'
+      - 'coordination/handoffs/API_F3_91_ROW_L1_SOURCE_MATRIX_20261123.csv'
       - '.github/workflows/api-session-011.yml'
   pull_request:
     types: [opened, synchronize, reopened]
@@ -16,7 +21,12 @@ on:
       - 'src/phase3/auth/**'
       - 'apps/api/product_session_api.py'
       - 'tests/phase3/integration/api/test_product_session_011.py'
+      - 'tests/phase3/api/test_full_binding_fence.py'
+      - 'src/phase3/rag_runtime/no_dispatch_handler.py'
       - 'coordination/tasks/AGENT-API-AUTH-BOUNDARY-01.md'
+      - 'coordination/handoffs/API_F3_PR76_SIGNED_HISTORY_REAL_PROGRESS_20261123.md'
+      - 'coordination/handoffs/API_F3_CURRENT_ROADMAP_AND_ACCEPTANCE_20261123.md'
+      - 'coordination/handoffs/API_F3_91_ROW_L1_SOURCE_MATRIX_20261123.csv'
       - '.github/workflows/api-session-011.yml'
 permissions:
   contents: read
@@ -83,12 +93,9 @@ jobs:
           for path in src/phase3/auth/initial_oidc_login.py tests/phase3/integration/api/bootstrap_010_worker.py tests/phase3/integration/api/initial_oidc_harness.py tests/phase3/integration/api/test_bootstrap_oidc_010.py; do
             git show "1998b31c86155a972b11ea745d6bb37e09549392:$path" > "$path"
           done
-      - name: Stage exact tested #36 transactional admission (CI filesystem only)
-        run: |
-          set -euo pipefail
-          git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git 99a917c2f2c519027d0e71643bbbf6973a6c8ac3
-          test "$(git rev-parse FETCH_HEAD)" = "99a917c2f2c519027d0e71643bbbf6973a6c8ac3"
-          git show "99a917c2f2c519027d0e71643bbbf6973a6c8ac3:src/phase3/auth/transactional_admission.py" > src/phase3/auth/transactional_admission.py
+      # Do NOT overwrite current transactional_admission.py with historical #36:
+      # current API imports AdmissionSerializationUnavailable, absent in #36.
+      # Signed PG integration must exercise the actual HEAD source.
       - name: Stage exact approved 009 SQL from #44 tested SHA (CI filesystem only)
         run: |
           set -euo pipefail
@@ -282,11 +289,22 @@ jobs:
           set -euo pipefail
           python -m compileall -q src/phase3/auth tests/phase3/integration/api
           python -m unittest discover -s tests/phase3/integration/api -p 'test_bootstrap_oidc_010.py' -v
+      - name: Import actual product-session ASGI for isolated CI dependency integrity
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import apps.api.product_session_api as app
+          assert app.app is not None
+          print("API_F3_PRODUCT_ASGI_IMPORT_READY", flush=True)
+          PY
       - name: Real HTTPS Callback plus Product-session API 005 004 History/revoke tests
         run: |
           set -euo pipefail
           python -m compileall -q apps/api/product_session_api.py src/phase3/auth tests/phase3/integration/api/test_product_session_011.py
           python -m unittest discover -s tests/phase3/integration/api -p 'test_product_session_011.py' -v
+      - name: Verify full identity T2 ledger positive and negative (offline subset)
+        run: |
+          python -m unittest discover -s tests/phase3/api -p 'test_full_binding_fence.py' -v
       - name: Show bounded SQL permissions and container status
         if: always()
         run: |
