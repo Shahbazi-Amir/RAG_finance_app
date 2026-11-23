@@ -122,3 +122,20 @@ The CI workflow starts isolated Next after building and pins `playwright==1.64.1
 - Append these per-ID witness updates to Foundation's already reconciled canonical 262 activity/26 gate, 154-focus, and 105 operational maps. **Do not rerun** the Foundation 92→105 crosswalk or count P3OP twice.
 - Next: Foundation provides signed `ui_sha/api_sha/db_sha/engine_sha` on a separately approved isolated Mac candidate and actual OIDC A/B, T1/T2→OS C018 one child / no-dispatch evidence before marking **any** row accepted. Contract owner decisions are still required for UI-04/09/13 and UI-07/08/10 production.
 
+
+## UI source-locator consumer continuation (same-day, 23 November 2026)
+
+**Incremental progress accountability (same denominators):**
+- Prior measured source-coverage: **11/14 = 78.57%**; this patch strengthens already-partial UI-07/08 & P3M11/P3M14 rows and **does not newly convert another of the three uncovered activities to a finished implementation**. Current source coverage **11/14 = 78.57%**, **delta +0.00 percentage points**. Two source-complete and nine partial/three unavailable remains a historical conservative scope count (not a time estimate).
+- Prior accepted: **0/14=0%**; now accepted **0/14=0%**, **delta +0.00 percentage points**, all fourteen still open; no Mac/real producer E2E and no owner sign-off.
+- Related 154 P3M rows **81 PARTIAL / 43 NOT_RUN / 30 NOT_VERIFIED** as source snapshot, **0 accepted**. This is a shared dependency view, not 154 UI-owned items. Foundation remains canonical for the 262 activities/26 Gates and the 105 P3OP non-counting crosswalk.
+
+**New source-level work:**
+- `apps/web/src/ui/source-locator.ts`: new `verifiedSourceLocatorLabel` and `verifiedSourceTypeLabel`, strictly type-matched resolver-issued `website:url`, `book:book_page`, `book:book_anchor`, `transcript:transcript_timestamp`, `transcript:transcript_segment`; verified attribution, non-SYNTHETIC origin, nonempty verified source ID, safe public HTTPS. Book anchors/transcript markers are always informational and never invented hyperlinks.
+- `apps/web/src/ui/product-chat.tsx`: when and only when a validated genuinely LIVE_VERIFIED factual Answer is delivered, show the verified source kind and literal locator with separately credited author/editor/speaker; make only a verified public HTTPS website locator clickable; state plainly the reason for source selection is unavailable in this API version. Do **not** expose retrieved-source v1 technical rows as citations.
+- `apps/web/src/ui/answer-visibility.ts`: uses the **same verified typed locator gate** for every claim citation, preventing a browser display/visibility discrepancy on forged source types.
+- `tests/phase3/ui/source-display.test.mjs`: positive tests for five resolver display variants and explicit negative tests for wrong source kind, unknown attribution, synthetic title, null source ID/locator, unsafe `javascript:`, invalid page/timestamp/segment. **Fixture-only**, not real Phase2 resolver evidence.
+- IDs with improved **source fixture/code coverage, not accepted**: **UI-07 / UI-08**, **P3M14-A05/A06**, **P3M11-A01/A02/A07/A08/A09/A10/A11**. `UI-10` cannot be claimed without real versioned producer stream/revoke/cancel. `UI-04/09/13` remain blocked on approved consent/feedback/delete/retention and genuine Answer. Full login→chat→Citation→History Gate still **NOT PASSED**.
+
+**Reproducible isolated L1 CI on final SHA:** [UI workflow](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/workflows/ui-f3-post62-owner-fence.yml), runs `npm ci`, `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, and intercepted synthetic Chromium desktop/mobile. Paste only an actual exact `HEAD_SHA` green CI run into the PR; no tests can elevate 0/14 accepted. Genuine source, locator, Claim, producer/Phase2 release and signed A/B Mac witness are separate blocked L2 rows.
+
