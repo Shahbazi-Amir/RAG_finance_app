@@ -207,7 +207,7 @@ export default function ProductChat(){
         setAttempts(all=>privacyEpoch.current!==privacyAtStart?all:{...all,[record.client_message_id]:{
           ...all[record.client_message_id],phase:'status_error',
           sources:null,sourcesUnavailable:true,engine:null,engineUnavailable:true,
-          answer:null,attemptId:null,messageId:null}}));
+          answer:null,attemptId:null,messageId:null}});
         return;
       }
       const resultPhase=status.status==='answer_committed'&&!isVerifiedLiveAnswer(status.answer)
