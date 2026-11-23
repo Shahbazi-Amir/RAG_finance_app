@@ -29,12 +29,21 @@ def need(check, label):
         raise InvalidEvidence(label)
 
 
+def reject_duplicate_json_members(pairs):
+    """Reject ambiguous JSON at every nesting level, before interpreting a receipt."""
+    result = {}
+    for key, value in pairs:
+        need(key not in result, "DUPLICATE_JSON_MEMBER")
+        result[key] = value
+    return result
+
+
 def read_json(path):
     try:
         with Path(path).open("rb") as f:
             data = f.read(1024 * 1024 + 1)
         need(len(data) <= 1024 * 1024, "JSON_OVER_1MB")
-        doc = json.loads(data)
+        doc = json.loads(data, object_pairs_hook=reject_duplicate_json_members)
         need(type(doc) is dict, "JSON_OBJECT_REQUIRED")
         return doc
     except (OSError, ValueError, UnicodeError) as exc:
@@ -54,8 +63,10 @@ def hash_file(path):
 def safe_artifact(root, raw_path):
     need(type(raw_path) is str and raw_path and "\\" not in raw_path and "\x00" not in raw_path,
          "UNSAFE_ARTIFACT_PATH")
+    # pathlib normalizes repeated '/' and '.': reject *raw* components first.
+    need(all(part not in ("", ".", "..") for part in raw_path.split("/")), "UNSAFE_ARTIFACT_PATH")
     rel = Path(raw_path)
-    need(not rel.is_absolute() and all(p not in ("", ".", "..") for p in rel.parts), "UNSAFE_ARTIFACT_PATH")
+    need(not rel.is_absolute(), "UNSAFE_ARTIFACT_PATH")
     cur = root
     for part in rel.parts:
         cur = cur / part
@@ -120,7 +131,8 @@ def check_no_secrets(value):
 
 def verify_receipt(receipt_file, *, expected_sha, expected_tree, stage):
     need(stage in STAGES, "UNKNOWN_STAGE")
-    need(GIT_SHA.fullmatch(expected_sha) is not None and GIT_SHA.fullmatch(expected_tree) is not None,
+    need(type(expected_sha) is str and type(expected_tree) is str and
+         GIT_SHA.fullmatch(expected_sha) is not None and GIT_SHA.fullmatch(expected_tree) is not None,
          "EXPECTED_GIT_SHA_INVALID")
     doc = read_json(receipt_file)
     check_no_secrets(doc)
@@ -142,7 +154,10 @@ def verify_receipt(receipt_file, *, expected_sha, expected_tree, stage):
         exact_bool(doc, "isolated_volumes_and_ports", True)
     elif stage == "build":
         images = doc.get("images")
-        need(type(images) is list and len(images) >= 3, "INSUFFICIENT_BUILT_IMAGES")
+        # The pinned Compose builds precisely these three products. A receipt
+        # for arbitrary image names cannot satisfy the Gate 3 image precheck.
+        required_services = {"product-api", "auth-bootstrap", "web-bff"}
+        need(type(images) is list and len(images) == len(required_services), "BUILT_IMAGE_SET_INCOMPLETE")
         names = set()
         for img in images:
             need(type(img) is dict, "IMAGE_ENTRY_INVALID")
@@ -155,6 +170,7 @@ def verify_receipt(receipt_file, *, expected_sha, expected_tree, stage):
             need(SHA256.fullmatch(img["sbom_sha256"]) and SHA256.fullmatch(img["scan_receipt_sha256"]), "SCAN_DIGEST_INVALID")
             need(img.get("platform") == "linux/amd64", "PLATFORM_NOT_AMD64")
             exact_int(img, "unresolved_critical", 0)
+        need(names == required_services, "BUILT_IMAGE_SERVICE_MISMATCH")
         exact_bool(doc, "engine_lock_and_wheelhouse_attested", True)
     elif stage == "auth_l2":
         for key in ("real_https", "oidc_login", "signed_bff_mtls_rs256", "pg_verified_two_owners", "same_attempt_t1_t2"):

@@ -1,7 +1,7 @@
 name: Foundation F3 DB996 API61 UI65 exact-source CI — OFFLINE ONLY
 on:
   push:
-    branches: [integration/f3-ui65-db996-phase3-20261123, integration/f3-evidence-preflight-20261123]
+    branches: [integration/f3-ui65-db996-phase3-20261123, integration/f3-evidence-preflight-20261123, integration/f3-preflight-hardening-progress-20261123]
   workflow_dispatch:
 permissions:
   contents: read
