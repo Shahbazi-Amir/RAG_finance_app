@@ -4,7 +4,7 @@
 
 ## A. Primary API roadmap, by the original 91 IDs
 
-Historical/source starts: **61 PARTIAL (67.03%)**, **30 NOT_VERIFIED (32.97%)**; accepted primary rows **0/91 (0%)**. The latest audit ledger captures **16/91 (17.58%) named directly tested *limited L1 subcases***, leaving **75/91** without *new individually bound* tests from the API turns, which does NOT erase earlier aggregate CI. These subsets overlap; never add 67% and 15% or treat 14 direct snippets as completed rows.
+Historical/source starts: **61 PARTIAL (67.03%)**, **30 NOT_VERIFIED (32.97%)**; accepted primary rows **0/91 (0%)**. The latest audit ledger captures **16/91 (17.58%) named directly tested *limited L1 subcases***, leaving **75/91** without *new individually bound* tests from the API turns, which does NOT erase earlier aggregate CI. These subsets overlap; never add 67.03% and 17.58% or treat 16 limited L1 subcases as completed rows.
 
 ```text
 Partial implementation started       61 / 91  67.03%  █████████████░░░░░░░
