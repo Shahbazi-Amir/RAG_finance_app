@@ -50,6 +50,7 @@ compose exec -T lab-db pg_dump -U postgres -d "$source_db" -Fc > "$data_backup"
 shasum -a 256 "$data_backup" > "$LAB_WORK/synthetic_user_lifecycle.dump.sha256"
 shasum -a 256 -c "$LAB_WORK/synthetic_user_lifecycle.dump.sha256" >/dev/null
 chmod 0600 "$data_backup" "$LAB_WORK/synthetic_user_lifecycle.dump.sha256"
+restore_timer_start=$SECONDS
 admin restore-db -c "CREATE DATABASE $target_db OWNER postgres" >/dev/null
 compose exec -T restore-db pg_restore -U postgres -d "$target_db" < "$data_backup" \
  > "$LAB_WORK/synthetic_user_lifecycle_restore.log" 2>&1 || {
@@ -91,6 +92,7 @@ dbpsql -c 'SET ROLE db55_lab_auditor' -v db55_phase=private_no_dispatch \
 }
 grep -Fq DB55_private_no_dispatch_DB_ROLE_SCHEMA_AND_FUNCTION_GATE_PASS \
  "$LAB_WORK/synthetic_user_restored_db55.log" || { echo STOP_RESTORED_SYNTH_DB55_MARKER >&2;exit 70; }
+restore_elapsed_seconds=$((SECONDS-restore_timer_start))
 # Separate PG system IDs from original restoration were already attested.
 [[ "$(admin lab-db -c "SELECT count(*) FROM pg_database WHERE datname='$source_db'")" == 1 ]] || exit 70
 [[ "$(admin restore-db -c "SELECT count(*) FROM pg_database WHERE datname='$target_db'")" == 1 ]] || exit 70
@@ -102,4 +104,6 @@ echo 'SOFT_DELETION_REQUESTED_PRESERVED_AFTER_RESTORE=PASS'
 echo 'NO_ACTIVE_REAPPEARANCE_AFTER_RESTORE=PASS'
 echo 'SYNTHETIC_RESTORED_DB55_AND_LEDGER=PASS'
 echo 'SYNTHETIC_SOURCE_AND_RESTORE_PROBES_DROPPED=PASS'
+echo "SYNTHETIC_RESTORE_ELAPSED_SECONDS=$restore_elapsed_seconds"
+echo 'RPO_RTO_SLA_APPROVAL=NOT_SET'
 echo 'HARD_DELETE_ANTI_RESURRECTION=NOT_IMPLEMENTED_PENDING_POLICY'
