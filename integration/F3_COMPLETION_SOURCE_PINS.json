@@ -748,9 +748,9 @@
     },
     ".github/workflows/api-session-011.yml": {
       "owner": "FOUNDATION_F3",
-      "source_sha": "1c4788306800d004e5bf1f0dc3d7af5a515c10f4",
-      "git_blob": "d4da25f50d6c3a974a798549fe99fe6af939e2c5",
-      "reason": "Trigger original isolated signed PostgreSQL/IdP/API regression on shared Foundation candidate SHA; workflow-only change, does not modify specialist product code"
+      "source_sha": "f9151925b0545fc6e05ec04da60b72b36c17f1e5",
+      "git_blob": "45cba266aefab7793c31400f857501648679d402",
+      "reason": "Foundation-only CI routing change: signed/isolated IdP+PostgreSQL historical regression on integrated candidate, plus manifest-repin trigger; no product implementation mutation"
     },
     "tests/phase3/integration/api/test_product_session_011.py": {
       "owner": "API_F3",
@@ -807,6 +807,7 @@
     "mac_target": "NOT_RUN",
     "engine": "DISABLED",
     "production_approval": "NOT_GRANTED",
-    "additional_foundation_workflow_trigger": "api-session-011 integrated SHA; synthetic IdP/PG only; independent CI pending"
+    "additional_foundation_workflow_trigger": "api-session-011 integrated SHA; synthetic IdP/PG only; independent CI pending",
+    "final_ci_authority": "Same integrated Git SHA: source/supply-chain/db/browser; real API+Web image+Compose; signed API/PG/IdP synthetic test. CI still must finish before an acceptance claim"
   }
 }
