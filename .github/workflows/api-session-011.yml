@@ -2,11 +2,13 @@ name: API-SESSION-011 — pinned Login to real fenced History and private revoke
 
 on:
   push:
-    branches: [agent/api-product-session-history-revoke-011]
+    branches: [agent/api-product-session-history-revoke-011, agent/api-f3-pg-history-binding-20261123]
     paths:
       - 'src/phase3/auth/**'
       - 'apps/api/product_session_api.py'
       - 'tests/phase3/integration/api/test_product_session_011.py'
+      - 'tests/phase3/api/test_full_binding_fence.py'
+      - 'src/phase3/rag_runtime/no_dispatch_handler.py'
       - 'coordination/tasks/AGENT-API-AUTH-BOUNDARY-01.md'
       - '.github/workflows/api-session-011.yml'
   pull_request:
@@ -16,6 +18,8 @@ on:
       - 'src/phase3/auth/**'
       - 'apps/api/product_session_api.py'
       - 'tests/phase3/integration/api/test_product_session_011.py'
+      - 'tests/phase3/api/test_full_binding_fence.py'
+      - 'src/phase3/rag_runtime/no_dispatch_handler.py'
       - 'coordination/tasks/AGENT-API-AUTH-BOUNDARY-01.md'
       - '.github/workflows/api-session-011.yml'
 permissions:
@@ -287,6 +291,9 @@ jobs:
           set -euo pipefail
           python -m compileall -q apps/api/product_session_api.py src/phase3/auth tests/phase3/integration/api/test_product_session_011.py
           python -m unittest discover -s tests/phase3/integration/api -p 'test_product_session_011.py' -v
+      - name: Verify full identity T2 ledger positive and negative (offline subset)
+        run: |
+          python -m unittest discover -s tests/phase3/api -p 'test_full_binding_fence.py' -v
       - name: Show bounded SQL permissions and container status
         if: always()
         run: |
