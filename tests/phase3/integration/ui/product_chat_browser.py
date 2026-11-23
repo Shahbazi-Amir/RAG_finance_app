@@ -144,12 +144,15 @@ def main():
                 return
             if mode == "invalid":
                 rows[0]["verified_locators"] = [{"url": "https://example.org/unapproved"}]
+            if mode == "xss":
+                rows[0]["chunk_id"] = "<script>window.__injected=1</script>"
+                rows[0]["source_id"] = "<img src=x onerror=alert(1)>"
             if mode in ("NOT_AVAILABLE", "EVIDENCE_INVALID", "EVIDENCE_NOT_AVAILABLE"):
                 rows = []
             route.fulfill(status=200, json={
                 "kind": "retrieved_sources",
                 "contract_version": "api.retrieved_sources.v1",
-                "attempt_id": "a" * 32,
+                "attempt_id": ("c" if mode == "wrong_attempt" else "a") * 32,
                 "attempt_trace_id": "b" * 32,
                 "retrieval_state": mode if mode in ("NOT_AVAILABLE", "EVIDENCE_INVALID", "EVIDENCE_NOT_AVAILABLE") else "PARTIAL_UNVERIFIED",
                 "engine_sha256": "93233bfdf25e40684fd9120b82ec19c217695fdb632ed4a1f7d2bb2a3abcb17d",
@@ -198,11 +201,39 @@ def main():
             assert state["posts"] == 1 and state["status_reads"] >= 2
             assert state["engine_reads"] >= 2
             assert state["source_reads"] >= 2
+            # Mobile view: focus visibility, expanded navigation state and RTL.
+            page.set_viewport_size({"width": 390, "height": 844})
+            menu = page.get_by_role("button", name="بازکردن فهرست گفت‌وگوها")
+            expect(menu).to_be_visible()
+            menu.focus()
+            assert menu.evaluate("(el) => getComputedStyle(el).outlineStyle") != "none"
+            menu.click()
+            expect(menu).to_have_attribute("aria-expanded", "true")
+            expect(page.get_by_role("dialog", name="فهرست گفتگوها")).to_be_visible()
+            page.locator(".history-mobile-close").click()
+            expect(menu).to_have_attribute("aria-expanded", "false")
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2")
+            screenshots=os.getenv("UI_GATE3_SCREENSHOT_DIR")
+            if screenshots:
+                directory=Path(screenshots)
+                directory.mkdir(parents=True,exist_ok=True)
+                page.screenshot(path=str(directory/"synthetic_product_source_mobile_390x844.png"))
             # A later malformed receipt must clear the previously shown rows.
             state["source_mode"] = "invalid"
             page.get_by_test_id("recover-status").click()
             expect(page.get_by_test_id("retrieved-sources-unavailable")).to_be_visible()
             assert page.get_by_test_id("retrieved-sources-observed").count() == 0
+            state["source_mode"] = "wrong_attempt"
+            page.get_by_test_id("recover-status").click()
+            expect(page.get_by_test_id("retrieved-sources-unavailable")).to_be_visible()
+            assert page.get_by_test_id("retrieved-sources-observed").count() == 0
+            state["source_mode"] = "xss"
+            page.get_by_test_id("recover-status").click()
+            source_panel=page.get_by_test_id("retrieved-sources-observed")
+            expect(source_panel).to_contain_text("<script>window.__injected=1</script>")
+            expect(source_panel).to_contain_text("<img src=x onerror=alert(1)>")
+            assert source_panel.locator("script,img,svg,a").count() == 0
+            assert page.evaluate("window.__injected === undefined")
             for mode in ("NOT_AVAILABLE", "EVIDENCE_INVALID", "EVIDENCE_NOT_AVAILABLE"):
                 state["source_mode"] = mode
                 page.get_by_test_id("recover-status").click()
@@ -225,7 +256,7 @@ def main():
             assert page.locator("nav.history-list button").count() == 0
             assert page.evaluate(
                 "() => sessionStorage.getItem('rag-finance-attempt-correlation-v1')") is None
-            print("UI_CHAT_L1_BROWSER_SAME_ATTEMPT_REFRESH_INVALID_MISSING_3_EMPTY_STATES_401_PASS")
+            print("UI_CHAT_L1_BROWSER_API61_SAME_ATTEMPT_MOBILE_XSS_MISMATCH_401_PASS")
             context.close()
         finally:
             browser.close()
