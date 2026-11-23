@@ -78,9 +78,22 @@ async def browser_history(page,label,expected_ids):
     await page.reload()
     await expect(page.locator('[data-testid^="conversation-"]').first).to_be_visible(
         timeout=20000)
-    more=page.get_by_role("button",name="نمایش گفت‌وگوهای بیشتر")
-    if await more.count():
+    from playwright.async_api import expect
+    if len(expected_ids)>2:
+        # Validate the real BFF response first; only then wait for hydration.
+        server=await page.request.get(ORIGIN+"/api/history/conversations?limit=2")
+        assert server.status==200,("BFF_LIST",label,server.status)
+        assert (await server.json())["page"]["has_more"],("SERVER_CURSOR_MISSING",label)
+        async with page.expect_response(
+            lambda r:"/api/history/conversations?limit=2" in r.url
+            and r.request.method=="GET",timeout=20000) as observing:
+            await page.get_by_test_id("refresh-history").click()
+        assert (await observing.value).status==200
+        more=page.get_by_role("button",name="نمایش گفت‌وگوهای بیشتر")
+        await expect(more).to_be_visible(timeout=15000)
         await more.click()
+        await expect(page.locator('[data-testid^="conversation-"]')).to_have_count(
+            len(expected_ids),timeout=15000)
     ids=set(await page.locator('[data-testid^="conversation-"]').evaluate_all(
         "(nodes)=>nodes.map(n=>n.getAttribute('data-testid').replace('conversation-',''))"))
     assert ids==set(expected_ids),("BROWSER_HISTORY_ID_PARITY",label,len(ids))
