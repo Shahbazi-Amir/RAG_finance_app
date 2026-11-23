@@ -1108,3 +1108,12 @@ Request a **separate** mission for all **P3M02-A01–A10** (version pins, depend
 ## FOUNDATION_F3 Crosswalk reconciliation / 2026-11-23 (non-counting; 0 Gates accepted)
 
 A direct recheck against `RAG_finance@7c74783c3dcda897b010ba9ea358d113f172ed1f` confirms 262 modular P3M activities, **26 independent NOT_ACCEPTED Gates**, **105 operational P3OP aliases** (old crosswalk 92; 13 missing IDs now explicitly mapped). The corrected 13-row owner/criterion/line matrix is `coordination/f3_execution/F3_CROSSWALK_13_RECOVERY_20261123.md`. These aliases are not additional counted activities and none is accepted by mapping alone. Latest exact-source integration from API61/UI62/DB0e CI 45199971492 applies only to source/fixture/isolated DB; Mac Docker/C018/IdP/E2E, original Engine lock and immutable Phase2 Release Gate00 remain BLOCKED. Arvan HOLD. No existing checkbox or modular acceptance state changed by this append.
+
+
+---
+
+## FOUNDATION_F3 UI65 + DB996 bounded evidence / 2026-11-23 (non-acceptance)
+
+Exact tested integration source `eff01f8fca2808ee0d44f54cbaf8ca22d15d2a5a` has [source/isolated CI 45211590431](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45211590431) **4/4 SUCCESS** (134 API +38 contracts +126 Node, Typecheck/Lint/Next Build, synthetic browser, isolated PG17.11 001-010/DB55/03+15–17, source/Web CycloneDX+source secret scan/npm prod advisory). **This does not validate a new docs-only descendant SHA until its own CI.** UI owner tested `f5321d4d647a355313907255a69f35d0d291b02f` and DB owner `996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba`; API runtime #61 unchanged.
+
+**16 exact canonical IDs gaining limited source/fixture/isolated witnesses only:** `P3M02-A05`, `P3M02-A07`, `P3M04-A06`, `P3M04-A07`, `P3M06-A03`, `P3M06-A05`, `P3M14-A01`, `P3M14-A03`, `P3M14-A09`, `P3M14-A10`, `P3M14-A11`, `P3M19-A01`, `P3M19-A03`, `P3M19-A04`, `P3M21-A06`, `P3M22-A06`. Owner, criterion, environment, actual witness and next dependency are itemized in `coordination/f3_execution/F3_UI65_DB996_16_LIMITED_EVIDENCE_20261123.md`. Prior Crosswalk 92→105 correction remains intact. **No activity Acceptance or any of 26 independent Gate statuses upgraded.** Only CENTRAL can accept by exact real target criteria. Gate00 Phase2/NB23, Engine lock/ABI Qdrant copy, signed Mac L2 and Arvan release remain BLOCKED/HOLD.
