@@ -28,7 +28,8 @@ def main():
     state = {"posts": 0, "status_reads": 0, "engine_reads": 0,
              "logged_in": True, "request": None,
              "source_reads": 0, "source_mode": "valid",
-             "owner_mode": "original", "status_mode": "valid", "engine_mode": "valid"}
+             "owner_mode": "original", "thread_mode": "original",
+             "status_mode": "valid", "engine_mode": "valid"}
     conversation_id = "conv_uichat_013"
     user_message = "msg_uichat_013"
 
@@ -63,6 +64,8 @@ def main():
             if state["owner_mode"] == "changed":
                 body["scope_user_id"] = "usr_owner_B_403_3"
                 body["items"] = []
+            elif state["owner_mode"] == "invalid":
+                body["unexpected_debug"] = "forged-owner-data"
             route.fulfill(status=200, json=body)
         elif path.endswith("/api/history/messages") and method == "POST":
             state["posts"] += 1
@@ -93,6 +96,10 @@ def main():
                 user["message_id"] = user_message
                 user["text"] = state["request"]["question"]
                 body["items"] = [user]
+            if state["thread_mode"] == "changed":
+                body["owner_user_id"] = "usr_owner_B_403_3"
+                body["items"] = []
+                body["answers"] = []
             route.fulfill(status=200, json=body)
         elif path.endswith("/api/history/message-requests/status") and method == "GET":
             check_original_query(route.request.url)
@@ -279,6 +286,27 @@ def main():
             state["engine_mode"] = "valid"
             page.get_by_test_id("recover-status").click()
             expect(page.get_by_text("بازیابی شواهد کامل شد؛ تولید پاسخ انجام نشده است.")).to_be_visible()
+            # Hold an already received owner-A status response until *after*
+            # a signed owner-B list invalidates this tab. A late GET must not
+            # restore the deleted old Attempt/Source or re-send the question.
+            page.evaluate("""() => {
+                const original = window.fetch.bind(window);
+                window.__heldOldStatus = {armed: true, ready: false};
+                window.fetch = (...args) => {
+                  const url = typeof args[0] === 'string' ? args[0] : args[0].url;
+                  if (window.__heldOldStatus.armed &&
+                      url.includes('/api/history/message-requests/status?')) {
+                    window.__heldOldStatus.armed = false;
+                    return original(...args).then(response => new Promise(resolve => {
+                      window.__heldOldStatus.ready = true;
+                      window.__heldOldStatus.release = () => resolve(response);
+                    }));
+                  }
+                  return original(...args);
+                };
+            }""")
+            page.get_by_test_id("recover-status").click()
+            page.wait_for_function("window.__heldOldStatus?.ready === true", timeout=12000)
             # A different valid owner in a separately signed list response
             # must clear the former owner's message/Attempt/cache before display.
             state["owner_mode"] = "changed"
@@ -292,6 +320,11 @@ def main():
             assert page.evaluate(
                 "() => sessionStorage.getItem('rag-finance-attempt-correlation-v1')") is None
             assert state["posts"] == 1
+            page.evaluate("window.__heldOldStatus.release()")
+            page.wait_for_timeout(200)
+            assert page.get_by_test_id("retrieved-sources-observed").count() == 0
+            assert page.locator(".product-attempt").count() == 0
+            assert state["posts"] == 1
             # A second tab, on a new validated owner-B response, never
             # inherits the former tab's A Attempt or captured source rows.
             tab_b = context.new_page()
@@ -302,7 +335,26 @@ def main():
             assert tab_b.evaluate(
                 "() => sessionStorage.getItem('rag-finance-attempt-correlation-v1')") is None
             tab_b.close()
+            # A malformed validated BFF list is also fail-closed, rather than
+            # leaving the cached thread visible from the last good response.
+            state["owner_mode"] = "invalid"
+            invalid_tab = context.new_page()
+            invalid_tab.route("**/api/history/**", intercept)
+            invalid_tab.goto(base, wait_until="domcontentloaded")
+            expect(invalid_tab.get_by_test_id("history-login-required")).to_be_visible()
+            assert invalid_tab.locator(".product-attempt").count() == 0
+            invalid_tab.close()
+            # A thread whose valid owner differs from its valid list owner is
+            # another account-switch vector; test separately from list mix.
             state["owner_mode"] = "original"
+            state["thread_mode"] = "changed"
+            mixed_tab = context.new_page()
+            mixed_tab.route("**/api/history/**", intercept)
+            mixed_tab.goto(base, wait_until="domcontentloaded")
+            expect(mixed_tab.get_by_test_id("history-login-required")).to_be_visible()
+            assert mixed_tab.get_by_test_id("retrieved-sources-observed").count() == 0
+            mixed_tab.close()
+            state["thread_mode"] = "original"
             # Server 401 still purges even on a fresh page.
             state["logged_in"] = False
             # Refresh invokes authenticated GET, even if background polling has
@@ -319,7 +371,7 @@ def main():
             assert account_page.locator('form[action*="delete"]').count() == 0
             assert account_page.locator('form[action*="feedback"]').count() == 0
             account_page.close()
-            print("UI_CHAT_L1_BROWSER_POST62_OWNER_MISMATCH_ESCAPE_ACCOUNT_401_PASS")
+            print("UI_CHAT_L1_BROWSER_POST65_LATE_STATUS_MIXED_THREAD_INVALID_OWNER_MULTITAB_401_PASS")
             context.close()
         finally:
             browser.close()
