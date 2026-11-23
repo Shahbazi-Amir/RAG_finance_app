@@ -122,20 +122,30 @@ class AppOnlyASGI:
         self._profile = profile
 
     async def __call__(self, scope, receive, send):
+        async def private_send(event):
+            if event["type"] == "http.response.start":
+                headers = [(k, v) for k, v in event.get("headers", ())
+                           if k.lower() not in {b"cache-control",
+                                               b"x-content-type-options"}]
+                event = dict(event, headers=headers + [
+                    (b"cache-control", b"no-store"),
+                    (b"x-content-type-options", b"nosniff")])
+            await send(event)
+
         if scope["type"] == "lifespan":
             return await self._app(scope, receive, send)
         if scope["type"] != "http":
             return await JSONResponse(
                 {"error": "AUTH_REQUIRED"}, status_code=401,
-                headers={"Cache-Control": "no-store"})(scope, receive, send)
+                headers={"Cache-Control": "no-store"})(scope, receive, private_send)
         if not self._profile.allowed_peer(scope):
             return await JSONResponse(
                 {"error": "AUTH_REQUIRED"}, status_code=401,
-                headers={"Cache-Control": "no-store"})(scope, receive, send)
+                headers={"Cache-Control": "no-store"})(scope, receive, private_send)
         if os.environ.get("API_RUNNER_EXECUTION_MODE") != "APP_ONLY":
             return await JSONResponse(
                 {"error": "SERVICE_UNAVAILABLE"}, status_code=503,
-                headers={"Cache-Control": "no-store"})(scope, receive, send)
+                headers={"Cache-Control": "no-store"})(scope, receive, private_send)
         if (scope.get("raw_path") == b"/v1/messages"
                 and scope.get("method") == "POST"):
             # No body parsing, trusted-user mutation, PG T1/T2, runner queue,
@@ -144,7 +154,7 @@ class AppOnlyASGI:
             return await history_api._safe_error(
                 503, "ENGINE_NOT_CONFIGURED", "technical",
                 "Message sending is unavailable until the engine is enabled.",
-            )(scope, receive, send)
+            )(scope, receive, private_send)
         if (scope.get("raw_path") == b"/internal/ready"
                 and scope.get("method") == "GET"
                 and not scope.get("query_string")):
@@ -155,13 +165,13 @@ class AppOnlyASGI:
                     {"kind": "app_only_readiness", "state": "unavailable",
                      "retrieval": "unavailable", "generation": "unavailable"},
                     status_code=503,
-                    headers={"Cache-Control": "no-store"})(scope, receive, send)
+                    headers={"Cache-Control": "no-store"})(scope, receive, private_send)
             return await JSONResponse(
                 {"kind": "app_only_readiness", "state": "ready",
                  "history_db": "verified", "bootstrap_idp": "not_probed",
                  "retrieval": "unavailable", "generation": "unavailable"},
-                headers={"Cache-Control": "no-store"})(scope, receive, send)
-        return await self._app(scope, receive, send)
+                headers={"Cache-Control": "no-store"})(scope, receive, private_send)
+        return await self._app(scope, receive, private_send)
 
 
 def prepare_app_only(cfg: AppOnlyConfig, environ=None):
