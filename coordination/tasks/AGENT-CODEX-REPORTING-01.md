@@ -179,3 +179,11 @@ Status is review. Supervisor approval is pending.
 - Tested: historical 3 callback 503 and 3 UNKNOWN attempts. Reproduced OpenSSL verify code 85. Validated replacement and legacy pairs, ingress syntax, mounted byte equality, strict discovery/JWKS and token endpoint invalid-request 400 with configured client, BFF private TLS, and ingress proof agreement. Opened only one OIDC browser after these checks, with password form witnessed.
 - Pending: callback, product session, signed UI request, real retrieval, sources and Refresh. Stop after a failed interactive attempt. Arvan HOLD and supervisor acceptance pending.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — confirmed product sign-in and preserved C018 attempt
+
+- Status: review, C018 E2E blocked. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), operational evidence only. Reporting baseline codex f689528, execution branch ops/mac-first-start 1d5c1ee.
+- Implemented: confirmed the one genuine UI sign-in and single product submit. Preserved the sole failed Attempt. Prepared independent SHA-pinned input copies for a network-disabled diagnostic. Report-only changes in this ledger, MAC_FIRST_START_FA.md, MAC_FIRST_START_FA.html and CURRENT_STATUS.md.
+- Tested: browser session evidence, callback 303, POST 202 once, GET status 200, product ledger FAILED. Chrome reload left ledger unchanged but no engine-status GET 200 was observed and aggregate session evidence confirmed expiry. Verified six input digests and four pinned runtime package versions. Isolated diagnostics exited 1 and timed out at 165 and 220 seconds. The last run reached stage 4 (dense Qdrant copy and validation); timeout diagnosis remains open. No Phase 2 mount was used by the executed diagnostics. Temporary diagnostic container cleaned up.
+- Pending: diagnostic root cause and a source-producing release still need evidence. No duplicate question or replay, no Phase 2 writes, Arvan HOLD. Supervisor acceptance pending.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
