@@ -175,7 +175,44 @@ class AppOnlyASGI:
                 503, "ENGINE_NOT_CONFIGURED", "technical",
                 "Message sending is unavailable until the engine is enabled.",
             )(scope, receive, private_send)
-        if (scope.get("raw_path") in {b"/internal/ready", b"/health/ready"}
+        if scope.get("raw_path") == b"/health/ready":
+            # Strict readiness checks the *same* signed 004/005 session
+            # admission and owner-bound PostgreSQL transaction as History.
+            # PG-role-only /internal/ready is NOT proof the BFF signer works.
+            if (scope.get("method") != "GET"
+                    or scope.get("query_string")
+                    or any(name.lower() in (b"transfer-encoding",)
+                           for name, _ in scope.get("headers", ()))
+                    or any(name.lower() == b"content-length"
+                           and value != b"0"
+                           for name, value in scope.get("headers", ()))):
+                return await JSONResponse(
+                    {"kind": "api_app_only_readiness", "state": "unavailable"},
+                    status_code=503)(scope, receive, private_send)
+            try:
+                from starlette.requests import Request
+                from apps.api import product_session_api
+                # No synthetic owner, no Auth override. Cryptographic
+                # issuer/audience/method/path/session/PG binding is checked
+                # inside the original signed, transaction-fenced function.
+                product_session_api._signed_history(
+                    Request(scope, receive), b"", b"/health/ready",
+                    lambda _ctx: None,
+                )
+            except Exception:
+                # Signature, role, session, revoked user, PG outage and
+                # uncertain transaction results are all fail-closed.
+                return await JSONResponse(
+                    {"kind": "api_app_only_readiness", "state": "unavailable"},
+                    status_code=503)(scope, receive, private_send)
+            return await JSONResponse({
+                "kind": "api_app_only_readiness",
+                "state": "ready",
+                "signed_actor_pg": "verified",
+                "bootstrap_idp": "not_probed",
+                "retrieval": "unavailable", "generation": "unavailable",
+            })(scope, receive, private_send)
+        if (scope.get("raw_path") == b"/internal/ready"
                 and scope.get("method") == "GET"
                 and not scope.get("query_string")):
             try:
