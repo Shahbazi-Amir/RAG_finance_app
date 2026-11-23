@@ -112,6 +112,9 @@ export default function ProductChat(){
   const attemptsRef=useRef(attempts);
   const threadEpochs=useRef<Record<string,number>>({});
   const listEpoch=useRef(0);
+  // Monotonic privacy generation: any in-flight History/Attempt GET from
+  // before a 503/401 owner revalidation must never update a newer view.
+  const privacyEpoch=useRef(0);
   const restoreQueue=useRef<AttemptCheckpoint[]>([]);
   useEffect(()=>{attemptsRef.current=attempts},[attempts]);
   const invalidate=useCallback((e:unknown):boolean=>{
@@ -122,6 +125,7 @@ export default function ProductChat(){
     attemptsRef.current={};
     threadEpochs.current={};
     listEpoch.current++;
+    privacyEpoch.current++;
     setAttempts({});setList({items:[],next:null,more:false});
     setThreads({});setSelected('draft:new');setDrafts({});
     setListState('unauthorized');setError('');setMobileOpen(false);setBusy(false);
@@ -156,6 +160,7 @@ export default function ProductChat(){
       // An unavailable owner revalidation cannot attest to the cached
       // conversation's identity. Hide messages immediately, retaining
       // only GET-only non-secret checkpoint state for a later valid owner.
+      privacyEpoch.current++;
       threadEpochs.current={};
       setThreads({});
       setListState('error');setError(failureLabel(e));
@@ -164,11 +169,14 @@ export default function ProductChat(){
   const loadThread=useCallback(async (id:string,append=false,cursor:string|null=null)=>{
     if(lost.current||id.startsWith('draft:'))return;
     const epoch=(threadEpochs.current[id]??0)+1;
+    const privacyAtStart=privacyEpoch.current;
     threadEpochs.current[id]=epoch;
     try{
       const page=await messages(id,30,append?cursor:null);
-      if(lost.current||threadEpochs.current[id]!==epoch||!matchOwner(page.owner))return;
+      if(lost.current||privacyEpoch.current!==privacyAtStart||
+         threadEpochs.current[id]!==epoch||!matchOwner(page.owner))return;
       setThreads(all=>{
+        if(privacyEpoch.current!==privacyAtStart)return all;
         const prev=all[id];
         return {...all,[id]:{
           items:append&&prev?mergeUnique(prev.items,page.items,x=>x.id):page.items,
@@ -177,6 +185,7 @@ export default function ProductChat(){
         }};
       });
     }catch(e){
+      if(privacyEpoch.current!==privacyAtStart)return;
       if(invalidate(e)||lost.current)return;
       if(threadEpochs.current[id]!==epoch)return;
       if(e instanceof HistoryFailure&&e.reason==='invalid'){
@@ -188,13 +197,14 @@ export default function ProductChat(){
   },[invalidate,matchOwner]);
   const probe=useCallback(async (record:AttemptCheckpoint)=>{
     if(lost.current||polling.current.has(record.client_message_id))return;
+    const privacyAtStart=privacyEpoch.current;
     polling.current.add(record.client_message_id);
     try{
       const status=await recoverStatus(statusCorrelators(record));
-      if(lost.current)return;
+      if(lost.current||privacyEpoch.current!==privacyAtStart)return;
       const old=attemptsRef.current[record.client_message_id];
       if(old?.attemptId&&status.attemptId&&old.attemptId!==status.attemptId){
-        setAttempts(all=>({...all,[record.client_message_id]:{
+        setAttempts(all=>privacyEpoch.current!==privacyAtStart?all:{...all,[record.client_message_id]:{
           ...all[record.client_message_id],phase:'status_error',
           sources:null,sourcesUnavailable:true,engine:null,engineUnavailable:true,
           answer:null,attemptId:null,messageId:null}}));
@@ -213,6 +223,7 @@ export default function ProductChat(){
                technical.attemptTraceId!==status.attemptTraceId)))
             throw new HistoryFailure(0,'invalid');
         }catch(e){
+          if(privacyEpoch.current!==privacyAtStart)return;
           if(invalidate(e)||lost.current)return;
           engineUnavailable=true;
         }
@@ -226,12 +237,14 @@ export default function ProductChat(){
              sources.attemptTraceId!==status.attemptTraceId))
             throw new HistoryFailure(0,'invalid');
         }catch(e){
+          if(privacyEpoch.current!==privacyAtStart)return;
           if(invalidate(e)||lost.current)return;
           sourcesUnavailable=true;
         }
       }
-      if(lost.current)return;
+      if(lost.current||privacyEpoch.current!==privacyAtStart)return;
       setAttempts(all=>{
+        if(privacyEpoch.current!==privacyAtStart)return all;
         const previous=all[record.client_message_id];
         if(!previous||isTerminal(previous.phase))return all;
         return {...all,[record.client_message_id]:{
@@ -245,6 +258,7 @@ export default function ProductChat(){
         }};
       });
       const confirmedId=status.id;
+      if(privacyEpoch.current!==privacyAtStart)return;
       if(confirmedId&&status.status!=='not_found'){
         const s=sessionStore();if(s)retainCheckpoint(s,{...record,resolved_conversation_id:confirmedId});
         setSelected(old=>old.startsWith('draft:')?confirmedId:old);
@@ -252,6 +266,7 @@ export default function ProductChat(){
         void loadThread(confirmedId);
       }
     }catch(e){
+      if(privacyEpoch.current!==privacyAtStart)return;
       if(!invalidate(e)&&!lost.current)
         setAttempts(all=>{
           const prev=all[record.client_message_id];
