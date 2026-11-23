@@ -53,6 +53,54 @@ jobs:
       - name: Source-only result
         if: always()
         run: echo 'OFFLINE_SOURCE_ONLY; NO_MAC_NO_REAL_C018_NO_GATEWAY_NO_DEPLOY'
+  source-web-supply-chain:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Source and Web/Python exact lock inventory + high-confidence tracked-secret scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python scripts/f3_source_supply_chain.py --self-test
+          python scripts/f3_source_supply_chain.py --repo . --out ci_receipts/supply_chain
+          python -m json.tool ci_receipts/supply_chain/source_web_api_cyclonedx.json >/dev/null
+          python -m json.tool ci_receipts/supply_chain/source_secret_scan.json >/dev/null
+      - name: Production Web npm advisory scan (network; fail closed on high/critical)
+        shell: bash
+        run: |
+          set -uo pipefail
+          npm audit --prefix apps/web --package-lock-only --omit=dev --json > ci_receipts/supply_chain/npm_audit_raw.json
+          audit_rc=$?
+          echo "NPM_AUDIT_EXIT=$audit_rc"
+          python scripts/f3_source_supply_chain.py --npm-audit-json ci_receipts/supply_chain/npm_audit_raw.json --out ci_receipts/supply_chain
+          status=$?
+          rm -f ci_receipts/supply_chain/npm_audit_raw.json
+          exit "$status"
+      - name: Publish sanitized source/Web SBOM and audit receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3-source-web-api-supply-chain-not-image
+          path: |
+            ci_receipts/supply_chain/source_web_api_cyclonedx.json
+            ci_receipts/supply_chain/source_secret_scan.json
+            ci_receipts/supply_chain/source_supply_chain_status.json
+            ci_receipts/supply_chain/npm_production_audit_summary.json
+          retention-days: 14
+          if-no-files-found: warn
+
   db-isolated:
     runs-on: ubuntu-24.04
     timeout-minutes: 50

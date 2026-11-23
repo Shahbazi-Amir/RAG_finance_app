@@ -1,0 +1,6 @@
+# Foundation F3 source supply chain scan (CI-only)
+Executes `python3 scripts/f3_source_supply_chain.py --self-test`, `python3 scripts/f3_source_supply_chain.py --out ci_receipts/supply_chain`, and production-Web `npm audit --prefix apps/web --package-lock-only --omit=dev --json` in the exact integrated branch CI.
+- **CycloneDX 1.5** is a **source lock inventory** of API Python hashed wheels and full Web npm lock. It is not a claim of actual package installation, executable image scan, licensing completeness or ABI parity.
+- Secret scanner checks tracked text for high-confidence literal private key, GitHub/AWS/Slack token patterns. A clean result is not a full secret audit or proof that deployment secrets are absent.
+- npm audit queries public vulnerability data. If it cannot query or finds High/Critical, the scan job fails closed, and a sanitized summary artifact is collected. Do not weaken dependency pin or disable security gate merely to make CI green; owner must review/admit fix with exact test.
+- ENGINE Python 3.11.18 hash-locked wheelhouse and ONNX ABI, full OCI image SBOM/CVE scan, real Mac and signed L2 are external. Gate P3M02/P3M18/P3M21 remains NOT_ACCEPTED even on green scanner.
