@@ -92,7 +92,7 @@ function AnswerPanel({answer}:{answer:Answer}){
 function sessionStore():Storage|null{
   try{return window.sessionStorage;}catch{return null;}
 }
-export default function ProductChat(){
+export default function ProductChat({appOnly=false}:{appOnly?:boolean}){
   const [list,setList]=useState<ListData>({items:[],next:null,more:false});
   const [listState,setListState]=useState<'loading'|'ready'|'error'|'unauthorized'>('loading');
   const [selected,setSelected]=useState<string>('draft:new');
@@ -384,7 +384,7 @@ export default function ProductChat(){
   }
   async function submit(e:FormEvent<HTMLFormElement>){
     e.preventDefault();
-    if(lost.current||sending.current||listState!=='ready')return;
+    if(appOnly||lost.current||sending.current||listState!=='ready')return;
     const question=(drafts[selected]??'').trim();
     if(!question)return;
     // A draft is a UI-only ID. The API allocates a real conversation on T1.
@@ -572,15 +572,16 @@ export default function ProductChat(){
           پیام‌های بیشتر
         </button>}
       </div>
-      {listState!=='unauthorized'&&<form className="history-compose" onSubmit={e=>void submit(e)}>
+      {appOnly&&<p role="status" data-testid="app-only-engine-unavailable" className="history-note">موتور پاسخ‌گویی فعلاً در دسترس نیست؛ تاریخچه همچنان قابل مشاهده است و پرسش جدید ثبت نمی‌شود.</p>}
+       {listState!=='unauthorized'&&<form className="history-compose" onSubmit={e=>void submit(e)}>
         <label htmlFor="product-question" className="sr-only">پرسش فارسی</label>
         <div className="composer">
           <textarea id="product-question" rows={2} data-testid="history-question"
-            value={drafts[selected]??''} disabled={busy||!verifiedPage}
+            value={drafts[selected]??''} disabled={appOnly||busy||!verifiedPage}
             onChange={e=>setDrafts(all=>({...all,[selected]:e.target.value}))}
             placeholder="سؤال خود را به فارسی بنویسید…"/>
           <button type="submit" className="primary" data-testid="history-send"
-            disabled={busy||!verifiedPage||!(drafts[selected]??'').trim()}>ارسال پرسش</button>
+            disabled={appOnly||busy||!verifiedPage||!(drafts[selected]??'').trim()}>ارسال پرسش</button>
         </div>
         <p className="under-composer">
           با Refresh یا قطع ارتباط، درخواست تکرار نمی‌شود؛ فقط وضعیت آن از سرور خوانده می‌شود.
