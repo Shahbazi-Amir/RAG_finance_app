@@ -1,7 +1,7 @@
-name: Foundation F3 DB59 API61 UI60 exact-source CI — OFFLINE ONLY
+name: Foundation F3 DB0e API61 UI62 exact-source CI — OFFLINE ONLY
 on:
   push:
-    branches: [integration/f3-completion-db59-api61-ui60-20261123]
+    branches: [integration/f3-ui62-db0e-phase3-20261123]
   workflow_dispatch:
 permissions:
   contents: read
@@ -79,7 +79,7 @@ jobs:
           bash scripts/06_backup_restore_independent.sh
           bash scripts/10_restored_stack_db_preflight.sh
           bash scripts/11_export_sanitized_receipt.sh
-          echo 'F3_COMPLETION_DB_SYNTHETIC_PG17_RESTORE_ONLY_PASS'
+          echo 'F3_DB0E_PG17_RLS_RESTORE_ONLY_PASS'
       - uses: actions/upload-artifact@v4
         with:
           name: f3-completion-sanitized-db-receipt

@@ -1,12 +1,12 @@
 {
-  "schema": "foundation.f3.completion_integration.v1",
-  "parent_commit": "0c0a942c893d13393e47d94ca0c0d260cce6067e",
+  "schema": "foundation.f3.completion_integration.v2",
+  "parent_commit": "c2edbbf87f02ff2cfb8ba12a0a9594533324fd28",
   "owners": {
     "DATABASE_F3": {
-      "tested_source_sha": "b6b79369006eca3a1e4c8e75a9ba4ab14d0fab74",
-      "current_head": "da8d5b48af0c4fbecf8df633356939d6cc6cdd8c",
-      "CI_run": "45082326382",
-      "receipt_scope": "isolated PG17.11 + restore only"
+      "tested_source_sha": "0e301a26096cb9f8c2b8e3fde3e20e9a1add48a5",
+      "current_head": "0e301a26096cb9f8c2b8e3fde3e20e9a1add48a5",
+      "CI_run": "45109023781",
+      "receipt_scope": "isolated PG17.11 main test PASS; optional migration 011 job SKIPPED"
     },
     "API_F3": {
       "tested_source_sha": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
@@ -15,24 +15,16 @@
       "api_lock_sha256": "399a4e796403bd8fc5b8165c030ad4d4d8479fb946e363e29a5722ea88d35ff5"
     },
     "UI_F3": {
-      "tested_source_sha": "21fe24913f85cb9cc013ce01b1d5dbb4bc97774f",
-      "current_head": "21fe24913f85cb9cc013ce01b1d5dbb4bc97774f",
-      "CI_run": "45082202462",
-      "receipt_scope": "browser fixtures only"
+      "tested_source_sha": "05063c86204498ddf03c8f83507f181e51ae312c",
+      "current_head": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
+      "CI_run": "45108323298",
+      "receipt_scope": "Node115, Chromium synthetic; no Mac C018"
     }
   },
   "conflict_policy": {
-    "source_common_ancestor": "7c6b5c62817f4f06201718781a00c62e0b4c17e0",
-    "api_owned": [
-      "apps/api/**",
-      "src/phase3/rag_runtime/**",
-      "packages/contracts/**",
-      "tests/phase3/api/**"
-    ],
-    "ui_supersedes": [
-      "apps/web/src/ui/product-chat.tsx"
-    ],
-    "reason": "Keep API61 final hardened source and UI60 rendered same-Attempt display; no wholesale merge of standalone branches"
+    "ui_api61_same_base": true,
+    "owner_overlay_policy": "UI62 diffs relative to API61; DB0e diffs relative to DB59 HEAD; preserve unchanged API61 and existing Foundation glue",
+    "ui_base": "c02ba7896edb78febd2042f7afb1243f2a6aca34"
   },
   "file_pins": {
     ".github/workflows/api-f3-gate3-retrieved-sources-offline.yml": {
@@ -115,15 +107,15 @@
     },
     "apps/web/src/ui/product-chat.tsx": {
       "owner": "UI_F3",
-      "source_sha": "21fe24913f85cb9cc013ce01b1d5dbb4bc97774f",
-      "git_blob": "a77efeeabc989c2e491689ddd5f4dcefa3cb6e67",
-      "reason": "UI60 browser/visual same-Attempt changes"
+      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
+      "git_blob": "bd78ef2facc0901e1a85d889e877ee370927ff19",
+      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
     },
     "apps/web/src/ui/retrieved-sources-panel.tsx": {
       "owner": "UI_F3",
-      "source_sha": "21fe24913f85cb9cc013ce01b1d5dbb4bc97774f",
+      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
       "git_blob": "cbd3f64e30704d7fd638fabe19d177eb6bf632dc",
-      "reason": "UI60 browser/visual same-Attempt changes"
+      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
     },
     "coordination/handoffs/UI_F3_API7C6_INTEGRATION.md": {
       "owner": "UI_F3",
@@ -133,15 +125,15 @@
     },
     "tests/phase3/integration/ui/product_chat_browser.py": {
       "owner": "UI_F3",
-      "source_sha": "21fe24913f85cb9cc013ce01b1d5dbb4bc97774f",
-      "git_blob": "1dacf2882398b7937b8cad704c7b2d8edb9758d3",
-      "reason": "UI60 browser/visual same-Attempt changes"
+      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
+      "git_blob": "8d1c6ec74c09de8f619db2769779ad6f25e23c34",
+      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
     },
     "tests/phase3/ui/retrieved-sources-client.test.mjs": {
       "owner": "UI_F3",
-      "source_sha": "21fe24913f85cb9cc013ce01b1d5dbb4bc97774f",
-      "git_blob": "82176911303cb0521d2fd1ed31d4550fb908e606",
-      "reason": "UI60 browser/visual same-Attempt changes"
+      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
+      "git_blob": "02d7294cf545246878c5a89025359d10b36dee77",
+      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
     },
     "infra/postgres/dev_f3_isolated/Dockerfile.shared-witness": {
       "owner": "DATABASE_F3",
@@ -211,9 +203,9 @@
     },
     "infra/postgres/dev_f3_isolated/scripts/11_export_sanitized_receipt.sh": {
       "owner": "DATABASE_F3",
-      "source_sha": "da8d5b48af0c4fbecf8df633356939d6cc6cdd8c",
-      "git_blob": "b08652cf9fe810f8f3154ac5ede3d8f5d1ef2cc9",
-      "reason": "DB59 tested code plus HEAD documentation-only receipt"
+      "source_sha": "0e301a26096cb9f8c2b8e3fde3e20e9a1add48a5",
+      "git_blob": "e8f50cf29fb79a795e566a007d861afba9533fb4",
+      "reason": "DB0e tested isolated PG17.11, optional011 skipped, no Mac"
     },
     "infra/postgres/dev_f3_isolated/scripts/shared_stack_db_witness.py": {
       "owner": "DATABASE_F3",
@@ -223,17 +215,126 @@
     },
     ".github/workflows/f3-db-isolated-fresh-install.yml": {
       "owner": "DATABASE_F3",
-      "source_sha": "da8d5b48af0c4fbecf8df633356939d6cc6cdd8c",
-      "git_blob": "b9fb7b6b2759e806aebc9811a66fd0cb1bea509b",
-      "reason": "DB59 standalone CI provenance"
+      "source_sha": "0e301a26096cb9f8c2b8e3fde3e20e9a1add48a5",
+      "git_blob": "97bda37a04d0aaf2d2d6eba039d2c0670b85eacc",
+      "reason": "DB0e tested isolated PG17.11, optional011 skipped, no Mac"
+    },
+    ".github/workflows/ui-f3-api61-completion.yml": {
+      "owner": "UI_F3",
+      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
+      "git_blob": "df224d78da8669683dad7422743cf76db1729f76",
+      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
+    },
+    "apps/web/app/ci-evidence-preview/page.tsx": {
+      "owner": "UI_F3",
+      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
+      "git_blob": "78166d29241af2ac6e292925ee0f36e9b09b91ba",
+      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
+    },
+    "apps/web/app/history/history.css": {
+      "owner": "UI_F3",
+      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
+      "git_blob": "65212fb787f4cd96372b211fb8ea0ce0aeb26948",
+      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
+    },
+    "apps/web/app/login/route.ts": {
+      "owner": "UI_F3",
+      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
+      "git_blob": "0fab056e6e0158919f71560f8e2da205b36d1366",
+      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
+    },
+    "apps/web/src/ui/public-https.ts": {
+      "owner": "UI_F3",
+      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
+      "git_blob": "a2d10ad48ac5676b8cf204c0675a1f005250462b",
+      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
+    },
+    "apps/web/src/ui/retrieval-evidence-panel.tsx": {
+      "owner": "UI_F3",
+      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
+      "git_blob": "a9b4828cdcfda4a1cd2c63b0a736eeeaa09a5cdd",
+      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
+    },
+    "apps/web/src/ui/retrieval-evidence-view.ts": {
+      "owner": "UI_F3",
+      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
+      "git_blob": "30b78273c6014763f2a478251b26d2ab815a87b4",
+      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
+    },
+    "apps/web/src/ui/source-locator.ts": {
+      "owner": "UI_F3",
+      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
+      "git_blob": "8abf2e49f61b39da36d54afedaed89f2630d5ad5",
+      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
+    },
+    "apps/web/src/ui/source-metadata.ts": {
+      "owner": "UI_F3",
+      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
+      "git_blob": "d77d9adb89a2cae5262e464f89848c1622cf2405",
+      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
+    },
+    "coordination/handoffs/UI_F3_API61_COMPLETION.md": {
+      "owner": "UI_F3",
+      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
+      "git_blob": "42c07ee64fb8ca8fe279e481ad78ab78648e7a8f",
+      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
+    },
+    "tests/phase3/integration/ui/retrieval_evidence_preview_browser.py": {
+      "owner": "UI_F3",
+      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
+      "git_blob": "63f417f8784d44238c26245a90aefb96e420b244",
+      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
+    },
+    "tests/phase3/ui/retrieval-evidence-view.test.mjs": {
+      "owner": "UI_F3",
+      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
+      "git_blob": "d9601af7c7fbfd834b5bcab5faae10020e70263f",
+      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
+    },
+    "tests/phase3/ui/source-display.test.mjs": {
+      "owner": "UI_F3",
+      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
+      "git_blob": "c27fd6af6953d7b9fb0c33f7a16a6cf24ada638d",
+      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
+    },
+    "infra/postgres/dev_f3_isolated/docs/PHASE3_57_ROW_DATABASE_AUDIT_20261123.md": {
+      "owner": "DATABASE_F3",
+      "source_sha": "0e301a26096cb9f8c2b8e3fde3e20e9a1add48a5",
+      "git_blob": "cdcb8894d5c24d906d95f9c016736d1498045a3e",
+      "reason": "DB0e tested isolated PG17.11, optional011 skipped, no Mac"
+    },
+    "infra/postgres/dev_f3_isolated/docs/PHASE3_PHYSICAL_SCHEMA_POLICY_DELTA_20261123.md": {
+      "owner": "DATABASE_F3",
+      "source_sha": "0e301a26096cb9f8c2b8e3fde3e20e9a1add48a5",
+      "git_blob": "ee785b1c861477669a68bbac828aff0cee16a5c2",
+      "reason": "DB0e tested isolated PG17.11, optional011 skipped, no Mac"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/12_rollback_rls_constraints_probe.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "0e301a26096cb9f8c2b8e3fde3e20e9a1add48a5",
+      "git_blob": "3cd5679f7ada3a301ba40b1f1e06b5afa9826794",
+      "reason": "DB0e tested isolated PG17.11, optional011 skipped, no Mac"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/13_catalog_erd_inventory.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "0e301a26096cb9f8c2b8e3fde3e20e9a1add48a5",
+      "git_blob": "9833b5341ac91154fed554e426697c76254bbf81",
+      "reason": "DB0e tested isolated PG17.11, optional011 skipped, no Mac"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/14_synthetic_owner_lifecycle_restore.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "0e301a26096cb9f8c2b8e3fde3e20e9a1add48a5",
+      "git_blob": "34941ee813a065c299608b410fc3a19d523f0c55",
+      "reason": "DB0e tested isolated PG17.11, optional011 skipped, no Mac"
     }
   },
   "status": {
     "NO_DISPATCH_ONLY": true,
-    "engine_lock": "UNVERIFIED",
     "mac_build": "NOT_RUN",
     "mac_c018": "NOT_RUN",
-    "mac_backup_restore": "NOT_RUN",
-    "arvan": "HOLD"
-  }
+    "optional_db011": "SKIPPED",
+    "arvan": "HOLD",
+    "accepted_gates": 0
+  },
+  "previous_integrated_sha": "c2edbbf87f02ff2cfb8ba12a0a9594533324fd28"
 }
