@@ -667,6 +667,54 @@
       "source_sha": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
       "git_blob": "ff44a2b4b86270748058db41f3b6b2e16de4b3ed",
       "reason": "selected exact owner source integrated into app-only candidate; not Mac acceptance"
+    },
+    "apps/api/private_app_only_asgi.py": {
+      "owner": "APP_ONLY_CANDIDATE",
+      "source_sha": "d6f369fee5a9f0c2d9491860463c0a636336e750",
+      "git_blob": "2f327d5387e9d47dc8dc084dc09363504f1dfeb0",
+      "reason": "app-only integrated original source; no engine or target L2 claim"
+    },
+    "apps/api/app_only_socket_probe.py": {
+      "owner": "APP_ONLY_CANDIDATE",
+      "source_sha": "d6f369fee5a9f0c2d9491860463c0a636336e750",
+      "git_blob": "36c5e45d79547d1cfc27ff97862b339adcc7c854",
+      "reason": "app-only integrated original source; no engine or target L2 claim"
+    },
+    "tests/phase3/api/test_app_only_no_engine.py": {
+      "owner": "APP_ONLY_CANDIDATE",
+      "source_sha": "d6f369fee5a9f0c2d9491860463c0a636336e750",
+      "git_blob": "6faf00ae61f7354f9ff9640d5b002cda64c1aebf",
+      "reason": "app-only integrated original source; no engine or target L2 claim"
+    },
+    "tests/phase3/integration/api/test_app_only_mtls_network.py": {
+      "owner": "APP_ONLY_CANDIDATE",
+      "source_sha": "d6f369fee5a9f0c2d9491860463c0a636336e750",
+      "git_blob": "3d9e3c2b3b241d88326578feabda55387c94571f",
+      "reason": "app-only integrated original source; no engine or target L2 claim"
+    },
+    "infra/phase3_l1/Dockerfile.api": {
+      "owner": "APP_ONLY_CANDIDATE",
+      "source_sha": "d6f369fee5a9f0c2d9491860463c0a636336e750",
+      "git_blob": "5ac06a6fe225f578bcdecc63e2cdff8c5c4b80c6",
+      "reason": "app-only integrated original source; no engine or target L2 claim"
+    },
+    "apps/web/app/api/product-capabilities/route.ts": {
+      "owner": "UI_F3",
+      "source_sha": "535678051f3847661c8f048819c8a6784a804e35",
+      "git_blob": "c13b69ebd605833e1e55b524a74ff23696aa2d6f",
+      "reason": "app-only integrated original source; no engine or target L2 claim"
+    },
+    "apps/web/src/ui/runtime-capability.ts": {
+      "owner": "UI_F3",
+      "source_sha": "535678051f3847661c8f048819c8a6784a804e35",
+      "git_blob": "c7492d740200ccc2028750407db150fd6a98dbba",
+      "reason": "app-only integrated original source; no engine or target L2 claim"
+    },
+    "tests/phase3/integration/ui/app_only_real_browser.py": {
+      "owner": "UI_F3",
+      "source_sha": "535678051f3847661c8f048819c8a6784a804e35",
+      "git_blob": "91b7777ab7be268fe278e543deed5e53c8efc1fa",
+      "reason": "app-only integrated original source; no engine or target L2 claim"
     }
   },
   "status": {
