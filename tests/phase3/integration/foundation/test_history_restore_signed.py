@@ -251,7 +251,7 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
             "server_tls_key_file":str(h.temp/"server.key"),
             "trusted_bff_ca_file":h.fixture.ca,
             "bff_leaf_cert_sha256":hashlib.sha256(ssl.PEM_cert_to_DER_cert(
-                Path(h.fixture.cert).read_text()).encode()).hexdigest(),
+                Path(h.fixture.cert).read_text())).hexdigest(),
             "bff_issuer":"urn:rag-finance:synthetic-product-session",
             "bff_audience":"urn:rag-finance:api:history-h1-isolated",
             "bff_kid":"ci-product-session-kid",
