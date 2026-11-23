@@ -120,6 +120,23 @@ jobs:
           test "$status" = 503
           grep -F APP_DEPENDENCIES_NOT_READY /tmp/app-history.json >/dev/null
           echo 'F3_APP_ONLY_ACTUAL_API_HTTP_LIVE200_READY503_CAPS200_SEND503_HISTORY503_PASS'
+      - name: Build actual nonroot Bootstrap image and verify fail-closed missing Ops secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull --platform linux/amd64 \
+            -f infra/phase3_l1/Dockerfile.bootstrap --build-arg BASE=docker.io/library/python:3.13.5 \
+            --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "f3-app-bootstrap:$GITHUB_SHA" .
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "f3-app-bootstrap:$GITHUB_SHA")" = "$GITHUB_SHA"
+          test "$(docker run --rm --network none "f3-app-bootstrap:$GITHUB_SHA" id -u)" = 11002
+          docker run --rm --network none "f3-app-bootstrap:$GITHUB_SHA" python3 -c 'from apps.api.private_staging_bootstrap_asgi import main; print("BOOTSTRAP_IMAGE_SOURCE_IMPORT_PASS")'
+          set +e
+          docker run --rm --network none "f3-app-bootstrap:$GITHUB_SHA" >/tmp/bootstrap_no_secret.log 2>&1
+          rc=$?
+          set -e
+          test "$rc" -eq 78
+          grep -F PRIVATE_BOOTSTRAP_STARTUP_DENIED /tmp/bootstrap_no_secret.log >/dev/null
+          echo 'F3_REAL_BOOTSTRAP_CONTAINER_UID11002_FAIL_CLOSED_WITHOUT_OPS_PASS'
       - name: Build real non-root Next Web container and exercise loopback CI-only preview
         shell: bash
         run: |
@@ -152,7 +169,7 @@ jobs:
           import os,json,subprocess
           sha=os.environ['GITHUB_SHA']
           images={}
-          for name in ['api','web']:
+          for name in ['api','bootstrap','web']:
               img=json.loads(subprocess.check_output(['docker','image','inspect','f3-app-'+name+':'+sha]))[0]
               images[name]={'local_image_id':img['Id'],'source_label':img['Config']['Labels']['org.opencontainers.image.revision'],
                             'platform':img['Os']+'/'+img['Architecture']}
