@@ -1,5 +1,8 @@
 # DATABASE_F3 → FOUNDATION_F3 / API_F3 — contract for review
 
+> **LATEST owner-contract CI provenance (2026-11-23):** This contract's 2 Product + 7 Bootstrap roles/function grants remain the same. Executable DB SHA 996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba, CI 45202743968 success, two-baseline same-runner comparison CI 45209570132 success; 14 FORCE RLS, 17 FK, 38 indexes, 72 denied private SELECT. Hardened 03 installer Git blob 9cc9458c55b82f03811b346259ccf2ae3dce318d; historical b6 evidence below is retained, not current. Actual integrated DB files at ce899c26a27fa0e913584384f9dac8980bb77c33 match exactly; integrated source metadata may still claim older DB pin. The proposed conceptual Consent/Feedback/deletion design is NOT an approved runtime schema; see docs/PHASE3_PHYSICAL_ERD_AND_FUTURE_POLICY_CONTRACT_v2_20261123.md. Mac BFF/IdP/C018 real HTTP remains NOT_RUN.
+
+
 ## Scope and version
 
 - Development package: `f3.db.lab.fresh-install.v1` + real shared API/Bootstrap DB authority preflight `foundation.f3_db_candidate_shared.v1`, tested GitHub Actions Run `45082326382`, source SHA `b6b79369006eca3a1e4c8e75a9ba4ab14d0fab74`. The existing Mac demo was not tested or modified.

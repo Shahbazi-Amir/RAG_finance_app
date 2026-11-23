@@ -1,0 +1,40 @@
+name: API_F3 revoke peer boundary isolated verification
+
+on:
+  push:
+    branches: [agent/api-f3-revoke-peer-fence-20261123]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api-revoke-peer-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify locked CPython 3.13 API environment (no Gateway)
+        run: |
+          python -m pip install --disable-pip-version-check --no-cache-dir \
+            --require-hashes --only-binary=:all: -r locks/requirements-api.lock
+          python -m pip check
+      - name: Compile exact API and new negative regression
+        run: |
+          python -m compileall -q apps/api src/phase3/auth src/phase3/rag_runtime tests/phase3/api
+      - name: Revoke peer route regression (isolated, mock transport+DB)
+        run: |
+          python -m unittest discover -s tests/phase3/api -p 'test_revoke_peer_boundary.py' -v
+      - name: Full API regression without paid Dispatch
+        run: |
+          python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
+      - name: Shared Product contract and History regression
+        run: |
+          python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v

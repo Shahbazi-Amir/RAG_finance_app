@@ -5,7 +5,7 @@ import {conversations,messages,newSend,sendMessage,recoverStatus,recoverEngineSt
   failureLabel,mergeUnique,type ConversationView,type MessageView,
   type AnswerView,type HistoryStatus,type EngineStatus,type RetrievedSources} from '../history/client';
 import type {Answer,Citation} from '../mock/transport';
-import {verifiedSourceUrl} from './source-locator';
+import {verifiedSourceUrl,verifiedSourceLocatorLabel,verifiedSourceTypeLabel} from './source-locator';
 import {sourceCredits,confidenceLabel} from './source-metadata';
 import RetrievedSourcesPanel from './retrieved-sources-panel';
 import {OwnerFence} from './owner-fence';
@@ -50,8 +50,11 @@ function engineLabel(s:EngineStatus):string{
 function CitationView({citation}:{citation:Citation}){
   const s=citation.source;
   const href=verifiedSourceUrl(s);
+  const locatorLabel=verifiedSourceLocatorLabel(s);
+  const sourceTypeLabel=verifiedSourceTypeLabel(s);
   const credits=sourceCredits(s);
   return <li className="product-citation">
+    {sourceTypeLabel&&<span>نوع منبع: {sourceTypeLabel}</span>}
     <span>شناسهٔ منبع: <code dir="ltr">{s.source_id??'ثبت نشده'}</code></span>
     {s.display_title&&s.display_title_origin!=='SYNTHETIC'&&
       <span>عنوان: {s.display_title}</span>}
@@ -59,12 +62,10 @@ function CitationView({citation}:{citation:Citation}){
     {s.attribution_status!=='verified'&&<span className="history-note">انتساب این منبع تأیید نشده است.</span>}
     <span>شناسهٔ استناد: <code dir="ltr">{citation.citation_id}</code></span>
     <span>نقل‌قول مستقیم منبع: در این قرارداد ارائه نشده است.</span>
-    {s.locator?.kind==='book_page'&&s.locator.page!==null&&
-      <span>صفحهٔ ثبت‌شده: {s.locator.page}</span>}
-    {s.locator?.kind==='transcript_timestamp'&&s.locator.timestamp_ms!==null&&
-      <span>زمان ثبت‌شده (میلی‌ثانیه): {s.locator.timestamp_ms}</span>}
+    {locatorLabel&&<span data-testid="verified-source-locator">{locatorLabel}</span>}
     {href?<a href={href} target="_blank" rel="noopener noreferrer">بازکردن پیوند معتبر منبع</a>
-      :<span className="history-note">Locator این شاهد پیوند وب معتبر ندارد.</span>}
+      :<span className="history-note">این نشانگر آدرس وب تأییدشده ندارد؛ امکان بازکردن پیوند وجود ندارد.</span>}
+    <span className="history-note">دلیل انتخاب این منبع در قرارداد فعلی ارائه نشده است.</span>
   </li>;
 }
 function AnswerPanel({answer}:{answer:Answer}){
@@ -111,6 +112,10 @@ export default function ProductChat(){
   const attemptsRef=useRef(attempts);
   const threadEpochs=useRef<Record<string,number>>({});
   const listEpoch=useRef(0);
+  // Monotonic privacy generation: any in-flight History/Attempt GET from
+  // before a 503/401 owner revalidation must never update a newer view.
+  const privacyEpoch=useRef(0);
+  const restoreQueue=useRef<AttemptCheckpoint[]>([]);
   useEffect(()=>{attemptsRef.current=attempts},[attempts]);
   const invalidate=useCallback((e:unknown):boolean=>{
     if(!(e instanceof HistoryFailure&&e.reason==='unauthorized'))return false;
@@ -120,6 +125,7 @@ export default function ProductChat(){
     attemptsRef.current={};
     threadEpochs.current={};
     listEpoch.current++;
+    privacyEpoch.current++;
     setAttempts({});setList({items:[],next:null,more:false});
     setThreads({});setSelected('draft:new');setDrafts({});
     setListState('unauthorized');setError('');setMobileOpen(false);setBusy(false);
@@ -151,17 +157,26 @@ export default function ProductChat(){
         invalidate(new HistoryFailure(401,'unauthorized'));return;
       }
       setList({items:[],next:null,more:false});
+      // An unavailable owner revalidation cannot attest to the cached
+      // conversation's identity. Hide messages immediately, retaining
+      // only GET-only non-secret checkpoint state for a later valid owner.
+      privacyEpoch.current++;
+      threadEpochs.current={};
+      setThreads({});
       setListState('error');setError(failureLabel(e));
     }
   },[invalidate,matchOwner]);
   const loadThread=useCallback(async (id:string,append=false,cursor:string|null=null)=>{
     if(lost.current||id.startsWith('draft:'))return;
     const epoch=(threadEpochs.current[id]??0)+1;
+    const privacyAtStart=privacyEpoch.current;
     threadEpochs.current[id]=epoch;
     try{
       const page=await messages(id,30,append?cursor:null);
-      if(lost.current||threadEpochs.current[id]!==epoch||!matchOwner(page.owner))return;
+      if(lost.current||privacyEpoch.current!==privacyAtStart||
+         threadEpochs.current[id]!==epoch||!matchOwner(page.owner))return;
       setThreads(all=>{
+        if(privacyEpoch.current!==privacyAtStart)return all;
         const prev=all[id];
         return {...all,[id]:{
           items:append&&prev?mergeUnique(prev.items,page.items,x=>x.id):page.items,
@@ -170,6 +185,7 @@ export default function ProductChat(){
         }};
       });
     }catch(e){
+      if(privacyEpoch.current!==privacyAtStart)return;
       if(invalidate(e)||lost.current)return;
       if(threadEpochs.current[id]!==epoch)return;
       if(e instanceof HistoryFailure&&e.reason==='invalid'){
@@ -181,16 +197,17 @@ export default function ProductChat(){
   },[invalidate,matchOwner]);
   const probe=useCallback(async (record:AttemptCheckpoint)=>{
     if(lost.current||polling.current.has(record.client_message_id))return;
+    const privacyAtStart=privacyEpoch.current;
     polling.current.add(record.client_message_id);
     try{
       const status=await recoverStatus(statusCorrelators(record));
-      if(lost.current)return;
+      if(lost.current||privacyEpoch.current!==privacyAtStart)return;
       const old=attemptsRef.current[record.client_message_id];
       if(old?.attemptId&&status.attemptId&&old.attemptId!==status.attemptId){
-        setAttempts(all=>({...all,[record.client_message_id]:{
+        setAttempts(all=>privacyEpoch.current!==privacyAtStart?all:{...all,[record.client_message_id]:{
           ...all[record.client_message_id],phase:'status_error',
           sources:null,sourcesUnavailable:true,engine:null,engineUnavailable:true,
-          answer:null,attemptId:null,messageId:null}}));
+          answer:null,attemptId:null,messageId:null}});
         return;
       }
       const resultPhase=status.status==='answer_committed'&&!isVerifiedLiveAnswer(status.answer)
@@ -206,6 +223,7 @@ export default function ProductChat(){
                technical.attemptTraceId!==status.attemptTraceId)))
             throw new HistoryFailure(0,'invalid');
         }catch(e){
+          if(privacyEpoch.current!==privacyAtStart)return;
           if(invalidate(e)||lost.current)return;
           engineUnavailable=true;
         }
@@ -219,12 +237,14 @@ export default function ProductChat(){
              sources.attemptTraceId!==status.attemptTraceId))
             throw new HistoryFailure(0,'invalid');
         }catch(e){
+          if(privacyEpoch.current!==privacyAtStart)return;
           if(invalidate(e)||lost.current)return;
           sourcesUnavailable=true;
         }
       }
-      if(lost.current)return;
+      if(lost.current||privacyEpoch.current!==privacyAtStart)return;
       setAttempts(all=>{
+        if(privacyEpoch.current!==privacyAtStart)return all;
         const previous=all[record.client_message_id];
         if(!previous||isTerminal(previous.phase))return all;
         return {...all,[record.client_message_id]:{
@@ -238,6 +258,7 @@ export default function ProductChat(){
         }};
       });
       const confirmedId=status.id;
+      if(privacyEpoch.current!==privacyAtStart)return;
       if(confirmedId&&status.status!=='not_found'){
         const s=sessionStore();if(s)retainCheckpoint(s,{...record,resolved_conversation_id:confirmedId});
         setSelected(old=>old.startsWith('draft:')?confirmedId:old);
@@ -245,6 +266,7 @@ export default function ProductChat(){
         void loadThread(confirmedId);
       }
     }catch(e){
+      if(privacyEpoch.current!==privacyAtStart)return;
       if(!invalidate(e)&&!lost.current)
         setAttempts(all=>{
           const prev=all[record.client_message_id];
@@ -272,21 +294,31 @@ export default function ProductChat(){
             sources:null,sourcesUnavailable:false};
         return next;
       });
+      restoreQueue.current=saved;
       void loadList();
-      for(const record of saved)void probe(record);
     });
     return ()=>{active=false;};
-  },[loadList,probe]);
+  },[loadList]);
   useEffect(()=>{
-    if(!selected||selected.startsWith('draft:'))return;
+    // A saved correlation has no authorization power and contains no owner.
+    // Do not issue any recovery GET until the signed BFF conversation page
+    // establishes a valid, consistent current owner.
+    if(listState!=='ready'||lost.current)return;
+    const saved=restoreQueue.current;
+    restoreQueue.current=[];
+    for(const record of saved)void probe(record);
+  },[listState,probe]);
+  useEffect(()=>{
+    if(listState!=='ready'||!selected||selected.startsWith('draft:'))return;
     let active=true;
-    // Fetch in a scheduled callback, not synchronously in an Effect.
-    // Cancel the callback when a newer conversation is selected.
+    // Load thread only after a signed owner-scoped list revalidates. A
+    // recovered GET must fetch the same conversation again, not reveal a
+    // cached thread from before the temporary identity outage.
     queueMicrotask(()=>{
       if(active)void loadThread(selected);
     });
     return ()=>{active=false;};
-  },[selected,loadThread]);
+  },[selected,loadThread,listState]);
   useEffect(()=>{
     // A read-only identity heartbeat detects a revoked session or account
     // rotation even when no Attempt is pending. It never dispatches C018.
@@ -325,21 +357,21 @@ export default function ProductChat(){
   },[mobileOpen]);
   useEffect(()=>{
     const timer=window.setInterval(()=>{
-      if(lost.current||document.visibilityState==='hidden')return;
+      if(lost.current||listState!=='ready'||document.visibilityState==='hidden')return;
       for(const attempt of Object.values(attemptsRef.current)){
         if(!isTerminal(attempt.phase))void probe(attempt.record);
       }
     },4500);
     return ()=>window.clearInterval(timer);
-  },[probe]);
+  },[probe,listState]);
   function newConversation(){
-    if(lost.current)return;
+    if(lost.current||listState!=='ready')return;
     const id='draft:'+crypto.randomUUID();
     setSelected(id);setDrafts(all=>({...all,[id]:''}));setMobileOpen(false);
   }
   async function submit(e:FormEvent<HTMLFormElement>){
     e.preventDefault();
-    if(lost.current||sending.current)return;
+    if(lost.current||sending.current||listState!=='ready')return;
     const question=(drafts[selected]??'').trim();
     if(!question)return;
     // A draft is a UI-only ID. The API allocates a real conversation on T1.
@@ -390,12 +422,15 @@ export default function ProductChat(){
         'تعارض شناسهٔ ارسال؛ درخواست جدیدی ارسال نمی‌شود.':failureLabel(e));
     }finally{sending.current=false;setBusy(false);}
   }
-  const messagesFor=threads[selected];
+  // Cached messages and attempt observations are invisible whenever the
+  // currently authenticated owner cannot be revalidated.
+  const verifiedPage=listState==='ready';
+  const messagesFor=verifiedPage?threads[selected]:undefined;
   const renderedIds=new Set(messagesFor?.items.map(m=>m.id)??[]);
   const answers=new Map((messagesFor?.answers??[]).map(a=>[a.messageId,a.payload]));
-  const selectedAttempts=Object.values(attempts).filter(a=>a.viewId===selected);
-  const pendingDrafts=[...new Set(Object.values(attempts).filter(a=>
-    a.viewId.startsWith('draft:')&&!isTerminal(a.phase)).map(a=>a.viewId))];
+  const selectedAttempts=verifiedPage?Object.values(attempts).filter(a=>a.viewId===selected):[];
+  const pendingDrafts=verifiedPage?[...new Set(Object.values(attempts).filter(a=>
+    a.viewId.startsWith('draft:')&&!isTerminal(a.phase)).map(a=>a.viewId))]:[];
   return <main className="history-shell product-shell" dir="rtl">
     <aside ref={mobileMenu} id="product-chat-sidebar" className={'history-sidebar'+(mobileOpen?' is-mobile-open':'')}
       role={mobileOpen?'dialog':undefined} aria-modal={mobileOpen?'true':undefined}
@@ -406,7 +441,7 @@ export default function ProductChat(){
         <strong>راگ مالی</strong></div>
       <div className="history-actions">
         <button type="button" className="nav-new-chat" onClick={newConversation}
-          data-testid="create-conversation" disabled={listState==='unauthorized'}>
+          data-testid="create-conversation" disabled={!verifiedPage}>
           گفت‌وگوی تازه
         </button>
         <span className="history-note">گفت‌وگو با ثبت اولین پرسش در سرور ایجاد می‌شود.</span>
@@ -466,6 +501,11 @@ export default function ProductChat(){
         برای مشاهدهٔ گفت‌وگوها باید <Link href="/login">وارد حساب شوید</Link>.
       </p>}
       {error&&<p className="history-error" role="alert">{error}</p>}
+      {listState==='error'&&<p role="status" data-testid="history-owner-revalidation-required"
+        className="history-note">
+        اتصال برای تأیید مالک و نشست برقرار نیست؛ پیام‌های قبلی موقتاً پنهان
+        و ارسال پرسش تا بازخوانی موفق غیرفعال است.
+      </p>}
       <div className="history-messages" aria-live="polite">
         {!messagesFor&&!selectedAttempts.length&&listState!=='unauthorized'&&
           <p className="history-empty">پرسشتان را بنویسید یا گفت‌وگویی از فهرست باز کنید.</p>}
@@ -520,11 +560,11 @@ export default function ProductChat(){
         <label htmlFor="product-question" className="sr-only">پرسش فارسی</label>
         <div className="composer">
           <textarea id="product-question" rows={2} data-testid="history-question"
-            value={drafts[selected]??''} disabled={busy}
+            value={drafts[selected]??''} disabled={busy||!verifiedPage}
             onChange={e=>setDrafts(all=>({...all,[selected]:e.target.value}))}
             placeholder="سؤال خود را به فارسی بنویسید…"/>
           <button type="submit" className="primary" data-testid="history-send"
-            disabled={busy||!(drafts[selected]??'').trim()}>ارسال پرسش</button>
+            disabled={busy||!verifiedPage||!(drafts[selected]??'').trim()}>ارسال پرسش</button>
         </div>
         <p className="under-composer">
           با Refresh یا قطع ارتباط، درخواست تکرار نمی‌شود؛ فقط وضعیت آن از سرور خوانده می‌شود.

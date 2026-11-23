@@ -68,6 +68,12 @@ def validate_public_receipt(receipt: Mapping) -> dict:
     if not isinstance(rows, list) or any(
         row.get("position") != i for i, row in enumerate(rows, 1)):
         raise EvidenceDenied()
+    # Positions may be unique while the same pinned chunk is repeated at
+    # multiple ranks. That is not independent top-k evidence; deny it on both
+    # ingest and subsequent ledger reads (even with a recomputed ledger hash).
+    chunk_ids = [row["chunk_id"] for row in rows]
+    if len(chunk_ids) != len(set(chunk_ids)):
+        raise EvidenceDenied()
     if (receipt.get("attempt_id") is None) != (
             receipt.get("attempt_trace_id") is None):
         raise EvidenceDenied()

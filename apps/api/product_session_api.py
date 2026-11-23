@@ -24,6 +24,9 @@ from psycopg.rows import dict_row
 from apps.api import history_api as history
 from apps.api.product_message_fixture import answer_from_fixture
 from src.phase3.rag_runtime.staging_no_dispatch import prepare_post_commit_no_dispatch
+from src.phase3.rag_runtime.claim_citation_graph import (
+    CitationGraphDenied, inspect_answer_citation_graph,
+)
 from src.phase3.rag_runtime.dispatch_claim_bridge import (
     DispatchClaimDenied, claim_within_signed_t2,
     after_definitive_commit, owner_scoped_claim_status, flag_reporter_unknown,
@@ -51,6 +54,7 @@ from src.phase3.auth.staging_service_profile import (
 from src.phase3.auth.service_proof import (
     BFFServiceVerifier, TrustRejected, assertion_from_asgi_headers, wire_request,
 )
+from src.phase3.auth.private_http_no_store import PrivateHttpNoStore
 from src.phase3.auth.transactional_admission import (
     AdmissionSerializationUnavailable, protected_transaction,
 )
@@ -61,6 +65,8 @@ from src.phase3.storage.postgres.service_replay import PostgresDurableReplayStor
 
 app = FastAPI(title="Product Session API H1 isolated", docs_url=None,
               redoc_url=None, openapi_url=None)
+# Defense-in-depth: private responses stay uncached even for framework 4xx.
+app.add_middleware(PrivateHttpNoStore)
 _REPLAY = PostgresDurableReplayStore()
 # Server-injected only after Ops verifies runner CLI/digest and DB authority.
 # An environment toggle alone NEVER installs or authorizes this handler.
@@ -556,11 +562,15 @@ def _run_fixture_send(request, raw_body, payload):
                       request_id=attempt["attempt_request_id"],
                       trace_id=attempt["attempt_trace_id"])
         history.check_wire(answer, "answer")
+        # JSON Schema cannot express Claim↔Citation reciprocal ID references.
+        # This adds structural integrity to CI fixture T3, never LIVE evidence.
+        inspect_answer_citation_graph(answer)
         if answer["provenance"]["origin"] != "SYNTHETIC":
             raise ValueError("FIXTURE_PROVENANCE_REQUIRED")
     except TimeoutError:
         failure = (504, "PROVIDER_TIMEOUT")
-    except (OSError, ValueError, ValidationError, StopIteration):
+    except (OSError, ValueError, ValidationError, StopIteration,
+            CitationGraphDenied):
         failure = (502, "PROVIDER_REQUEST_FAILED")
 
     with _conn("history") as conn, conn.transaction():
@@ -730,6 +740,11 @@ def _run_ci_claim_send(request, raw_body, payload, background_tasks):
 @app.post("/v1/messages")
 async def session_send_message(request: Request, background_tasks: BackgroundTasks):
     try:
+        # Check trusted transport before consuming/decoding any user question.
+        # BFF assertion headers alone are not mTLS peer evidence.
+        if (_PRIVATE_STAGING_PROFILE is not None
+                and not _PRIVATE_STAGING_PROFILE.allowed_peer(request.scope)):
+            raise TrustRejected()
         if request.scope.get("query_string") or len(request.headers.getlist("content-length")) > 1:
             raise history.ApiFailure(422, "INVALID_REQUEST", "validation")
         payload, raw_body = await history._read_body(
@@ -771,6 +786,12 @@ async def session_revoke_one(request: Request):
     ambiguous connection/COMMIT response never becomes success.
     """
     try:
+        # Revoke is as sensitive as History. Require trusted TLS peer identity
+        # at the route too, before reading a token or opening an Auth DB role.
+        # Forwarded headers are never transport evidence.
+        if (_PRIVATE_STAGING_PROFILE is not None
+                and not _PRIVATE_STAGING_PROFILE.allowed_peer(request.scope)):
+            raise TrustRejected()
         if (request.scope.get("raw_path") != _REVOKE_PATH
                 or request.scope.get("query_string") != b""
                 or request.headers.get("content-type", "").split(";")[0] != "application/json"

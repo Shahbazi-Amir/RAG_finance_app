@@ -145,8 +145,17 @@ class NoDispatchLedger:
                 or receipt.get("attempt_id") != binding.engine_request_id
                 or receipt.get("attempt_trace_id") != binding.trace_id):
             raise PreflightDenied()
+        # A positive retrieval receipt must agree with the same committed
+        # C018 summary. Unavailable/invalid source evidence intentionally
+        # contains no rows and may retain an observed top10_count > 0.
+        count = summary.get("top10_count") if isinstance(summary, dict) else None
+        if type(count) is not int or not 0 <= count <= 10:
+            raise PreflightDenied()
         try:
             validate_public_receipt(receipt)
+            if (receipt["retrieval_state"] == "PARTIAL_UNVERIFIED"
+                    and count != len(receipt["rows"])):
+                raise PreflightDenied()
             encoded = json.dumps(receipt, sort_keys=True, separators=(",", ":"),
                                  ensure_ascii=False, allow_nan=False)
         except (TypeError, ValueError, EvidenceDenied):
@@ -200,7 +209,7 @@ class NoDispatchLedger:
                 or not isinstance(trace_id, str) or len(trace_id) != 32):
             raise PreflightDenied()
         with self._connect() as conn:
-            row = conn.execute("""SELECT r.receipt_json, r.receipt_sha256
+            row = conn.execute("""SELECT r.receipt_json, r.receipt_sha256, o.top10_count
                 FROM retrieval_receipts r JOIN outcomes o
                 ON o.attempt_id=r.attempt_id
                 WHERE r.attempt_id=? AND r.owner_id=? AND r.trace_id=?
@@ -208,14 +217,31 @@ class NoDispatchLedger:
                 (attempt_id, owner_id, trace_id, owner_id, trace_id)).fetchone()
         if row is None:
             return None
-        raw, digest = row
+        raw, digest, stored_top10_count = row
         if (not isinstance(raw, str) or not isinstance(digest, str)
-                or not hmac.compare_digest(
-                    hashlib.sha256(raw.encode("utf-8")).hexdigest(), digest)):
+                or len(digest) != 64
+                or any(c not in "0123456789abcdef" for c in digest)):
             raise PreflightDenied()
         try:
+            raw_bytes = raw.encode("utf-8")
+            # Mirror succeed()'s 64 KiB bound on *reads*, too. A recomputed
+            # SQLite digest must not turn a noncanonical or arbitrarily large
+            # stored JSON document into a trusted technical retrieval receipt.
+            if (not 0 < len(raw_bytes) <= 65536
+                    or not hmac.compare_digest(
+                        hashlib.sha256(raw_bytes).hexdigest(), digest)):
+                raise PreflightDenied()
             receipt = json.loads(raw)
-        except (ValueError, TypeError):
+            canonical = json.dumps(
+                receipt, sort_keys=True, separators=(",", ":"),
+                ensure_ascii=False, allow_nan=False)
+            # A canonical roundtrip disallows duplicate JSON keys, nonstandard
+            # constants and ambiguous alternate encodings, including when the
+            # local ledger hash was recomputed after tampering.
+            if canonical != raw:
+                raise PreflightDenied()
+        except (UnicodeError, ValueError, TypeError, OverflowError,
+                RecursionError):
             raise PreflightDenied() from None
         if (not isinstance(receipt, dict)
                 or receipt.get("contract_version") != SOURCES_CONTRACT
@@ -223,7 +249,12 @@ class NoDispatchLedger:
                 or receipt.get("attempt_trace_id") != trace_id):
             raise PreflightDenied()
         try:
-            return validate_public_receipt(receipt)
+            validated = validate_public_receipt(receipt)
+            if (validated["retrieval_state"] == "PARTIAL_UNVERIFIED"
+                    and (type(stored_top10_count) is not int
+                         or stored_top10_count != len(validated["rows"]))):
+                raise PreflightDenied()
+            return validated
         except EvidenceDenied:
             raise PreflightDenied() from None
 

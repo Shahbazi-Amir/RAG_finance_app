@@ -1,7 +1,7 @@
 name: Foundation F3 DB996 API61 UI65 exact-source CI — OFFLINE ONLY
 on:
   push:
-    branches: [integration/f3-ui65-db996-phase3-20261123, integration/f3-evidence-preflight-20261123, integration/f3-preflight-hardening-progress-20261123]
+    branches: [integration/f3-ui65-db996-phase3-20261123, integration/f3-evidence-preflight-20261123, integration/f3-preflight-hardening-progress-20261123, integration/f3-m18-m19-container-build-20261123]
   workflow_dispatch:
 permissions:
   contents: read
@@ -139,8 +139,11 @@ jobs:
           bash scripts/15_populated_pre009_upgrade_restore.sh
           bash scripts/16_fault_injected_migration_ledger.sh
           bash scripts/17_populated_query_plan_and_owner.sh
+          bash scripts/19_history_rls_negative_matrix.sh
+          bash scripts/20_backup_integrity_corruption_probe.sh
+          bash scripts/21_history_cursor_race_probe.sh
           bash scripts/11_export_sanitized_receipt.sh
-          echo 'F3_DB0E_PG17_RLS_RESTORE_ONLY_PASS'
+          echo 'F3_DB_TESTED_76822_PG17_RLS_RESTORE_ONLY_PASS'
       - uses: actions/upload-artifact@v4
         with:
           name: f3-completion-sanitized-db-receipt
