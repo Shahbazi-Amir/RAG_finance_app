@@ -182,3 +182,29 @@ assert r["query_plans"]["messages"]["actual_rows"] == 2
 assert r["production_workload_certified"] is False
 PY
 echo 'SANITIZED_TWO_OWNER_POPULATED_EXPLAIN_RECEIPT=PASS'
+
+# Additional real-PG adversarial History/write/owner boundary receipt.
+# No customer data, DSNs, secrets, raw SQL or direct private table contents.
+adversarial="$LAB_WORK/history_rls_adversarial_receipt.json"
+[[ -s "$adversarial" ]] || { echo STOP_HISTORY_ADVERSARIAL_RECEIPT_MISSING >&2;exit 70; }
+python3 - "$adversarial" <<'PY'
+import json,sys
+from pathlib import Path
+r=json.loads(Path(sys.argv[1]).read_text())
+assert r["contract_version"]=="f3.db.synthetic_history_rls_adversarial.v1"
+assert r["owners"]==2 and r["tables"]==6 and r["rows_per_table"]==2
+assert r["owner_a_visible_each"]==[1]*6 and r["owner_b_visible_each"]==[1]*6
+assert r["no_owner_visible_each"]==[0]*6
+assert r["positive_owner_a_title_update"]=="PASS"
+assert r["foreign_owner_update"]=="NO_ROWS"
+assert len(r["negative_cases"])==7
+assert all(x.endswith("_DENIED") for x in r["negative_cases"].values())
+assert r["post_negative_snapshot"]=="NO_UNAUTHORIZED_CHANGES"
+assert r["direct_history_role_can_set_owner_guc"] is True
+assert r["same_transaction_signed_actor_fence"]=="NOT_PROVEN_REQUIRES_REAL_API_IDP"
+assert r["real_mac_http"]=="NOT_RUN" and r["external_dispatch"] is False
+assert r["module_gate"]=="NOT_ACCEPTED"
+PY
+install -m 0600 "$adversarial" "$GITHUB_WORKSPACE/ci_receipts/history_rls_adversarial_receipt.json"
+echo 'HISTORY_READ_WRITE_OWNER_FK_AND_DEDUPE_NEGATIVE_RECEIPT=PASS'
+echo 'HISTORY_TRUSTED_ACTOR_FENCE_SIGNED_HTTP=NOT_RUN'
