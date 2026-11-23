@@ -24,7 +24,7 @@ def fixture(name):
 def text_contrast(foreground, background):
     """WCAG 2.x contrast on actual Chromium computed RGB colors."""
     def luminance(color):
-        channels = [int(n) / 255 for n in re.findall(r"\\d+", color)[:3]]
+        channels = [int(n) / 255 for n in re.findall(r"\d+", color)[:3]]
         assert len(channels) == 3, color
         linear = [c / 12.92 if c <= .04045 else ((c + .055) / 1.055) ** 2.4
                   for c in channels]
