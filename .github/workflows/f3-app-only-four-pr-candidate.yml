@@ -153,6 +153,31 @@ jobs:
           docker exec f3-web-private-ci node -e "fetch('http://app-only-api:8080/health/ready').then(r=>process.exit(r.status===503?0:1)).catch(()=>process.exit(1))"
           echo F3_REAL_TWO_CONTAINERS_INTERNAL_DNS_WEB_BFF_SEND503_API_READY503_NO_ENGINE_PASS
 
+      - name: Real Compose isolated Web API no public ports and source pins
+        env:
+          CI: 'true'
+          F3_PROJECT_NAME: f3-app-only-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          F3_RELEASE_TAG: ci
+          F3_SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # The preflight never pulls, starts, deletes or even inspects demo.
+          bash scripts/phase3/app_only_candidate_preflight.sh --inspect-unused
+          # Deliberately bad project / source must be denied without mutation.
+          if F3_PROJECT_NAME=rag_finance_f3_demo bash scripts/phase3/app_only_candidate_preflight.sh; then exit 1; fi
+          if F3_SOURCE_SHA=0000000000000000000000000000000000000000 bash scripts/phase3/app_only_candidate_preflight.sh; then exit 1; fi
+          file=infra/phase3_l1/compose.app-only.internal.yml
+          docker compose -f "$file" config -q
+          docker compose -f "$file" config --format json | python3 -c 'import json,sys; x=json.load(sys.stdin); assert set(x["services"])=={"api","web"}; assert all("ports" not in v for v in x["services"].values()); assert x["networks"]["private"]["internal"] is True; assert x["services"]["api"]["read_only"] is True; assert x["services"]["web"]["read_only"] is True; print("F3_COMPOSE_NO_PUBLIC_PORTS_READ_ONLY_INTERNAL_PASS")'
+          trap 'docker compose -f "$file" down --remove-orphans 2>/dev/null || true' EXIT
+          docker compose -f "$file" up -d --no-build --pull never
+          web_id="$(docker compose -f "$file" ps -q web)"
+          test -n "$web_id"
+          test -z "$(docker port "$web_id" 2>/dev/null)"
+          docker compose -f "$file" exec -T web node -e "fetch('http://app-only-api:8080/health/live').then(r=>r.json()).then(j=>process.exit(j.process_alive&&!j.application_ready?0:1)).catch(()=>process.exit(1))"
+          docker compose -f "$file" exec -T web node -e "fetch('http://127.0.0.1:3000/api/product-capabilities').then(r=>r.json()).then(j=>process.exit(j.send_mode==='DISABLED'&&!j.generation_available?0:1)).catch(()=>process.exit(1))"
+          echo F3_APP_ONLY_REAL_COMPOSE_PRIVATE_WEB_API_NO_ENGINE_PASS
+
   integrated-isolated-pg17:
     name: Integrated PG17.11 pinned 001-010, TLS RLS DB55 backup restore
     runs-on: ubuntu-24.04
@@ -217,29 +242,3 @@ jobs:
           path: ci_receipts/*
           if-no-files-found: error
           retention-days: 14
-
-
-      - name: Real Compose isolated Web API no public ports and source pins
-        env:
-          CI: 'true'
-          F3_PROJECT_NAME: f3-app-only-ci-${{ github.run_id }}-${{ github.run_attempt }}
-          F3_RELEASE_TAG: ci
-          F3_SOURCE_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          # The preflight never pulls, starts, deletes or even inspects demo.
-          bash scripts/phase3/app_only_candidate_preflight.sh --inspect-unused
-          # Deliberately bad project / source must be denied without mutation.
-          if F3_PROJECT_NAME=rag_finance_f3_demo bash scripts/phase3/app_only_candidate_preflight.sh; then exit 1; fi
-          if F3_SOURCE_SHA=0000000000000000000000000000000000000000 bash scripts/phase3/app_only_candidate_preflight.sh; then exit 1; fi
-          file=infra/phase3_l1/compose.app-only.internal.yml
-          docker compose -f "$file" config -q
-          docker compose -f "$file" config --format json | python3 -c 'import json,sys; x=json.load(sys.stdin); assert set(x["services"])=={"api","web"}; assert all("ports" not in v for v in x["services"].values()); assert x["networks"]["private"]["internal"] is True; assert x["services"]["api"]["read_only"] is True; assert x["services"]["web"]["read_only"] is True; print("F3_COMPOSE_NO_PUBLIC_PORTS_READ_ONLY_INTERNAL_PASS")'
-          trap 'docker compose -f "$file" down --remove-orphans 2>/dev/null || true' EXIT
-          docker compose -f "$file" up -d --no-build --pull never
-          web_id="$(docker compose -f "$file" ps -q web)"
-          test -n "$web_id"
-          test -z "$(docker port "$web_id" 2>/dev/null)"
-          docker compose -f "$file" exec -T web node -e "fetch('http://app-only-api:8080/health/live').then(r=>r.json()).then(j=>process.exit(j.process_alive&&!j.application_ready?0:1)).catch(()=>process.exit(1))"
-          docker compose -f "$file" exec -T web node -e "fetch('http://127.0.0.1:3000/api/product-capabilities').then(r=>r.json()).then(j=>process.exit(j.send_mode==='DISABLED'&&!j.generation_available?0:1)).catch(()=>process.exit(1))"
-          echo F3_APP_ONLY_REAL_COMPOSE_PRIVATE_WEB_API_NO_ENGINE_PASS
