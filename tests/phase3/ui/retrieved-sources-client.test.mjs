@@ -56,6 +56,7 @@ test('malformed row, locator, provenance, hash, Attempt or status fails closed',
   d=>d.rows[0].source_id='s'.repeat(257),
   d=>d.attempt_trace_id='wrong',
   d=>d.engine_sha256='0'.repeat(64),
+  d=>d.chunks_sha256='f'.repeat(64),
   d=>d.retrieval_state='EVIDENCE_INVALID'
  ];
  for(const mutate of mutations){const d=receipt();mutate(d);

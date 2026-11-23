@@ -8,6 +8,8 @@
  * The C018 source-bearing endpoint/DTO is not yet approved. Do not wire
  * these cards to technical engine-status.top10_count or to synthetic demo.
  */
+import {publicHttpsUrl} from './public-https.ts';
+
 export type EvidenceLocator=
   |Readonly<{kind:'url';url:string;verified:boolean}>
   |Readonly<{kind:'book_page';page:number;verified:boolean}>
@@ -29,20 +31,6 @@ const reject=(status:EvidenceDecision['status'],label:string,
   displayIdentifiers:boolean):EvidenceDecision=>
   ({status,label,href:null,locationText:null,displayIdentifiers});
 
-function safePublicHttps(raw:string):string|null{
-  try{
-    if(!raw||raw.trim()!==raw)return null;
-    const url=new URL(raw);
-    const host=url.hostname.toLowerCase();
-    if(url.protocol!=='https:'||!host||url.username||url.password||
-       url.port||url.hash||host==='localhost'||host.endsWith('.localhost')||
-       host.endsWith('.local')||host.endsWith('.internal')||
-       /^\d+\.\d+\.\d+\.\d+$/.test(host)||
-       host.startsWith('['))return null;
-    return url.href;
-  }catch{return null;}
-}
-
 /** Never create an href from a chunk_id/title, and never trust a locator
  * merely because it is syntactically HTTPS.
  */
@@ -58,7 +46,7 @@ export function classifyEvidence(row:EvidenceDisplayRow):EvidenceDecision{
   if(!locator.verified)
     return reject('unverified_destination','مقصد تأیید نشده؛ پیوند غیرفعال است.',true);
   if(locator.kind==='url'){
-    const href=safePublicHttps(locator.url);
+    const href=publicHttpsUrl(locator.url);
     return href?
       {status:'verified_link',label:'بازکردن مقصد تأییدشده',
         href,locationText:null,displayIdentifiers:true}:

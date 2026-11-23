@@ -113,3 +113,37 @@ target.write_text(json.dumps(receipt,ensure_ascii=False,indent=2,sort_keys=True)
 print("SANITIZED_FOUNDATION_CANDIDATE_CONSUMPTION_RECEIPT=PASS")
 print("SANITIZED_RECEIPT_SHA256="+hashlib.sha256(target.read_bytes()).hexdigest())
 PY
+
+# Append source catalog evidence to the same artifact set; no table data or credentials.
+catalog="$LAB_WORK/physical_erd_data_dictionary.jsonl"
+plans="$LAB_WORK/query_plan_empty_fixture.txt"
+[[ -s "$catalog" && -s "$plans" && -s "$LAB_WORK/catalog_snapshot_sha256.txt" ]] || {
+  echo STOP_CATALOG_EVIDENCE_NOT_COLLECTED >&2; exit 70;
+}
+[[ "$(grep -c '^{' "$catalog")" == 14 ]] || { echo STOP_CATALOG_NOT_FOURTEEN_TABLES >&2;exit 70; }
+( cd "$LAB_WORK" && shasum -a 256 -c catalog_snapshot_sha256.txt ) >/dev/null || {
+  echo STOP_CATALOG_SHA256_MISMATCH >&2;exit 70;
+}
+install -m 0600 "$catalog" "$GITHUB_WORKSPACE/ci_receipts/physical_erd_data_dictionary.jsonl"
+install -m 0600 "$plans" "$GITHUB_WORKSPACE/ci_receipts/query_plan_empty_fixture.txt"
+install -m 0600 "$LAB_WORK/catalog_snapshot_sha256.txt" "$GITHUB_WORKSPACE/ci_receipts/catalog_snapshot_sha256.txt"
+echo 'CATALOG_14_TABLES_SHA256_EXPORT=PASS'
+
+# Separate tiny synthetic-owner lifecycle receipt from the read-only catalog dump.
+synthetic_receipt="$LAB_WORK/synthetic_owner_restore_receipt.json"
+[[ -s "$synthetic_receipt" ]] || { echo STOP_SYNTHETIC_OWNER_RESTORE_RECEIPT_MISSING >&2;exit 70; }
+python3 - "$synthetic_receipt" <<'PY2'
+import json,sys
+from pathlib import Path
+x=json.loads(Path(sys.argv[1]).read_text())
+assert x["contract_version"]=="f3.db.synthetic_owner_restore.v1"
+assert x["source_and_restored_history_rows_equal"] is True
+assert x["synthetic_conversations"]==2 and x["synthetic_messages"]==2
+assert x["restored_owner_rls"]=="PASS" and x["restored_db55_and_ledger"]=="PASS"
+assert x["deletion_requested_soft_state_restored"] is True
+assert x["deleted_owner_active_rows_after_restore"]==0
+assert type(x["elapsed_monotonic_ms"]) is int and x["elapsed_monotonic_ms"] > 0
+assert x["hard_delete_tombstone_policy"]=="NOT_APPROVED"
+PY2
+install -m 0600 "$synthetic_receipt" "$GITHUB_WORKSPACE/ci_receipts/synthetic_owner_restore_receipt.json"
+echo 'SANITIZED_SYNTHETIC_OWNER_RESTORE_RECEIPT=PASS'
