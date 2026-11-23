@@ -139,3 +139,32 @@ The CI workflow starts isolated Next after building and pins `playwright==1.64.1
 
 **Reproducible isolated L1 CI on final SHA:** [UI workflow](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/workflows/ui-f3-post62-owner-fence.yml), runs `npm ci`, `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, and intercepted synthetic Chromium desktop/mobile. Paste only an actual exact `HEAD_SHA` green CI run into the PR; no tests can elevate 0/14 accepted. Genuine source, locator, Claim, producer/Phase2 release and signed A/B Mac witness are separate blocked L2 rows.
 
+
+## UI incremental execution cycle: authenticated History 503 → recovery → stale in-flight GET (2026-11-23)
+
+### Full progress bars at cycle start and after code delivery (fixed denominators)
+
+| Measurement | Before | After source/test work | Delta | Must not be interpreted as |
+|---|---:|---:|---:|---|
+| UI specialist **any source-code coverage** | 11/14 = **78.57%** | **11/14 = 78.57%** | **0.00 percentage points** | Effort finished: **2 source-complete, 9 partial, 3 blocked/unimplemented** |
+| UI specialist **L2 + owner accepted** | 0/14 = **0.00%** | **0/14 = 0.00%** | **0.00 percentage points** | Synthetic CI, PR commits, or a manual checklist tick |
+| 154 related P3M **accepted** | 0/154 = **0.00%** (source snapshot) | **0/154 observed** | **0.00 points** | Pure UI ownership: includes API, DB, Foundation, Ops |
+| 154 related P3M **snapshot classifications** | 81 PARTIAL / 43 NOT_RUN / 30 NOT_VERIFIED | unchanged until Foundation witness reconciliation | not re-counted | 26 module Gates or 105 P3OP IDs |
+
+`SOURCE-COVERAGE [###############----] 78.57%` (2 code-complete / 9 partial / 3 not implemented).
+`REAL-L2-ACCEPT  [-------------------]  0.00%` (14 still open).
+
+### New independent source change and targeted negative test
+
+| ID | Owner | Criterion | Changed path & code SHA | L1 assertion | Acceptance | L2 blocker / next owner action |
+|---|---|---|---|---|---|---|
+| UI-03, UI-05, UI-06; P3M14-A01/A02/A09; P3M15-A07/A10 | UI, shared API/DB | An old signed History GET must not resurrect a previous view after owner-list `503`, even when the new same-owner thread reload reused a per-thread numeric epoch | `apps/web/src/ui/product-chat.tsx` source commit `59b5f8b669516ac683bae6f52486770ecc9e525d` (syntax correction `0e5d2f206793946f6ee153fe4bbf69a9fe213e2f`) | Monotonic `privacyEpoch` advances on owner invalidation or signed list 503. Old async thread/status/engine/source GETs must not write state or checkpoint or invalidate a freshly revalidated view. Current owner list refetch remains GET-only, no additional Send POST. | **NOT_ACCEPTED**, awaiting destination | Foundation/Ops: real signed HTTPS/OIDC + BFF + PG A/B, controlled network failure and authorization receipt, same-T2/no-extra-C018-child, distinct client logs and exact integrated SHA |
+| UI-03/05/06/11/14, P3M14-A02/A09 | UI | Reproduce delayed previous History GET across a 503→signed list recovery; old stale row never replaces fresh thread, no POST | `tests/phase3/integration/ui/product_chat_browser.py` source commit `8960204a20bf37dce76202b32c1ccce27a9dc263` | Browser/test-only interception `__heldOldThread` releases old signed-like GET **after** reconnect. Old row sentinel `STALE_THREAD_ROW_MUST_NOT_RETURN` absent, new user message visible, original Send POST count remains one; old mixed-owner/401/multitab/browser checks also execute. The test does **not** simulate real BFF signatures. | **NOT_ACCEPTED** | Real integrated Mac browser+HTTP/DB/OS receipts |
+
+### Precise source / target state and reproduction
+
+- **Previous final tested SHA** `69855122ddaa952c510c713596c5ac6a0c0c76cc`: [CI 45220017751 SUCCESS](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45220017751), 124/124 Node, synthetic Chromium.
+- This cycle's code latest **before the report-only commit**: `0e5d2f206793946f6ee153fe4bbf69a9fe213e2f`. The first code commit had a TypeScript syntax error and its CI failed; it was **corrected**, not accepted. For this report-only commit and later PR HEAD, only the **new exact-SHA successful workflow run** is a valid test witness. Re-run GitHub workflow `.github/workflows/ui-f3-post62-owner-fence.yml` (Typecheck, ESLint, Node, Next Build, intercepted Chromium). The main acceptance MUST NOT advance if it fails.
+- Integrating Foundation SHA: **NOT_OBSERVED**. Deployed SHA: **NOT_OBSERVED**. Real Mac TLS/OIDC/BFF/PG, signed user A/B, C018 single OS child on same T2 and zero new dispatch after refresh: **NOT_RUN**. API Answer/Claim/Citation/stream producer and Policy/Legal consent/delete contracts: **NOT_APPROVED**. No old Docker services, Arvan traffic, real Runner, DB migration or paid model modified.
+- Follow-up: Foundation pin this new exact UI HEAD only after CI success and compare immutable API #61 / DB #59 candidate SHAs; Ops deliver sanitized owner A/B failure→recovery and HTTP/DB/OS T2 receipts. API/DB/Product/Phase2 provide signed versioned DTOs and approvals for remaining blocked UI-04/07/08/09/10/13. Do not rerun Foundation 92→105 crosswalk or count P3OP twice; all 14 UI and 26 independent module gates stay unaccepted.
+
