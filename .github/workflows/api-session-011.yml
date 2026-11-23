@@ -2,11 +2,14 @@ name: API-SESSION-011 — pinned Login to real fenced History and private revoke
 
 on:
   push:
-    branches: [agent/api-product-session-history-revoke-011, agent/api-f3-pg-history-binding-20261123]
+    branches: [agent/api-product-session-history-revoke-011, agent/api-f3-pg-history-binding-20261123, agent/api-f3-pr84-signed-history-20261124]
     paths:
       - 'src/phase3/auth/**'
       - 'apps/api/product_session_api.py'
       - 'tests/phase3/integration/api/test_product_session_011.py'
+      - 'tests/phase3/integration/api/app_only_signed_pg_ci_h11.py'
+      - 'apps/api/private_app_only_asgi.py'
+      - 'infra/phase3_l1/Dockerfile.api'
       - 'tests/phase3/api/test_full_binding_fence.py'
       - 'src/phase3/rag_runtime/no_dispatch_handler.py'
       - 'coordination/tasks/AGENT-API-AUTH-BOUNDARY-01.md'
@@ -21,6 +24,9 @@ on:
       - 'src/phase3/auth/**'
       - 'apps/api/product_session_api.py'
       - 'tests/phase3/integration/api/test_product_session_011.py'
+      - 'tests/phase3/integration/api/app_only_signed_pg_ci_h11.py'
+      - 'apps/api/private_app_only_asgi.py'
+      - 'infra/phase3_l1/Dockerfile.api'
       - 'tests/phase3/api/test_full_binding_fence.py'
       - 'src/phase3/rag_runtime/no_dispatch_handler.py'
       - 'coordination/tasks/AGENT-API-AUTH-BOUNDARY-01.md'
