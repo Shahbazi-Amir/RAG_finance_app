@@ -14,11 +14,9 @@ export function GET():Response{
     try{approvedNoDispatch=stagingProfile().send_mode==='NO_DISPATCH_ONLY';}
     catch{approvedNoDispatch=false;}
   }
-  // Isolated intercepted Chromium CI uses this fixture label without
-  // enabling login, Send proxy, or any real provider.
-  const ciFixture=process.env.CI==='true'&&
-    process.env.AUTH_CI_PRODUCT_CHAT_MODE==='INVITED_RESULT_STUB_CI_ONLY';
+  // Fixture authorization belongs exclusively to Playwright interception,
+  // not to any running Next server, even on CI.
   return Response.json(selectRuntimeCapability({
-    appOnly,approvedNoDispatch,ciFixture
+    appOnly,approvedNoDispatch,ciFixture:false
   }),{headers:{...noStore,'Content-Type':'application/json; charset=utf-8'}});
 }
