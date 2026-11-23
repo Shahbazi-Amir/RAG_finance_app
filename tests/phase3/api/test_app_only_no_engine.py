@@ -156,7 +156,7 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             status, headers, body, reads = asyncio.run(
                 invoke("/v1/messages", "POST", trusted, mode))
             self.assertEqual(status, expected)
-            self.assertEqual(headers[b"cache-control"], b"no-store")
+            self.assertEqual({k.lower(): v for k, v in headers.items()}[b"cache-control"], b"no-store")
             self.assertFalse(reads)
             self.assertNotIn(b"unsafe", body)
         self.assertEqual(calls["app"], 0)
