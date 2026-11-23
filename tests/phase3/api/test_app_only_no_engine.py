@@ -264,7 +264,9 @@ class AppOnlyNoEngineTests(unittest.TestCase):
                     ) as c:
                         response = await c.get("/internal/ready")
                         alias = await c.get("/health/ready")
-                        self.assertEqual(alias.status_code, response.status_code)
+                        # /health/ready is stricter than the mTLS-only
+                        # metadata probe: it needs signed session+PG.
+                        self.assertEqual(alias.status_code, 503)
                         self.assertEqual(response.status_code, 503)
                         self.assertEqual(response.json()["generation"], "unavailable")
                         self.assertEqual(response.headers["cache-control"], "no-store")
@@ -278,13 +280,59 @@ class AppOnlyNoEngineTests(unittest.TestCase):
                     ) as c:
                         response = await c.get("/internal/ready")
                         alias = await c.get("/health/ready")
-                        self.assertEqual(alias.status_code, response.status_code)
+                        # /health/ready is stricter than the mTLS-only
+                        # metadata probe: it needs signed session+PG.
+                        self.assertEqual(alias.status_code, 503)
                         self.assertEqual(response.status_code, 200)
                         self.assertEqual(response.json()["history_db"], "verified")
                         self.assertEqual(response.json()["retrieval"], "unavailable")
                         self.assertEqual(response.json()["generation"], "unavailable")
                         self.assertEqual(response.json()["bootstrap_idp"], "not_probed")
         asyncio.run(run())
+
+
+    def test_health_ready_requires_real_bff_signed_session_pg_transaction(self):
+        """Only the original signed admission may issue a 200 readiness.
+
+        _signed_history is mocked here to inspect composition; actual
+        cryptographic and PG behavior is exercised by CI signed PG E2E.
+        """
+        app = AppOnlyASGI(FastAPI(), FakeProfile())
+
+        async def trusted(scope, receive, send):
+            scope["scheme"] = "https"
+            scope["trusted_transport_test"] = True
+            return await app(scope, receive, send)
+
+        async def scenario():
+            with patch.dict(os.environ, {
+                "API_RUNNER_EXECUTION_MODE": "APP_ONLY",
+            }):
+                with patch("apps.api.product_session_api._signed_history",
+                           side_effect=ValueError("invalid signed actor")) as proof:
+                    async with AsyncClient(
+                        transport=ASGITransport(app=trusted),
+                        base_url="https://test.invalid",
+                    ) as client:
+                        denied = await client.get("/health/ready")
+                        self.assertEqual(denied.status_code, 503)
+                        self.assertEqual(denied.headers["cache-control"], "no-store")
+                        self.assertNotIn("invalid", denied.text)
+                    self.assertEqual(proof.call_count, 1)
+                with patch("apps.api.product_session_api._signed_history",
+                           return_value=(None, None)) as proof:
+                    async with AsyncClient(
+                        transport=ASGITransport(app=trusted),
+                        base_url="https://test.invalid",
+                    ) as client:
+                        ready = await client.get("/health/ready")
+                        self.assertEqual(ready.status_code, 200)
+                        self.assertEqual(ready.json()["signed_actor_pg"], "verified")
+                        self.assertEqual(ready.json()["bootstrap_idp"], "not_probed")
+                        self.assertEqual(ready.json()["generation"], "unavailable")
+                    self.assertEqual(proof.call_count, 1)
+
+        asyncio.run(scenario())
 
 
 if __name__ == "__main__":
