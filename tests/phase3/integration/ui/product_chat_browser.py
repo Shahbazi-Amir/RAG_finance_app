@@ -7,6 +7,7 @@ Start the Next build on isolated 127.0.0.1:3000 before invoking this script.
 """
 import json
 import os
+import re
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
 
@@ -20,6 +21,18 @@ def fixture(name):
     return next(json.loads(json.dumps(c["document"])) for c in REGISTRY
                 if c["case_id"] == name and c["expected_valid"])
 
+def text_contrast(foreground, background):
+    """WCAG 2.x contrast on actual Chromium computed RGB colors."""
+    def luminance(color):
+        channels = [int(n) / 255 for n in re.findall(r"\d+", color)[:3]]
+        assert len(channels) == 3, color
+        linear = [c / 12.92 if c <= .04045 else ((c + .055) / 1.055) ** 2.4
+                  for c in channels]
+        return .2126 * linear[0] + .7152 * linear[1] + .0722 * linear[2]
+    light, dark = sorted([luminance(foreground), luminance(background)], reverse=True)
+    return (light + .05) / (dark + .05)
+
+
 def main():
     base = os.getenv("UI_CHAT_L1_BASE_URL", "http://127.0.0.1:3000")
     url = urlsplit(base)
@@ -27,7 +40,10 @@ def main():
         raise RuntimeError("UI_CHAT_L1_ONLY_LOOPBACK_HTTP_PORT_3000")
     state = {"posts": 0, "status_reads": 0, "engine_reads": 0,
              "logged_in": True, "request": None,
-             "source_reads": 0, "source_mode": "valid"}
+             "source_reads": 0, "source_mode": "valid",
+             "owner_mode": "original", "thread_mode": "original",
+             "list_mode": "valid", "status_mode": "valid",
+             "thread_text_mode": "normal", "engine_mode": "valid"}
     conversation_id = "conv_uichat_013"
     user_message = "msg_uichat_013"
 
@@ -48,6 +64,10 @@ def main():
                           body='{"error":"AUTH_REQUIRED"}')
             return
         if path.endswith("/api/history/conversations") and method == "GET":
+            if state["list_mode"] == "unavailable":
+                route.fulfill(status=503, content_type="application/json",
+                              body='{"error":"SIGNED_PRODUCT_API_UNAVAILABLE"}')
+                return
             body = fixture("valid_paginated_conversations")
             body["page"]["limit"] = 2
             body["page"]["has_more"] = False
@@ -59,6 +79,11 @@ def main():
                 conv["title"] = "گفت‌وگوی تست فارسی"
                 conv["owner_user_id"] = body["scope_user_id"]
                 body["items"] = [conv]
+            if state["owner_mode"] == "changed":
+                body["scope_user_id"] = "usr_owner_B_403_3"
+                body["items"] = []
+            elif state["owner_mode"] == "invalid":
+                body["unexpected_debug"] = "forged-owner-data"
             route.fulfill(status=200, json=body)
         elif path.endswith("/api/history/messages") and method == "POST":
             state["posts"] += 1
@@ -87,8 +112,14 @@ def main():
                 user["conversation_id"] = conversation_id
                 user["owner_user_id"] = body["owner_user_id"]
                 user["message_id"] = user_message
-                user["text"] = state["request"]["question"]
+                user["text"] = ("STALE_THREAD_ROW_MUST_NOT_RETURN"
+                                if state["thread_text_mode"] == "old"
+                                else state["request"]["question"])
                 body["items"] = [user]
+            if state["thread_mode"] == "changed":
+                body["owner_user_id"] = "usr_owner_B_403_3"
+                body["items"] = []
+                body["answers"] = []
             route.fulfill(status=200, json=body)
         elif path.endswith("/api/history/message-requests/status") and method == "GET":
             check_original_query(route.request.url)
@@ -106,6 +137,8 @@ def main():
             status["attempt_trace_id"] = "b" * 32
             status["reserved_answer_id"] = "ans_uichat_013"
             status["status"] = "attempt_pending"
+            if state["status_mode"] == "invalid":
+                status["unexpected_debug"] = "not-a-contract-field"
             route.fulfill(status=200, json=status)
         elif path.endswith("/api/history/message-requests/engine-status") and method == "GET":
             check_original_query(route.request.url)
@@ -114,6 +147,9 @@ def main():
             assert original
             # A separate API #53 *technical* document: not product Answer,
             # never a live Runner claim or a Citation.
+            if state["engine_mode"] == "invalid":
+                route.fulfill(status=200, json={"kind": "forged_extra", "answer": "fake"})
+                return
             route.fulfill(status=200, json={
                 "kind": "no_dispatch_execution_status",
                 "contract_version": "api.no_dispatch_status.v1",
@@ -167,13 +203,66 @@ def main():
         browser = p.chromium.launch(headless=True)
         try:
             context = browser.new_context(viewport={"width": 1280, "height": 800})
+            # Real React component behind a test-only policy GET: app-only
+            # disables both native button and programmatic form submission.
+            blocked = context.new_page()
+            blocked.route("**/api/history/**", intercept)
+            blocked.route("**/api/product-capabilities", lambda route: route.fulfill(
+                status=200, json={
+                    "kind": "ui_runtime_capabilities",
+                    "contract_version": "ui.runtime_capabilities.v1",
+                    "send_mode": "DISABLED",
+                    "engine_available": False, "generation_available": False
+                }))
+            blocked.goto(base, wait_until="domcontentloaded")
+            expect(blocked.get_by_text("هنوز گفت‌وگویی ثبت نشده است.")).to_be_visible()
+            expect(blocked.get_by_test_id("app-runtime-capability")).to_contain_text(
+                "برنامه در حالت بدون موتور")
+            expect(blocked.get_by_test_id("create-conversation")).to_be_disabled()
+            expect(blocked.get_by_test_id("history-question")).to_be_disabled()
+            expect(blocked.get_by_test_id("history-send")).to_be_disabled()
+            blocked.locator("form.history-compose").evaluate(
+                "(form) => form.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))")
+            assert state["posts"] == 0, "app-only form bypass dispatched a Send"
+            blocked.close()
+            print("UI_APP_ONLY_BROWSER_DISABLED_SEND_AND_HISTORY_GET_ONLY_PASS")
             page = context.new_page()
             page.route("**/api/history/**", intercept)
+            # Explicit synthetic-only client capability fixture. The running
+            # Next server NEVER advertises an unapproved Send mode, even in CI.
+            page.route("**/api/product-capabilities", lambda route: route.fulfill(
+                status=200, json={
+                    "kind": "ui_runtime_capabilities",
+                    "contract_version": "ui.runtime_capabilities.v1",
+                    "send_mode": "NO_DISPATCH_ONLY",
+                    "engine_available": False, "generation_available": False
+                }))
             page.goto(base, wait_until="domcontentloaded")
             expect(page.get_by_text("هنوز گفت‌وگویی ثبت نشده است.")).to_be_visible()
+            expect(page.get_by_test_id("create-conversation")).to_be_enabled()
+            # UI-11 actual desktop keyboard bypass: the first Tab enters a
+            # visible skip link, Enter lands on a semantic <h1> inside main.
+            skip = page.get_by_role("link", name="رفتن به محتوای اصلی گفت‌وگو")
+            expect(skip).to_have_attribute("href", "#product-main")
+            page.keyboard.press("Tab")
+            expect(skip).to_be_focused()
+            assert skip.evaluate("(el) => el.getBoundingClientRect().top >= 0")
+            page.keyboard.press("Enter")
+            expect(page.get_by_role("heading", name="گفت‌وگوی مالی")).to_be_focused()
+            main_area = page.locator("section.history-main")
+            assert main_area.get_attribute("inert") is None
+            # WCAG AA normal-text contrast for exact computed colors, not
+            # inferred from screenshots, on the real responsive History shell.
+            shell_bg = page.locator("main.history-shell").evaluate(
+                "(el) => getComputedStyle(el).backgroundColor")
+            empty_color = page.locator(".history-empty").evaluate(
+                "(el) => getComputedStyle(el).color")
+            assert text_contrast(empty_color, shell_bg) >= 4.5
             page.get_by_test_id("create-conversation").click()
             page.get_by_test_id("history-question").fill("پرسش فارسی دربارهٔ نرخ بهره")
-            page.get_by_test_id("history-send").click()
+            # Deliver two native button clicks in the same JS turn. The
+            # sending.current ref must allow one (and only one) POST.
+            page.get_by_test_id("history-send").evaluate("(button) => { button.click(); button.click(); }")
             expect(page.get_by_text("در حال پردازش؛ وضعیت از API دریافت شده است.")).to_be_visible(
                 timeout=15000)
             expect(page.get_by_text(
@@ -185,6 +274,13 @@ def main():
             assert section.locator("a").count() == 0
             assert page.get_by_test_id("retrieval-evidence-list").count() == 0
             assert state["posts"] == 1
+            user_paragraph = page.get_by_test_id("history-message-" + user_message).locator(
+                ".history-message-text")
+            expect(user_paragraph).to_be_visible()
+            assert user_paragraph.evaluate(
+                "(el) => getComputedStyle(el).unicodeBidi") == "plaintext"
+            # RTL mixed-Latin material stays a *text* node, not guessed HTML.
+            assert page.locator(".history-message-text script, .history-message-text a").count() == 0
             # Reload MUST never invoke POST: same original client IDs/status GET.
             page.reload(wait_until="domcontentloaded")
             expect(page.get_by_test_id("attempt-" + state["request"]["client_message_id"])).to_be_visible(
@@ -209,10 +305,53 @@ def main():
             assert menu.evaluate("(el) => getComputedStyle(el).outlineStyle") != "none"
             menu.click()
             expect(menu).to_have_attribute("aria-expanded", "true")
+            close_control=page.locator(".history-mobile-close")
+            expect(close_control).to_be_focused()
+            expect(page.locator("section.history-main")).to_have_attribute("inert", "")
+            expect(page.locator(".history-skip")).to_have_attribute("inert", "")
+            backdrop = page.locator(".history-mobile-scrim")
+            expect(backdrop).to_have_attribute("aria-hidden", "true")
+            expect(backdrop).to_have_attribute("tabindex", "-1")
+            state_color = page.get_by_test_id("history-state").evaluate(
+                "(el) => getComputedStyle(el).color")
+            sidebar_bg = page.locator("aside.history-sidebar").evaluate(
+                "(el) => getComputedStyle(el).backgroundColor")
+            assert text_contrast(state_color, sidebar_bg) >= 4.5
+            # A programmatic focus loss must not escape modal keyboard trap.
+            close_control.evaluate("(el) => el.blur()")
+            page.keyboard.press("Tab")
+            expect(close_control).to_be_focused()
+            page.keyboard.press("Shift+Tab")
+            expect(page.locator(".history-sidebar-bottom .history-link")).to_be_focused()
+            page.keyboard.press("Tab")
+            expect(close_control).to_be_focused()
+            page.keyboard.press("Escape")
+            expect(menu).to_have_attribute("aria-expanded", "false")
+            expect(menu).to_be_focused()
+            assert page.locator("section.history-main").get_attribute("inert") is None
+            assert page.locator(".history-skip").get_attribute("inert") is None
+            menu.click()
+            expect(menu).to_have_attribute("aria-expanded", "true")
             expect(page.get_by_role("dialog", name="فهرست گفتگوها")).to_be_visible()
             page.locator(".history-mobile-close").click()
             expect(menu).to_have_attribute("aria-expanded", "false")
+            # Resizing while a mobile dialog is still open cannot strand
+            # keyboard users in a desktop-width invisible mobile drawer.
+            menu.click()
+            expect(page.get_by_role("dialog", name="فهرست گفتگوها")).to_be_visible()
+            page.set_viewport_size({"width": 1280, "height": 800})
+            # The trigger is deliberately CSS-hidden on desktop; assert its
+            # DOM state rather than searching for a visible ARIA button.
+            expect(page.locator(".mobile-menu-trigger")).to_have_attribute("aria-expanded", "false")
+            assert page.locator("aside[aria-modal='true']").count() == 0
+            assert page.locator("section.history-main").get_attribute("inert") is None
+            page.set_viewport_size({"width": 320, "height": 568})
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2")
+            assert page.locator(".history-messages").evaluate(
+                "(el) => getComputedStyle(el).direction") == "rtl"
+            page.set_viewport_size({"width": 390, "height": 844})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2")
+            print("UI_11_L1_DESKTOP_MOBILE_SKIP_INERT_FOCUS_RESIZE_CONTRAST_320RTL_PASS")
             screenshots=os.getenv("UI_GATE3_SCREENSHOT_DIR")
             if screenshots:
                 directory=Path(screenshots)
@@ -247,7 +386,155 @@ def main():
             expect(page.get_by_test_id("retrieved-sources-observed")).to_be_visible()
             assert state["posts"] == 1
             expect(page.locator("nav.history-list")).to_contain_text("گفت‌وگوی تست فارسی")
-            # Server 401 purges old per-account list and persisted correlators.
+            # A malformed Product Status must clear previously displayed
+            # evidence, not retain stale observations from a past GET.
+            state["status_mode"] = "invalid"
+            page.get_by_test_id("recover-status").click()
+            expect(page.get_by_text("خواندن وضعیت ناموفق بود؛ نتیجه نامعلوم است.")).to_be_visible()
+            assert page.get_by_test_id("retrieved-sources-observed").count() == 0
+            state["status_mode"] = "valid"
+            page.get_by_test_id("recover-status").click()
+            expect(page.get_by_test_id("retrieved-sources-observed")).to_be_visible()
+            # Bad technical status cannot keep an old CONTEXT_READY display.
+            state["engine_mode"] = "invalid"
+            page.get_by_test_id("recover-status").click()
+            expect(page.get_by_text("وضعیت فنی جداگانه در دسترس نیست؛ فقط وضعیت اصلی پیگیری می‌شود.")).to_be_visible()
+            assert page.get_by_text("بازیابی شواهد کامل شد؛ تولید پاسخ انجام نشده است.").count() == 0
+            state["engine_mode"] = "valid"
+            page.get_by_test_id("recover-status").click()
+            expect(page.get_by_text("بازیابی شواهد کامل شد؛ تولید پاسخ انجام نشده است.")).to_be_visible()
+            # A failed signed owner revalidation cannot preserve old owner
+            # messages/Attempt evidence or permit a new POST. Recovery remains
+            # GET-only after the same valid BFF owner returns.
+            state["list_mode"] = "unavailable"
+            menu.click()
+            page.get_by_test_id("refresh-history").click()
+            expect(page.get_by_test_id("history-owner-revalidation-required")).to_be_visible()
+            assert page.get_by_test_id("retrieved-sources-observed").count() == 0
+            assert page.locator(".history-messages article").count() == 0
+            expect(page.get_by_test_id("history-send")).to_be_disabled()
+            expect(page.get_by_test_id("history-question")).to_be_disabled()
+            assert state["posts"] == 1
+            state["list_mode"] = "valid"
+            page.get_by_test_id("refresh-history").click()
+            expect(page.get_by_test_id("retrieved-sources-observed")).to_be_visible()
+            expect(page.get_by_test_id("history-message-" + user_message)).to_be_visible()
+            expect(page.get_by_test_id("history-send")).to_be_disabled()
+            assert state["posts"] == 1
+            page.locator(".history-mobile-close").click()
+            # Hold a successful *older* signed-scoped thread GET after the
+            # transport response was issued, then pass through owner-list 503
+            # and recovery. Old data must not replace the newly fetched row.
+            # This exercises the privacy epoch (not merely the thread counter,
+            # which may restart at 1 when the old list is cleared).
+            state["thread_text_mode"] = "old"
+            page.evaluate("""() => {
+                const previous = window.fetch.bind(window);
+                window.__heldOldThread = {armed:true,ready:false};
+                window.fetch = (...args) => {
+                  const url = typeof args[0] === 'string' ? args[0] : args[0].url;
+                  if (window.__heldOldThread.armed &&
+                      url.includes('/api/history/conversations/conv_uichat_013/messages?')) {
+                    window.__heldOldThread.armed = false;
+                    return previous(...args).then(response => new Promise(resolve => {
+                      window.__heldOldThread.ready = true;
+                      window.__heldOldThread.release = () => resolve(response);
+                    }));
+                  }
+                  return previous(...args);
+                };
+            }""")
+            page.get_by_test_id("recover-status").click()
+            page.wait_for_function("window.__heldOldThread?.ready === true", timeout=15000)
+            state["thread_text_mode"] = "normal"
+            state["list_mode"] = "unavailable"
+            menu.click()
+            page.get_by_test_id("refresh-history").click()
+            expect(page.get_by_test_id("history-owner-revalidation-required")).to_be_visible()
+            assert page.get_by_test_id("history-message-" + user_message).count() == 0
+            state["list_mode"] = "valid"
+            page.get_by_test_id("refresh-history").click()
+            thread_row = page.get_by_test_id("history-message-" + user_message)
+            expect(thread_row).to_contain_text("پرسش فارسی دربارهٔ نرخ بهره")
+            page.evaluate("window.__heldOldThread.release()")
+            page.wait_for_timeout(150)
+            expect(thread_row).to_contain_text("پرسش فارسی دربارهٔ نرخ بهره")
+            assert page.get_by_text("STALE_THREAD_ROW_MUST_NOT_RETURN").count() == 0
+            assert state["posts"] == 1
+            page.locator(".history-mobile-close").click()
+            # A stale History GET cannot cross a failed signed owner-list
+            # validation even if a new GET reuses a per-thread epoch number.
+            print("UI_F3_L1_503_STALE_THREAD_RESPONSE_PRIVACY_EPOCH_FENCED_PASS")
+            # Hold an already received owner-A status response until *after*
+            # a signed owner-B list invalidates this tab. A late GET must not
+            # restore the deleted old Attempt/Source or re-send the question.
+            page.evaluate("""() => {
+                const original = window.fetch.bind(window);
+                window.__heldOldStatus = {armed: true, ready: false};
+                window.fetch = (...args) => {
+                  const url = typeof args[0] === 'string' ? args[0] : args[0].url;
+                  if (window.__heldOldStatus.armed &&
+                      url.includes('/api/history/message-requests/status?')) {
+                    window.__heldOldStatus.armed = false;
+                    return original(...args).then(response => new Promise(resolve => {
+                      window.__heldOldStatus.ready = true;
+                      window.__heldOldStatus.release = () => resolve(response);
+                    }));
+                  }
+                  return original(...args);
+                };
+            }""")
+            page.get_by_test_id("recover-status").click()
+            page.wait_for_function("window.__heldOldStatus?.ready === true", timeout=12000)
+            # A different valid owner in a separately signed list response
+            # must clear the former owner's message/Attempt/cache before display.
+            state["owner_mode"] = "changed"
+            # Refresh is in the responsive drawer: open it before clicking.
+            menu.click()
+            expect(page.get_by_role("dialog", name="فهرست گفتگوها")).to_be_visible()
+            page.get_by_test_id("refresh-history").click()
+            expect(page.get_by_test_id("history-login-required")).to_be_visible()
+            assert page.locator("nav.history-list button").count() == 0
+            assert page.get_by_test_id("retrieved-sources-observed").count() == 0
+            assert page.evaluate(
+                "() => sessionStorage.getItem('rag-finance-attempt-correlation-v1')") is None
+            assert state["posts"] == 1
+            page.evaluate("window.__heldOldStatus.release()")
+            page.wait_for_timeout(200)
+            assert page.get_by_test_id("retrieved-sources-observed").count() == 0
+            assert page.locator(".product-attempt").count() == 0
+            assert state["posts"] == 1
+            # A second tab, on a new validated owner-B response, never
+            # inherits the former tab's A Attempt or captured source rows.
+            tab_b = context.new_page()
+            tab_b.route("**/api/history/**", intercept)
+            tab_b.goto(base, wait_until="domcontentloaded")
+            expect(tab_b.get_by_text("هنوز گفت‌وگویی ثبت نشده است.")).to_be_visible()
+            assert tab_b.get_by_test_id("retrieved-sources-observed").count() == 0
+            assert tab_b.evaluate(
+                "() => sessionStorage.getItem('rag-finance-attempt-correlation-v1')") is None
+            tab_b.close()
+            # A malformed validated BFF list is also fail-closed, rather than
+            # leaving the cached thread visible from the last good response.
+            state["owner_mode"] = "invalid"
+            invalid_tab = context.new_page()
+            invalid_tab.route("**/api/history/**", intercept)
+            invalid_tab.goto(base, wait_until="domcontentloaded")
+            expect(invalid_tab.get_by_test_id("history-login-required")).to_be_visible()
+            assert invalid_tab.locator(".product-attempt").count() == 0
+            invalid_tab.close()
+            # A thread whose valid owner differs from its valid list owner is
+            # another account-switch vector; test separately from list mix.
+            state["owner_mode"] = "original"
+            state["thread_mode"] = "changed"
+            mixed_tab = context.new_page()
+            mixed_tab.route("**/api/history/**", intercept)
+            mixed_tab.goto(base, wait_until="domcontentloaded")
+            expect(mixed_tab.get_by_test_id("history-login-required")).to_be_visible()
+            assert mixed_tab.get_by_test_id("retrieved-sources-observed").count() == 0
+            mixed_tab.close()
+            state["thread_mode"] = "original"
+            # Server 401 still purges even on a fresh page.
             state["logged_in"] = False
             # Refresh invokes authenticated GET, even if background polling has
             # already observed the 401 and disabled the in-page Refresh button.
@@ -256,7 +543,30 @@ def main():
             assert page.locator("nav.history-list button").count() == 0
             assert page.evaluate(
                 "() => sessionStorage.getItem('rag-finance-attempt-correlation-v1')") is None
-            print("UI_CHAT_L1_BROWSER_API61_SAME_ATTEMPT_MOBILE_XSS_MISMATCH_401_PASS")
+            account_page = context.new_page()
+            account_page.goto(base + "/account", wait_until="domcontentloaded")
+            expect(account_page.get_by_role("heading", name="حساب و حریم خصوصی")).to_be_visible()
+            account_page.keyboard.press("Tab")
+            assert account_page.evaluate(
+                "() => getComputedStyle(document.activeElement).outlineStyle !== 'none'")
+            expect(account_page.get_by_text("امکان درخواست حذف از این رابط هنوز فعال نیست.")).to_be_visible()
+            assert account_page.locator('form[action*="delete"]').count() == 0
+            assert account_page.locator('form[action*="feedback"]').count() == 0
+            assert account_page.locator("form,input,button").count() == 0
+            # Real Next routing is exercised; auth/IdP remains an L2 dependency.
+            account_page.get_by_role("link", name="بازگشت به گفت‌وگو").click()
+            expect(account_page.get_by_role("heading", name="گفت‌وگوی مالی")).to_be_visible()
+            account_page.goto(base + "/account", wait_until="domcontentloaded")
+            login_link = account_page.get_by_role(
+                "link", name="ورود، مشاهدهٔ نشست و خروج امن")
+            expect(login_link).to_have_attribute("href", "/login")
+            # Full-document browser navigation; CI has no private IdP, so a
+            # 503 at /login is an honest unprovisioned-IdP outcome.
+            login_link.evaluate("(el) => window.location.assign(el.href)")
+            account_page.wait_for_url("**/login", wait_until="domcontentloaded")
+            assert urlsplit(account_page.url).path == "/login"
+            account_page.close()
+            print("UI_CHAT_L1_BROWSER_POST65_LATE_STATUS_MIXED_THREAD_INVALID_OWNER_MULTITAB_401_PASS")
             context.close()
         finally:
             browser.close()

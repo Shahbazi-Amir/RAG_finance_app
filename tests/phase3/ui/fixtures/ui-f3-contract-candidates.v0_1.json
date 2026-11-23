@@ -1,0 +1,76 @@
+{
+  "schema_status": "PROPOSED_NOT_APPROVED",
+  "fixture_only": true,
+  "approved": false,
+  "wire_contract_enabled": false,
+  "version": "ui.f3.review_candidates.v0_1",
+  "fixtures": [
+    {
+      "id": "CONSENT_WITHDRAWAL",
+      "kind": "ui.consent.candidate.v0_1",
+      "actor": "SIGNED_BFF_OWNER_ONLY",
+      "request": {
+        "decision": "WITHDRAW",
+        "policy_sha256": "fixture_not_a_real_digest",
+        "idempotency_key": "key_fixture_consent_001"
+      },
+      "response": {
+        "state": "PENDING",
+        "committed": false
+      },
+      "blocked_on": "LEGAL_POLICY_AND_DB_RECEIPT"
+    },
+    {
+      "id": "FEEDBACK_WRONG_ANSWER",
+      "kind": "ui.feedback.candidate.v0_1",
+      "actor": "SIGNED_BFF_OWNER_ONLY",
+      "request": {
+        "answer_id": "fixture_answer_not_live",
+        "rating": "NEGATIVE",
+        "reason_code": "BAD_ATTRIBUTION",
+        "idempotency_key": "key_fixture_feedback_001"
+      },
+      "response": {
+        "state": "REJECTED",
+        "committed": false
+      },
+      "blocked_on": "LIVE_VERIFIED_ANSWER_OWNER_AND_DB_DEDUPE"
+    },
+    {
+      "id": "DELETE_REQUEST_NOT_COMPLETE",
+      "kind": "ui.deletion.candidate.v0_1",
+      "actor": "SIGNED_BFF_OWNER_ONLY",
+      "request": {
+        "step_up": "fixture_only_not_a_real_challenge",
+        "idempotency_key": "key_fixture_delete_001"
+      },
+      "response": {
+        "state": "DELETE_REQUESTED",
+        "committed": false
+      },
+      "blocked_on": "DB_RESTORE_TOMBSTONE_AND_REVOKE"
+    },
+    {
+      "id": "STREAM_CANCEL_IS_NOT_CANCELLED",
+      "kind": "ui.stream.candidate.v0_1",
+      "actor": "SIGNED_BFF_OWNER_ONLY",
+      "events": [
+        {
+          "sequence": 1,
+          "state": "QUEUED",
+          "fixture_only": true
+        },
+        {
+          "sequence": 2,
+          "state": "PARTIAL",
+          "fixture_only": true
+        }
+      ],
+      "cancel_response": {
+        "state": "CANCEL_REQUESTED",
+        "committed": false
+      },
+      "blocked_on": "PRODUCER_EVENT_CONTRACT_AND_CANCEL_RECEIPT"
+    }
+  ]
+}

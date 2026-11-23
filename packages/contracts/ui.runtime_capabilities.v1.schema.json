@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rag-finance:ui.runtime_capabilities.v1",
+  "title": "UI/BFF app-only capability: no engine and no generation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "contract_version",
+    "send_mode",
+    "engine_available",
+    "generation_available"
+  ],
+  "properties": {
+    "kind": {
+      "const": "ui_runtime_capabilities"
+    },
+    "contract_version": {
+      "const": "ui.runtime_capabilities.v1"
+    },
+    "send_mode": {
+      "type": "string",
+      "enum": [
+        "DISABLED",
+        "NO_DISPATCH_ONLY"
+      ]
+    },
+    "engine_available": {
+      "const": false
+    },
+    "generation_available": {
+      "const": false
+    }
+  }
+}
