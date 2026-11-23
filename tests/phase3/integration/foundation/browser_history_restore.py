@@ -287,9 +287,15 @@ async def execute():
             print("F3_REAL_KEYCLOAK_CHROMIUM_BFF_API_PG_RESTORED_SAME_SESSION_NO_ENGINE_PASS",
                   flush=True)
     finally:
-        if ctx_a is not None:await ctx_a.close()
-        if ctx_b is not None:await ctx_b.close()
-        if browser is not None:await browser.close()
+        # Playwright context manager already tears down the browser on error;
+        # do not mask the FIRST product assertion with TargetClosedError.
+        for context in (ctx_a,ctx_b):
+            if context is not None:
+                try:await context.close()
+                except Exception:pass
+        if browser is not None:
+            try:await browser.close()
+            except Exception:pass
         demo.stop()
         if restored:
             command(["docker","rm","-f",restored[0]])
