@@ -1,0 +1,22 @@
+services:
+  product-api:
+    image: rag-finance-f3/api:mac-first-start-5fe21e9
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - |
+          import socket
+          import subprocess
+          import sys
+
+          commands = (
+              (sys.executable, "/opt/probes/engine_mount_readiness.py"),
+              (sys.executable, "-m", "apps.api.private_staging_asgi",
+               "--config", "/run/api-private/api.json", "--preflight-only"),
+          )
+          for command in commands:
+              subprocess.run(command, timeout=28, check=True)
+          with socket.create_connection(("127.0.0.1", 8443), timeout=2):
+              pass
