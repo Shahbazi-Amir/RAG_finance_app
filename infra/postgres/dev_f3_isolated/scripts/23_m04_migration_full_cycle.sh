@@ -24,6 +24,12 @@ admin(){ DB_SERVICE=lab-db DB_NAME=postgres dbpsql -Atq "$@"; }
 [[ "$(admin -c "SELECT count(*) FROM pg_database WHERE datname='$probe'")" == 0 ]] || {
  echo STOP_M04_PROBE_COLLISION >&2;exit 70; }
 admin -c "CREATE DATABASE $probe TEMPLATE rag_finance_f3_lab OWNER postgres" >/dev/null
+# CREATE DATABASE ... TEMPLATE clones schema/data, NOT pg_database.datacl.
+# Reconstruct only the source lab's DATABASE-level role connections on this probe.
+admin -c "REVOKE CONNECT,TEMP ON DATABASE $probe FROM PUBLIC" >/dev/null
+admin -c "GRANT CONNECT,CREATE ON DATABASE $probe TO history_migrator,auth_migrator" >/dev/null
+admin -c "GRANT CONNECT ON DATABASE $probe TO history_app,auth_revoker,db55_lab_auditor,auth_mapper,auth_sessions,auth_reauth,auth_trust_api,auth_replay_cleaner,auth_reset_issuer,auth_reset_executor,auth_reset_lookup,auth_reset_idp_recorder,auth_login_bootstrap,auth_login_issuer,auth_login_binder,auth_login_reader,auth_login_cleaner,auth_login_claim_reader" >/dev/null
+
 # Only the disposable probe inherits prior ledger; clear it BEFORE any destructive test.
 export DB_SERVICE=lab-db DB_NAME="$probe"
 dbpsql -q -c 'DELETE FROM db55_audit.migration_runs' >/dev/null
