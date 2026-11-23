@@ -228,9 +228,9 @@
     },
     ".github/workflows/f3-db-isolated-fresh-install.yml": {
       "owner": "DATABASE_F3",
-      "source_sha": "4461406829cdadc5a358b2af591c827e91e711ae",
-      "git_blob": "4701c68b3159557b290a2bb96315ae7928cc5a36",
-      "reason": "exact DB owner #59 integrated source; isolated CI still required"
+      "source_sha": "a013b279a6e71b0bc63168636f27199ada245022",
+      "git_blob": "6eb2da5d0caea76eccf8a1207060049da44531d5",
+      "reason": "isolated original DB #59 workflow, branch trigger only extended for same-SHA source-manifest verification, no optional 011"
     },
     ".github/workflows/ui-f3-api61-completion.yml": {
       "owner": "UI_F3",
@@ -780,5 +780,10 @@
   "app_only_scope": "NO_ENGINE_NO_RUNNER_NO_QDRANT_NO_MODEL; Mac L2 and owner approval NOT_RUN",
   "app_only_workflow_path": ".github/workflows/f3-app-only-runtime-ci.yml",
   "app_only_workflow_note": "Workflow self-hash intentionally excluded to avoid cyclic pin: source file hashes are verified at runtime; workflow run SHA pins itself.",
-  "api_session_workflow_path": ".github/workflows/api-session-011.yml"
+  "api_session_workflow_path": ".github/workflows/api-session-011.yml",
+  "app_only_integrated_workflows": [
+    ".github/workflows/f3-app-only-runtime-ci.yml",
+    ".github/workflows/api-session-011.yml",
+    ".github/workflows/f3-db-isolated-fresh-install.yml"
+  ]
 }
