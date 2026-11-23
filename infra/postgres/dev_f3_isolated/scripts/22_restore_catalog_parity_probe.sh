@@ -125,6 +125,8 @@ for tag,items in (("SOURCE",only_a),("RESTORE",only_b)):
     for v in items[:12]:
         fields=v.split("|")
         print("CATALOG_DELTA_"+tag+"_OBJECT="+("|".join(fields[:2]))[:125])
+        if fields[0]=="T" and len(fields)>=6:
+            print("CATALOG_DELTA_"+tag+"_TABLE_ACL="+fields[1]+";owner="+fields[2]+";rls="+fields[3]+";force="+fields[4]+";acl="+("|".join(fields[5:]))[:600])
 PY
   echo STOP_RESTORE_CATALOG_OR_GRANTS_MISMATCH >&2
   exit 70
