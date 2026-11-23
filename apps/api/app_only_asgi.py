@@ -25,9 +25,10 @@ PATH_FIELDS = ("server_tls_cert_file","server_tls_key_file",
     "trusted_bff_ca_file","bff_rs256_public_key_file")
 
 class AppOnly:
-    def __init__(self, inner=None, *, ready=False):
+    def __init__(self, inner=None, *, ready=False, readiness_probe=None):
         self.inner = inner
         self.ready = ready
+        self.readiness_probe = readiness_probe
 
     @staticmethod
     async def respond(send, status, doc):
@@ -59,9 +60,20 @@ class AppOnly:
             return await self.respond(send,200,{"contract_version":"api.app_only_health.v1",
                 "service":"api","process":"live","dependencies_verified":self.ready})
         if method == "GET" and path == b"/health/ready":
-            return await self.respond(send,200 if self.ready else 503,{
+            # Startup passed is not lasting DB readiness: verify restricted
+            # Postgres roles and grants again, with a bounded timeout.
+            verified = bool(self.ready and self.inner is not None
+                            and self.readiness_probe is not None)
+            if verified:
+                import asyncio
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(self.readiness_probe), timeout=7.0)
+                except (OSError, RuntimeError, ValueError, Exception):
+                    verified = False
+            return await self.respond(send,200 if verified else 503,{
                 "contract_version":"api.app_only_health.v1",
-                "ready":self.ready,"retrieval":"unavailable","generation":"unavailable"})
+                "ready":verified,"retrieval":"unavailable","generation":"unavailable"})
         if method == "GET" and path == b"/v1/capabilities":
             return await self.respond(send,200,{
                 "contract_version":"api.app_only_capabilities.v1",
@@ -135,7 +147,8 @@ def prepare_private_app(cfg):
                           "src/phase3/storage/postgres"))
     from apps.api import product_session_api
     product_session_api.install_private_staging_auth(profile)
-    return AppOnly(product_session_api.app,ready=True),boundary
+    return AppOnly(product_session_api.app,ready=True,
+                   readiness_probe=lambda: verify_staging_database_authority(profile)),boundary
 
 def main(argv=None):
     parser=argparse.ArgumentParser()

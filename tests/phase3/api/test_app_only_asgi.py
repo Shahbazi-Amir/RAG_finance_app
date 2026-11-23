@@ -20,8 +20,19 @@ class AppOnlyBoundary(unittest.TestCase):
     def test_liveness_not_fake_readiness(self):
         self.assertEqual(self.run_request(AppOnly(),"/health/live")[0],200)
         self.assertEqual(self.run_request(AppOnly(),"/health/ready")[0],503)
-    def test_only_preverified_ready(self):
-        self.assertEqual(self.run_request(AppOnly(ready=True),"/health/ready")[0],200)
+    def test_only_live_preverified_pg_ready(self):
+        class Protected:
+            async def __call__(self,*args):raise AssertionError("Not reached")
+        x=AppOnly(Protected(),ready=True,readiness_probe=lambda: True)
+        self.assertEqual(self.run_request(x,"/health/ready")[0],200)
+        self.assertEqual(self.run_request(AppOnly(ready=True),"/health/ready")[0],503)
+    def test_db_outage_health_fails_closed(self):
+        class Protected:
+            async def __call__(self,*args):raise AssertionError("Not reached")
+        def offline():raise OSError("private PG unavailable")
+        x=AppOnly(Protected(),ready=True,readiness_probe=offline)
+        status,doc,reads=self.run_request(x,"/health/ready")
+        self.assertEqual((status,doc["ready"],reads),(503,False,0))
     def test_no_engine_capability(self):
         code,doc,reads=self.run_request(AppOnly(),"/v1/capabilities")
         self.assertEqual((code,doc["retrieval"],doc["generation"],reads),
