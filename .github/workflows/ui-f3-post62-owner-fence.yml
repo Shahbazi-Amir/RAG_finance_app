@@ -91,14 +91,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm --prefix apps/web run start > "$RUNNER_TEMP/ui-app-only-next.log" 2>&1 &
+          (cd apps/web && ./node_modules/.bin/next start -H 127.0.0.1 -p 3100) > "$RUNNER_TEMP/ui-app-only-next.log" 2>&1 &
           app_only_pid=$!
           trap 'kill "$app_only_pid" 2>/dev/null || true' EXIT
           for i in $(seq 1 60); do
-            if curl -fsS --max-time 2 http://127.0.0.1:3000/api/product-capabilities >/dev/null; then break; fi
+            if curl -fsS --max-time 2 http://127.0.0.1:3100/api/product-capabilities >/dev/null; then break; fi
             sleep 1
           done
-          curl -fsS --max-time 5 http://127.0.0.1:3000/api/product-capabilities >/dev/null || {
+          curl -fsS --max-time 5 http://127.0.0.1:3100/api/product-capabilities >/dev/null || {
             tail -70 "$RUNNER_TEMP/ui-app-only-next.log"; exit 1;
           }
           python tests/phase3/integration/ui/app_only_real_browser.py
