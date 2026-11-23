@@ -139,7 +139,11 @@ export default function ProductChat(){
       setListState('ready');
       if(!append)setSelected(current=>current==='draft:new'&&page.items.length?
         page.items[0].id:current);
-    }catch(e){if(!invalidate(e)&&!lost.current){setListState('error');setError(failureLabel(e));}}
+    }catch(e){if(!invalidate(e)&&!lost.current){
+      // Do not keep stale owner-bearing results after a failed revalidation.
+      setList({items:[],next:null,more:false});
+      setListState('error');setError(failureLabel(e));
+    }}
   },[invalidate,matchOwner]);
   const loadThread=useCallback(async (id:string,append=false,cursor:string|null=null)=>{
     if(lost.current||id.startsWith('draft:'))return;
@@ -156,7 +160,10 @@ export default function ProductChat(){
           next:page.next,more:page.more
         }};
       });
-    }catch(e){if(!invalidate(e)&&!lost.current)setError(failureLabel(e));}
+    }catch(e){if(!invalidate(e)&&!lost.current){
+      setThreads(all=>{const next={...all};delete next[id];return next;});
+      setError(failureLabel(e));
+    }}
   },[invalidate,matchOwner]);
   const probe=useCallback(async (record:AttemptCheckpoint)=>{
     if(lost.current||polling.current.has(record.client_message_id))return;
@@ -209,7 +216,7 @@ export default function ProductChat(){
         return {...all,[record.client_message_id]:{
           ...previous,phase:resultPhase,attemptId:status.attemptId??previous.attemptId,
           messageId:status.messageId,answer:status.answer,
-          engine:technical??previous.engine,engineUnavailable,
+          engine:technical,engineUnavailable,
           sources,sourcesUnavailable,
           record:status.id?{...previous.record,resolved_conversation_id:status.id}:previous.record,
           viewId:status.id??previous.viewId,
@@ -228,7 +235,8 @@ export default function ProductChat(){
         setAttempts(all=>{
           const prev=all[record.client_message_id];
           return prev&&!isTerminal(prev.phase)?{...all,[record.client_message_id]:
-            {...prev,phase:'status_error'}}:all;
+            {...prev,phase:'status_error',answer:null,engine:null,engineUnavailable:true,
+               sources:null,sourcesUnavailable:true,attemptId:null,messageId:null}}:all;
         });
     }finally{polling.current.delete(record.client_message_id);}
   },[invalidate,loadList,loadThread]);
