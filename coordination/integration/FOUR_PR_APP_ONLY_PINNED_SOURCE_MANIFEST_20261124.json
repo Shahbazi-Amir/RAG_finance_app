@@ -2,7 +2,7 @@
   "kind": "f3_app_only_four_pr_integration_manifest",
   "contract_version": "integration.f3.app_only.v1",
   "scope": "CI_ISOLATED_NO_ENGINE_NO_MAC_NO_PRODUCTION",
-  "generated_from_tree_sha": "d4f800722114a5e4c292f8e5989919f38f1a2030",
+  "generated_from_tree_sha": "dbf1be62ef7e8bf0e2ec891c5bc451376bf2161d",
   "parent_branches_exact_shas": {
     "fd": "b7c8928e596001de83c5f8dbd1b86284f46a57a9",
     "ui": "a039e26c7c84f3fb945862152e17ca655fd7b30c",
@@ -335,5 +335,6 @@
     "site_deployed": false,
     "engine_invoked": false,
     "full_phase3_accepted": false
-  }
+  },
+  "generated_from_commit_sha": "d4f800722114a5e4c292f8e5989919f38f1a2030"
 }
