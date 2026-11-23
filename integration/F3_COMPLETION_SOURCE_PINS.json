@@ -1,5 +1,5 @@
 {
-  "schema": "foundation.f3.completion_integration.v4",
+  "schema": "foundation.f3.app_only_integration.v1",
   "parent_commit": "f7d738aa763179eba28c7847e6225640bb88b176",
   "owners": {
     "DATABASE_F3": {
@@ -10,19 +10,19 @@
       "head_unverified_changes_excluded": true
     },
     "API_F3": {
-      "tested_source_sha": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
-      "current_head": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
-      "CI_run": "45226729581",
+      "tested_source_sha": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "current_head": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "CI_run": "45234618033;45234618062",
       "api_lock_sha256": "399a4e796403bd8fc5b8165c030ad4d4d8479fb946e363e29a5722ea88d35ff5",
       "documentation_only_head": "5d9df47c7ca52133ca8706bd748d535233bae050",
       "api_runtime_pin": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
       "documentation_evidence": "API #63 262 rows / 91 API IDs; no runtime delta"
     },
     "UI_F3": {
-      "tested_source_sha": "f45caa45139d2e147c3e45fd7349033b212342c7",
-      "current_head": "f45caa45139d2e147c3e45fd7349033b212342c7",
+      "tested_source_sha": "535678051f3847661c8f048819c8a6784a804e35",
+      "current_head": "535678051f3847661c8f048819c8a6784a804e35",
       "previous_tested_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
-      "CI_run": "45225396455",
+      "CI_run": "candidate integration not yet verified; owner head evidence must be checked",
       "receipt_scope": "121/121 Node, Typecheck/Lint/Next Build, synthetic Chromium owner switch/late owner/mixed thread, no Mac"
     }
   },
@@ -63,10 +63,10 @@
       "reason": "API61 final hardened contract"
     },
     "apps/web/src/history/proxy.ts": {
-      "owner": "API_F3",
-      "source_sha": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
-      "git_blob": "2588caf8f9e79470a90974e3e5dee4adecb3ad0e",
-      "reason": "API61 final hardened contract"
+      "owner": "UI_F3",
+      "source_sha": "535678051f3847661c8f048819c8a6784a804e35",
+      "git_blob": "6b9377d16714b49921492e6c7f2c9b775ae2f639",
+      "reason": "selected exact owner source integrated into app-only candidate; not Mac acceptance"
     },
     "locks/requirements-api.lock": {
       "owner": "API_F3",
@@ -88,9 +88,9 @@
     },
     "src/phase3/rag_runtime/no_dispatch_handler.py": {
       "owner": "API_F3",
-      "source_sha": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
-      "git_blob": "5e3472af55a1f3b5b1162a283b3a48aca01e6f21",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "git_blob": "62d1b8019b2ffb9a22f66c9a3457674748baef6d",
+      "reason": "selected exact owner source integrated into app-only candidate; not Mac acceptance"
     },
     "src/phase3/rag_runtime/retrieved_sources.py": {
       "owner": "API_F3",
@@ -118,9 +118,9 @@
     },
     "apps/web/src/ui/product-chat.tsx": {
       "owner": "UI_F3",
-      "source_sha": "f45caa45139d2e147c3e45fd7349033b212342c7",
-      "git_blob": "c417ad881a2a5cdbec476e6b7c76b8c5a3212f23",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "535678051f3847661c8f048819c8a6784a804e35",
+      "git_blob": "ec4771ca73820453681ed9ce7342949ed58c02f1",
+      "reason": "selected exact owner source integrated into app-only candidate; not Mac acceptance"
     },
     "apps/web/src/ui/retrieved-sources-panel.tsx": {
       "owner": "UI_F3",
@@ -136,9 +136,9 @@
     },
     "tests/phase3/integration/ui/product_chat_browser.py": {
       "owner": "UI_F3",
-      "source_sha": "f45caa45139d2e147c3e45fd7349033b212342c7",
-      "git_blob": "45c02bd0aba9ef9d4c52418dda2c2b720f69dcd4",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "535678051f3847661c8f048819c8a6784a804e35",
+      "git_blob": "1dceec8d6bffe87e5ecce0ae86eddb1a8ee99efa",
+      "reason": "selected exact owner source integrated into app-only candidate; not Mac acceptance"
     },
     "tests/phase3/ui/retrieved-sources-client.test.mjs": {
       "owner": "UI_F3",
@@ -244,9 +244,9 @@
     },
     "apps/web/app/history/history.css": {
       "owner": "UI_F3",
-      "source_sha": "f45caa45139d2e147c3e45fd7349033b212342c7",
-      "git_blob": "18947135eb5e06a0392cb8af717a61457e5c56e2",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "535678051f3847661c8f048819c8a6784a804e35",
+      "git_blob": "8e8ebe0fe9d52dbe88285c2abd3d8544561055fa",
+      "reason": "selected exact owner source integrated into app-only candidate; not Mac acceptance"
     },
     "apps/web/app/login/route.ts": {
       "owner": "UI_F3",
@@ -655,6 +655,18 @@
       "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
       "git_blob": "8732a4788cb3ecf821c15d811119f8cacc3eedd1",
       "reason": "Exact owner CI tested pin, not Mac acceptance"
+    },
+    "tests/phase3/api/test_full_binding_fence.py": {
+      "owner": "API_F3",
+      "source_sha": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "git_blob": "d8d181d0e04dbf976f520a2166b039832d92b8ef",
+      "reason": "selected exact owner source integrated into app-only candidate; not Mac acceptance"
+    },
+    "tests/phase3/integration/api/test_product_session_011.py": {
+      "owner": "API_F3",
+      "source_sha": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "git_blob": "ff44a2b4b86270748058db41f3b6b2e16de4b3ed",
+      "reason": "selected exact owner source integrated into app-only candidate; not Mac acceptance"
     }
   },
   "status": {
@@ -677,5 +689,7 @@
     "db_unverified_HEAD": "322fc16f6602d52c16facd2d598834228bacf58d",
     "owner_paths": 46,
     "overlap_count": 0
-  }
+  },
+  "app_only_source_parent": "b7c8928e596001de83c5f8dbd1b86284f46a57a9",
+  "app_only_scope": "NO_ENGINE_NO_RUNNER_NO_QDRANT_NO_MODEL; Mac L2 and owner approval NOT_RUN"
 }
