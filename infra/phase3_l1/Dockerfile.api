@@ -20,6 +20,6 @@ USER 11001:11001
 RUN python3 -c "from apps.api.app_only_asgi import app; print('API_APP_ONLY_IMPORT_SMOKE_PASS')"
 ENV PHASE3_APP_MODE=APP_ONLY
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \\
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/live', timeout=2).close()"
 CMD ["python3","-m","uvicorn","apps.api.app_only_asgi:app","--host","0.0.0.0","--port","8080","--no-access-log"]
