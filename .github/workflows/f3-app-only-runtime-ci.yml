@@ -14,6 +14,22 @@ jobs:
         with: {persist-credentials: false}
       - uses: actions/setup-python@v5
         with: {python-version: '3.13'}
+      - name: Verify exact unified API #76 / UI #65 / Foundation Git blobs
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,subprocess,hashlib
+          m=json.load(open("integration/F3_COMPLETION_SOURCE_PINS.json"))
+          pins=m["file_pins"]
+          for path,item in pins.items():
+              actual=subprocess.check_output(["git","hash-object",path],text=True).strip()
+              if actual!=item["git_blob"]:
+                  raise SystemExit("SOURCE_PIN_MISMATCH: "+path)
+          actual=hashlib.sha256(open("locks/requirements-api.lock","rb").read()).hexdigest()
+          expected=m["owners"]["API_F3"]["api_lock_sha256"]
+          assert actual==expected,"API_DEPENDENCY_LOCK_DRIFT"
+          print("APP_ONLY_114_SOURCE_BLOBS_AND_API_LOCK_EXACT_PASS",len(pins))
+          PY
       - name: Install exact hashed Python API deps, no Engine
         run: |
           set -euo pipefail
