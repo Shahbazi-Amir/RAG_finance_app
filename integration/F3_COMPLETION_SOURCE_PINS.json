@@ -753,8 +753,8 @@
     "tests/phase3/api/test_app_only_no_engine_listener.py": {
       "owner": "APP_ONLY_CI_ORCHESTRATOR",
       "source_sha": "0e3f2f865438f98ffcd22a763eae38a269b17c26",
-      "git_blob": "45557c588b659d4f11889a1d65ce5b99bd568ff4",
-      "reason": "Safe CI-only real API listener with not-ready absent IdP/PG, no engine, exact HTTP probe"
+      "git_blob": "aaa6109804a7ff158085aa2ce8f3fda176b8b7f3",
+      "reason": "CI TestClient Host matches localhost whitelist; negative untrusted Host remains 400; exact owner CI verify pending"
     },
     "infra/phase3_l1/Dockerfile.api": {
       "owner": "APP_ONLY_CI_ORCHESTRATOR",
