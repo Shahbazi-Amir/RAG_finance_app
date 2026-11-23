@@ -711,8 +711,8 @@
     "apps/web/src/history/product-validation.ts": {
       "owner": "UI_F3_COMPAT_BRIDGE",
       "source_sha": "5bdd911d7c2d561e4224d561ae47eb10f09e415a",
-      "git_blob": "6d2d90179732716f59e4f96803ea20706063d854",
-      "reason": "Candidate-only compatible source overlay, exact image test counts; require integrated same-SHA CI"
+      "git_blob": "5adada8e18bbd705339118dd3d9c04d9d17c1ce4",
+      "reason": "UI65 source plus backward-compatible if/then/else + pinned schema export, dual consumer negative tests in integrated candidate"
     },
     "tests/phase3/integration/ui/l2_no_dispatch_receipt_gate.py": {
       "owner": "UI_F3",
