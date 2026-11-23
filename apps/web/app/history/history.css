@@ -121,3 +121,21 @@
 .account-policy h2{font-size:16px;margin:0 0 8px}
 .account-policy p{font-size:13px;line-height:1.9}
 .history-recovery{margin:20px 0}
+
+/* UI-11 keyboard bypass: the skip control is first in DOM order,
+   visible only on keyboard focus, and targets a focusable semantic heading. */
+.history-skip{
+  position:fixed;inset-block-start:10px;inset-inline-start:12px;
+  z-index:80;display:inline-block;padding:10px 15px;
+  border:2px solid #145c3e;border-radius:9px;background:#fff;color:#145c3e;
+  font-size:15px;font-weight:700;text-decoration:underline;
+  transform:translateY(calc(-100% - 22px));
+}
+.history-skip:focus,.history-skip:focus-visible{transform:none;outline:3px solid #b45309;outline-offset:2px}
+.history-heading h1:focus{outline:3px solid #b45309;outline-offset:5px;border-radius:4px}
+
+/* UI-06/UI-11: mixed Persian + Latin user titles, questions and claim text.
+   Isolate direction per visual paragraph, never reverse LTR identifiers. */
+.history-list .nav-thread-text,.history-message-text,.product-claim p{
+  unicode-bidi:plaintext;overflow-wrap:anywhere;
+}
