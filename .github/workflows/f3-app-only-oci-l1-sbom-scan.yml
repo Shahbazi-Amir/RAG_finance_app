@@ -45,7 +45,7 @@ jobs:
           mkdir -p ci_receipts/oci
           printf 'OCI_SCAN_TARGET=%s\nSOURCE_SHA=%s\n' "$service" "$GITHUB_SHA"
       - name: Actual image SBOM CycloneDX via Trivy
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           scan-type: image
           image-ref: 'f3-oci-${{ matrix.service }}:${{ github.sha }}'
@@ -53,7 +53,7 @@ jobs:
           output: ci_receipts/oci/sbom.cdx.json
           exit-code: '0'
       - name: Actual image OS and library vulnerability inventory via Trivy
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           scan-type: image
           image-ref: 'f3-oci-${{ matrix.service }}:${{ github.sha }}'
@@ -90,7 +90,7 @@ jobs:
                'environment':'ephemeral GitHub hosted Ubuntu24.04 linux/amd64',
                'scan_target':'REAL_CI_BUILT_IMAGE',
                'base_image':'DockerHub version tag CI fallback, NOT approved ECR immutable digest',
-               'scanner':'aquasecurity/trivy-action@0.33.1',
+               'scanner':'aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25',
                'mac_target':'NOT_RUN','accepted_release':'NO','full_engine':'NOT_CONNECTED',
                'central_gate':'NOT_ACCEPTED'}
           (root/'bounded_scan_summary.json').write_text(json.dumps(doc,indent=2)+'\n')
