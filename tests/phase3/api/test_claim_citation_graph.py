@@ -5,7 +5,10 @@ import copy
 import json
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
+from apps.api import product_session_api as api
 from src.phase3.rag_runtime.claim_citation_graph import (
     CitationGraphDenied, inspect_answer_citation_graph,
 )
@@ -115,6 +118,38 @@ class ClaimCitationGraphTests(unittest.TestCase):
     def test_unsupported_extra_fields_denied(self):
         self.answer["citations"][0]["source"]["secret_owner"] = "owner_B"
         self.deny(self.answer)
+
+    def test_route_fixture_rejects_broken_graph_before_product_t3(self):
+        broken = copy.deepcopy(self.valid)
+        broken["claims"][0]["citation_ids"] = ["nonexistent_citation"]
+        proof = SimpleNamespace(owner_id="owner_A", session_ref="session",
+                                epoch=1, generation=1)
+        receipt = {"disposition": "created", "resolved_conversation_id": "conv_1"}
+        attempt = {"id": "attempt_1", "reserved_answer_id": "ans_1",
+                   "attempt_request_id": "req_1", "attempt_trace_id": "trace_1"}
+        connection = MagicMock()
+        connect = MagicMock()
+        connect.__enter__.return_value = connection
+        with (patch.object(api, "_signed_history", return_value=(
+                  proof, (receipt, attempt))),
+              patch.object(api, "_conn", return_value=connect) as connect_db,
+              patch.object(api, "answer_from_fixture", return_value=broken),
+              patch.object(api.auth_session, "admit_session_fenced",
+                           return_value=True) as admission,
+              patch.object(api, "mark_attempt") as failed,
+              patch.object(api, "finalize_t3") as finalize):
+            response = api._run_fixture_send(
+                None, b"fake_wire", {"question": "synthetic question"})
+        self.assertEqual(response.status_code, 502)
+        self.assertNotIn("nonexistent_citation",
+                         response.body.decode("utf-8"))
+        self.assertNotIn("owner_A", response.body.decode("utf-8"))
+        connect_db.assert_called_once_with("history")
+        admission.assert_called_once()
+        failed.assert_called_once_with(
+            connection, "owner_A", "attempt_1", "failed",
+            "PROVIDER_REQUEST_FAILED")
+        finalize.assert_not_called()
 
 
 if __name__ == "__main__":
