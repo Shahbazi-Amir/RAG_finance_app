@@ -447,7 +447,7 @@ class RealProductSession011(unittest.TestCase):
             witness = admin.execute(
                 "SELECT e.id AS attempt_id, e.owner_id, "
                 "r.client_message_id, r.idempotency_key, "
-                "r.resolved_conversation_id, r.user_message_id, m.text "
+                "r.resolved_conversation_id, r.user_message_id, m.body AS text "
                 "FROM history_l1.execution_attempts AS e "
                 "JOIN history_l1.send_receipts AS r "
                 "ON r.owner_id=e.owner_id AND r.id=e.send_receipt_id "
