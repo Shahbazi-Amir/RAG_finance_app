@@ -78,7 +78,6 @@ async def browser_history(page,label,expected_ids):
     await page.reload()
     await expect(page.locator('[data-testid^="conversation-"]').first).to_be_visible(
         timeout=20000)
-    from playwright.async_api import expect
     if len(expected_ids)>2:
         # Validate the real BFF response first; only then wait for hydration.
         server=await page.request.get(ORIGIN+"/api/history/conversations?limit=2")
