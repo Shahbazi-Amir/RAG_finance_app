@@ -110,6 +110,7 @@ export default function ProductChat(){
   const polling=useRef(new Set<string>());
   const attemptsRef=useRef(attempts);
   const threadEpochs=useRef<Record<string,number>>({});
+  const listEpoch=useRef(0);
   useEffect(()=>{attemptsRef.current=attempts},[attempts]);
   const invalidate=useCallback((e:unknown):boolean=>{
     if(!(e instanceof HistoryFailure&&e.reason==='unauthorized'))return false;
@@ -118,6 +119,7 @@ export default function ProductChat(){
     const s=sessionStore();if(s)forgetCheckpoints(s);
     attemptsRef.current={};
     threadEpochs.current={};
+    listEpoch.current++;
     setAttempts({});setList({items:[],next:null,more:false});
     setThreads({});setSelected('draft:new');setDrafts({});
     setListState('unauthorized');setError('');setMobileOpen(false);setBusy(false);
@@ -130,20 +132,27 @@ export default function ProductChat(){
   },[invalidate]);
   const loadList=useCallback(async (append=false,cursor:string|null=null)=>{
     if(lost.current)return;
+    const epoch=++listEpoch.current;
     try{
       // Keep the existing #49 browser A/B harness query `limit=2` stable.
       const page=await conversations(2,append?cursor:null);
-      if(lost.current||!matchOwner(page.owner))return;
+      if(lost.current||!matchOwner(page.owner)||listEpoch.current!==epoch)return;
       setList(prev=>({items:append?mergeUnique(prev.items,page.items,x=>x.id):page.items,
         next:page.next,more:page.more}));
       setListState('ready');
       if(!append)setSelected(current=>current==='draft:new'&&page.items.length?
         page.items[0].id:current);
-    }catch(e){if(!invalidate(e)&&!lost.current){
-      // Do not keep stale owner-bearing results after a failed revalidation.
+    }catch(e){
+      if(invalidate(e)||lost.current)return;
+      if(listEpoch.current!==epoch)return;
+      // An invalid owner-bearing page cannot safely coexist with a prior
+      // owner's visible messages, composer and checkpoint correlations.
+      if(e instanceof HistoryFailure&&e.reason==='invalid'){
+        invalidate(new HistoryFailure(401,'unauthorized'));return;
+      }
       setList({items:[],next:null,more:false});
       setListState('error');setError(failureLabel(e));
-    }}
+    }
   },[invalidate,matchOwner]);
   const loadThread=useCallback(async (id:string,append=false,cursor:string|null=null)=>{
     if(lost.current||id.startsWith('draft:'))return;
@@ -160,10 +169,15 @@ export default function ProductChat(){
           next:page.next,more:page.more
         }};
       });
-    }catch(e){if(!invalidate(e)&&!lost.current){
+    }catch(e){
+      if(invalidate(e)||lost.current)return;
+      if(threadEpochs.current[id]!==epoch)return;
+      if(e instanceof HistoryFailure&&e.reason==='invalid'){
+        invalidate(new HistoryFailure(401,'unauthorized'));return;
+      }
       setThreads(all=>{const next={...all};delete next[id];return next;});
       setError(failureLabel(e));
-    }}
+    }
   },[invalidate,matchOwner]);
   const probe=useCallback(async (record:AttemptCheckpoint)=>{
     if(lost.current||polling.current.has(record.client_message_id))return;
