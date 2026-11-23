@@ -148,8 +148,57 @@ test('synthetic/provisional Answer is never user-visible even if committed',()=>
     ...synthetic.provenance,origin:'LIVE_VERIFIED',
     rag_binding:{...synthetic.provenance.rag_binding,status:'verified',adapter_verified:true}
   }};
-  assert.equal(isVerifiedLiveAnswer(live),true);
+  // A valid RAG provenance flag alone is NOT permission to show an Answer
+  // whose claim points to an unresolved, uncitable source.
+  assert.equal(isVerifiedLiveAnswer(live),false);
+  const verifiedSource={...synthetic.citations[0].source,
+    source_type:'book',source_id:'source_book_verified',
+    resolution_status:'verified',attribution_status:'verified',
+    display_title_origin:'source_record',credited_author_name:'نویسنده',
+    locator:{kind:'book_page',url:null,page:12,timestamp_ms:null}};
+  const trusted={...live,citations:[{...live.citations[0],source:verifiedSource}]};
+  assert.equal(isVerifiedLiveAnswer(trusted),true);
+  assert.equal(isVerifiedLiveAnswer({...trusted,claims:[]}),false);
+  assert.equal(isVerifiedLiveAnswer({...trusted,claims:[{...trusted.claims[0],citation_ids:[]}]}),false);
+  assert.equal(isVerifiedLiveAnswer({...trusted,citations:[{...trusted.citations[0],
+    claim_ids:[]}]}),false);
+  assert.equal(isVerifiedLiveAnswer({...trusted,citations:[{...trusted.citations[0],
+    source:{...verifiedSource,attribution_status:'unknown'}}]}),false);
 });
+test('verified claim gate checks all five typed locators, rejects unsafe URL and synthetic metadata',()=>{
+  const original=fixture('valid_answer_unresolved_source');
+  const trusted={...original,provenance:{
+    ...original.provenance,origin:'LIVE_VERIFIED',
+    rag_binding:{...original.provenance.rag_binding,status:'verified',adapter_verified:true}
+  }};
+  const template={...original.citations[0].source,
+    source_type:'website',source_id:'source_site_verified',
+    resolution_status:'verified',attribution_status:'verified',
+    display_title_origin:'source_record',credited_author_name:'مولف'};
+  const withSource=source=>({...trusted,citations:[{...trusted.citations[0],source}]});
+  const known=[
+    {...template,locator:{kind:'url',url:'https://example.org/trusted',page:null,timestamp_ms:null}},
+    {...template,source_type:'book',locator:{kind:'book_page',url:null,page:12,timestamp_ms:null}},
+    {...template,source_type:'book',locator:{kind:'book_anchor',url:null,page:null,
+      timestamp_ms:null,work_id:'w1',edition_id:'e1',anchor:'section-1'}},
+    {...template,source_type:'transcript',locator:{kind:'transcript_timestamp',url:null,
+      page:null,timestamp_ms:1000}},
+    {...template,source_type:'transcript',locator:{kind:'transcript_segment',url:null,
+      page:null,timestamp_ms:null,episode_id:'ep1',segment_anchor:'seg1'}}
+  ];
+  for(const source of known)assert.equal(isVerifiedLiveAnswer(withSource(source)),true,
+    source.locator.kind);
+  assert.equal(isVerifiedLiveAnswer(withSource({...known[0],locator:{
+    ...known[0].locator,url:'javascript:alert(1)'}})),false);
+  assert.equal(isVerifiedLiveAnswer(withSource({...known[1],locator:{
+    ...known[1].locator,page:0}})),false);
+  assert.equal(isVerifiedLiveAnswer(withSource({...known[4],locator:{
+    ...known[4].locator,segment_anchor:''}})),false);
+  assert.equal(isVerifiedLiveAnswer(withSource({...known[2],display_title_origin:'SYNTHETIC'})),false);
+  const noAnswer=fixture('valid_answer_no_answer');
+  assert.equal(isVerifiedLiveAnswer({...noAnswer,provenance:trusted.provenance}),true);
+});
+
 test('no evidence vs technical error vs partial vs unknown are separate',()=>{
   const noAnswer=fixture('valid_answer_no_answer');
   const technical=fixture('valid_answer_technical_error');
