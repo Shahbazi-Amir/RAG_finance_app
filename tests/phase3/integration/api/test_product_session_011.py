@@ -375,7 +375,8 @@ class RealProductSession011(unittest.TestCase):
         })
         def signed_get(actor, endpoint, q=""):
             token, _ = self.signed(
-                actor, method="GET", path=endpoint, query=q.encode("ascii"))
+                actor, method="GET", path=endpoint,
+                query=q.removeprefix("?").encode("ascii"))
             return self.request("GET", endpoint, token, query=q)
 
         # A real HTTP response from PostgreSQL, not an in-process history
