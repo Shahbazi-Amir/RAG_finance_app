@@ -260,6 +260,9 @@ def main():
             # A different valid owner in a separately signed list response
             # must clear the former owner's message/Attempt/cache before display.
             state["owner_mode"] = "changed"
+            # Refresh is in the responsive drawer: open it before clicking.
+            menu.click()
+            expect(page.get_by_role("dialog", name="فهرست گفتگوها")).to_be_visible()
             page.get_by_test_id("refresh-history").click()
             expect(page.get_by_test_id("history-login-required")).to_be_visible()
             assert page.locator("nav.history-list button").count() == 0

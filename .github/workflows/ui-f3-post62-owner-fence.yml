@@ -10,7 +10,7 @@ on:
       - 'tests/phase3/integration/ui/**'
       - 'coordination/tasks/AGENT-UI-01.md'
       - 'coordination/handoffs/UI_F3_POST62_OWNER_FENCE.md'
-      - 'coordination/handoffs/UI_F3_PHASE3_ROWS.csv'
+      - 'coordination/handoffs/UI_F3_*'
   workflow_dispatch:
 permissions:
   contents: read
