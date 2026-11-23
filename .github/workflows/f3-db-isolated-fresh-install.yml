@@ -57,6 +57,9 @@ jobs:
           bash scripts/15_populated_pre009_upgrade_restore.sh
           bash scripts/16_fault_injected_migration_ledger.sh
           bash scripts/17_populated_query_plan_and_owner.sh
+          bash scripts/19_history_rls_negative_matrix.sh
+          bash scripts/20_backup_integrity_corruption_probe.sh
+          bash scripts/21_history_cursor_race_probe.sh
           bash scripts/11_export_sanitized_receipt.sh
           printf 'CI_GIT_SHA=%s\nCI_PG=17.11\nISOLATED_FRESH_INSTALL=PASS\n' "$GITHUB_SHA"
           printf 'NO_DEMO_DB=PASS\nNO_011=PASS\nNO_ARVAN=PASS\n'

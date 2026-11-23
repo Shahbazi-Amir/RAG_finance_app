@@ -1,5 +1,8 @@
 # DATABASE_F3 → Foundation + API: isolated candidate PostgreSQL consumption
 
+> **LATEST consumable exact-source supplement (2026-11-23):** new executable DB SHA 996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba, CI 45202743968 PASS, same-runner two-baseline PG17.11/DB55 independent restore comparison CI 45209570132 PASS. `03_apply_pinned_001_010.sh` hardened Git Blob 9cc9458c55b82f03811b346259ccf2ae3dce318d, old a30dbeb... not equivalent; 001–010, manifest/image and nine roles unchanged. The installation steps below 00→10 remain valid for base, but full 11 export **requires 13→12→14→15→16→17 before 11**. Read contracts/DBF3_EXACT_PINS_SCRIPT11_PREREQUISITES_20261123.md. The latest physically integrated exact DB subtree is at ce899c26a27fa0e913584384f9dac8980bb77c33; integration/F3_SOURCE_PINS.json older metadata is not repinned yet. Signed Mac product E2E remains NOT_RUN.
+
+
 Scope: **separate freshly initialized PostgreSQL 17.11** with Product + Bootstrap *real source DB authority preflight*. This document does not claim full signed ASGI HTTP traffic, BFF, live IdP, C018 or a Mac product startup. It explicitly excludes the accepted Mac demo database and volume.
 
 ## 1. Source and version boundary

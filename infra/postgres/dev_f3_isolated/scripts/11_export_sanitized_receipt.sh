@@ -182,3 +182,74 @@ assert r["query_plans"]["messages"]["actual_rows"] == 2
 assert r["production_workload_certified"] is False
 PY
 echo 'SANITIZED_TWO_OWNER_POPULATED_EXPLAIN_RECEIPT=PASS'
+
+# Additional real-PG adversarial History/write/owner boundary receipt.
+# No customer data, DSNs, secrets, raw SQL or direct private table contents.
+adversarial="$LAB_WORK/history_rls_adversarial_receipt.json"
+[[ -s "$adversarial" ]] || { echo STOP_HISTORY_ADVERSARIAL_RECEIPT_MISSING >&2;exit 70; }
+python3 - "$adversarial" <<'PY'
+import json,sys
+from pathlib import Path
+r=json.loads(Path(sys.argv[1]).read_text())
+assert r["contract_version"]=="f3.db.synthetic_history_rls_adversarial.v1"
+assert r["owners"]==2 and r["tables"]==6 and r["rows_per_table"]==2
+assert r["owner_a_visible_each"]==[1]*6 and r["owner_b_visible_each"]==[1]*6
+assert r["no_owner_visible_each"]==[0]*6
+assert r["positive_owner_a_title_update"]=="PASS"
+assert r["foreign_owner_update"]=="NO_ROWS"
+assert len(r["negative_cases"])==7
+assert all(x.endswith("_DENIED") for x in r["negative_cases"].values())
+assert r["post_negative_snapshot"]=="NO_UNAUTHORIZED_CHANGES"
+assert r["direct_history_role_can_set_owner_guc"] is True
+assert r["same_transaction_signed_actor_fence"]=="NOT_PROVEN_REQUIRES_REAL_API_IDP"
+assert r["real_mac_http"]=="NOT_RUN" and r["external_dispatch"] is False
+assert r["module_gate"]=="NOT_ACCEPTED"
+PY
+install -m 0600 "$adversarial" "$GITHUB_WORKSPACE/ci_receipts/history_rls_adversarial_receipt.json"
+echo 'HISTORY_READ_WRITE_OWNER_FK_AND_DEDUPE_NEGATIVE_RECEIPT=PASS'
+echo 'HISTORY_TRUSTED_ACTOR_FENCE_SIGNED_HTTP=NOT_RUN'
+
+# Original backup corruption/truncation fail-closed preflight evidence.
+# No corrupt dump or clean raw pg_dump is ever attached to public CI artifacts.
+backup_fault="$LAB_WORK/backup_integrity_fault_receipt.json"
+[[ -s "$backup_fault" ]] || { echo STOP_BACKUP_INTEGRITY_FAULT_RECEIPT_MISSING >&2;exit 70; }
+python3 - "$backup_fault" <<'PY'
+import json,sys
+from pathlib import Path
+r=json.loads(Path(sys.argv[1]).read_text())
+assert r["contract_version"]=="f3.db.synthetic_backup_integrity_fault.v1"
+assert r["single_byte_changed_sha256_mismatch"]=="FAIL_CLOSED_BEFORE_RESTORE"
+assert r["truncated_dump_sha256_mismatch"]=="FAIL_CLOSED_BEFORE_RESTORE"
+assert r["healthy_dump_sha256_rechecked"]=="PASS"
+assert r["healthy_source_and_independent_restore_cluster_ids_unchanged"] is True
+assert r["corrupt_archives_restored"] is False and r["corrupt_restore_sql_attempts"]==0
+assert r["encrypted_offsite_backup"]=="NOT_TESTED" and r["pitr"]=="NOT_TESTED"
+assert r["real_disaster_recovery"]=="NOT_TESTED"
+assert r["rpo_rto_signed"]=="NOT_DEFINED" and r["module_gate"]=="NOT_ACCEPTED"
+PY
+install -m 0600 "$backup_fault" "$GITHUB_WORKSPACE/ci_receipts/backup_integrity_fault_receipt.json"
+echo 'BACKUP_CORRUPT_AND_TRUNCATED_NEGATIVE_RECEIPT=PASS'
+echo 'BACKUP_PRODUCTION_PITR_AND_ENCRYPTION_GATE=NOT_TESTED'
+
+# Anchored History keyset cursor real-SQL two-owner and insert-race receipt.
+cursor="$LAB_WORK/history_cursor_race_receipt.json"
+[[ -s "$cursor" ]] || { echo STOP_HISTORY_CURSOR_RACE_RECEIPT_MISSING >&2;exit 70; }
+python3 - "$cursor" <<'PY'
+import json,sys
+from pathlib import Path
+r=json.loads(Path(sys.argv[1]).read_text())
+assert r["contract_version"]=="f3.db.synthetic_history_keyset_cursor.v1"
+assert r["source_repository_git_blob"]=="14f97dd680425b74f8e12fa1696d423a20bf7d76"
+assert r["two_owners"] is True
+assert r["conversations_desc_keyset_anchor_last"]=="PASS_5_ORIGINAL_NO_DUPLICATE"
+assert r["messages_asc_keyset_anchor_last"]=="PASS_5_ORIGINAL_NO_DUPLICATE"
+assert r["concurrent_after_anchor_new_conversation_hidden"] is True
+assert r["concurrent_after_anchor_new_message_hidden"] is True
+assert r["fresh_query_can_see_new_row"] is True
+assert r["cross_owner_conversation_and_message_rows_visible"]==0
+assert r["cursor_api_hmac_signing"]=="NOT_TESTED"
+assert r["real_bff_http_auth"]=="NOT_RUN" and r["module_gate"]=="NOT_ACCEPTED"
+PY
+install -m 0600 "$cursor" "$GITHUB_WORKSPACE/ci_receipts/history_cursor_race_receipt.json"
+echo 'HISTORY_KEYSET_TWO_OWNER_ANCHOR_AND_INSERT_RACE_RECEIPT=PASS'
+echo 'HISTORY_SIGNED_CURSOR_HTTP_AND_REAL_CONCURRENT_LOAD=NOT_RUN'
