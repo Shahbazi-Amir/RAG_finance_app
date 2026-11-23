@@ -14,6 +14,7 @@ on:
       - 'coordination/handoffs/API_F3_CURRENT_ROADMAP_AND_ACCEPTANCE_20261123.md'
       - 'coordination/handoffs/API_F3_91_ROW_L1_SOURCE_MATRIX_20261123.csv'
       - '.github/workflows/api-session-011.yml'
+      - 'integration/F3_COMPLETION_SOURCE_PINS.json'
   pull_request:
     types: [opened, synchronize, reopened]
     branches: [main]
