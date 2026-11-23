@@ -683,7 +683,7 @@
     ".github/workflows/f3-completion-exact-source.yml": {
       "owner": "FOUNDATION_F3_TEST_ONLY_OVERLAY",
       "source_sha": "b7c8928e596001de83c5f8dbd1b86284f46a57a9",
-      "git_blob": "f7ce20265d2bf9ba68056f4360df1c9eb67da184",
+      "git_blob": "8243bf49fa0ad2e7066d142390d1fb8ee4f189b0",
       "reason": "Candidate CI workflow branch activation and latest DB roundtrip; not Foundation canonical admission"
     },
     ".github/workflows/f3-m18-m19-real-image-http.yml": {
