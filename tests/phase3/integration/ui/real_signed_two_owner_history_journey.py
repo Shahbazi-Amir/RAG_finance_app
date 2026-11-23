@@ -16,6 +16,8 @@ import hashlib
 import json
 import os
 import re
+import socket
+import ssl
 import subprocess
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -55,6 +57,14 @@ def configured():
     receipt = json.loads(Path(path).read_text(encoding="utf-8"))
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT,
                                      text=True).strip()
+    action_sha = os.environ.get("GITHUB_SHA", "")
+    if not HEX40.fullmatch(action_sha) or commit != action_sha:
+        raise RuntimeError("CHECKOUT_HEAD_NOT_GITHUB_ACTION_SHA")
+    modified = subprocess.check_output(
+        ["git", "status", "--porcelain", "--untracked-files=no"],
+        cwd=ROOT, text=True)
+    if modified.strip():
+        raise RuntimeError("TESTED_SOURCE_IS_NOT_CLEAN_CHECKOUT")
     if (not HEX40.fullmatch(commit) or
             receipt.get("kind") != "ui_f3_actual_pg_two_owner_seed" or
             receipt.get("contract_version") != "ui.pg_two_owner_seed.v1" or
@@ -82,6 +92,12 @@ def configured():
                     or not all(isinstance(mid, str) and SAFE_ID.fullmatch(mid) for mid in ids)
                     or len(ids) != len(set(ids))):
                 raise RuntimeError("PG_SEED_MESSAGE_CROSS_REFERENCE_INVALID")
+    all_message_ids = []
+    for row in users.values():
+        for mids in row["message_ids"].values():
+            all_message_ids.extend(mids)
+    if len(all_message_ids) != len(set(all_message_ids)):
+        raise RuntimeError("PG_SEED_CROSS_THREAD_MESSAGE_ID_COLLISION")
     if (users["A"]["owner_id"] == users["B"]["owner_id"]
             or set(users["A"]["conversation_ids"]) & set(users["B"]["conversation_ids"])):
         raise RuntimeError("PG_SEED_OWNER_COLLISION")
@@ -99,7 +115,25 @@ def configured():
         if not name or not password:
             raise RuntimeError("DISPOSABLE_IDP_LOGIN_NOT_PROVISIONED")
         credentials[alias] = (name, password)
+    if credentials["A"][0] == credentials["B"][0]:
+        raise RuntimeError("OIDC_TWO_DISTINCT_LOGIN_SUBJECTS_REQUIRED")
     return receipt, idp, credentials, commit
+
+
+def verify_ingress_ca_and_san():
+    """Verify the loopback HTTPS ingress against real OS CA trust and IP SAN.
+
+    This is additive to Chromium's strict TLS verification; it never installs
+    a CA, disables hostname checking, or trusts an arbitrary leaf certificate.
+    """
+    try:
+        with socket.create_connection(("127.0.0.1", 3443), timeout=5) as tcp:
+            with ssl.create_default_context().wrap_socket(
+                    tcp, server_hostname="127.0.0.1") as tls:
+                if tls.version() not in ("TLSv1.2", "TLSv1.3"):
+                    raise RuntimeError("HTTPS_INGRESS_TLS_VERSION_INVALID")
+    except (OSError, ssl.SSLError) as exc:
+        raise RuntimeError("HTTPS_INGRESS_CA_OR_IP_SAN_NOT_TRUSTED") from None
 
 
 def id_for_test(tag: str) -> str:
@@ -110,7 +144,7 @@ async def login(browser, alias, idp, creds, owner, width):
     # Separate fresh browser contexts; no cookie injection or auth shortcuts.
     ctx = await browser.new_context(
         viewport={"width": width, "height": 844 if width <= 390 else 800},
-        is_mobile=width <= 390, ignore_https_errors=True)
+        is_mobile=width <= 390, ignore_https_errors=False)
     page = await ctx.new_page()
     try:
         login_resp = await page.goto(BASE + "/login", wait_until="domcontentloaded")
@@ -168,6 +202,26 @@ async def login(browser, alias, idp, creds, owner, width):
     except BaseException:
         await ctx.close()
         raise
+
+
+async def verify_rtl_and_mobile_focus(page, width):
+    await expect(page.locator("main.history-shell")).to_have_attribute("dir", "rtl")
+    geometry = await page.evaluate("""() => ({
+      dir: getComputedStyle(document.querySelector('main.history-shell')).direction,
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: window.innerWidth
+    })""")
+    assert geometry["dir"] == "rtl", "RTL_STYLE_NOT_APPLIED"
+    assert geometry["documentWidth"] <= geometry["viewportWidth"] + 1, (
+        "HORIZONTAL_OVERFLOW_ON_REAL_HISTORY", width)
+    if width <= 390:
+        trigger = page.get_by_role("button", name="بازکردن فهرست گفت‌وگوها")
+        await expect(trigger).to_be_visible()
+        await trigger.click()
+        await expect(trigger).to_have_attribute("aria-expanded", "true")
+        await page.keyboard.press("Escape")
+        await expect(trigger).to_have_attribute("aria-expanded", "false")
+        await expect(trigger).to_be_focused()
 
 
 async def open_mobile_drawer(page, width):
@@ -290,6 +344,8 @@ async def journey(browser, receipt, idp, credentials, width):
                             receipt["users"]["A"], width)
         b, pb = await login(browser, "B", idp, credentials["B"],
                             receipt["users"]["B"], width)
+        await verify_rtl_and_mobile_focus(pa, width)
+        await verify_rtl_and_mobile_focus(pb, width)
         ca = await verify_list_and_thread(pa, receipt["users"]["A"], width)
         await open_mobile_drawer(pb,width)
         visible_b = await pb.locator('[data-testid^="conversation-"]').evaluate_all(
@@ -350,6 +406,8 @@ async def journey(browser, receipt, idp, credentials, width):
             "cross_owner_404":True,
             "revoke_401_b_still_200":True,
             "app_only_send_503":True,
+            "rtl_and_mobile_keyboard":True,
+            "strict_tls_ca_and_ip_san":True,
             "conversation_id_sha256":digest(ca),
         }
     finally:
@@ -361,6 +419,7 @@ async def journey(browser, receipt, idp, credentials, width):
 
 async def main():
     receipt, idp, credentials, sha = configured()
+    verify_ingress_ca_and_san()
     result = {"kind":"ui_f3_real_signed_two_owner_journey",
               "contract_version":"ui.real_history_browser.v1",
               "source_sha":sha, "environment":"EPHEMERAL_CI_REAL_IDP_MTLS_PG",
@@ -369,7 +428,7 @@ async def main():
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
         try:
-            for width in (1280,390):
+            for width in (1280,390,320):
                 result["steps"].append(await journey(
                     browser,receipt,idp,credentials,width))
         finally:
