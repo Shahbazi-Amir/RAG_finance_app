@@ -733,6 +733,11 @@ def _run_ci_claim_send(request, raw_body, payload, background_tasks):
 @app.post("/v1/messages")
 async def session_send_message(request: Request, background_tasks: BackgroundTasks):
     try:
+        # Check trusted transport before consuming/decoding any user question.
+        # BFF assertion headers alone are not mTLS peer evidence.
+        if (_PRIVATE_STAGING_PROFILE is not None
+                and not _PRIVATE_STAGING_PROFILE.allowed_peer(request.scope)):
+            raise TrustRejected()
         if request.scope.get("query_string") or len(request.headers.getlist("content-length")) > 1:
             raise history.ApiFailure(422, "INVALID_REQUEST", "validation")
         payload, raw_body = await history._read_body(
