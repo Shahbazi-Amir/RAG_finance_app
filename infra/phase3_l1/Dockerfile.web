@@ -16,4 +16,4 @@ COPY --from=build /srv/release/apps/web /srv/release/apps/web
 COPY --from=build /srv/release/packages/contracts /srv/release/packages/contracts
 RUN groupadd -g 11003 web && useradd -u 11003 -g 11003 -m -d /home/web web && chown -R 11003:11003 /srv/release/apps/web
 USER 11003:11003
-CMD ["npm","run","start"]
+CMD ["./node_modules/.bin/next","start","-H","0.0.0.0","-p","3000"]
