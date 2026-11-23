@@ -32,7 +32,8 @@ jobs:
           test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "f3-api-l1:$GITHUB_SHA")" = "$GITHUB_SHA"
           test "$(docker image inspect -f '{{.Architecture}}' "f3-api-l1:$GITHUB_SHA")" = amd64
           test "$(docker run --rm --network none "f3-api-l1:$GITHUB_SHA" id -u)" = 11001
-          docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA" python3 -c "from apps.api.product_session_api import app; print(\u0027API_CONTAINER_SOURCE_IMPORT_PASS\u0027)"
+          docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA" python3 -c 'from apps.api.product_session_api import app'
+          echo 'API_CONTAINER_SOURCE_IMPORT_PASS'
           docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA" python3 tests/phase3/api/run_m18_l1_without_engine_mount.py
           # New real API listener: public process-only liveness. Explicitly
           # NOT a signed Product API, DB/IdP readiness, or an Engine endpoint.
