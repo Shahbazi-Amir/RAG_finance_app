@@ -52,3 +52,5 @@ Status is review. Supervisor approval is pending.
 - Implemented: retained Keycloak augmentation in a verified local snapshot, then applied only the offline Keycloak Compose revision. Original database and private volumes remained attached. Tested: managed restart produced a new Running container, HTTPS returned trusted 200, and discovery was 502 during restart. Three Docker healthchecks plus HTTPS passed. API and Bootstrap periodic checks became unhealthy after earlier successful full preflights.
 - Open: stabilize Docker resource headroom, verify offline Keycloak readiness, obtain a valid local test session, then measure the signed request, C018 and Refresh. Backup and full restore remain partial. Supervisor acceptance separate.
 - [Evidence and recovery context](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+- Recheck from 71148b4 (same MAC-FIRST-START-01 / P3M22-A06 / P3OP11-R07). A sanitized direct Docker preflight isolated the renewed denial to the psycopg error branch of the live DB authority check. Added this evidence to both reports. The exact database transport failure and stable recovery remain open.
