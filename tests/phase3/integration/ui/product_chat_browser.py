@@ -372,6 +372,13 @@ def main():
             expect(account_page.get_by_text("امکان درخواست حذف از این رابط هنوز فعال نیست.")).to_be_visible()
             assert account_page.locator('form[action*="delete"]').count() == 0
             assert account_page.locator('form[action*="feedback"]').count() == 0
+            assert account_page.locator("form,input,button").count() == 0
+            # Real Next routing is exercised; auth/IdP remains an L2 dependency.
+            account_page.get_by_role("link", name="بازگشت به گفت‌وگو").click()
+            expect(account_page.get_by_role("heading", name="گفت‌وگوی مالی")).to_be_visible()
+            account_page.goto(base + "/account", wait_until="domcontentloaded")
+            account_page.get_by_role("link", name="ورود، مشاهدهٔ نشست و خروج امن").click()
+            assert urlsplit(account_page.url).path == "/login"
             account_page.close()
             print("UI_CHAT_L1_BROWSER_POST65_LATE_STATUS_MIXED_THREAD_INVALID_OWNER_MULTITAB_401_PASS")
             context.close()
