@@ -50,7 +50,7 @@ compose exec -T lab-db pg_dump -U postgres -d "$source_db" -Fc > "$data_backup"
 shasum -a 256 "$data_backup" > "$LAB_WORK/synthetic_user_lifecycle.dump.sha256"
 shasum -a 256 -c "$LAB_WORK/synthetic_user_lifecycle.dump.sha256" >/dev/null
 chmod 0600 "$data_backup" "$LAB_WORK/synthetic_user_lifecycle.dump.sha256"
-restore_timer_start=$SECONDS
+restore_timer_start_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
 admin restore-db -c "CREATE DATABASE $target_db OWNER postgres" >/dev/null
 compose exec -T restore-db pg_restore -U postgres -d "$target_db" < "$data_backup" \
  > "$LAB_WORK/synthetic_user_lifecycle_restore.log" 2>&1 || {
@@ -92,10 +92,33 @@ dbpsql -c 'SET ROLE db55_lab_auditor' -v db55_phase=private_no_dispatch \
 }
 grep -Fq DB55_private_no_dispatch_DB_ROLE_SCHEMA_AND_FUNCTION_GATE_PASS \
  "$LAB_WORK/synthetic_user_restored_db55.log" || { echo STOP_RESTORED_SYNTH_DB55_MARKER >&2;exit 70; }
-restore_elapsed_seconds=$((SECONDS-restore_timer_start))
+restore_timer_end_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
+restore_elapsed_ms=$(((restore_timer_end_ns-restore_timer_start_ns)/1000000))
+[[ "$restore_elapsed_ms" -gt 0 ]] || { echo STOP_INVALID_SYNTH_RESTORE_TIMER >&2;exit 70; }
 # Separate PG system IDs from original restoration were already attested.
 [[ "$(admin lab-db -c "SELECT count(*) FROM pg_database WHERE datname='$source_db'")" == 1 ]] || exit 70
 [[ "$(admin restore-db -c "SELECT count(*) FROM pg_database WHERE datname='$target_db'")" == 1 ]] || exit 70
+# Structured, secret-free evidence for a two-row synthetic-only data lineage probe.
+cat > "$LAB_WORK/synthetic_owner_restore_receipt.json" <<JSON
+{
+  "contract_version": "f3.db.synthetic_owner_restore.v1",
+  "scope": "two fake owners; no customer data; separate disposable test databases",
+  "source_db": "rag_finance_f3_synth_source",
+  "restore_db": "rag_finance_f3_synth_restored",
+  "independent_postgresql_cluster": true,
+  "source_and_restored_history_rows_equal": true,
+  "synthetic_conversations": 2,
+  "synthetic_messages": 2,
+  "restored_owner_rls": "PASS",
+  "deletion_requested_soft_state_restored": true,
+  "deleted_owner_active_rows_after_restore": 0,
+  "restored_db55_and_ledger": "PASS",
+  "elapsed_monotonic_ms": $restore_elapsed_ms,
+  "hard_delete_tombstone_policy": "NOT_APPROVED",
+  "production_rpo_rto": "NOT_DEFINED"
+}
+JSON
+chmod 0600 "$LAB_WORK/synthetic_owner_restore_receipt.json"
 admin lab-db -c "DROP DATABASE $source_db WITH (FORCE)" >/dev/null
 admin restore-db -c "DROP DATABASE $target_db WITH (FORCE)" >/dev/null
 echo 'SYNTHETIC_TWO_OWNER_RESTORE_IN_DISTINCT_CLUSTER=PASS'
@@ -104,6 +127,6 @@ echo 'SOFT_DELETION_REQUESTED_PRESERVED_AFTER_RESTORE=PASS'
 echo 'NO_ACTIVE_REAPPEARANCE_AFTER_RESTORE=PASS'
 echo 'SYNTHETIC_RESTORED_DB55_AND_LEDGER=PASS'
 echo 'SYNTHETIC_SOURCE_AND_RESTORE_PROBES_DROPPED=PASS'
-echo "SYNTHETIC_RESTORE_ELAPSED_SECONDS=$restore_elapsed_seconds"
+echo "SYNTHETIC_RESTORE_ELAPSED_MS=$restore_elapsed_ms"
 echo 'RPO_RTO_SLA_APPROVAL=NOT_SET'
 echo 'HARD_DELETE_ANTI_RESURRECTION=NOT_IMPLEMENTED_PENDING_POLICY'
