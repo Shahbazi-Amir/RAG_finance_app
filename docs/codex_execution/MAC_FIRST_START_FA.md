@@ -47,3 +47,13 @@ Manifest مکمل ۵ Volume و ۴ مجموعهٔ پایگاه را ثبت کرد
 مسیر بازگشت، اعمال Compose اولیه با API_IMAGE_NAME=rag-finance-f3/api-local-recovery:84d58b1 و up -d --no-deps --no-build --pull never product-api است. در بازگشت، خطای قبلی API نیز بازمی‌گردد. دانستن شناسهٔ snapshot جایگزین بررسی کنترل‌های امنیتی نسخهٔ اجراشده نیست.
 
 ایمیج اولیهٔ Bootstrap نیز فایل entrypoint با مالک root و mode 0600 داشت. ساخت آفلاین نسخهٔ اصلاحی در commit محلی f1a83c4، import با UID 11002 را تأیید کرد. فایل Dockerfile.bootstrap و override محلی در شاخهٔ ops/mac-first-start قرار دارند. شناسهٔ ایمیج جدید 8e5d6a79f945ec928d04d94408dbd0ca7e436dc48fbe70174da1af0a8a03de3f است. آزمون runtime سرویس‌های وابسته در جریان است.
+
+## هفت سرویس شروع شدند و HTTPS محلی پاسخ داد
+
+پایگاه‌های demo-db و idp-db و سرویس web-bff هم‌زمان healthy ثبت شدند. API و auth-bootstrap شنوندهٔ mTLS فعال دارند و BFF با گواهی واقعی هر دو endpoint را در probe داخلی بررسی کرد. این probe امضای درخواست یا نشست کاربر را آزمایش نمی‌کند. وضعیت health هر دو سرویس هنگام بار هم‌زمان unhealthy شد. برای نمونه، healthcheck API از سقف ۴۰ ثانیه عبور کرد، آزمون metadata محیط C018 با مهلت ۶۰ ثانیه موفق شد و ۲۷٫۴۹ ثانیه طول کشید، و preflight مستقل Bootstrap در ۹۳٫۲۲ ثانیه PRIVATE_BOOTSTRAP_PREFLIGHT_PASS داد. هیچ Runner در این بررسی‌ها اجرا نشد.
+
+پس از خطای conflicting options در Compose، extra_hosts تکراری Bootstrap حذف شد (84e474d). getent hosts idp-staging.ragfinance.ir در Bootstrap همچنان 127.0.0.1 برگرداند و مسیر TLS حفظ شد. پس از mount placeholder و خطای chown nginx، گواهی موجود با CA و با کلید خصوصی متناظر تطبیق داده شد. تنظیمات تأییدشده بدون تغییر بایت در Volume محلی mac_ingress_private_v1 با مالک 101:101 و فایل‌های mode 0400 قرار گرفت. منبع bind فقط‌خواندنی بود. nginx بدون root و با همان محدودیت قابلیت‌ها اجرا شد (7ce11c9). nginx -t در کانتینر جدا موفق بود. دستور curl با --cacert و --resolve روی 127.0.0.1 نتیجهٔ HTTP 200 و TLS_VERIFY=0 داد.
+
+Keycloak در ۷۶۱۷۹۷ میلی‌ثانیه Quarkus augmentation را کامل کرد ولی هنوز listener بررسی‌شده در دسترس نبود. درخواست HTTPS به discovery واقعی 502 گرفت. آزمون مرورگر Chrome در تلاش اول ۱۰۰ ثانیه و در تلاش دوم CDP پس از ۳۰ ثانیه timeout شد. گزارش HTTP 200 شاهد مرورگر، ورود OIDC، Attempt، Signed BFF، منابع یا Refresh نیست.
+
+شاخهٔ اجرایی 136bd8f مهلت‌های healthcheck را متناسب با اندازه‌گیری بالا اصلاح کرد. build آفلاین و import غیرریشهٔ ایمیج 438ba61c69ea0518ab43f932c70b5e79caa5fdfc7adbbfe954f0aaead5f2b0cb موفق شد. این اصلاح همهٔ بررسی‌های فایل، SHA موتور، نسخهٔ metadata، TLS، شبکه و نقش‌های مجاز را نگه می‌دارد. نتیجهٔ build از پذیرش runtime جداست.

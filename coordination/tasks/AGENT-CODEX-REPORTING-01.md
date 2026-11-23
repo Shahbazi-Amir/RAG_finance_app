@@ -31,3 +31,10 @@ Status is review. Supervisor approval is pending.
 - Implemented: added recovery and live API evidence to the existing Persian Markdown/HTML pair, added a local recovery report beside the encrypted archive, deployed only product-api with the versioned override using original mounts.
 - Tested: seven new checksums, authenticated Docker load and isolated entrypoint, private readiness/protocol on the new image using an isolated ledger, then live API healthy at d98dfeaca7c41. Bootstrap fixed-image import passed; its runtime and the remaining stack are under test. Full-stack recovery and supervisor acceptance remain separate.
 - [Evidence, rollback instructions and open items](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — seven service starts and HTTPS ingress
+
+- P3M22-A06 / P3OP11-R07. Reporting baseline d218ed1. Local execution through 136bd8f, with routing fix 84e474d and non-root ingress fix 7ce11c9.
+- Implemented: started both existing databases, Keycloak, Bootstrap and BFF, fixed Compose namespace and nginx chown errors, and populated a new private ingress volume from protected local inputs. Existing volumes retained. Recorded progress in the same Markdown/HTML reports.
+- Tested: three Docker health checks passed simultaneously. BFF verified mTLS against Bootstrap and API. nginx syntax and trusted HTTP 200 passed. Keycloak discovery returned 502, browser timed out, API and Bootstrap probes timed out under load. Longer read-only tests confirmed the actual metadata and Bootstrap checks. The readiness-v2 offline image built successfully. Runtime verification remains open.
+- [Evidence and recovery context](../../docs/codex_execution/MAC_FIRST_START_FA.md). Supervisor acceptance separate and pending.
