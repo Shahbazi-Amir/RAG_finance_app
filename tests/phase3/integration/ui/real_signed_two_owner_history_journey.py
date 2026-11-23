@@ -177,6 +177,38 @@ async def open_mobile_drawer(page, width):
             await trigger.click()
 
 
+async def exhaust_thread_message_pages(page, target, wanted):
+    # Demand exact IDs from actual PG in order, both BEFORE and AFTER reload.
+    await expect(page.get_by_test_id("history-message-" + wanted[0])).to_be_visible(
+        timeout=15000)
+    for _ in range(len(wanted)//30 + 3):
+        seen = await page.locator('[data-testid^="history-message-"]').evaluate_all(
+            "(nodes) => nodes.map(n => n.getAttribute('data-testid').slice(16))")
+        assert len(seen) == len(set(seen)), "DUPLICATE_MESSAGE_IDS_IN_DOM"
+        assert set(seen).issubset(set(wanted)), "MESSAGE_ID_OUTSIDE_PG_SEED"
+        if len(seen) == len(wanted):
+            break
+        more = page.get_by_test_id("more-messages")
+        await expect(more).to_be_visible(timeout=12000)
+        previous = len(seen)
+        async with page.expect_response(
+            lambda r: r.request.method == "GET"
+            and "/api/history/conversations/" + target +
+                "/messages?limit=30&cursor=" in r.url,
+            timeout=15000
+        ) as next_response:
+            await more.click()
+        assert (await next_response.value).status == 200
+        await page.wait_for_function(
+            "before => document.querySelectorAll('[data-testid^=history-message-]').length>before",
+            arg=previous, timeout=15000)
+    else:
+        raise AssertionError("MESSAGE_PAGINATION_DID_NOT_COMPLETE")
+    ids = await page.locator('[data-testid^="history-message-"]').evaluate_all(
+        "(nodes) => nodes.map(n => n.getAttribute('data-testid').slice(16))")
+    assert ids == wanted, "MESSAGE_PG_ORDER_OR_REFRESH_DIFF"
+
+
 async def verify_list_and_thread(page, owner, width):
     await open_mobile_drawer(page, width)
     expected = owner["conversation_ids"]
@@ -227,39 +259,13 @@ async def verify_list_and_thread(page, owner, width):
     assert data["owner_user_id"] == owner["owner_id"]
     assert data["conversation_id"] == target
     wanted = owner["message_ids"][target]
-    for _ in range(len(wanted)//30 + 3):
-        seen = await page.locator('[data-testid^="history-message-"]').evaluate_all(
-            "(nodes) => nodes.map(n => n.getAttribute('data-testid').slice(16))")
-        assert len(seen) == len(set(seen)), "DUPLICATE_MESSAGE_IDS_IN_DOM"
-        assert set(seen).issubset(set(wanted)), "MESSAGE_ID_OUTSIDE_PG_SEED"
-        if len(seen) == len(wanted):
-            break
-        more = page.get_by_test_id("more-messages")
-        await expect(more).to_be_visible(timeout=12000)
-        previous = len(seen)
-        async with page.expect_response(
-            lambda r: r.request.method == "GET"
-            and "/api/history/conversations/" + target +
-                "/messages?limit=30&cursor=" in r.url,
-            timeout=15000
-        ) as next_response:
-            await more.click()
-        assert (await next_response.value).status == 200
-        await page.wait_for_function(
-            "before => document.querySelectorAll('[data-testid^=history-message-]').length>before",
-            arg=previous, timeout=15000)
-    else:
-        raise AssertionError("MESSAGE_PAGINATION_DID_NOT_COMPLETE")
-    ids = await page.locator('[data-testid^="history-message-"]').evaluate_all(
-        "(nodes) => nodes.map(n => n.getAttribute('data-testid').slice(16))")
-    assert ids == wanted, "MESSAGE_PG_ORDER_OR_REFRESH_DIFF"
+    await exhaust_thread_message_pages(page, target, wanted)
     await page.reload(wait_until="domcontentloaded")
     await open_mobile_drawer(page, width)
     await expect(page.get_by_test_id("conversation-" + target)).to_be_visible(
         timeout=20000)
     await page.get_by_test_id("conversation-" + target).click()
-    await expect(page.get_by_test_id("history-message-" + wanted[0])).to_be_visible(
-        timeout=15000)
+    await exhaust_thread_message_pages(page, target, wanted)
     print("UI_REAL_OWNER_PG_CONVERSATION_MESSAGE_CURSOR_REFRESH_PASS",flush=True)
     return target
 
