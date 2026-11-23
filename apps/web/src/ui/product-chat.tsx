@@ -10,6 +10,7 @@ import {sourceCredits,confidenceLabel} from './source-metadata';
 import RetrievedSourcesPanel from './retrieved-sources-panel';
 import {OwnerFence} from './owner-fence';
 import {isVerifiedLiveAnswer,productOutcomeLabel} from './answer-visibility';
+import {blockedCapability,decodeRuntimeCapability,type RuntimeCapability} from './runtime-capability';
 import {readCheckpoints,retainCheckpoint,forgetCheckpoints,statusCorrelators,
   type AttemptCheckpoint} from './attempt-checkpoints';
 
@@ -104,6 +105,9 @@ export default function ProductChat(){
   const mobileMenu=useRef<HTMLElement|null>(null);
   const menuTrigger=useRef<HTMLButtonElement|null>(null);
   const [busy,setBusy]=useState(false);
+  const [runtimeCapability,setRuntimeCapability]=useState<RuntimeCapability>(blockedCapability());
+  const [capabilityState,setCapabilityState]=useState<'loading'|'ready'|'unavailable'>('loading');
+  const canSend=capabilityState==='ready'&&runtimeCapability.send_mode==='NO_DISPATCH_ONLY';
   const lost=useRef(false);
   // Never mix a former account's in-flight History with a new owner's page.
   const ownerFence=useRef(new OwnerFence());
@@ -117,6 +121,36 @@ export default function ProductChat(){
   const privacyEpoch=useRef(0);
   const restoreQueue=useRef<AttemptCheckpoint[]>([]);
   useEffect(()=>{attemptsRef.current=attempts},[attempts]);
+  useEffect(()=>{
+    let active=true;
+    let generation=0;
+    const load=async()=>{
+      const current=++generation;
+      try{
+        const response=await fetch('/api/product-capabilities',{
+          method:'GET',credentials:'same-origin',cache:'no-store'
+        });
+        if(!response.ok)throw new Error('CAPABILITY_UNAVAILABLE');
+        const decoded=decodeRuntimeCapability(await response.json());
+        if(!decoded)throw new Error('CAPABILITY_INVALID');
+        if(!active||current!==generation)return;
+        setRuntimeCapability(decoded);setCapabilityState('ready');
+      }catch{
+        if(!active||current!==generation)return;
+        // Never reuse a previously permitted mode after capability outage.
+        setRuntimeCapability(blockedCapability());setCapabilityState('unavailable');
+      }
+    };
+    const refresh=()=>{if(document.visibilityState==='visible')void load();};
+    void load();
+    window.addEventListener('focus',refresh);
+    document.addEventListener('visibilitychange',refresh);
+    return ()=>{
+      active=false;generation++;
+      window.removeEventListener('focus',refresh);
+      document.removeEventListener('visibilitychange',refresh);
+    };
+  },[]);
   const invalidate=useCallback((e:unknown):boolean=>{
     if(!(e instanceof HistoryFailure&&e.reason==='unauthorized'))return false;
     lost.current=true;
@@ -378,13 +412,13 @@ export default function ProductChat(){
     return ()=>window.clearInterval(timer);
   },[probe,listState]);
   function newConversation(){
-    if(lost.current||listState!=='ready')return;
+    if(lost.current||listState!=='ready'||!canSend)return;
     const id='draft:'+crypto.randomUUID();
     setSelected(id);setDrafts(all=>({...all,[id]:''}));setMobileOpen(false);
   }
   async function submit(e:FormEvent<HTMLFormElement>){
     e.preventDefault();
-    if(lost.current||sending.current||listState!=='ready')return;
+    if(lost.current||sending.current||listState!=='ready'||!canSend)return;
     const question=(drafts[selected]??'').trim();
     if(!question)return;
     // A draft is a UI-only ID. The API allocates a real conversation on T1.
@@ -457,7 +491,7 @@ export default function ProductChat(){
         <strong>راگ مالی</strong></div>
       <div className="history-actions">
         <button type="button" className="nav-new-chat" onClick={newConversation}
-          data-testid="create-conversation" disabled={!verifiedPage}>
+          data-testid="create-conversation" disabled={!verifiedPage||!canSend}>
           گفت‌وگوی تازه
         </button>
         <span className="history-note">گفت‌وگو با ثبت اولین پرسش در سرور ایجاد می‌شود.</span>
@@ -510,6 +544,15 @@ export default function ProductChat(){
         <p className="history-note" data-testid="educational-boundary">
           شواهد بازیابی فنی به‌تنهایی پاسخ یا توصیهٔ مالی تأییدشده نیستند.
           در این نسخه تولید پاسخ و پیوند استناد از مشاهدات بازیابی فعال نیست.
+        </p>
+        <p role="status" className="history-note" data-testid="app-runtime-capability">
+          {capabilityState==='loading'
+            ?'در حال بررسی قابلیت اجرای پرسش از سرور…'
+            :capabilityState==='unavailable'
+            ?'قابلیت ارسال از سرور قابل تأیید نیست؛ ارسال غیرفعال است.'
+            :runtimeCapability.send_mode==='DISABLED'
+            ?'برنامه در حالت بدون موتور فعال است؛ تاریخچه قابل مشاهده است، اما ارسال پرسش و تولید پاسخ غیرفعال است.'
+            :'فقط ثبت و بازیابی فنی NO_DISPATCH_ONLY مجاز است؛ تولید پاسخ و موتور زنده فعال نیست.'}
         </p>
         <Link className="history-link" href="/account">حساب، حریم خصوصی و وضعیت قابلیت‌ها</Link>
       </header>
@@ -576,11 +619,11 @@ export default function ProductChat(){
         <label htmlFor="product-question" className="sr-only">پرسش فارسی</label>
         <div className="composer">
           <textarea id="product-question" rows={2} data-testid="history-question"
-            value={drafts[selected]??''} disabled={busy||!verifiedPage}
+            value={drafts[selected]??''} disabled={busy||!verifiedPage||!canSend}
             onChange={e=>setDrafts(all=>({...all,[selected]:e.target.value}))}
             placeholder="سؤال خود را به فارسی بنویسید…"/>
           <button type="submit" className="primary" data-testid="history-send"
-            disabled={busy||!verifiedPage||!(drafts[selected]??'').trim()}>ارسال پرسش</button>
+            disabled={busy||!verifiedPage||!canSend||!(drafts[selected]??'').trim()}>ارسال پرسش</button>
         </div>
         <p className="under-composer">
           با Refresh یا قطع ارتباط، درخواست تکرار نمی‌شود؛ فقط وضعیت آن از سرور خوانده می‌شود.
