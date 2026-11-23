@@ -237,13 +237,11 @@ def finalize_t3(conn,owner,attempt_id,answer,assistant_text,*,rollback=False):
             raise InjectedRollback("T3_BEFORE_COMMIT")
         return answer
 
-def read_status(conn,owner,query,request_id,trace_id, *, session_transaction=False):
+def read_status(conn,owner,query,request_id,trace_id):
     check_wire(query,"message_request_status_query")
-    # In session_transaction mode the caller provides the writable
-    # repeatable-read snapshot for replay admission. No provider call.
+    # One coherent, owner-scoped snapshot from primary. No scheduler/provider call.
     with conn.transaction():
-        if not session_transaction:
-            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         scoped(conn,owner)
         r=_receipt_for(conn,owner,query["requested_conversation_id"],
                        query["client_message_id"],query["idempotency_key"])
@@ -302,12 +300,11 @@ def list_conversations(conn,owner,limit=20,anchor=None,last=None):
         return {"items":[_conv(r) for r in items],"has_more":len(rows)>limit,
                 "last":(items[-1]["created_at"],items[-1]["id"]) if items else None}
 
-def list_messages(conn,owner,conversation_id,limit=20,anchor=None,last=None, *, session_transaction=False):
+def list_messages(conn,owner,conversation_id,limit=20,anchor=None,last=None):
     if not 1<=limit<=100:
         raise ValueError("limit")
     with conn.transaction():
-        if not session_transaction:
-            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         scoped(conn,owner)
         _fetch_conversation(conn,owner,conversation_id)
         q="""SELECT m.*,ans.payload AS answer_payload FROM history_l1.messages m
