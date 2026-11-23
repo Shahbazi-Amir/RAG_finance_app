@@ -163,3 +163,11 @@ Status is review. Supervisor approval is pending.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
 
 - Clipboard receiver reactivation from codex 8f7f68a / execution 5764fff, same MAC-FIRST-START-01 / P3M22-A06 / P3OP11-R07. Executed a second bounded 150-second receive and read-only expiry/wrapper detection. No matching invitation arrived. Reports and CURRENT_STATUS updated, no account or invitation mutation. Form and product tests remain blocked. [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — invitation completion and product browser login
+
+- Status: blocked on product-user sign-in. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), operational evidence only. Reporting baseline codex d1ec72a, execution baseline ops/mac-first-start 5764fff.
+- Implemented: opened the exact existing invite through verified localhost Chrome, rotated the active ingress proof in its two private runtime mounts, closed the admin listener, and started a private Chrome product authentication and one-submit UI harness. Report-only updates to this ledger, MAC_FIRST_START_FA.md, MAC_FIRST_START_FA.html and CURRENT_STATUS.md.
+- Tested: original action reached Keycloak DOM and a required-action route. Admin REST confirmed verified email and password credential for the existing account. Nginx candidate syntax and reload succeeded. Trusted product /login returned 200 and normal ingress /admin/ returned 403 after the temporary listener stopped. Actual product OIDC password form witnessed in browser DOM. Browser control disconnected once and the replacement browser showed the same real form. Read-only product SQL showed zero identity links and zero active sessions.
+- Pending: user enters the new product-account password directly in Chrome. Product session, signed request, real C018 invocation, source display, no-generation evidence and Refresh are not yet witnessed. No duplicate account or invitation. Arvan HOLD and supervisor acceptance pending.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
