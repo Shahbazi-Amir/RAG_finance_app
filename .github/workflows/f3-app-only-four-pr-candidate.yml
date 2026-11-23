@@ -56,7 +56,7 @@ jobs:
           python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
           python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v
           python -m unittest discover -s tests/phase3/integration/ui -p 'test_l2_no_dispatch_receipt_gate.py' -v
-      - name: Original DB scripts: static guard and protected-path negative only
+      - name: Original DB scripts static guard and protected-path negative only
         run: bash infra/postgres/dev_f3_isolated/tests/run_static.sh
       - name: Real isolated APP_ONLY Uvicorn listener, no Engine dependencies
         env:
