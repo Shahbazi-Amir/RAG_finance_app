@@ -1,7 +1,7 @@
 name: F3 real isolated Docker images and Web HTTP smoke M18 M19
 on:
   push:
-    branches: [integration/f3-m18-m19-container-build-20261123]
+    branches: [integration/f3-m18-m19-container-build-20261123, integration/f3-foundation-20261124-app-only-candidate]
   workflow_dispatch:
 permissions:
   contents: read
@@ -32,8 +32,39 @@ jobs:
           test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "f3-api-l1:$GITHUB_SHA")" = "$GITHUB_SHA"
           test "$(docker image inspect -f '{{.Architecture}}' "f3-api-l1:$GITHUB_SHA")" = amd64
           test "$(docker run --rm --network none "f3-api-l1:$GITHUB_SHA" id -u)" = 11001
-          docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA"
+          docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA" python3 -c 'from apps.api.product_session_api import app'
+          echo 'API_CONTAINER_SOURCE_IMPORT_PASS'
           docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA" python3 tests/phase3/api/run_m18_l1_without_engine_mount.py
+          # New real API listener: public process-only liveness. Explicitly
+          # NOT a signed Product API, DB/IdP readiness, or an Engine endpoint.
+          docker run --detach --rm --name f3-api-l1 --network host "f3-api-l1:$GITHUB_SHA"
+          trap 'docker logs --tail 30 f3-api-l1 || true; docker rm -f f3-api-l1 >/dev/null 2>&1 || true' EXIT
+          for i in $(seq 1 45); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8080/health/live >/tmp/f3-api-live.json; then break; fi
+            sleep 2
+          done
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/f3-api-live.json'))
+          assert d["process"]=="alive" and d["app_ready"] is False
+          PY
+          ready_status="$(curl -s -o /tmp/f3-api-ready.json -w '%{http_code}' http://127.0.0.1:8080/health/ready)"
+          test "$ready_status" = 503
+          cap_status="$(curl -s -o /tmp/f3-api-cap.json -w '%{http_code}' http://127.0.0.1:8080/v1/capabilities)"
+          test "$cap_status" = 200
+          send_status="$(curl -s -o /tmp/f3-api-send.json -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data '{"question":"CI_ONLY_NO_SEND"}' http://127.0.0.1:8080/v1/messages)"
+          test "$send_status" = 503
+          python3 - <<'PY'
+          import json
+          cap=json.load(open('/tmp/f3-api-cap.json'))
+          send=json.load(open('/tmp/f3-api-send.json'))
+          assert cap["send_mode"]=="DISABLED" and cap["engine_available"] is False
+          assert cap["generation_available"] is False
+          assert send=={"error":"ENGINE_NOT_AVAILABLE"}
+          PY
+          docker rm -f f3-api-l1 >/dev/null
+          trap - EXIT
+          echo 'ACTUAL_API_LISTENER_HTTP_LIVE200_READY503_SEND503_NO_ENGINE_PASS'
           echo 'ACTUAL_API_DOCKER_BUILD_AND_TEST_IN_CONTAINER_PASS'
       - name: Real Web Docker build pinned Node and HTTP smoke
         shell: bash
@@ -55,6 +86,36 @@ jobs:
           status="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: forbidden.example' http://127.0.0.1:3000/ci-evidence-preview)"
           test "$status" = 404
           echo 'ACTUAL_WEB_IMAGE_HTTP_200_AND_BAD_HOST_404_PASS'
+      - name: Start isolated nonroot Web+API app-only Compose; check no-Send
+        shell: bash
+        run: |
+          set -euo pipefail
+          export F3_API_IMAGE="f3-api-l1:$GITHUB_SHA"
+          export F3_WEB_IMAGE="f3-web-l1:$GITHUB_SHA"
+          export F3_WEB_HOST_PORT=3100
+          compose=(docker compose -p f3app-only-ci -f infra/phase3_l1/compose.app_only_isolated.yml)
+          "${compose[@]}" config --quiet
+          "${compose[@]}" up -d --no-build
+          trap '"${compose[@]}" ps || true; "${compose[@]}" logs --tail 35 --no-color web api || true; "${compose[@]}" down --remove-orphans >/dev/null 2>&1 || true' EXIT
+          ok=0
+          for i in $(seq 1 25); do
+            if curl --fail --silent --show-error --max-time 3 http://127.0.0.1:3100/api/product-capabilities -o /tmp/f3-app-compose-cap.json 2>/dev/null; then ok=1; break; fi
+            sleep 2
+          done
+          if [[ "$ok" != 1 ]]; then
+            echo "F3_COMPOSE_LOOPBACK_CAPABILITY_NOT_READY" >&2
+            curl -s -o /dev/null -w "HTTP=%{http_code}\n" --max-time 2 http://127.0.0.1:3100/api/product-capabilities || true
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/f3-app-compose-cap.json'))
+          assert x["send_mode"]=="DISABLED", x
+          assert x["engine_available"] is False and x["generation_available"] is False
+          assert x["contract_version"]=="ui.runtime_capabilities.v1"
+          PY
+          "${compose[@]}" ps
+          echo 'F3_ISOLATED_COMPOSE_LIVE_WEB_AND_API_APP_ONLY_NO_SEND_PASS'
       - name: Emit actual image IDs and no-acceptance receipt
         if: success()
         shell: bash
@@ -69,7 +130,9 @@ jobs:
             imgs[name]={"image_id":x["Id"],"platform":x["Os"]+"/"+x["Architecture"],
                         "source_label":x["Config"]["Labels"]["org.opencontainers.image.revision"]}
           doc={"schema":"f3.m18_m19.real_ci_image.v1","git_sha":sha,"images":imgs,
-               "actual_build":"PASS","api_tests_in_container":"196_OF_198_PASS_TWO_ENGINE_MOUNT_DEPENDENT_BLOCKED","web_http_200":"PASS",
+               "actual_build":"PASS","api_tests_in_container":"ENGINE_INDEPENDENT_SUBSET_EXECUTED_SEE_JOB_LOG","web_http_200":"PASS","api_listener_live_200":"PASS",
+               "api_product_ready_503":"PASS","api_send_503_no_engine":"PASS",
+               "isolated_compose_web_api_no_engine":"PASS",
                "bad_host_404":"PASS","real_api_tls_http":"NOT_RUN","mac":"NOT_RUN",
                "real_c018":"NOT_RUN","pg_app_connected":"NOT_RUN",
                "oci_security_scan":"NOT_RUN","release_gate":"NOT_ACCEPTED",

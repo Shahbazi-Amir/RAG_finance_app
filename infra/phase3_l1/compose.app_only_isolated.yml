@@ -1,0 +1,60 @@
+# Disposable F3 app-only CI/lab. NOT the signed HTTPS/IdP/PG target.
+# Deliberately no Engine, Gateway, Qdrant, secrets, volumes or public API ports.
+name: f3-app-only-isolated
+services:
+  api:
+    image: ${F3_API_IMAGE:-f3-api-l1:local}
+    environment:
+      PHASE3_APP_MODE: APP_ONLY
+    user: "11001:11001"
+    init: true
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=16777216,uid=11001,gid=11001
+    networks: [app_private]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:8080/health/live', timeout=2).status == 200"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  web:
+    image: ${F3_WEB_IMAGE:-f3-web-l1:local}
+    environment:
+      PHASE3_APP_MODE: APP_ONLY
+      NEXT_TELEMETRY_DISABLED: "1"
+    user: "11003:11003"
+    init: true
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    mem_limit: 768m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=33554432,uid=11003,gid=11003
+      - /srv/release/apps/web/.next/cache:rw,nosuid,size=67108864,uid=11003,gid=11003
+    depends_on:
+      api:
+        condition: service_healthy
+    # Only developer/CI loopback. Never bind to 0.0.0.0 on the host.
+    ports:
+      - "127.0.0.1:${F3_WEB_HOST_PORT:-3100}:3000"
+    networks: [app_private, browser_loopback]
+
+networks:
+  # API: private-only, no host port or external egress.
+  app_private:
+    internal: true
+  # Web alone needs Docker's ingress bridge for host-loopback port mapping.
+  # This is CI-only, no secrets, no IdP; not an egress-isolation guarantee.
+  browser_loopback:
+    internal: false

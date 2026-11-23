@@ -7,6 +7,7 @@ Start the Next build on isolated 127.0.0.1:3000 before invoking this script.
 """
 import json
 import os
+import re
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
 
@@ -19,6 +20,18 @@ REGISTRY = json.loads((ROOT / "packages/contracts/fixtures/product.v1.cases.json
 def fixture(name):
     return next(json.loads(json.dumps(c["document"])) for c in REGISTRY
                 if c["case_id"] == name and c["expected_valid"])
+
+def text_contrast(foreground, background):
+    """WCAG 2.x contrast on actual Chromium computed RGB colors."""
+    def luminance(color):
+        channels = [int(n) / 255 for n in re.findall(r"\d+", color)[:3]]
+        assert len(channels) == 3, color
+        linear = [c / 12.92 if c <= .04045 else ((c + .055) / 1.055) ** 2.4
+                  for c in channels]
+        return .2126 * linear[0] + .7152 * linear[1] + .0722 * linear[2]
+    light, dark = sorted([luminance(foreground), luminance(background)], reverse=True)
+    return (light + .05) / (dark + .05)
+
 
 def main():
     base = os.getenv("UI_CHAT_L1_BASE_URL", "http://127.0.0.1:3000")
@@ -190,10 +203,61 @@ def main():
         browser = p.chromium.launch(headless=True)
         try:
             context = browser.new_context(viewport={"width": 1280, "height": 800})
+            # Real React component behind a test-only policy GET: app-only
+            # disables both native button and programmatic form submission.
+            blocked = context.new_page()
+            blocked.route("**/api/history/**", intercept)
+            blocked.route("**/api/product-capabilities", lambda route: route.fulfill(
+                status=200, json={
+                    "kind": "ui_runtime_capabilities",
+                    "contract_version": "ui.runtime_capabilities.v1",
+                    "send_mode": "DISABLED",
+                    "engine_available": False, "generation_available": False
+                }))
+            blocked.goto(base, wait_until="domcontentloaded")
+            expect(blocked.get_by_text("هنوز گفت‌وگویی ثبت نشده است.")).to_be_visible()
+            expect(blocked.get_by_test_id("app-runtime-capability")).to_contain_text(
+                "برنامه در حالت بدون موتور")
+            expect(blocked.get_by_test_id("create-conversation")).to_be_disabled()
+            expect(blocked.get_by_test_id("history-question")).to_be_disabled()
+            expect(blocked.get_by_test_id("history-send")).to_be_disabled()
+            blocked.locator("form.history-compose").evaluate(
+                "(form) => form.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))")
+            assert state["posts"] == 0, "app-only form bypass dispatched a Send"
+            blocked.close()
+            print("UI_APP_ONLY_BROWSER_DISABLED_SEND_AND_HISTORY_GET_ONLY_PASS")
             page = context.new_page()
             page.route("**/api/history/**", intercept)
+            # Explicit synthetic-only client capability fixture. The running
+            # Next server NEVER advertises an unapproved Send mode, even in CI.
+            page.route("**/api/product-capabilities", lambda route: route.fulfill(
+                status=200, json={
+                    "kind": "ui_runtime_capabilities",
+                    "contract_version": "ui.runtime_capabilities.v1",
+                    "send_mode": "NO_DISPATCH_ONLY",
+                    "engine_available": False, "generation_available": False
+                }))
             page.goto(base, wait_until="domcontentloaded")
             expect(page.get_by_text("هنوز گفت‌وگویی ثبت نشده است.")).to_be_visible()
+            expect(page.get_by_test_id("create-conversation")).to_be_enabled()
+            # UI-11 actual desktop keyboard bypass: the first Tab enters a
+            # visible skip link, Enter lands on a semantic <h1> inside main.
+            skip = page.get_by_role("link", name="رفتن به محتوای اصلی گفت‌وگو")
+            expect(skip).to_have_attribute("href", "#product-main")
+            page.keyboard.press("Tab")
+            expect(skip).to_be_focused()
+            assert skip.evaluate("(el) => el.getBoundingClientRect().top >= 0")
+            page.keyboard.press("Enter")
+            expect(page.get_by_role("heading", name="گفت‌وگوی مالی")).to_be_focused()
+            main_area = page.locator("section.history-main")
+            assert main_area.get_attribute("inert") is None
+            # WCAG AA normal-text contrast for exact computed colors, not
+            # inferred from screenshots, on the real responsive History shell.
+            shell_bg = page.locator("main.history-shell").evaluate(
+                "(el) => getComputedStyle(el).backgroundColor")
+            empty_color = page.locator(".history-empty").evaluate(
+                "(el) => getComputedStyle(el).color")
+            assert text_contrast(empty_color, shell_bg) >= 4.5
             page.get_by_test_id("create-conversation").click()
             page.get_by_test_id("history-question").fill("پرسش فارسی دربارهٔ نرخ بهره")
             # Deliver two native button clicks in the same JS turn. The
@@ -210,6 +274,13 @@ def main():
             assert section.locator("a").count() == 0
             assert page.get_by_test_id("retrieval-evidence-list").count() == 0
             assert state["posts"] == 1
+            user_paragraph = page.get_by_test_id("history-message-" + user_message).locator(
+                ".history-message-text")
+            expect(user_paragraph).to_be_visible()
+            assert user_paragraph.evaluate(
+                "(el) => getComputedStyle(el).unicodeBidi") == "plaintext"
+            # RTL mixed-Latin material stays a *text* node, not guessed HTML.
+            assert page.locator(".history-message-text script, .history-message-text a").count() == 0
             # Reload MUST never invoke POST: same original client IDs/status GET.
             page.reload(wait_until="domcontentloaded")
             expect(page.get_by_test_id("attempt-" + state["request"]["client_message_id"])).to_be_visible(
@@ -236,6 +307,20 @@ def main():
             expect(menu).to_have_attribute("aria-expanded", "true")
             close_control=page.locator(".history-mobile-close")
             expect(close_control).to_be_focused()
+            expect(page.locator("section.history-main")).to_have_attribute("inert", "")
+            expect(page.locator(".history-skip")).to_have_attribute("inert", "")
+            backdrop = page.locator(".history-mobile-scrim")
+            expect(backdrop).to_have_attribute("aria-hidden", "true")
+            expect(backdrop).to_have_attribute("tabindex", "-1")
+            state_color = page.get_by_test_id("history-state").evaluate(
+                "(el) => getComputedStyle(el).color")
+            sidebar_bg = page.locator("aside.history-sidebar").evaluate(
+                "(el) => getComputedStyle(el).backgroundColor")
+            assert text_contrast(state_color, sidebar_bg) >= 4.5
+            # A programmatic focus loss must not escape modal keyboard trap.
+            close_control.evaluate("(el) => el.blur()")
+            page.keyboard.press("Tab")
+            expect(close_control).to_be_focused()
             page.keyboard.press("Shift+Tab")
             expect(page.locator(".history-sidebar-bottom .history-link")).to_be_focused()
             page.keyboard.press("Tab")
@@ -243,12 +328,30 @@ def main():
             page.keyboard.press("Escape")
             expect(menu).to_have_attribute("aria-expanded", "false")
             expect(menu).to_be_focused()
+            assert page.locator("section.history-main").get_attribute("inert") is None
+            assert page.locator(".history-skip").get_attribute("inert") is None
             menu.click()
             expect(menu).to_have_attribute("aria-expanded", "true")
             expect(page.get_by_role("dialog", name="فهرست گفتگوها")).to_be_visible()
             page.locator(".history-mobile-close").click()
             expect(menu).to_have_attribute("aria-expanded", "false")
+            # Resizing while a mobile dialog is still open cannot strand
+            # keyboard users in a desktop-width invisible mobile drawer.
+            menu.click()
+            expect(page.get_by_role("dialog", name="فهرست گفتگوها")).to_be_visible()
+            page.set_viewport_size({"width": 1280, "height": 800})
+            # The trigger is deliberately CSS-hidden on desktop; assert its
+            # DOM state rather than searching for a visible ARIA button.
+            expect(page.locator(".mobile-menu-trigger")).to_have_attribute("aria-expanded", "false")
+            assert page.locator("aside[aria-modal='true']").count() == 0
+            assert page.locator("section.history-main").get_attribute("inert") is None
+            page.set_viewport_size({"width": 320, "height": 568})
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2")
+            assert page.locator(".history-messages").evaluate(
+                "(el) => getComputedStyle(el).direction") == "rtl"
+            page.set_viewport_size({"width": 390, "height": 844})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2")
+            print("UI_11_L1_DESKTOP_MOBILE_SKIP_INERT_FOCUS_RESIZE_CONTRAST_320RTL_PASS")
             screenshots=os.getenv("UI_GATE3_SCREENSHOT_DIR")
             if screenshots:
                 directory=Path(screenshots)

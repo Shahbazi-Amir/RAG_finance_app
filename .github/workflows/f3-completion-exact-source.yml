@@ -1,7 +1,7 @@
 name: Foundation F3 DB996 API61 UI65 exact-source CI — OFFLINE ONLY
 on:
   push:
-    branches: [integration/f3-ui65-db996-phase3-20261123, integration/f3-evidence-preflight-20261123, integration/f3-preflight-hardening-progress-20261123, integration/f3-m18-m19-container-build-20261123]
+    branches: [integration/f3-ui65-db996-phase3-20261123, integration/f3-evidence-preflight-20261123, integration/f3-preflight-hardening-progress-20261123, integration/f3-m18-m19-container-build-20261123, integration/f3-foundation-20261124-app-only-candidate]
   workflow_dispatch:
 permissions:
   contents: read
@@ -28,6 +28,11 @@ jobs:
           assert hashlib.sha256(b).hexdigest()==m['owners']['API_F3']['api_lock_sha256']
           print('F3_COMPLETION_OWNER_SOURCE_AND_API_LOCK_PASS',len(m['file_pins']))
           PY
+      - name: Verify all 393 F3 ID records; do not infer Gate acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/f3_candidate_registry.py --out ci_receipts/f3_registry --self-test
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
@@ -59,6 +64,14 @@ jobs:
       - name: Source-only result
         if: always()
         run: echo 'OFFLINE_SOURCE_ONLY; NO_MAC_NO_REAL_C018_NO_GATEWAY_NO_DEPLOY'
+      - name: Export exact-SHA candidate 393-row register
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f3-candidate-393-registry-not-acceptance
+          path: ci_receipts/f3_registry/
+          retention-days: 14
+          if-no-files-found: warn
   source-web-supply-chain:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -133,17 +146,21 @@ jobs:
           bash scripts/09_shared_stack_db_preflight.sh
           bash scripts/06_backup_restore_independent.sh
           bash scripts/10_restored_stack_db_preflight.sh
+          bash scripts/22_restore_catalog_parity_probe.sh
           bash scripts/13_catalog_erd_inventory.sh
           bash scripts/12_rollback_rls_constraints_probe.sh
           bash scripts/14_synthetic_owner_lifecycle_restore.sh
           bash scripts/15_populated_pre009_upgrade_restore.sh
+          bash scripts/23_m04_migration_full_cycle.sh
+          bash scripts/24_m10_idempotency_concurrency_probe.sh
           bash scripts/16_fault_injected_migration_ledger.sh
           bash scripts/17_populated_query_plan_and_owner.sh
           bash scripts/19_history_rls_negative_matrix.sh
           bash scripts/20_backup_integrity_corruption_probe.sh
+          bash scripts/25_pg_crash_recovery_probe.sh
           bash scripts/21_history_cursor_race_probe.sh
           bash scripts/11_export_sanitized_receipt.sh
-          echo 'F3_DB_TESTED_76822_PG17_RLS_RESTORE_ONLY_PASS'
+          echo 'F3_DB_INTEGRATED_444216_PG17_RLS_RESTORE_CRASH_ONLY_PASS'
       - uses: actions/upload-artifact@v4
         with:
           name: f3-completion-sanitized-db-receipt
@@ -188,3 +205,23 @@ jobs:
           python tests/phase3/integration/ui/retrieval_evidence_preview_browser.py
           python tests/phase3/integration/ui/product_chat_browser.py
           echo 'F3_COMPLETION_BROWSER_FIXTURES_ONLY_PASS'
+      - name: Real Next APP_ONLY Chromium 1280/390/320 and BFF no-Send
+        env:
+          PHASE3_APP_MODE: APP_ONLY
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd apps/web && ./node_modules/.bin/next start -H 127.0.0.1 -p 3100) > "$RUNNER_TEMP/f3-app-only-next.log" 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 2 http://127.0.0.1:3100/api/product-capabilities >/dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          if [[ "$ready" != 1 ]]; then
+            tail -70 "$RUNNER_TEMP/f3-app-only-next.log"
+            exit 1
+          fi
+          python tests/phase3/integration/ui/app_only_real_browser.py
+          echo 'F3_INTEGRATED_APP_ONLY_ACTUAL_CHROMIUM_NO_SEND_PASS_NOT_L2'
