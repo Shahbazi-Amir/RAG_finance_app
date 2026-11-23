@@ -49,7 +49,7 @@ class EvidencePreflightTests(unittest.TestCase):
         if stage == "build":
             base.update(engine_lock_and_wheelhouse_attested=True, images=[{"service": k, "image_id": "sha256:"+SHA,
                 "sbom_sha256": SHA, "scan_receipt_sha256": SHA, "platform": "linux/amd64", "unresolved_critical": 0}
-                for k in ("api", "web", "bootstrap")])
+                for k in ("product-api", "auth-bootstrap", "web-bff")])
         if stage == "auth_l2":
             base.update(real_https=True, oidc_login=True, signed_bff_mtls_rs256=True,
                         pg_verified_two_owners=True, same_attempt_t1_t2=True,
@@ -137,6 +137,66 @@ class EvidencePreflightTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 result = self.run_receipt(self.receipt(stage), stage)
                 self.assertEqual(result["outcome"], "PRECHECK_ONLY_NOT_ACCEPTED")
+
+    def test_duplicate_top_level_json_key_rejected(self):
+        d = self.receipt("snapshot")
+        s = json.dumps(d)
+        # Duplicate keys are dangerous even if the later value matches.
+        s = s[:-1] + ', "stage": "snapshot"}'
+        p = self.root / "receipt.json"
+        p.write_text(s, encoding="utf-8")
+        self.assert_blocked(lambda: verify_receipt(p, expected_sha=SRC, expected_tree=TREE, stage="snapshot"))
+
+    def test_duplicate_nested_json_key_rejected(self):
+        d = self.receipt("build")
+        s = json.dumps(d)
+        s = s.replace('"platform": "linux/amd64"', '"platform": "linux/amd64", "platform": "linux/amd64"', 1)
+        p = self.root / "receipt.json"
+        p.write_text(s, encoding="utf-8")
+        self.assert_blocked(lambda: verify_receipt(p, expected_sha=SRC, expected_tree=TREE, stage="build"))
+
+    def test_duplicate_release_json_key_rejected(self):
+        d = self.release()
+        s = json.dumps(d)
+        s = s[:-1] + ', "release_id": "release_20261123"}'
+        p = self.root / "receipt.json"
+        p.write_text(s, encoding="utf-8")
+        self.assert_blocked(lambda: verify_release(p, self.root))
+
+    def test_release_repeated_slash_path_rejected(self):
+        d = self.release()
+        d["artifacts"][0]["path"] = d["artifacts"][0]["path"].replace("/", "//")
+        self.assert_blocked(lambda: verify_release(self.write(d), self.root))
+
+    def test_release_current_dir_component_rejected(self):
+        d = self.release()
+        d["artifacts"][0]["path"] = "./" + d["artifacts"][0]["path"]
+        self.assert_blocked(lambda: verify_release(self.write(d), self.root))
+
+    def test_build_arbitrary_image_names_rejected(self):
+        d = self.receipt("build")
+        d["images"][0]["service"] = "unrelated-build"
+        self.assert_blocked(lambda: self.run_receipt(d, "build"))
+
+    def test_build_partial_image_services_rejected(self):
+        d = self.receipt("build")
+        d["images"].pop()
+        self.assert_blocked(lambda: self.run_receipt(d, "build"))
+
+    def test_wrong_expected_sha_type_rejected_without_crash(self):
+        d = self.receipt("snapshot")
+        self.assert_blocked(lambda: verify_receipt(self.write(d), expected_sha=None,
+                                                    expected_tree=TREE, stage="snapshot"))
+
+    def test_wrong_expected_tree_type_rejected_without_crash(self):
+        d = self.receipt("snapshot")
+        self.assert_blocked(lambda: verify_receipt(self.write(d), expected_sha=SRC,
+                                                    expected_tree=123, stage="snapshot"))
+
+    def test_build_valid_requires_all_three_compose_services(self):
+        d = self.receipt("build")
+        result = self.run_receipt(d, "build")
+        self.assertEqual(result["outcome"], "PRECHECK_ONLY_NOT_ACCEPTED")
 
     def test_wrong_integrated_sha_rejected(self):
         d = self.receipt("snapshot")
