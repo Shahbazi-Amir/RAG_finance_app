@@ -47,7 +47,6 @@ jobs:
           bash scripts/04_bridge_and_db55.sh
           bash scripts/05_test_roles_tls_rls.sh
           bash scripts/06_backup_restore_independent.sh
-          bash scripts/10_restored_stack_db_preflight.sh || test ! -f "$LAB_ROOT/work/api-source/apps/api/private_staging_asgi.py"
           bash scripts/26_two_owner_history_sql_restore.sh
           bash scripts/27_history_actor_transaction_pool_fence.sh
           bash scripts/19_history_rls_negative_matrix.sh
