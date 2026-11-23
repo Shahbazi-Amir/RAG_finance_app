@@ -342,9 +342,9 @@
     },
     ".github/workflows/ui-f3-post62-owner-fence.yml": {
       "owner": "UI_F3",
-      "source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
-      "git_blob": "b0d62be010b49556b655a77c9d2990778cd773f8",
-      "reason": "Exact ui65 HEAD overlay relative to ui62; L1/isolated CI only; no Mac Gate"
+      "source_sha": "535678051f3847661c8f048819c8a6784a804e35",
+      "git_blob": "84a640d11a45515a306b9679235c9eab0484d246",
+      "reason": "frozen #65 exact source; verifier is negative L2 receipt consistency only, no actual Mac L2"
     },
     "apps/web/app/account/page.tsx": {
       "owner": "UI_F3",
@@ -741,6 +741,18 @@
       "source_sha": "4461406829cdadc5a358b2af591c827e91e711ae",
       "git_blob": "395078707143c85de2d8f58c0b365445176bbf6a",
       "reason": "exact DB owner #59 integrated source; isolated CI still required"
+    },
+    "tests/phase3/integration/ui/l2_no_dispatch_receipt_gate.py": {
+      "owner": "UI_F3",
+      "source_sha": "535678051f3847661c8f048819c8a6784a804e35",
+      "git_blob": "c018988751d5fe36d760384409cb0994d8a96c32",
+      "reason": "frozen #65 exact source; verifier is negative L2 receipt consistency only, no actual Mac L2"
+    },
+    "tests/phase3/integration/ui/test_l2_no_dispatch_receipt_gate.py": {
+      "owner": "UI_F3",
+      "source_sha": "535678051f3847661c8f048819c8a6784a804e35",
+      "git_blob": "55d61ccb69466b64044d1afb8f6b1b7b92933ffc",
+      "reason": "frozen #65 exact source; verifier is negative L2 receipt consistency only, no actual Mac L2"
     }
   },
   "status": {
