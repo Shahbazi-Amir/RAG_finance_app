@@ -78,7 +78,7 @@ async def browser_history(page,label,expected_ids):
     await page.reload()
     await expect(page.locator('[data-testid^="conversation-"]').first).to_be_visible(
         timeout=20000)
-    more=page.get_by_test_id("more-conversations")
+    more=page.get_by_role("button",name="نمایش گفت‌وگوهای بیشتر")
     if await more.count():
         await more.click()
     ids=set(await page.locator('[data-testid^="conversation-"]').evaluate_all(
