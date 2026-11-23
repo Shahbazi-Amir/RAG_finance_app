@@ -207,6 +207,68 @@ class C018RetrievedSourcesOfflineTests(unittest.TestCase):
         self.assertEqual(reopened.read_sources(
             "owner_A", self.binding.engine_request_id, self.binding.trace_id), receipt)
 
+    def test_ledger_rejects_positive_count_mismatch_without_commit(self):
+        ledger = NoDispatchLedger(self.root / "mismatch-ledger.sqlite")
+        self.assertTrue(ledger.reserve("owner_A", self.binding))
+        self.assertTrue(ledger.start("owner_A", self.binding))
+        with self.assertRaises(PreflightDenied):
+            ledger.succeed("owner_A", self.binding,
+                           {"top10_count": 10}, self._convert())
+        self.assertEqual(
+            ledger.read("owner_A", self.binding.engine_request_id)["state"],
+            "RUNNING")
+        self.assertIsNone(ledger.read_sources(
+            "owner_A", self.binding.engine_request_id, self.binding.trace_id))
+
+    def test_ledger_rejects_boolean_count_and_invalid_receipt_shape(self):
+        ledger = NoDispatchLedger(self.root / "bad-count-ledger.sqlite")
+        self.assertTrue(ledger.reserve("owner_A", self.binding))
+        self.assertTrue(ledger.start("owner_A", self.binding))
+        for count in (True, -1, 11, None, "2"):
+            with self.subTest(count=count), self.assertRaises(PreflightDenied):
+                ledger.succeed("owner_A", self.binding,
+                               {"top10_count": count}, self._convert())
+        receipt = self._convert()
+        receipt["rows"] = None
+        with self.assertRaises(PreflightDenied):
+            ledger.succeed("owner_A", self.binding,
+                           {"top10_count": 2}, receipt)
+        self.assertEqual(ledger.read(
+            "owner_A", self.binding.engine_request_id)["state"], "RUNNING")
+
+    def test_unavailable_sources_legitimately_keep_original_observed_count(self):
+        # CONTEXT_READY may be true while its source member structure is
+        # UNVERIFIED. Do not replace unverified sources with fake valid rows.
+        ledger = NoDispatchLedger(self.root / "unavailable-ledger.sqlite")
+        self.assertTrue(ledger.reserve("owner_A", self.binding))
+        self.assertTrue(ledger.start("owner_A", self.binding))
+        self.assertTrue(ledger.succeed(
+            "owner_A", self.binding, {"top10_count": 2},
+            unavailable_receipt(self.binding)))
+        state = ledger.read("owner_A", self.binding.engine_request_id)
+        self.assertEqual(state["state"], "CONTEXT_READY")
+        self.assertEqual(state["top10_count"], 2)
+        receipt = ledger.read_sources(
+            "owner_A", self.binding.engine_request_id, self.binding.trace_id)
+        self.assertEqual(receipt["rows"], [])
+        self.assertEqual(receipt["retrieval_state"], "EVIDENCE_INVALID")
+
+    def test_tampered_outcome_count_blocked_on_signed_owner_receipt_read(self):
+        ledger = NoDispatchLedger(self.root / "outcome-count-ledger.sqlite")
+        self.assertTrue(ledger.reserve("owner_A", self.binding))
+        self.assertTrue(ledger.start("owner_A", self.binding))
+        receipt = self._convert()
+        self.assertTrue(ledger.succeed(
+            "owner_A", self.binding, {"top10_count": 2}, receipt))
+        with sqlite3.connect(ledger.filepath) as conn:
+            conn.execute(
+                "UPDATE outcomes SET top10_count=9 WHERE attempt_id=?",
+                (self.binding.engine_request_id,))
+        with self.assertRaises(PreflightDenied):
+            ledger.read_sources(
+                "owner_A", self.binding.engine_request_id,
+                self.binding.trace_id)
+
     def test_ledger_rejects_mismatched_attempt_without_state_mutation(self):
         ledger = NoDispatchLedger(self.root / "source-ledger.sqlite")
         ledger.reserve("owner_A", self.binding)
