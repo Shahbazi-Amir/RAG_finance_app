@@ -32,8 +32,38 @@ jobs:
           test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "f3-api-l1:$GITHUB_SHA")" = "$GITHUB_SHA"
           test "$(docker image inspect -f '{{.Architecture}}' "f3-api-l1:$GITHUB_SHA")" = amd64
           test "$(docker run --rm --network none "f3-api-l1:$GITHUB_SHA" id -u)" = 11001
-          docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA"
+          docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA" python3 -c "from apps.api.product_session_api import app; print(\u0027API_CONTAINER_SOURCE_IMPORT_PASS\u0027)"
           docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA" python3 tests/phase3/api/run_m18_l1_without_engine_mount.py
+          # New real API listener: public process-only liveness. Explicitly
+          # NOT a signed Product API, DB/IdP readiness, or an Engine endpoint.
+          docker run --detach --rm --name f3-api-l1 --network host "f3-api-l1:$GITHUB_SHA"
+          trap 'docker logs --tail 30 f3-api-l1 || true; docker rm -f f3-api-l1 >/dev/null 2>&1 || true' EXIT
+          for i in $(seq 1 45); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8080/health/live >/tmp/f3-api-live.json; then break; fi
+            sleep 2
+          done
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/f3-api-live.json'))
+          assert d["process"]=="alive" and d["app_ready"] is False
+          PY
+          ready_status="$(curl -s -o /tmp/f3-api-ready.json -w '%{http_code}' http://127.0.0.1:8080/health/ready)"
+          test "$ready_status" = 503
+          cap_status="$(curl -s -o /tmp/f3-api-cap.json -w '%{http_code}' http://127.0.0.1:8080/v1/capabilities)"
+          test "$cap_status" = 200
+          send_status="$(curl -s -o /tmp/f3-api-send.json -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data '{"question":"CI_ONLY_NO_SEND"}' http://127.0.0.1:8080/v1/messages)"
+          test "$send_status" = 503
+          python3 - <<'PY'
+          import json
+          cap=json.load(open('/tmp/f3-api-cap.json'))
+          send=json.load(open('/tmp/f3-api-send.json'))
+          assert cap["send_mode"]=="DISABLED" and cap["engine_available"] is False
+          assert cap["generation_available"] is False
+          assert send=={"error":"ENGINE_NOT_AVAILABLE"}
+          PY
+          docker rm -f f3-api-l1 >/dev/null
+          trap - EXIT
+          echo 'ACTUAL_API_LISTENER_HTTP_LIVE200_READY503_SEND503_NO_ENGINE_PASS'
           echo 'ACTUAL_API_DOCKER_BUILD_AND_TEST_IN_CONTAINER_PASS'
       - name: Real Web Docker build pinned Node and HTTP smoke
         shell: bash
@@ -69,7 +99,8 @@ jobs:
             imgs[name]={"image_id":x["Id"],"platform":x["Os"]+"/"+x["Architecture"],
                         "source_label":x["Config"]["Labels"]["org.opencontainers.image.revision"]}
           doc={"schema":"f3.m18_m19.real_ci_image.v1","git_sha":sha,"images":imgs,
-               "actual_build":"PASS","api_tests_in_container":"ENGINE_INDEPENDENT_SUBSET_EXECUTED_SEE_JOB_LOG","web_http_200":"PASS",
+               "actual_build":"PASS","api_tests_in_container":"ENGINE_INDEPENDENT_SUBSET_EXECUTED_SEE_JOB_LOG","web_http_200":"PASS","api_listener_live_200":"PASS",
+               "api_product_ready_503":"PASS","api_send_503_no_engine":"PASS",
                "bad_host_404":"PASS","real_api_tls_http":"NOT_RUN","mac":"NOT_RUN",
                "real_c018":"NOT_RUN","pg_app_connected":"NOT_RUN",
                "oci_security_scan":"NOT_RUN","release_gate":"NOT_ACCEPTED",

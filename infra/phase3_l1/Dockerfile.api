@@ -1,4 +1,4 @@
-# CI-only real API image build; NOT production mTLS listener
+# Real restricted app-only API listener for isolated CI. NOT production mTLS/IdP/PG.
 ARG BASE=public.ecr.aws/docker/library/python@sha256:f3dac913ab53b78c64f26d5518fcd7043d5a1a46522d6a493b598c3ed12f62a6
 FROM ${BASE}
 ARG SOURCE_SHA
@@ -14,4 +14,8 @@ COPY references/phase2 /srv/release/references/phase2
 COPY tests/phase3 /srv/release/tests/phase3
 RUN groupadd -g 11001 api && useradd -u 11001 -g 11001 -m -d /home/api api
 USER 11001:11001
-CMD ["python3","-c","from apps.api.product_session_api import app; print('API_CONTAINER_SOURCE_IMPORT_PASS_NO_LISTENER')"]
+ENV PHASE3_APP_MODE=APP_ONLY
+EXPOSE 8080
+# Health checks only process liveness, NOT full product readiness.
+HEALTHCHECK --interval=20s --timeout=3s --start-period=10s --retries=3 CMD python3 -c "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:8080/health/live', timeout=2).status == 200"
+CMD ["uvicorn","apps.api.app_only_asgi:app","--host","0.0.0.0","--port","8080","--no-access-log"]
