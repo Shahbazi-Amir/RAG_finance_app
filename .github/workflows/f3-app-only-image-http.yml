@@ -27,6 +27,41 @@ jobs:
           assert hashlib.sha256(open('locks/requirements-api.lock','rb').read()).hexdigest()==m['owners']['API_F3']['api_lock_sha256']
           print("F3_APP_ONLY_OWNER_SOURCE_AND_LOCK_PASS")
           PY
+      - name: Static Compose isolation and missing-project negative check
+        shell: bash
+        run: |
+          set -euo pipefail
+          export F3_COMPOSE_PROJECT="ragfinance_f3_app_only_ci${GITHUB_RUN_ID}"
+          export F3_SOURCE_SHA="$GITHUB_SHA"
+          export F3_API_BASE_REF="public.ecr.aws/docker/library/python@sha256:f3dac913ab53b78c64f26d5518fcd7043d5a1a46522d6a493b598c3ed12f62a6"
+          export F3_NODE_BASE_REF="public.ecr.aws/docker/library/node@sha256:47725aca53d3295ec2d3be8f62726599b3033cc262edc2c7e429909b3ac599fc"
+          export F3_PG_BASE_REF="public.ecr.aws/docker/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a"
+          export F3_PG_PASSWORD_FILE=/tmp/not-real-pg-password
+          export F3_PG_PKI_DIR=/tmp/not-real-pg-pki
+          export F3_API_CONFIG_FILE=/tmp/not-real-api-config
+          export F3_API_PKI_DIR=/tmp/not-real-api-pki
+          export F3_BOOTSTRAP_CONFIG_FILE=/tmp/not-real-bootstrap-config
+          export F3_BOOTSTRAP_PKI_DIR=/tmp/not-real-bootstrap-pki
+          export F3_WEB_CONFIG_FILE=/tmp/not-real-web-config
+          export F3_WEB_PKI_DIR=/tmp/not-real-web-pki
+          export F3_WEB_STORE_DIR=/tmp/not-real-web-store
+          docker compose -f infra/phase3_l1/compose.app-only.yaml config --quiet
+          if (unset F3_COMPOSE_PROJECT; docker compose -f infra/phase3_l1/compose.app-only.yaml config --quiet) >/tmp/f3-compose-negative 2>&1; then
+            echo 'STOP_MISSING_COMPOSE_PROJECT_NOT_REJECTED'
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json,subprocess
+          s=json.loads(subprocess.check_output(['docker','compose','-f','infra/phase3_l1/compose.app-only.yaml','config','--format','json']))['services']
+          assert set(s)=={'pg','api','bootstrap','web'}
+          assert all(not x.get('ports') for x in s.values()),'Unexpected public port'
+          assert s['web']['network_mode']=='service:api'
+          assert s['bootstrap']['network_mode']=='service:api'
+          assert s['api']['environment']['API_RUNTIME_PROFILE']=='APP_ONLY'
+          assert s['web']['environment']['AUTH_APP_ONLY']=='true'
+          assert 'ssl=on' in s['pg']['command']
+          print('F3_APP_ONLY_COMPOSE_STATIC_PRIVATE_NET_TLS_PASS_NO_RUNTIME')
+          PY
       - name: Build and test actual API image, no PKI/Engine/PG data fixture
         shell: bash
         run: |

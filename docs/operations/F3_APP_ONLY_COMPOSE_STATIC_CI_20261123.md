@@ -1,0 +1,1 @@
+Static Docker Compose CI checks 4 services, shared loopback namespace, pg TLS on, no published ports, server-only APP_ONLY and Web mode, and fails on missing project. It uses placeholder secret *paths* and does not start services, create certificates or prove real signed History. Actual Ops still requires independent installation and PG/PKI/IdP receipts.
