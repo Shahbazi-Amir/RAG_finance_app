@@ -27,7 +27,8 @@ def main():
         raise RuntimeError("UI_CHAT_L1_ONLY_LOOPBACK_HTTP_PORT_3000")
     state = {"posts": 0, "status_reads": 0, "engine_reads": 0,
              "logged_in": True, "request": None,
-             "source_reads": 0, "source_mode": "valid"}
+             "source_reads": 0, "source_mode": "valid",
+             "owner_mode": "original"}
     conversation_id = "conv_uichat_013"
     user_message = "msg_uichat_013"
 
@@ -59,6 +60,9 @@ def main():
                 conv["title"] = "گفت‌وگوی تست فارسی"
                 conv["owner_user_id"] = body["scope_user_id"]
                 body["items"] = [conv]
+            if state["owner_mode"] == "changed":
+                body["scope_user_id"] = "usr_owner_B_403_3"
+                body["items"] = []
             route.fulfill(status=200, json=body)
         elif path.endswith("/api/history/messages") and method == "POST":
             state["posts"] += 1
@@ -209,6 +213,12 @@ def main():
             assert menu.evaluate("(el) => getComputedStyle(el).outlineStyle") != "none"
             menu.click()
             expect(menu).to_have_attribute("aria-expanded", "true")
+            expect(page.locator(".history-mobile-close")).to_be_focused()
+            page.keyboard.press("Escape")
+            expect(menu).to_have_attribute("aria-expanded", "false")
+            expect(menu).to_be_focused()
+            menu.click()
+            expect(menu).to_have_attribute("aria-expanded", "true")
             expect(page.get_by_role("dialog", name="فهرست گفتگوها")).to_be_visible()
             page.locator(".history-mobile-close").click()
             expect(menu).to_have_attribute("aria-expanded", "false")
@@ -247,7 +257,18 @@ def main():
             expect(page.get_by_test_id("retrieved-sources-observed")).to_be_visible()
             assert state["posts"] == 1
             expect(page.locator("nav.history-list")).to_contain_text("گفت‌وگوی تست فارسی")
-            # Server 401 purges old per-account list and persisted correlators.
+            # A different valid owner in a separately signed list response
+            # must clear the former owner's message/Attempt/cache before display.
+            state["owner_mode"] = "changed"
+            page.get_by_test_id("refresh-history").click()
+            expect(page.get_by_test_id("history-login-required")).to_be_visible()
+            assert page.locator("nav.history-list button").count() == 0
+            assert page.get_by_test_id("retrieved-sources-observed").count() == 0
+            assert page.evaluate(
+                "() => sessionStorage.getItem('rag-finance-attempt-correlation-v1')") is None
+            assert state["posts"] == 1
+            state["owner_mode"] = "original"
+            # Server 401 still purges even on a fresh page.
             state["logged_in"] = False
             # Refresh invokes authenticated GET, even if background polling has
             # already observed the 401 and disabled the in-page Refresh button.
@@ -256,7 +277,14 @@ def main():
             assert page.locator("nav.history-list button").count() == 0
             assert page.evaluate(
                 "() => sessionStorage.getItem('rag-finance-attempt-correlation-v1')") is None
-            print("UI_CHAT_L1_BROWSER_API61_SAME_ATTEMPT_MOBILE_XSS_MISMATCH_401_PASS")
+            account_page = context.new_page()
+            account_page.goto(base + "/account", wait_until="domcontentloaded")
+            expect(account_page.get_by_role("heading", name="حساب و حریم خصوصی")).to_be_visible()
+            expect(account_page.get_by_text("امکان درخواست حذف از این رابط هنوز فعال نیست.")).to_be_visible()
+            assert account_page.locator('form[action*="delete"]').count() == 0
+            assert account_page.locator('form[action*="feedback"]').count() == 0
+            account_page.close()
+            print("UI_CHAT_L1_BROWSER_POST62_OWNER_MISMATCH_ESCAPE_ACCOUNT_401_PASS")
             context.close()
         finally:
             browser.close()
