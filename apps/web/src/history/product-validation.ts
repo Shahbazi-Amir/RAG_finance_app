@@ -40,7 +40,11 @@ function matches(value:unknown,s:Schema,depth=0):boolean{
   if(Array.isArray(s.anyOf)&&!s.anyOf.some(part=>each(value,part)))return false;
   if(Array.isArray(s.allOf)&&!s.allOf.every(part=>each(value,part)))return false;
   if(own(s,'not')&&each(value,s.not))return false;
-  if(own(s,'if')&&each(value,s.if)&&own(s,'then')&&!each(value,s.then))return false;
+  if(own(s,'if')){
+    const condition=each(value,s.if);
+    if(condition&&own(s,'then')&&!each(value,s.then))return false;
+    if(!condition&&own(s,'else')&&!each(value,s.else))return false;
+  }
   if(typeof value==='string'){
     const n=Array.from(value).length;
     if(typeof s.minLength==='number'&&n<s.minLength)return false;
