@@ -75,6 +75,8 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             "CI": "false", "GITHUB_ACTIONS": "false",
             "API_RUNNER_EXECUTION_MODE": "APP_ONLY",
             "PHASE3_APP_MODE": "APP_ONLY",
+            "API_CURSOR_KEY": "p" * 48,
+            "API_CURSOR_TTL_SECONDS": "300",
         }):
             with patch("apps.api.private_app_only_asgi._test_tls_material"):
                 with patch("apps.api.private_app_only_asgi.verify_staging_database_authority"):
@@ -92,6 +94,32 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         self.assertEqual(install.call_count, 1)
         self.assertIs(app._app, product_session_api.app)
         self.assertIsNone(product_session_api._SERVER_NO_DISPATCH_TASK)
+
+    def test_missing_cursor_signing_secret_fails_before_signed_service_exposed(self):
+        """Original History page 2 requires a stable Ops HMAC+TTL."""
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization
+        from apps.api.private_app_only_asgi import prepare_app_only
+        from apps.api import product_session_api
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        (self.root / "pub.pem").write_bytes(
+            key.public_key().public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo))
+        cfg = load_app_only_config(self.config_file)
+        with patch.dict(os.environ, {
+            "CI": "false", "GITHUB_ACTIONS": "false",
+            "PHASE3_APP_MODE": "APP_ONLY",
+            "API_RUNNER_EXECUTION_MODE": "APP_ONLY",
+            "API_CURSOR_KEY": "",
+            "API_CURSOR_TTL_SECONDS": "300",
+        }):
+            with patch("apps.api.private_app_only_asgi._test_tls_material"):
+                with patch("apps.api.private_app_only_asgi.verify_staging_database_authority"):
+                    with patch.object(product_session_api, "install_private_staging_auth") as install:
+                        with self.assertRaises(StagingConfigDenied):
+                            prepare_app_only(cfg)
+                        install.assert_not_called()
 
     def test_invalid_bff_public_key_denied_without_traceback_or_socket(self):
         """Malformed RS256 key must exit 78, not expose internals or run."""
