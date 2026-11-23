@@ -144,9 +144,10 @@ jobs:
           bash scripts/17_populated_query_plan_and_owner.sh
           bash scripts/19_history_rls_negative_matrix.sh
           bash scripts/20_backup_integrity_corruption_probe.sh
+          bash scripts/25_pg_crash_recovery_probe.sh
           bash scripts/21_history_cursor_race_probe.sh
           bash scripts/11_export_sanitized_receipt.sh
-          echo 'F3_DB_TESTED_f302fbf0_PG17_ALL15_SANITIZED_RECEIPTS_PASS'
+          echo 'F3_DB_TESTED_b3505f54_PG17_ALL16_SANITIZED_RECEIPTS_PASS'
       - uses: actions/upload-artifact@v4
         with:
           name: f3-completion-sanitized-db-receipt

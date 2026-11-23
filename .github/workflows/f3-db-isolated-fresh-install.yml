@@ -62,6 +62,7 @@ jobs:
           bash scripts/17_populated_query_plan_and_owner.sh
           bash scripts/19_history_rls_negative_matrix.sh
           bash scripts/20_backup_integrity_corruption_probe.sh
+          bash scripts/25_pg_crash_recovery_probe.sh
           bash scripts/21_history_cursor_race_probe.sh
           bash scripts/11_export_sanitized_receipt.sh
           printf 'CI_GIT_SHA=%s\nCI_PG=17.11\nISOLATED_FRESH_INSTALL=PASS\n' "$GITHUB_SHA"

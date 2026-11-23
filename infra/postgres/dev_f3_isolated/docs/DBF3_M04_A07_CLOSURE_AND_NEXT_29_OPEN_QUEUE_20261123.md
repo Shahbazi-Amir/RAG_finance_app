@@ -50,3 +50,8 @@ API/Security/Product: consent/withdrawal, feedback tied to persisted Answer, tom
 ## Next-cycle bounded evidence on queue item #3 (not accepted)
 
 M10-A10 actual real-PG script24 `395078707143c85de2d8f58c0b365445176bbf6a`, [CI 45234862871](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45234862871) exact source `f302fbf0f4a00ae4fe80d914452906fe88029078` SUCCESS, 15 sanitized receipts. SQL duplicate/one-attempt/owner RLS passed, **not** signed API HTTP request replay, actual process kill, runtime IdP or Mac. Queue #3 remains OPEN. Totals 5/57=8.77% retained. Contract/policy decisions 012+ remain HOLD.
+
+
+## Next bounded DB witness 2026-11-23
+
+M22-A09 actual isolated DB process outage and WAL recovery tested on `b3505f545054a7d5eaa745785195403191ad72c8` [CI45260469796 PASS](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45260469796), new script25 and 16th receipt. **NOT a real full-host/network disaster, RPO/RTO SLA, or Qdrant operation; no ID/Gate newly accepted**. Totals 5/57=8.77% unchanged.

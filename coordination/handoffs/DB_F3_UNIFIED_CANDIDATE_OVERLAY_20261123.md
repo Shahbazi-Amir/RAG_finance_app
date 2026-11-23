@@ -9,3 +9,7 @@ Founder/UI/API source overlays are not overwritten. The previous Foundation inte
 New candidate Foundation app contracts+Web/API build, source pin audit, isolated DB test and real API/Web image CI must pass on SAME candidate SHA; prior independent DB PASS alone is not integrated acceptance.
 
 Owners: DB = this overlay, Foundation = final integrated candidate and signed pin/CI review, API/UI/Ops = actual HTTPS BFF→API→PG/Mac and browser evidence. No count inflation: 5 DONE limited / 28 OPEN / 24 BLOCKED out of 57, all shared Gates NOT_ACCEPTED.
+
+## 2026-11-23 latest standalone DB test imported
+
+Script25 actual independent restore PostgreSQL SIGKILL/WAL recovery PASS source `b3505f545054a7d5eaa745785195403191ad72c8` [CI45260469796](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45260469796), 16 sanitized files [artifact14860576246](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45260469796/artifacts/14860576246). Its source runner and docs are now carried into this independent integrated branch for exact-SHA retest. M22-A09 **OPEN**, real Mac/Qdrant/IdP disaster, PITR and RPO/RTO not tested; no 012+ migration and no Gate accepted.

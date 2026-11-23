@@ -320,3 +320,29 @@ assert r["module_gate"]=="NOT_ACCEPTED"
 PY
 install -m 0600 "$m10" "$GITHUB_WORKSPACE/ci_receipts/m10_idempotency_concurrency_receipt.json"
 echo 'M10_A10_15TH_SANITIZED_DB_CONCURRENCY_RECEIPT=PASS'
+
+# Real process SIGKILL on a synthetic independent PostgreSQL restore cluster.
+pg_crash="$LAB_WORK/pg_crash_recovery_receipt.json"
+[[ -s "$pg_crash" ]] || { echo STOP_PG_CRASH_RECOVERY_RECEIPT_ABSENT >&2;exit 70; }
+python3 - "$pg_crash" <<'PY'
+import json,sys
+from pathlib import Path
+r=json.loads(Path(sys.argv[1]).read_text())
+assert r["contract_version"]=="f3.db.synthetic_pg17_crash_and_wal_recovery.v1"
+assert r["fault"]=="SIGKILL_POSTGRES_CONTAINER"
+assert r["database_offline_connection_denied"] is True
+assert r["postgres_wal_recovery"]=="PASS"
+assert r["source_and_restore_cluster_ids_stable"] is True
+assert r["committed_conversations_after"]==2 and r["committed_messages_after"]==2
+assert r["uncommitted_insert_after"]==0
+assert r["owner_a_visible"]==1 and r["owner_b_visible"]==1 and r["no_owner_visible"]==0
+assert r["force_rls_tables_after_restart"]==14 and r["db55_after_restart"]=="PASS"
+assert r["prior_corrupt_backup_pre_restore_negatives"]=="2_OF_2_FAILED_CLOSED"
+assert r["original_backup_sha256_intact"] and r["test_probe_removed"]
+assert r["mac_runtime"]=="NOT_RUN" and r["full_machine_failure"]=="NOT_RUN"
+assert r["offsite_encrypted_key_custody"]=="NOT_DEFINED"
+assert r["pitr"]=="NOT_RUN" and r["approved_rpo_rto"]=="NOT_DEFINED"
+assert r["module_gate"]=="NOT_ACCEPTED"
+PY
+install -m 0600 "$pg_crash" "$GITHUB_WORKSPACE/ci_receipts/pg_crash_recovery_receipt.json"
+echo 'M22_A09_16TH_SANITIZED_PG_CRASH_RECOVERY_RECEIPT=PASS'
