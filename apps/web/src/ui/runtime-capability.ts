@@ -39,3 +39,11 @@ export function decodeRuntimeCapability(value:unknown):ReadOnlyCapability|null{
      o.engine_available!==false||o.generation_available!==false)return null;
   return o as ReadOnlyCapability;
 }
+
+/** A declared, unsupported deployment profile cannot silently authorize Send.
+ * Absent profile retains the existing CI-private-history compatibility mode;
+ * every explicit mode other than NO_DISPATCH_ONLY is send-disabled.
+ */
+export function appOnlySendBlocked(profile:string|undefined):boolean{
+  return profile!==undefined&&profile!=='NO_DISPATCH_ONLY';
+}
