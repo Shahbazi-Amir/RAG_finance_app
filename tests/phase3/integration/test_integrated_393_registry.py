@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import csv
+import json
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -56,6 +58,33 @@ class LedgerTest(unittest.TestCase):
             self.assertEqual(index[r["id"]]["canonical_criterion"],r["criterion"])
             self.assertEqual(index[r["id"]]["dependency"],r["mapped_original_P3M_IDs"])
             self.assertEqual(index[r["id"]]["canonical_counted"],"NO")
+
+    def test_pinned_four_pr_blob_manifest_and_fail_closed_resolutions(self):
+        manifest=json.loads((ROOT/"coordination/integration/FOUR_PR_APP_ONLY_PINNED_SOURCE_MANIFEST_20261124.json")
+                            .read_text(encoding="utf-8"))
+        self.assertEqual(manifest["contract_version"],"integration.f3.app_only.v1")
+        self.assertEqual(len(manifest["candidate_tree_selected_changes"]),42)
+        self.assertEqual(set(manifest["parent_branches_exact_shas"]),
+                         {"fd","ui","api","db"})
+        self.assertNotEqual(manifest["generated_from_tree_sha"],
+                            manifest["generated_from_commit_sha"])
+        expected=set(manifest["source_resolutions"])
+        self.assertEqual(len(expected),6)
+        preserved=0
+        for file in manifest["candidate_tree_selected_changes"]:
+            self.assertTrue(re.fullmatch(r"[0-9a-f]{40}",file["source_blob_sha"]))
+            self.assertTrue(re.fullmatch(r"[0-9a-f]{40}",file["integrated_blob_sha"]))
+            result=subprocess.run(["git","hash-object",file["path"]],
+                                  cwd=ROOT,capture_output=True,text=True,check=True)
+            self.assertEqual(result.stdout.strip(),file["integrated_blob_sha"],file["path"])
+            if file["path"] in expected:
+                self.assertEqual(file["resolution"],"FOUNDATION_SECURITY_COMPAT")
+                preserved+=1
+            else:
+                self.assertEqual(file["resolution"],"SOURCE_PRESERVED")
+        self.assertEqual(preserved,6)
+        self.assertFalse(manifest["acceptance"]["real_postgresql_oidc_mac_l2_verified"])
+        self.assertFalse(manifest["acceptance"]["full_phase3_accepted"])
 
     def test_no_acceptance_without_real_receipts(self):
         _,rows=read(LEDGER)
