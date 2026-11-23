@@ -691,10 +691,10 @@
       "reason": "Experimental branch candidate exact workflow/DB25, integrated run pending"
     },
     ".github/workflows/f3-m18-m19-real-image-http.yml": {
-      "owner": "FOUNDATION_F3_TEST_ONLY_OVERLAY",
-      "source_sha": "5bdd911d7c2d561e4224d561ae47eb10f09e415a",
-      "git_blob": "53cdb80a43b1315f2122d5a45e42728e7afa3b55",
-      "reason": "Candidate-only compatible source overlay, exact image test counts; require integrated same-SHA CI"
+      "owner": "APP_ONLY_CI_ORCHESTRATOR",
+      "source_sha": "0e3f2f865438f98ffcd22a763eae38a269b17c26",
+      "git_blob": "2a102aacf3f105a012dfbf130b0885d2e6e4ed9d",
+      "reason": "Safe CI-only real API listener with not-ready absent IdP/PG, no engine, exact HTTP probe"
     },
     "tests/phase3/api/test_full_binding_fence.py": {
       "owner": "API_F3",
@@ -743,6 +743,24 @@
       "source_sha": "07ceb64e8c9efbd7ad7c9427c21bd4a996789400",
       "git_blob": "ef337996666063eba4afb9271e639c39be637bb5",
       "reason": "Experimental branch candidate exact workflow/DB25, integrated run pending"
+    },
+    "apps/api/app_only_asgi.py": {
+      "owner": "APP_ONLY_CI_ORCHESTRATOR",
+      "source_sha": "0e3f2f865438f98ffcd22a763eae38a269b17c26",
+      "git_blob": "42c7c62754265e44acf22ab4af63552a523498f2",
+      "reason": "Safe CI-only real API listener with not-ready absent IdP/PG, no engine, exact HTTP probe"
+    },
+    "tests/phase3/api/test_app_only_no_engine_listener.py": {
+      "owner": "APP_ONLY_CI_ORCHESTRATOR",
+      "source_sha": "0e3f2f865438f98ffcd22a763eae38a269b17c26",
+      "git_blob": "45557c588b659d4f11889a1d65ce5b99bd568ff4",
+      "reason": "Safe CI-only real API listener with not-ready absent IdP/PG, no engine, exact HTTP probe"
+    },
+    "infra/phase3_l1/Dockerfile.api": {
+      "owner": "APP_ONLY_CI_ORCHESTRATOR",
+      "source_sha": "0e3f2f865438f98ffcd22a763eae38a269b17c26",
+      "git_blob": "e4647bcbba2e939b2aec099ba38a1afa0b907299",
+      "reason": "Safe CI-only real API listener with not-ready absent IdP/PG, no engine, exact HTTP probe"
     }
   },
   "status": {
@@ -753,7 +771,9 @@
     "arvan": "HOLD",
     "integrated_CI": "PENDING_NEW_DB25_UI65_API76_OVERLAY",
     "app_only_full_stack": "NOT_TESTED",
-    "module_gate": "NOT_ACCEPTED"
+    "module_gate": "NOT_ACCEPTED",
+    "app_only_ci_listener": "PENDING_GITHUB_IMAGE_AND_API_UNIT_TEST",
+    "real_idp_pg_mac": "NOT_RUN"
   },
   "previous_integrated_sha": "d6dc01df5835cca8a97a778b091b769496646abb",
   "previous_ui65_candidate_sha": "ce899c26a27fa0e913584384f9dac8980bb77c33",

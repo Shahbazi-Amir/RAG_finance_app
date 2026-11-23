@@ -14,4 +14,7 @@ COPY references/phase2 /srv/release/references/phase2
 COPY tests/phase3 /srv/release/tests/phase3
 RUN groupadd -g 11001 api && useradd -u 11001 -g 11001 -m -d /home/api api
 USER 11001:11001
-CMD ["python3","-c","from apps.api.product_session_api import app; print('API_CONTAINER_SOURCE_IMPORT_PASS_NO_LISTENER')"]
+# A real listener, but explicitly CI-only and fail-closed unless the separate
+# exact CI opt-in tuple is present; no public API deployment is authorized.
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18880/health/live',timeout=2).read()" || exit 1
+CMD ["python3","-m","apps.api.app_only_asgi"]
