@@ -123,10 +123,11 @@
       "reason": "UI60 browser/visual same-Attempt changes"
     },
     "apps/web/src/ui/product-chat.tsx": {
-      "owner": "UI_F3",
-      "git_blob": "3708795519f6cef44c695e754a963658191d1db3",
-      "source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
-      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
+      "owner": "FOUNDATION_APP_ONLY_ADAPTER",
+      "git_blob": "f388ecaf3e61358c4846e247860d8fd97aa215ff",
+      "source_sha": "0e33fcadaced9d80e22fedfa00b57a1cfb561001",
+      "upstream_owner_blob": "3708795519f6cef44c695e754a963658191d1db3",
+      "reason": "Explicit integrated app-only runtime guard; UI upstream owner version retained in upstream_owner_blob, downstream-only source change"
     },
     "apps/web/src/ui/retrieved-sources-panel.tsx": {
       "owner": "UI_F3",
@@ -737,7 +738,8 @@
     "arvan": "HOLD",
     "integrated_CI": "PENDING",
     "real_app_only_http": "NOT_RUN",
-    "real_browser_sql": "NOT_RUN"
+    "real_browser_sql": "NOT_RUN",
+    "app_only_implementation": "SOURCE_DONE_NOT_TARGET_VERIFIED"
   },
   "previous_integrated_sha": "d6dc01df5835cca8a97a778b091b769496646abb",
   "previous_ui65_candidate_sha": "ce899c26a27fa0e913584384f9dac8980bb77c33",
