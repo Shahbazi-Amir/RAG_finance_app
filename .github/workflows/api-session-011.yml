@@ -16,6 +16,8 @@ on:
       - 'coordination/handoffs/API_F3_PR76_SIGNED_HISTORY_REAL_PROGRESS_20261123.md'
       - 'coordination/handoffs/API_F3_CURRENT_ROADMAP_AND_ACCEPTANCE_20261123.md'
       - 'coordination/handoffs/API_F3_91_ROW_L1_SOURCE_MATRIX_20261123.csv'
+      - 'coordination/integration/API_F3_PR87_SIGNED_HISTORY_P0_20261124.md'
+      - 'tests/phase3/api/test_app_only_no_engine.py'
       - '.github/workflows/api-session-011.yml'
   pull_request:
     types: [opened, synchronize, reopened]
@@ -33,6 +35,8 @@ on:
       - 'coordination/handoffs/API_F3_PR76_SIGNED_HISTORY_REAL_PROGRESS_20261123.md'
       - 'coordination/handoffs/API_F3_CURRENT_ROADMAP_AND_ACCEPTANCE_20261123.md'
       - 'coordination/handoffs/API_F3_91_ROW_L1_SOURCE_MATRIX_20261123.csv'
+      - 'coordination/integration/API_F3_PR87_SIGNED_HISTORY_P0_20261124.md'
+      - 'tests/phase3/api/test_app_only_no_engine.py'
       - '.github/workflows/api-session-011.yml'
 permissions:
   contents: read
