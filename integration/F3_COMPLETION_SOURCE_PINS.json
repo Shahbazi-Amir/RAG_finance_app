@@ -747,10 +747,10 @@
       "reason": "2026-11-24 conflict-free exact blob transfer from specialist current HEAD; integration CI pending"
     },
     ".github/workflows/api-session-011.yml": {
-      "owner": "API_F3",
-      "source_sha": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
-      "git_blob": "ed7bf4ee7dde750c1f32f4b1086482d2946a05b1",
-      "reason": "2026-11-24 conflict-free exact blob transfer from specialist current HEAD; integration CI pending"
+      "owner": "FOUNDATION_F3",
+      "source_sha": "1c4788306800d004e5bf1f0dc3d7af5a515c10f4",
+      "git_blob": "d4da25f50d6c3a974a798549fe99fe6af939e2c5",
+      "reason": "Trigger original isolated signed PostgreSQL/IdP/API regression on shared Foundation candidate SHA; workflow-only change, does not modify specialist product code"
     },
     "tests/phase3/integration/api/test_product_session_011.py": {
       "owner": "API_F3",
@@ -806,6 +806,7 @@
     "db_head_ci": "NOT_OBSERVED",
     "mac_target": "NOT_RUN",
     "engine": "DISABLED",
-    "production_approval": "NOT_GRANTED"
+    "production_approval": "NOT_GRANTED",
+    "additional_foundation_workflow_trigger": "api-session-011 integrated SHA; synthetic IdP/PG only; independent CI pending"
   }
 }
