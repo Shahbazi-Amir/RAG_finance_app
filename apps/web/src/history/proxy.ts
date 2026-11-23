@@ -9,6 +9,7 @@ import {getActive,revokeAlias} from '../auth/server/initial-store.ts';
 import {productRequest} from '../auth/server/product-session.ts';
 import {conformsToProductV1} from './product-validation.ts';
 import {stagingRequested,stagingProfile} from '../auth/server/private-staging.ts';
+import {appOnlySendBlocked} from '../ui/runtime-capability.ts';
 
 const allowed=(parts:string[],method:string):boolean=>
   (parts.length===1&&parts[0]==='conversations'&&['GET','POST'].includes(method))||
@@ -23,7 +24,7 @@ export async function forwardHistoryProxy(request:Request,path:string[]):Promise
   // App-only is a policy fence, not a display flag. Reject Send before body
   // read, upstream calls, durable T1/T2 reservation or any engine dispatch.
   // This check wins over CI stubs, private staging and legacy loopback proxy.
-  if(process.env.PHASE3_APP_MODE==='APP_ONLY'&&
+  if(appOnlySendBlocked(process.env.PHASE3_APP_MODE)&&
      request.method==='POST'&&path.length===1&&path[0]==='messages')
     return Response.json({error:'ENGINE_NOT_AVAILABLE'},{
       status:503,headers:{'Cache-Control':'no-store'}
