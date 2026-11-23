@@ -52,6 +52,8 @@ bash scripts/14_synthetic_owner_lifecycle_restore.sh
 bash scripts/15_populated_pre009_upgrade_restore.sh
 bash scripts/16_fault_injected_migration_ledger.sh
 bash scripts/17_populated_query_plan_and_owner.sh
+bash scripts/19_history_rls_negative_matrix.sh
+bash scripts/20_backup_integrity_corruption_probe.sh
 # The exporter below uses a metadata directory, NOT an installation command.
 # For CI, GITHUB_WORKSPACE and GITHUB_SHA are supplied automatically; for local,
 # use an isolated writable export root and explicitly label evidence as local.
@@ -68,9 +70,17 @@ bash scripts/11_export_sanitized_receipt.sh
 4. After 14: synthetic_owner_restore_receipt.json (two owners/two History messages, deletion_requested preserved, only soft deletion and sample time).
 5. After 16: ledger_fault_injection_receipt.json (second-cluster STARTED, duplicate, bad digest, null metadata and forged-full rejection, owned resources deleted).
 6. After 17: populated_plan_receipt.json, query_plan_populated_conversations.json, query_plan_populated_messages.json, with 2400/4800 synthetic fixture, 1200 A-owned rows and explicitly NOT approved production workload.
-7. After 15: complete populated pre009 upgrade evidence appears in **CI log**; exporter currently does not include a separate 15 JSON artifact. To audit 15, retain GitHub Actions exact-SHA log and test script pin, not a fabricated JSON receipt. This distinction is deliberate.
+7. After 15: complete populated pre009 upgrade evidence appears in **CI log**; exporter currently does not include a separate 15 JSON artifact.
+8. After 19: `history_rls_adversarial_receipt.json` proves two-owner six History table SELECT RLS, authorized title mutation and 7/7 negative forged owner/FK/immutable UPDATE/DELETE/unique cases. **It also demonstrates that a raw `history_app` SQL client can set the custom owner GUC and therefore cannot prove signed identity.** The real BFF/IdP/epoch fence remains OPEN.
+9. After 20: `backup_integrity_fault_receipt.json` proves one-byte flipped and truncated copies of an already checksummed lab dump are denied by SHA256 *before* restore, while original backup and independent source/restore cluster IDs stay intact. **No corrupt restoration is attempted**; real storage faults, encrypted off-host backups, PITR, RPO/RTO and tombstone no-reappearance remain OPEN. To audit 15, retain GitHub Actions exact-SHA log and test script pin, not a fabricated JSON receipt. This distinction is deliberate.
 
-**11 exports exactly nine sanitized files** in ci_receipts; it must not embed secrets, private keys, DSNs, raw SQL row contents or pg_dump. It sets source_commit_tested to GITHUB_SHA, which in CI is the runner commit, and uses NO_CI_SHA if absent; NEVER relabel local evidence as exact CI attestation. The 18 two-baseline comparator is **separate** and exports three sanitized JSONs after two fresh+restore runs on the SAME disposable Runner; its results are in CI 45209570132, not produced by script 11.
+**11 exports the historical nine sanitized files PLUS two separately gated negative-test JSON receipts (eleven total)** in ci_receipts; it must not embed secrets, private keys, DSNs, raw SQL row contents or pg_dump. It sets source_commit_tested to GITHUB_SHA, which in CI is the runner commit, and uses NO_CI_SHA if absent; NEVER relabel local evidence as exact CI attestation. The 18 two-baseline comparator is **separate** and exports three sanitized JSONs after two fresh+restore runs on the SAME disposable Runner; its results are in CI 45209570132, not produced by script 11.
+
+## Latest newly tested CI evidence (2026-11-23)
+
+- Latest executed source SHA `6d2339bc45ce52b4f60a50ced0bb04b588ba3748`, [CI 45216830775 SUCCESS](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45216830775), sanitized [artifact 14839885728](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45216830775/artifacts/14839885728).
+- New script 19 Git Blob `5d26843eaa129c923c4275e558c60627c15018c9`; script 20 `d7e5e1cb4bb0b04cf86e87e3eb8a232da78fc391`; enhanced exporter 11 `f3542ec51b7a5c7bea84bccb42e7eb894f804a55`; corresponding workflow version is source-bound to CI SHA above. These are **new executable changes** beyond 996dfc9, although 001–010 SQL, installer 03, PG image and DB55 remain the same. Foundation must not assume integrated commit c488837... contains scripts 19/20: observed those files absent and old 11 still present.
+- Active code implementation remains DB-only adverse/backup checks, not a Mac acceptance or authorized 012+ policy change.
 
 ## Current CI exact comparison results
 In [CI 45209570132](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45209570132), the baseline 0e301a source and restore identifiers are 7711394723850833980 / 7711394851945500732; the 996dfc9 identifiers are 7711394933269237819 / 7711395017988198459. All four differ; both baselines installed 10, DB55 PASS, 2+7 role preflight and independent restore PASS; no Mac or real C018. Both install paths used THEIR OWN historical installer blob; no substitution of the hardened installer into the old baseline.
