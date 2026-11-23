@@ -137,3 +137,11 @@ Status is review. Supervisor approval is pending.
 - Tested: aggregate SMTP policy SQL, Keycloak 26.8.2 button predicate, official admin-cli and Admin REST over loopback TLS. testSMTPConnection returned 204. Account creation returned 201. Invite recovered from SMTP reachability failures after sanitized log checks, TCP rechecks and exact account readback, then execute-actions-email returned 204. Inbox delivery and email verification remain pending. No identity flags written by the operator.
 - Pending: invitee opens the link and completes the required actions. Then verify the account, rotate ingress proof before product sign-in, test the product session and C018 route, and stop the temporary listener after management work. Arvan HOLD and supervisor acceptance pending.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — invitation DNS and browser routing
+
+- Status: blocked on invitee action. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), operational evidence only. Reporting baseline codex 2cf0bdf, execution baseline ops/mac-first-start 5764fff.
+- Implemented: opened an isolated private Chrome window with hostname-to-loopback mapping for staging IdP and product only. Updated this ledger, MAC_FIRST_START_FA.md, MAC_FIRST_START_FA.html and CURRENT_STATUS.md.
+- Tested: system resolver returned a non-loopback address for the IdP. Python TLS with the existing CA and both hostnames verified local certificates. Discovery matched the configured issuer. Token-free request to the actual action-token endpoint returned the Keycloak 400 page. Active-tab lookup found no usable existing invitation URL. Token validity and invitee completion are untested.
+- Pending: invitee opens the existing link and completes Keycloak confirmation. No duplicate invitation or account. Product E2E and supervisor acceptance remain pending. Arvan HOLD.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
