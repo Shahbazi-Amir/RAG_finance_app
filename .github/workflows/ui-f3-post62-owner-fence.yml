@@ -1,0 +1,89 @@
+name: UI_F3 post62 owner-boundary and A11 browser CI — NO live C018
+on:
+  push:
+    branches: [agent/ui-f3-post62-owner-fence-20261123]
+    paths:
+      - '.github/workflows/ui-f3-post62-owner-fence.yml'
+      - 'packages/contracts/api.retrieved_sources.v1.schema.json'
+      - 'apps/web/**'
+      - 'tests/phase3/ui/**'
+      - 'tests/phase3/integration/ui/**'
+      - 'coordination/tasks/AGENT-UI-01.md'
+      - 'coordination/handoffs/UI_F3_POST62_OWNER_FENCE.md'
+      - 'coordination/handoffs/UI_F3_PHASE3_ROWS.csv'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ui-gate3-isolated:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      CI: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Exact SHA, no frozen demo mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo "UI_GATE3_SOURCE_SHA=$GITHUB_SHA"
+          echo "UI_GATE3_ISOLATED_CI_NOT_MAC_NOT_GATEWAY_NOT_C018"
+      - name: Pinned Web deps
+        working-directory: apps/web
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        working-directory: apps/web
+        run: npm run typecheck
+      - name: Lint
+        working-directory: apps/web
+        run: npm run lint
+      - name: All Node tests
+        working-directory: apps/web
+        run: npm test
+      - name: Next production Build only, never deployment
+        working-directory: apps/web
+        run: npm run build
+      - name: Pinned test-only Chromium
+        run: |
+          python -m pip install --index-url https://pypi.org/simple 'playwright==1.64.1'
+          python -m playwright install --with-deps chromium
+      - name: Chromium desktop/mobile preview and same-Attempt retrieval/browser security checks
+        env:
+          AUTH_CI_PRODUCT_CHAT_MODE: INVITED_RESULT_STUB_CI_ONLY
+          UI_GATE3_SCREENSHOT_DIR: ${{ runner.temp }}/ui-gate3-synthetic-screenshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix apps/web run start > "$RUNNER_TEMP/ui-gate3-next.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 2 http://127.0.0.1:3000/ci-evidence-preview > /dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS --max-time 5 http://127.0.0.1:3000/ci-evidence-preview > /dev/null || {
+            tail -80 "$RUNNER_TEMP/ui-gate3-next.log"; exit 1;
+          }
+          python tests/phase3/integration/ui/retrieval_evidence_preview_browser.py
+          python tests/phase3/integration/ui/product_chat_browser.py
+          # Legacy /ci-fixture-review is absent on pinned API7c6 and never claimed here.
+          echo UI_GATE3_BROWSER_ALL_FIXTURE_ONLY_PASS
+      - name: Upload visibly synthetic UI screenshots only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: UI_F3_SYNTHETIC_SCREENSHOTS_NOT_REAL_C018
+          path: ${{ runner.temp }}/ui-gate3-synthetic-screenshots/*.png
+          retention-days: 3
+          if-no-files-found: ignore

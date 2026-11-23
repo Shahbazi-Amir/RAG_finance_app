@@ -109,3 +109,14 @@
 }
 .product-citation code,.product-answer code{direction:ltr;unicode-bidi:isolate;
   overflow-wrap:anywhere}
+
+/* UI_F3 Source-only focus and education note; no unapproved privacy toggle. */
+.product-shell .history-heading .history-link{margin-top:10px}
+.product-shell .history-heading [data-testid="educational-boundary"]{
+  max-width:72ch;font-size:12px;line-height:1.85
+}
+
+.account-policy{width:100%;max-width:none;align-self:stretch;margin-top:18px}
+.account-policy h2{font-size:16px;margin:0 0 8px}
+.account-policy p{font-size:13px;line-height:1.9}
+.history-recovery{margin:20px 0}
