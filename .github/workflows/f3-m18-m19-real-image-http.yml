@@ -1,0 +1,85 @@
+name: F3 real isolated Docker images and Web HTTP smoke M18 M19
+on:
+  push:
+    branches: [integration/f3-m18-m19-container-build-20261123]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  image-http-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - name: Exact owner source/blob and API hash lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,hashlib,subprocess
+          m=json.load(open("integration/F3_COMPLETION_SOURCE_PINS.json"))
+          for path,pin in m["file_pins"].items():
+              assert subprocess.check_output(["git","hash-object",path],text=True).strip()==pin["git_blob"],path
+          assert hashlib.sha256(open("locks/requirements-api.lock","rb").read()).hexdigest()==m["owners"]["API_F3"]["api_lock_sha256"]
+          print("OWNER_BLOB_AND_API_LOCK_PASS")
+          PY
+      - name: Real API Docker build pinned Python 3.13 hash wheel and in-container tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull --platform linux/amd64 --file infra/phase3_l1/Dockerfile.api             --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "f3-api-l1:$GITHUB_SHA" .
+          test "$(docker image inspect -f '{{.Config.Labels "org.opencontainers.image.revision"}}' "f3-api-l1:$GITHUB_SHA")" = "$GITHUB_SHA"
+          test "$(docker image inspect -f '{{.Architecture}}' "f3-api-l1:$GITHUB_SHA")" = amd64
+          test "$(docker run --rm --network none "f3-api-l1:$GITHUB_SHA" id -u)" = 11001
+          docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA"
+          docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA"             python3 -m unittest discover -s tests/phase3/api -p 'test_*.py' -q
+          echo 'ACTUAL_API_DOCKER_BUILD_AND_TEST_IN_CONTAINER_PASS'
+      - name: Real Web Docker build pinned Node and HTTP smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull --platform linux/amd64 --file infra/phase3_l1/Dockerfile.web             --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "f3-web-l1:$GITHUB_SHA" .
+          test "$(docker image inspect -f '{{.Config.Labels "org.opencontainers.image.revision"}}' "f3-web-l1:$GITHUB_SHA")" = "$GITHUB_SHA"
+          test "$(docker image inspect -f '{{.Architecture}}' "f3-web-l1:$GITHUB_SHA")" = amd64
+          test "$(docker run --rm --network none "f3-web-l1:$GITHUB_SHA" id -u)" = 11003
+          docker run --detach --rm --name f3-web-l1 --network host             -e CI=true -e GITHUB_ACTIONS=true             -e AUTH_CI_PRODUCT_CHAT_MODE=INVITED_RESULT_STUB_CI_ONLY             "f3-web-l1:$GITHUB_SHA"
+          trap 'docker logs --tail 50 f3-web-l1 || true; docker rm -f f3-web-l1 >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for i in $(seq 1 90); do
+            if curl -fsS --max-time 3 http://127.0.0.1:3000/ci-evidence-preview -o /tmp/f3-preview.html; then ready=1; break; fi
+            sleep 2
+          done
+          test "$ready" = 1
+          grep -F 'آزمون صرفاً ساختگی نمایش منابع' /tmp/f3-preview.html >/dev/null
+          status="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: forbidden.example' http://127.0.0.1:3000/ci-evidence-preview)"
+          test "$status" = 404
+          echo 'ACTUAL_WEB_IMAGE_HTTP_200_AND_BAD_HOST_404_PASS'
+      - name: Emit actual image IDs and no-acceptance receipt
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ci_receipts/f3_l1
+          python3 - <<'PY'
+          import os,json,subprocess
+          sha=os.environ["GITHUB_SHA"]; imgs={}
+          for name in ["api","web"]:
+            x=json.loads(subprocess.check_output(["docker","image","inspect",f"f3-{name}-l1:{sha}"]))[0]
+            imgs[name]={"image_id":x["Id"],"platform":x["Os"]+"/"+x["Architecture"],
+                        "source_label":x["Config"]["Labels"]["org.opencontainers.image.revision"]}
+          doc={"schema":"f3.m18_m19.real_ci_image.v1","git_sha":sha,"images":imgs,
+               "actual_build":"PASS","api_tests_in_container":"PASS","web_http_200":"PASS",
+               "bad_host_404":"PASS","real_api_tls_http":"NOT_RUN","mac":"NOT_RUN",
+               "real_c018":"NOT_RUN","pg_app_connected":"NOT_RUN",
+               "oci_security_scan":"NOT_RUN","release_gate":"NOT_ACCEPTED"}
+          with open("ci_receipts/f3_l1/real_image_http_receipt.json","w") as f:json.dump(doc,f,indent=2)
+          print("F3_REAL_L1_IMAGE_HTTP_RECEIPT_PASS_NOT_MAC")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f3-real-l1-images-http-smoke-receipt
+          path: ci_receipts/f3_l1/real_image_http_receipt.json
+          retention-days: 14
+          if-no-files-found: warn

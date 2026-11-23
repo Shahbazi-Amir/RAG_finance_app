@@ -1,0 +1,19 @@
+# CI-only real Next container, actual HTTP synthetic preview only
+ARG BASE=public.ecr.aws/docker/library/node@sha256:47725aca53d3295ec2d3be8f62726599b3033cc262edc2c7e429909b3ac599fc
+FROM ${BASE} AS build
+ENV NEXT_TELEMETRY_DISABLED=1
+WORKDIR /srv/release
+COPY apps/web /srv/release/apps/web
+COPY packages/contracts /srv/release/packages/contracts
+WORKDIR /srv/release/apps/web
+RUN npm ci --no-audit --no-fund && npm run build
+FROM ${BASE}
+ARG SOURCE_SHA
+LABEL org.opencontainers.image.revision="${SOURCE_SHA}"
+ENV NEXT_TELEMETRY_DISABLED=1 NODE_ENV=production HOME=/home/web
+WORKDIR /srv/release/apps/web
+COPY --from=build /srv/release/apps/web /srv/release/apps/web
+COPY --from=build /srv/release/packages/contracts /srv/release/packages/contracts
+RUN groupadd -g 11003 web && useradd -u 11003 -g 11003 -m -d /home/web web && chown -R 11003:11003 /srv/release/apps/web
+USER 11003:11003
+CMD ["npm","run","start"]
