@@ -441,6 +441,41 @@ class RealProductSession011(unittest.TestCase):
                 (a["owner_id"], a["owner_id"], send["client_message_id"])
             ).fetchone()["n"]
             self.assertEqual(count, 1)
+            # Source-fidelity witness: the *exact* signed HTTP response IDs
+            # must be the committed row in PG, with original client request
+            # tuple, question and owner. Merely matching row counts is weak.
+            witness = admin.execute(
+                "SELECT e.id AS attempt_id, e.owner_id, "
+                "r.client_message_id, r.idempotency_key, "
+                "r.resolved_conversation_id, r.user_message_id, m.text "
+                "FROM history_l1.execution_attempts AS e "
+                "JOIN history_l1.send_receipts AS r "
+                "ON r.owner_id=e.owner_id AND r.id=e.send_receipt_id "
+                "JOIN history_l1.messages AS m "
+                "ON m.owner_id=r.owner_id "
+                "AND m.id=r.user_message_id "
+                "AND m.conversation_id=r.resolved_conversation_id "
+                "WHERE e.owner_id=%s AND e.id=%s",
+                (a["owner_id"], data["attempt_id"]),
+            ).fetchall()
+            self.assertEqual(len(witness), 1)
+            w = witness[0]
+            self.assertEqual(
+                (w["attempt_id"], w["owner_id"],
+                 w["client_message_id"], w["idempotency_key"],
+                 w["resolved_conversation_id"], w["user_message_id"],
+                 w["text"]),
+                (data["attempt_id"], a["owner_id"],
+                 send["client_message_id"], send["idempotency_key"],
+                 cid, data["message_id"], question),
+            )
+            # A forged owner cannot resolve this same T2 in SQL either.
+            denied_sql = admin.execute(
+                "SELECT count(*) AS n FROM history_l1.execution_attempts "
+                "WHERE owner_id=%s AND id=%s",
+                (b["owner_id"], data["attempt_id"]),
+            ).fetchone()["n"]
+            self.assertEqual(denied_sql, 0)
             answers = admin.execute(
                 "SELECT count(*) AS n FROM history_l1.answers "
                 "WHERE owner_id=%s AND attempt_id=%s",
