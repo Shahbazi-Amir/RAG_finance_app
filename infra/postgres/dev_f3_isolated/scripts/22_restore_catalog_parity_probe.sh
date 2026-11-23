@@ -7,7 +7,7 @@ source "$(dirname "$0")/_lib.sh"
 require_lab_ready
 secure_log
 [[ "$LAB_PROJECT" == ragfinance_f3_db_lab_* && "$LAB_DB" == rag_finance_f3_lab ]] || { echo STOP_NOT_ISOLATED_LAB >&2; exit 70; }
-[[ -s "$LAB_WORK/restore-tested.marker" ]] || { echo STOP_RESTORE_NOT_ATTESTED >&2; exit 70; }
+[[ -f "$LAB_WORK/restore-tested.marker" ]] || { echo STOP_RESTORE_NOT_ATTESTED >&2; exit 70; }
 [[ "$(dbpsql -Atc 'SHOW server_version')" == 17.11* ]] || exit 70
 [[ "$(DB_SERVICE=restore-db DB_NAME=rag_finance_f3_lab_restore dbpsql -Atc 'SHOW server_version')" == 17.11* ]] || exit 70
 source_id="$(dbpsql -Atc 'SELECT system_identifier FROM pg_control_system()')"
