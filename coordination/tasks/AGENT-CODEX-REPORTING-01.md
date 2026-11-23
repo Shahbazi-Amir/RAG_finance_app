@@ -73,3 +73,11 @@ Status is review. Supervisor approval is pending.
 - Tested: disposable Chrome with verified loopback pins scheduled location.assign asynchronously and independently observed the Persian login DOM, clicked the native form and observed the password field in the IdP DOM. Prior Page.navigate timeout bypassed in the harness. Internal timeout cause unconfirmed.
 - Blocker and next action: an approved staging invitation and proof of email control are required. No supported current staging provisioning workflow located. Signed product request, C018, rendered result, Refresh and invocation counter verification are blocked. Arvan HOLD. Supervisor acceptance pending.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — Staging invitation v1 design
+
+- Status: blocked. P3M22-A06 (Module 22, activity 6) and P3OP11-R07 (§Launch checklist), operational evidence only. Reporting baseline codex 0257e19 and execution baseline ops/mac-first-start 2a5948f.
+- Implemented: documented a proposed realm-scoped operator procedure in docs/codex_execution/MAC_FIRST_START_FA.md and docs/codex_execution/MAC_FIRST_START_FA.html and recorded this checkpoint. No runtime change.
+- Verified by source inspection: docs/operations/phase3_private_staging_integration_v0.md, src/phase3/auth/bootstrap_oidc.py, apps/web/app/api/auth/callback/route.ts, infra/auth-ci/README.md and pinned Keycloak Admin REST references. Previous runtime passes were not repeated. Markdown/HTML parity and git diff --check verified.
+- Blocker: one authorized Staging invitation deliverable through an operator-approved email route to a test inbox controlled by the invitee. No live invitation, session, Signed BFF, C018 or Refresh test was run. Arvan HOLD. Supervisor acceptance pending.
+- [Persian design and evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
