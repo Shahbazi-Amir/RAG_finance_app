@@ -2,7 +2,7 @@ name: API-SESSION-011 — pinned Login to real fenced History and private revoke
 
 on:
   push:
-    branches: [agent/api-product-session-history-revoke-011, agent/api-f3-pg-history-binding-20261123]
+    branches: [agent/api-product-session-history-revoke-011, agent/api-f3-pg-history-binding-20261123, integration/f3-foundation-20261124-app-only-candidate]
     paths:
       - 'src/phase3/auth/**'
       - 'apps/api/product_session_api.py'
