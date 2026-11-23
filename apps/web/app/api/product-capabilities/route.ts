@@ -2,12 +2,12 @@
  * proof or provider authorization. All Send mutations remain server-fenced.
  */
 import {stagingRequested,stagingProfile} from '../../../src/auth/server/private-staging.ts';
-import {selectRuntimeCapability} from '../../../src/ui/runtime-capability.ts';
+import {appOnlySendBlocked,selectRuntimeCapability} from '../../../src/ui/runtime-capability.ts';
 import {noStore} from '../../../src/auth/server/initial-browser.ts';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
 export function GET():Response{
-  const appOnly=process.env.PHASE3_APP_MODE==='APP_ONLY';
+  const appOnly=appOnlySendBlocked(process.env.PHASE3_APP_MODE);
   let approvedNoDispatch=false;
   // Fail closed if the private Ops-owned profile cannot be validated.
   if(!appOnly&&stagingRequested()){
