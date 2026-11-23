@@ -1,0 +1,151 @@
+name: F3 app-only runtime real API image and no-engine guards
+on:
+  push:
+    branches: [agent/f3-app-only-api-listener-20261123]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  app-only-api:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - name: Verify exact unified API #76 / UI #65 / Foundation Git blobs
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,subprocess,hashlib
+          m=json.load(open("integration/F3_COMPLETION_SOURCE_PINS.json"))
+          pins=m["file_pins"]
+          for path,item in pins.items():
+              actual=subprocess.check_output(["git","hash-object",path],text=True).strip()
+              if actual!=item["git_blob"]:
+                  raise SystemExit("SOURCE_PIN_MISMATCH: "+path)
+          actual=hashlib.sha256(open("locks/requirements-api.lock","rb").read()).hexdigest()
+          expected=m["owners"]["API_F3"]["api_lock_sha256"]
+          assert actual==expected,"API_DEPENDENCY_LOCK_DRIFT"
+          print("APP_ONLY_SOURCE_BLOBS_AND_API_LOCK_EXACT_PASS",len(pins))
+          PY
+      - name: Install exact hashed Python API deps, no Engine
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes --only-binary=:all: -r locks/requirements-api.lock
+          python -m pip check
+      - name: Compile API and exact app-only tests
+        run: |
+          python -m compileall -q apps/api src/phase3 tests/phase3/api/test_app_only_no_engine.py
+      - name: App-only no engine API positive/negative
+        run: |
+          python -m unittest discover -s tests/phase3/api -p 'test_app_only_no_engine.py' -v
+      - name: Original mTLS transport real OpenSSL regression
+        run: |
+          python -m unittest discover -s tests/phase3/api -p 'test_staging_private_asgi.py' -v
+      - name: Real Uvicorn HTTPS mTLS app-only network Request → response
+        run: |
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_app_only_mtls_network.py' -v
+      - name: Real API container build, nonroot and actual configured startup gate
+        run: |
+          set -euo pipefail
+          docker build --platform linux/amd64 -f infra/phase3_l1/Dockerfile.api \
+            --build-arg BASE=docker.io/library/python:3.13.5 \
+            --build-arg "SOURCE_SHA=$GITHUB_SHA" \
+            -t "f3-app-only:$GITHUB_SHA" .
+          test "$(docker image inspect -f '{{.Config.User}}' "f3-app-only:$GITHUB_SHA")" = "11001:11001"
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "f3-app-only:$GITHUB_SHA")" = "$GITHUB_SHA"
+          docker run --rm --network none "f3-app-only:$GITHUB_SHA" \
+            python3 -c "from apps.api.private_app_only_asgi import main; print('APP_ONLY_IMAGE_IMPORT_PASS')" 
+          docker run --rm --network none "f3-app-only:$GITHUB_SHA" \
+            python3 -m unittest discover -s tests/phase3/api -p 'test_app_only_no_engine.py' -v
+          # Without an Ops 0600 config the real default CMD must deny startup.
+          set +e
+          docker run --rm --network none "f3-app-only:$GITHUB_SHA" > /tmp/denied.stdout 2> /tmp/denied.stderr
+          status=$?
+          set -e
+          test "$status" = 78
+          grep -Fx 'APP_ONLY_STARTUP_DENIED' /tmp/denied.stderr
+          ! grep -E 'password=|token=|BEGIN PRIVATE|API_KEY' /tmp/denied.stderr
+          echo 'APP_ONLY_REAL_IMAGE_STARTUP_FAIL_CLOSED_PASS'
+      - name: Bounded evidence (not signed Mac and not app E2E)
+        if: always()
+        run: |
+          echo "APP_ONLY_CI_SOURCE_SHA=$GITHUB_SHA"
+          echo 'NO_RUNNER_NO_QDRANT_NO_MODEL_NO_GATEWAY_NO_T3'
+          echo 'DOCKER_LIVENESS_LISTENER_ONLY; BFF_MTLS_DB_READINESS_NOT_CI_NETWORK_ATTESTED'
+          echo 'CENTRAL_APPROVAL_AND_REAL_MAC_E2E_NOT_CLAIMED'
+  app-only-web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22.16.0'}
+      - name: Install exact Next lock
+        run: npm ci --prefix apps/web --no-audit --no-fund
+      - name: Typecheck, lint, all UI unit tests and Next production build
+        run: |
+          set -euo pipefail
+          npm --prefix apps/web run typecheck
+          npm --prefix apps/web run lint
+          npm --prefix apps/web run test
+          npm --prefix apps/web run build
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - name: Install pinned synthetic browser harness
+        run: |
+          python -m pip install 'playwright==1.64.1'
+          python -m playwright install --with-deps chromium
+      - name: UI #65 offline L2 receipt gate integrity and negative checks
+        run: |
+          python -m unittest discover -s tests/phase3/integration/ui -p 'test_l2_no_dispatch_receipt_gate.py' -v
+      - name: Real Next HTTP + Chromium 1280, 390, 320 app-only no Send
+        env:
+          PHASE3_APP_MODE: APP_ONLY
+        run: |
+          set -euo pipefail
+          npm --prefix apps/web run start > "$RUNNER_TEMP/app-only-next.log" 2>&1 &
+          NEXT_PID=$!
+          trap 'kill "$NEXT_PID" || true' EXIT
+          ok=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3000/api/product-capabilities >/dev/null; then ok=1; break; fi
+            sleep 2
+          done
+          if [ "$ok" != 1 ]; then tail -n 70 "$RUNNER_TEMP/app-only-next.log"; exit 1; fi
+          python tests/phase3/integration/ui/app_only_real_browser.py
+      - name: Real nonroot Web Docker image and HTTP app-only capability + direct POST fence
+        run: |
+          set -euo pipefail
+          docker build --platform linux/amd64 -f infra/phase3_l1/Dockerfile.web \
+            --build-arg BASE=docker.io/library/node:22.23.5 \
+            --build-arg "SOURCE_SHA=$GITHUB_SHA" \
+            -t "f3-app-only-web:$GITHUB_SHA" .
+          test "$(docker image inspect -f '{{.Config.User}}' "f3-app-only-web:$GITHUB_SHA")" = "11003:11003"
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "f3-app-only-web:$GITHUB_SHA")" = "$GITHUB_SHA"
+          docker run -d --rm --name app-only-next-web --network host \
+            -e PHASE3_APP_MODE=APP_ONLY "f3-app-only-web:$GITHUB_SHA"
+          trap 'docker rm -f app-only-next-web >/dev/null 2>&1 || true' EXIT
+          ok=0
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:3000/api/product-capabilities > /tmp/f3-app-only-capability.json; then ok=1; break; fi
+            sleep 2
+          done
+          test "$ok" = 1
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/f3-app-only-capability.json'))
+          assert d['send_mode']=='DISABLED'
+          assert d['engine_available'] is False
+          assert d['generation_available'] is False
+          print('APP_ONLY_WEB_REAL_DOCKER_HTTP_CAPABILITY_PASS')
+          PY
+          status="$(curl -s -o /tmp/f3-send-denied.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' -d '{}' \
+            http://127.0.0.1:3000/api/history/messages)"
+          test "$status" = 503
+          grep -F 'ENGINE_NOT_AVAILABLE' /tmp/f3-send-denied.json
+          echo 'APP_ONLY_WEB_REAL_IMAGE_HTTP_SEND_503_NO_ENGINE_PASS'
