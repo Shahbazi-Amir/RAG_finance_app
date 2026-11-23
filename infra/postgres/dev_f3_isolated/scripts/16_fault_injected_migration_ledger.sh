@@ -43,8 +43,8 @@ second_lab="$LAB_WORK/ledger_fault_probe_$(openssl rand -hex 4)"
     [[ "$direction" == UP ]] || continue
     sha="$(shasum -a 256 "$LAB_SOURCE/$(basename "$path")" | awk '{print $1}')"
     dbpsql -q -c "INSERT INTO db55_audit.migration_runs
-    (version,source_commit,git_blob_sha1,sql_sha256,status,cluster_system_id,applied_at,applied_txid)
-    VALUES('$ver','$commit','$blob','$sha','APPLIED','$cluster',clock_timestamp(),1);" >/dev/null
+    (version,source_commit,git_blob_sha1,sql_sha256,status,cluster_system_id,started_at,applied_at,applied_txid)
+    VALUES('$ver','$commit','$blob','$sha','APPLIED','$cluster',clock_timestamp()-interval '1 minute',clock_timestamp(),1);" >/dev/null
   done < <(tail -n +2 "$LAB_SOURCE/manifest.tsv")
   [[ "$(dbpsql -Atc "SELECT count(*) FROM db55_audit.migration_runs")" == 10 ]] || exit 70
   if dbpsql -q -c "INSERT INTO db55_audit.migration_runs
