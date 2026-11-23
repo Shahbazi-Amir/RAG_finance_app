@@ -540,6 +540,40 @@ class RealProductSession011(unittest.TestCase):
         self.assertEqual(self.list(b).status_code, 200)
         print("API_F3_APP_ONLY_SIGNED_PG_READY_200_BAD_REVOKED_503_PASS", flush=True)
 
+    def test_API011_07_signed_ready_real_pg_privilege_failure_and_recovery(self):
+        """Isolated PG17: deny required admission function, observe real 503,
+        restore only the temporary CI grant, observe fresh signed 200.
+        No migrations, owner rows or production roles are modified.
+        """
+        a = self.login("A")
+        path = "/health/ready"
+        good = self.request("GET", path, self.signed(a, path=path)[0])
+        self.assertEqual(good.status_code, 200, good.text)
+        signature = "auth_l1.admit_session_fenced(text,text,bigint,integer)"
+        with psycopg.connect(os.environ["AUTH_MIG_DSN"], autocommit=True) as admin:
+            admin.execute("REVOKE EXECUTE ON FUNCTION " + signature +
+                          " FROM history_app")
+            try:
+                with psycopg.connect(os.environ["DB_APP_DSN"],
+                                    autocommit=True, row_factory=dict_row) as role:
+                    allowed = role.execute(
+                        "SELECT has_function_privilege(current_user,%s,'EXECUTE') AS ok",
+                        (signature,)
+                    ).fetchone()["ok"]
+                    self.assertFalse(allowed)
+                denied = self.request("GET", path, self.signed(a, path=path)[0])
+                self.assertEqual(denied.status_code, 503, denied.text)
+                self.assertEqual(denied.headers.get("cache-control"), "no-store")
+                self.assertNotIn("password=", denied.text.lower())
+            finally:
+                # CI lab cleanup is mandatory even if an assertion fails.
+                admin.execute("GRANT EXECUTE ON FUNCTION " + signature +
+                              " TO history_app")
+        recovered = self.request("GET", path, self.signed(a, path=path)[0])
+        self.assertEqual(recovered.status_code, 200, recovered.text)
+        print("API_F3_APP_ONLY_REAL_PG_GRANT_DOWN_503_RESTORED_200_PASS",
+              flush=True)
+
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
         """Actual verified HTTPS callback, same pinned redirect for Code exchange."""
         from cryptography.hazmat.primitives import serialization
