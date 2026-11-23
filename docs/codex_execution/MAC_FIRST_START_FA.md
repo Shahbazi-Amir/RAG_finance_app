@@ -57,3 +57,17 @@ Manifest مکمل ۵ Volume و ۴ مجموعهٔ پایگاه را ثبت کرد
 Keycloak در ۷۶۱۷۹۷ میلی‌ثانیه Quarkus augmentation را کامل کرد ولی هنوز listener بررسی‌شده در دسترس نبود. درخواست HTTPS به discovery واقعی 502 گرفت. آزمون مرورگر Chrome در تلاش اول ۱۰۰ ثانیه و در تلاش دوم CDP پس از ۳۰ ثانیه timeout شد. گزارش HTTP 200 شاهد مرورگر، ورود OIDC، Attempt، Signed BFF، منابع یا Refresh نیست.
 
 شاخهٔ اجرایی 136bd8f مهلت‌های healthcheck را متناسب با اندازه‌گیری بالا اصلاح کرد. build آفلاین و import غیرریشهٔ ایمیج 438ba61c69ea0518ab43f932c70b5e79caa5fdfc7adbbfe954f0aaead5f2b0cb موفق شد. این اصلاح همهٔ بررسی‌های فایل، SHA موتور، نسخهٔ metadata، TLS، شبکه و نقش‌های مجاز را نگه می‌دارد. نتیجهٔ build از پذیرش runtime جداست.
+
+## پایداری API و مانع واقعی IdP
+
+پس از اصلاح مهلت‌ها، Product API و Bootstrap و سپس BFF با healthcheck واقعی healthy شدند. پروژهٔ موجود هر هفت کانتینر را در حالت Running داشت. پنج healthcheck Docker و پاسخ HTTP 200 HTTPS با TLS_VERIFY=0 تأیید شدند. راه‌اندازی Keycloak روی 8080 و اتصال TCP از کانتینر API موفق بود، اما discovery از ingress به 503 رسید و Keycloak صراحتاً پیام bootstrap و health DOWN ثبت کرد.
+
+شناسه‌های checkpoint نهایی این نوبت: demo-db ceb8cfcc9b1a و idp-db f1ce62cc6476 با ایمیج ff87138949ad، product-api 61ff7a7ce511 با ایمیج 438ba61c69ea، auth-bootstrap 52d6a9967656 با ایمیج 8e5d6a79f945، web-bff aaa462b24e36 با ایمیج ead7afb7f9ec، web-https f5ca6e14ad66 با ایمیج caf4e1e032a2 و IdP اصلی 5b4c6b0af692 با ایمیج 7e66a96e4739. هیچ‌کدام OOM گزارش نکردند.
+
+خروجی پالایش‌شدهٔ jcmd 1 Thread.print -l، bootstrap پایگاه را در مسیر LiquibaseRemoteAnalyticsConfiguration و ساخت سوکت HTTPS نشان داد. نشست تراکنش PostgreSQL در ClientRead منتظر بود و blocking PID نداشت. تنظیم آفلاین LIQUIBASE_ANALYTICS_ENABLED=false در SHA محلی 6a3d426 ثبت و در مدل Compose اعتبارسنجی شد. این تنظیم مربوط به telemetry است و سیاست TLS، OIDC یا نقش پایگاه را تغییر نمی‌دهد.
+
+قبل از جایگزینی Keycloak، pg_dump سفارشی تازهٔ IdP در mac-first-start-idp-preanalytics احراز و رمزگذاری شد. pg_restore --list تعداد ۵۴۷ خط داشت و هر دو SHA-256 تطبیق داشتند. نسخه در PostgreSQL با Volume جدید، network none و pg_restore --exit-on-error --no-owner --no-privileges بازیابی شد و ۱۰۱ جدول عمومی را نشان داد. کانتینر آزمون متوقف شد. globals و مالکیت اولیه در آزمون تازه بازپخش نشدند.
+
+دو مرورگر به‌صورت جداگانه و با نام دامنه و اعتبارسنجی گواهی عادی آزمایش شدند. Chrome در Page.navigate و Firefox در گرفتن تصویر پس از ۱۸۰ ثانیه timeout شدند. HTTP 200 سلامت ingress را نشان می‌دهد؛ مشاهدهٔ واقعی UI تأیید نشده است. شمارش تجمعی در snapshot زندهٔ پایگاه، حساب فعال staging یا master نشان نداد. نشست OIDC، درخواست امضاشده، C018، نمایش منابع و Refresh اجرا نشده‌اند. منبع نسخهٔ API فعال 5fe21e9 است. مسیر نسخه‌دار منابع در شاخهٔ مستقل c2edbbf وجود دارد و در پشتهٔ مک اعتبارسنجی نشده است.
+
+[راهنمای رسمی تنظیم Analytics](https://docs.liquibase.com/secure/reference-guide-5-2/parameters/analytics-enabled)

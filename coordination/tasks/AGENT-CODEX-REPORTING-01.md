@@ -38,3 +38,10 @@ Status is review. Supervisor approval is pending.
 - Implemented: started both existing databases, Keycloak, Bootstrap and BFF, fixed Compose namespace and nginx chown errors, and populated a new private ingress volume from protected local inputs. Existing volumes retained. Recorded progress in the same Markdown/HTML reports.
 - Tested: three Docker health checks passed simultaneously. BFF verified mTLS against Bootstrap and API. nginx syntax and trusted HTTP 200 passed. Keycloak discovery returned 502, browser timed out, API and Bootstrap probes timed out under load. Longer read-only tests confirmed the actual metadata and Bootstrap checks. The readiness-v2 offline image built successfully. Runtime verification remains open.
 - [Evidence and recovery context](../../docs/codex_execution/MAC_FIRST_START_FA.md). Supervisor acceptance separate and pending.
+
+### MAC-FIRST-START-01 — stable API and Keycloak diagnosis
+
+- P3M22-A06 / P3OP11-R07. Reporting baseline 377ac12. Local execution 136bd8f and 6a3d426. Same report artifacts updated.
+- Implemented and tested: readiness-v2 deployed. API and Bootstrap healthy with full checks, BFF mTLS healthy, TLS-verified HTTP 200, all seven running. Keycloak discovery remained 503 during bootstrap and browser controls timed out. No signed application request or engine dispatch was attempted.
+- Tested recovery evidence: freshly encrypted Pg archive verified and restored into network-disabled PostgreSQL with a new volume. 101 tables restored. No original volume was replaced. JVM witness identified a Liquibase remote analytics path, fixed in the local Compose overlay. Supervisor acceptance and full-stack/browser acceptance are separate.
+- [Evidence and rollback context](../../docs/codex_execution/MAC_FIRST_START_FA.md).
