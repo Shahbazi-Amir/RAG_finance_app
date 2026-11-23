@@ -102,9 +102,10 @@
 .retrieval-evidence-list ol{padding-inline-start:20px;margin:8px 0 0}
 .retrieval-evidence-list code{direction:ltr;unicode-bidi:isolate;overflow-wrap:anywhere}
 
-/* UI-11 keyboard visibility: independently of inherited mock styling. */
-.product-shell button:focus-visible,.product-shell a:focus-visible,
-.product-shell textarea:focus-visible{
+/* UI-11 keyboard visibility across chat and Account/privacy navigation,
+   not just inside the chat shell. Inactive privacy controls remain absent. */
+.history-shell button:focus-visible,.history-shell a:focus-visible,
+.history-shell textarea:focus-visible{
   outline:3px solid #b45309;outline-offset:3px
 }
 .product-citation code,.product-answer code{direction:ltr;unicode-bidi:isolate;
