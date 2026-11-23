@@ -161,3 +161,5 @@ Status is review. Supervisor approval is pending.
 - Tested: existing account remains unverified and has no password. Browser DOM automation is unavailable on the existing mail browser. No exact invitation was found in the initial clipboard check or within the 150-second receiver window. Independent mounted C018 SQLite storage passed PRAGMA quick_check in immutable read-only mode. No retrieval or model call.
 - Pending: invitee copies the current link on the Mac and the receiver opens the actual Keycloak action in isolated Chrome. Password form, identity completion and product E2E remain pending. No second renewal or duplicate identity. Arvan HOLD.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+- Clipboard receiver reactivation from codex 8f7f68a / execution 5764fff, same MAC-FIRST-START-01 / P3M22-A06 / P3OP11-R07. Executed a second bounded 150-second receive and read-only expiry/wrapper detection. No matching invitation arrived. Reports and CURRENT_STATUS updated, no account or invitation mutation. Form and product tests remain blocked. [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
