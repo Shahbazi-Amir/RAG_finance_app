@@ -10,6 +10,9 @@ on:
       - 'tests/phase3/api/test_full_binding_fence.py'
       - 'src/phase3/rag_runtime/no_dispatch_handler.py'
       - 'coordination/tasks/AGENT-API-AUTH-BOUNDARY-01.md'
+      - 'coordination/handoffs/API_F3_PR76_SIGNED_HISTORY_REAL_PROGRESS_20261123.md'
+      - 'coordination/handoffs/API_F3_CURRENT_ROADMAP_AND_ACCEPTANCE_20261123.md'
+      - 'coordination/handoffs/API_F3_91_ROW_L1_SOURCE_MATRIX_20261123.csv'
       - '.github/workflows/api-session-011.yml'
   pull_request:
     types: [opened, synchronize, reopened]
@@ -21,6 +24,9 @@ on:
       - 'tests/phase3/api/test_full_binding_fence.py'
       - 'src/phase3/rag_runtime/no_dispatch_handler.py'
       - 'coordination/tasks/AGENT-API-AUTH-BOUNDARY-01.md'
+      - 'coordination/handoffs/API_F3_PR76_SIGNED_HISTORY_REAL_PROGRESS_20261123.md'
+      - 'coordination/handoffs/API_F3_CURRENT_ROADMAP_AND_ACCEPTANCE_20261123.md'
+      - 'coordination/handoffs/API_F3_91_ROW_L1_SOURCE_MATRIX_20261123.csv'
       - '.github/workflows/api-session-011.yml'
 permissions:
   contents: read
