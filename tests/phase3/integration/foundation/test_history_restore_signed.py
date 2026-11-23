@@ -257,6 +257,7 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
             cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         self.__class__.api_process=proc
         restored_url="https://127.0.0.1:"+str(cfg["listen_port"])
+        h.url=restored_url
         for _ in range(80):
             if proc.poll() is not None:self.fail("RESTORED_PRIVATE_ASGI_STARTUP_DENIED")
             try:
