@@ -97,3 +97,17 @@ Docker Desktop در دو بررسی ۲ CPU و حدود ۳٫۸۲ GiB حافظهٔ
 Chrome در پروفایل موقت ابتدا ERR_CERT_AUTHORITY_INVALID داد. آزمون دوم پس از اعتبارسنجی جداگانهٔ گواهی و استفاده از پین SPKI همان میزبان‌ها در پروفایل موقت، در Page.navigate پس از ۱۵۰ ثانیه timeout شد. شواهد HTTP فرم ورود از آزمونی مستقل به دست آمد. نمایش گفت‌وگو در مرورگر و callback احراز هویت مشاهده نشدند.
 
 در PostgreSQL IdP کوئری تجمیعی SELECT count(*) FILTER برای user_entity.enabled با JOIN realm و تفکیک master از بقیه ۱ و ۰ را نشان داد. مانع ادامه، نبود حساب دعوت‌شدهٔ فعال در realm staging و دسترسی مصوب متناظر برنامه است. ورود با حساب master جایگزین این مسیر نیست. Product API در حالت NO_DISPATCH_ONLY بود. نشست دعوت‌شده، درخواست امضاشدهٔ محصول، اجرای C018، بازگشت نتیجه به UI و Refresh اجرا نشدند. آروان HOLD و پذیرش سرپرست در انتظار است.
+
+## قرارداد دعوت Staging و آزمون واقعی مرورگر
+
+ادامه از گزارش محلی codex در 5d9e8cf و نسخهٔ اجرایی ops/mac-first-start در 2a5948f انجام شد. HEAD شاخهٔ codex روی origin پیش از ارسال 50d26aa بود. شواهد سلامت هفت سرویس و منابع Docker (۴ CPU و ۵٫۷۹ GiB) از checkpoint قبلی استفاده شد.
+
+قرارداد docs/operations/phase3_private_staging_integration_v0.md ورود کاربران واقعاً دعوت‌شده با Keycloak، HTTPS و Authorization Code + PKCE را لازم می‌داند. در src/phase3/auth/bootstrap_oidc.py توکن باید issuer، nonce و subject معتبر و email_verified=true داشته باشد. تابع auth_l1.map_identity در migration 003 بعد از تأیید هویت، نگاشت (issuer, subject) را می‌سازد یا بازیابی می‌کند. سپس Bootstrap نشست موقت را صادر می‌کند و نشست باید مراحل binding و acknowledgement را طی کند. این نگاشت مسیر ساخت کاربر در Keycloak نیست. راهنمای infra/auth-ci/README.md، ثبت‌نام و تأیید از طریق Mailpit را برای CI ایزوله تعریف کرده است.
+
+در کانتینر idp-db با docker exec و psql -X، شمارش تجمیعی SELECT روی user_entity و realm نشان داد هر سه شمارش کاربر فعال، غیرفعال و ایمیل تأییدشده خارج از master صفر و شمار realm فعال خارج از master یک است. خواندن registration_allowed و verify_email از همان realm هر دو false و شمار سطرهای realm_smtp_config صفر بود. بررسی اولیهٔ SMTP به دلیل نام ستون نادرست متوقف شد و با بررسی جدول جداگانه اصلاح شد. در demo-db، پایگاه حاوی auth_l1 با to_regclass کشف شد. identity_links و sessions هر دو صفر بودند و گروه‌بندی initial_login_attempts سه INITIATED و هیچ وضعیت دیگری را نشان داد. query اولیه در پایگاه پیش‌فرض به دلیل نبود schema شکست خورد و در پایگاه دارای schema بازآزمایی شد.
+
+در کد و تنظیمات بررسی‌شده، رویهٔ تأییدشده‌ای برای دعوت و اعتبارسنجی ایمیل در Staging فعلی یافت نشد. ثبت‌نام بسته است و SMTP آماده نیست. حسابی ساخته یا فعال نشد و هیچ سیاست یا ردیف هویتی تغییر نکرد. ادامه به مسیر تأییدشدهٔ دعوت و اثبات کنترل ایمیل برای یک حساب آزمایشی محدود به همین realm وابسته است.
+
+Chrome در پروفایل موقت و با پین فقط برای گواهی‌های loopback اعتبارسنجی‌شده با CA موجود اجرا شد. هدایت با زمان‌بندی ناهمگام location.assign در CDP اجرا شد و DOM جداگانه بررسی شد. مرورگر مبدأ محصول، lang=fa و محتوای DOM صفحهٔ ورود را گزارش کرد. کلیک واقعی روی login-submit انجام شد و سپس DOM در مبدأ Keycloak فیلد گذرواژه را نشان داد. این روش از انتظار مسدودکنندهٔ Page.navigate عبور کرد. علت داخلی timeout قبلی قطعی نشده است. هیچ HTML خام، URL حاوی پارامتر ورود، cookie یا credential ثبت نشد.
+
+فرم مرورگر تأیید شد. دریافت callback و نشست، Signed BFF محصول، اجرای مجاز C018، بازگشت نتیجه به UI و Refresh به‌دلیل نبود حساب دعوت‌شده اجرا نشدند. در این نوبت هیچ اجرای Generation یا Gateway آغاز نشد و شمارندهٔ آزمون انتهابه‌انتها اندازه‌گیری نشد. آروان HOLD است و پذیرش سرپرست ثبت نشده است.

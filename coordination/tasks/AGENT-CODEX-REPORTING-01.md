@@ -64,3 +64,12 @@ Status is review. Supervisor approval is pending.
 - Tested: docker ps and docker inspect State.Health.Log confirmed five healthy services with repeated zero exit codes. Trusted loopback ingress returned 200. Keycloak readiness on port 9000, issuer discovery and JWKS returned 200. The actual login form POST returned 303 with browser fetch metadata and the live authorization endpoint returned a password form with 200 on retry. See the report for retry limits and the original browser error.
 - Pending: Chrome DOM proof timed out. Aggregate IdP SQL found zero enabled non-master accounts. Invited-user callback, signed Product API request, C018, the UI result and Refresh are blocked pending an active invited staging identity with the corresponding application admission. Arvan HOLD. Supervisor acceptance pending.
 - [Persian evidence and reproducible checks](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — invited identity and browser checkpoint
+
+- Status: blocked. P3M22-A06 (Module 22, activity 6) and P3OP11-R07 (§Launch checklist), operational evidence only. Reporting baseline codex 5d9e8cf, remote codex 50d26aa, execution baseline ops/mac-first-start 2a5948f. Previous service readiness carried forward.
+- Implemented: updated this checkpoint and docs/codex_execution/MAC_FIRST_START_FA.md and docs/codex_execution/MAC_FIRST_START_FA.html. No application or identity policy change.
+- Tested: aggregate Keycloak SQL found zero active, disabled and verified users outside master. One non-master realm is enabled, self-registration and realm Verify Email are disabled, and no SMTP rows are configured there. Product auth SQL found zero identities and sessions and three INITIATED attempts in the sampled ledger. Initial schema and SMTP-column errors were corrected with schema discovery and the actual SMTP table.
+- Tested: disposable Chrome with verified loopback pins scheduled location.assign asynchronously and independently observed the Persian login DOM, clicked the native form and observed the password field in the IdP DOM. Prior Page.navigate timeout bypassed in the harness. Internal timeout cause unconfirmed.
+- Blocker and next action: an approved staging invitation and proof of email control are required. No supported current staging provisioning workflow located. Signed product request, C018, rendered result, Refresh and invocation counter verification are blocked. Arvan HOLD. Supervisor acceptance pending.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
