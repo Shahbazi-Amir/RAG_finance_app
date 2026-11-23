@@ -28,10 +28,16 @@ jobs:
           python -m pip check
       - name: Compile source
         run: |
-          python -m compileall -q src/phase3/rag_runtime apps/api tests/phase3/api
+          python -m compileall -q src/phase3/rag_runtime src/phase3/auth apps/api tests/phase3/api tests/phase3/contracts
       - name: Test event integrity positive and negative
         run: |
           python -m unittest discover -s tests/phase3/api -p 'test_stream_event_integrity.py' -v
+      - name: Test private Cache-Control no-store and pure-ASGI stream delivery
+        run: |
+          python -m unittest discover -s tests/phase3/api -p 'test_private_http_no_store.py' -v
+      - name: Verify provisional Lifecycle intent DTO positive and negative
+        run: |
+          python -m unittest discover -s tests/phase3/contracts -p 'test_lifecycle_intent_shape.py' -v
       - name: Full API regressions
         run: |
           python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
