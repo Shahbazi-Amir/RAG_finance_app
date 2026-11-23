@@ -11,11 +11,38 @@ secure_log
 [[ "$(grep -c $'\tUP\t' "$LAB_SOURCE/manifest.tsv")" == 10 ]] || { echo 'STOP_NOT_TEN_UP_MIGRATIONS' >&2; exit 70; }
 count="$(dbpsql -Atc 'SELECT count(*) FROM db55_audit.migration_runs')"
 if [[ "$count" == 10 ]]; then
-  # Contract of repeatability: verify already-installed exact digests, never run SQL again.
-  expected="$(awk -F '\t' 'NR>1 && $2=="UP" {print $1 "|" $5}' "$LAB_SOURCE/manifest.tsv")"
-  actual="$(dbpsql -Atc "SELECT trim(version) || '|' || trim(git_blob_sha1) FROM db55_audit.migration_runs WHERE status='APPLIED' ORDER BY version")"
-  [[ "$expected" == "$actual" ]] || { echo 'STOP_EXISTING_LEDGER_MISMATCH' >&2; exit 70; }
-  [[ "$(dbpsql -Atc "SELECT count(*) FROM db55_audit.migration_runs WHERE status='APPLIED'")" == 10 ]] || { echo 'STOP_PARTIAL_MIGRATION_LEDGER' >&2; exit 70; }
+  # Strict idempotence: matching text in a Ledger is NOT proof that any SQL
+  # was actually installed. Check exact 10 pins, SHA256, PG cluster identity,
+  # completion transaction, and real physical tables/RLS/functions FIRST.
+  cluster_id="$(dbpsql -Atc 'SELECT system_identifier FROM pg_control_system()')"
+  expected="$(
+    while IFS=$'\t' read -r ver direction commit path blob; do
+      [[ "$direction" == UP ]] || continue
+      sql="$LAB_SOURCE/$(basename "$path")"
+      sha="$(shasum -a 256 "$sql" | awk '{print $1}')"
+      printf '%s|%s|%s|%s|APPLIED|%s\n' "$ver" "$commit" "$blob" "$sha" "$cluster_id"
+    done < <(tail -n +2 "$LAB_SOURCE/manifest.tsv")
+  )"
+  actual="$(dbpsql -Atc "SELECT trim(version)||'|'||trim(source_commit)||'|'||
+    trim(git_blob_sha1)||'|'||trim(sql_sha256)||'|'||status||'|'||cluster_system_id
+    FROM db55_audit.migration_runs ORDER BY version")"
+  [[ "$expected" == "$actual" ]] || { echo STOP_EXISTING_LEDGER_SOURCE_CLUSTER_OR_DIGEST_DRIFT >&2; exit 70; }
+  [[ "$(dbpsql -Atc "SELECT count(*) FROM db55_audit.migration_runs
+      WHERE status='APPLIED' AND applied_at IS NOT NULL AND
+      applied_at>=started_at AND applied_txid IS NOT NULL")" == 10 ]] || {
+    echo STOP_EXISTING_LEDGER_NOT_COMMITTED >&2;exit 70;
+  }
+  physical="$(dbpsql -Atc "SELECT
+    (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname IN ('auth_l1','history_l1') AND c.relkind IN ('r','p'))=14
+    AND (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname IN ('auth_l1','history_l1') AND c.relkind IN ('r','p')
+        AND c.relrowsecurity AND c.relforcerowsecurity)=14
+    AND (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname IN ('auth_l1','history_l1'))>=30
+    AND to_regclass('auth_l1.initial_login_attempts') IS NOT NULL
+    AND to_regclass('history_l1.send_receipts') IS NOT NULL")"
+  [[ "$physical" == t ]] || { echo STOP_EXISTING_LEDGER_WITH_SCHEMA_DRIFT_OR_MISSING_SQL >&2; exit 70; }
   echo 'MIGRATIONS=ALREADY_APPLIED_EXACT_PINS_NO_RERUN'
   exit 0
 fi

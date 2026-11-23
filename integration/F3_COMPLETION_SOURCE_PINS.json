@@ -1,30 +1,38 @@
 {
-  "schema": "foundation.f3.completion_integration.v2",
-  "parent_commit": "c2edbbf87f02ff2cfb8ba12a0a9594533324fd28",
+  "schema": "foundation.f3.completion_integration.v3",
+  "parent_commit": "d6dc01df5835cca8a97a778b091b769496646abb",
   "owners": {
     "DATABASE_F3": {
-      "tested_source_sha": "0e301a26096cb9f8c2b8e3fde3e20e9a1add48a5",
-      "current_head": "0e301a26096cb9f8c2b8e3fde3e20e9a1add48a5",
-      "CI_run": "45109023781",
-      "receipt_scope": "isolated PG17.11 main test PASS; optional migration 011 job SKIPPED"
+      "tested_source_sha": "996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba",
+      "current_head": "996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba",
+      "CI_run": "45202743968",
+      "receipt_scope": "Fresh PG17.11 001-010+DB55, 15-17, owner-fence negative and independent restore; separate011 not installed"
     },
     "API_F3": {
       "tested_source_sha": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
-      "current_head": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
+      "current_head": "5d9df47c7ca52133ca8706bd748d535233bae050",
       "CI_run": "45081955496",
-      "api_lock_sha256": "399a4e796403bd8fc5b8165c030ad4d4d8479fb946e363e29a5722ea88d35ff5"
+      "api_lock_sha256": "399a4e796403bd8fc5b8165c030ad4d4d8479fb946e363e29a5722ea88d35ff5",
+      "documentation_only_head": "5d9df47c7ca52133ca8706bd748d535233bae050",
+      "api_runtime_pin": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
+      "documentation_evidence": "API #63 262 rows / 91 API IDs; no runtime delta"
     },
     "UI_F3": {
-      "tested_source_sha": "05063c86204498ddf03c8f83507f181e51ae312c",
-      "current_head": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
-      "CI_run": "45108323298",
-      "receipt_scope": "Node115, Chromium synthetic; no Mac C018"
+      "tested_source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
+      "current_head": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
+      "CI_run": "45201568224",
+      "receipt_scope": "118/118 Node + synthetic Chromium desktop/mobile/OwnerFence; no Mac"
     }
   },
   "conflict_policy": {
-    "ui_api61_same_base": true,
-    "owner_overlay_policy": "UI62 diffs relative to API61; DB0e diffs relative to DB59 HEAD; preserve unchanged API61 and existing Foundation glue",
-    "ui_base": "c02ba7896edb78febd2042f7afb1243f2a6aca34"
+    "ui_source_from": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
+    "ui_source_to": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
+    "db_source_from": "0e301a26096cb9f8c2b8e3fde3e20e9a1add48a5",
+    "db_source_to": "996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba",
+    "api_runtime_only": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
+    "api63_documentation_only": true,
+    "collision_count": 0,
+    "base_integration": "d6dc01df5835cca8a97a778b091b769496646abb"
   },
   "file_pins": {
     ".github/workflows/api-f3-gate3-retrieved-sources-offline.yml": {
@@ -107,9 +115,9 @@
     },
     "apps/web/src/ui/product-chat.tsx": {
       "owner": "UI_F3",
-      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
-      "git_blob": "bd78ef2facc0901e1a85d889e877ee370927ff19",
-      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
+      "source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
+      "git_blob": "121add9756072ab934c306adaf9f52fe4031d31a",
+      "reason": "Exact ui65 HEAD overlay relative to ui62; L1/isolated CI only; no Mac Gate"
     },
     "apps/web/src/ui/retrieved-sources-panel.tsx": {
       "owner": "UI_F3",
@@ -125,9 +133,9 @@
     },
     "tests/phase3/integration/ui/product_chat_browser.py": {
       "owner": "UI_F3",
-      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
-      "git_blob": "8d1c6ec74c09de8f619db2769779ad6f25e23c34",
-      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
+      "source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
+      "git_blob": "f4c67696d18d40052f249dac6a908d8c5d6df47d",
+      "reason": "Exact ui65 HEAD overlay relative to ui62; L1/isolated CI only; no Mac Gate"
     },
     "tests/phase3/ui/retrieved-sources-client.test.mjs": {
       "owner": "UI_F3",
@@ -203,9 +211,9 @@
     },
     "infra/postgres/dev_f3_isolated/scripts/11_export_sanitized_receipt.sh": {
       "owner": "DATABASE_F3",
-      "source_sha": "0e301a26096cb9f8c2b8e3fde3e20e9a1add48a5",
-      "git_blob": "e8f50cf29fb79a795e566a007d861afba9533fb4",
-      "reason": "DB0e tested isolated PG17.11, optional011 skipped, no Mac"
+      "source_sha": "996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba",
+      "git_blob": "9f0908fef1f93dd66856fde6285ea5a60031aab2",
+      "reason": "Exact db996 HEAD overlay relative to db0e; L1/isolated CI only; no Mac Gate"
     },
     "infra/postgres/dev_f3_isolated/scripts/shared_stack_db_witness.py": {
       "owner": "DATABASE_F3",
@@ -215,9 +223,9 @@
     },
     ".github/workflows/f3-db-isolated-fresh-install.yml": {
       "owner": "DATABASE_F3",
-      "source_sha": "0e301a26096cb9f8c2b8e3fde3e20e9a1add48a5",
-      "git_blob": "97bda37a04d0aaf2d2d6eba039d2c0670b85eacc",
-      "reason": "DB0e tested isolated PG17.11, optional011 skipped, no Mac"
+      "source_sha": "996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba",
+      "git_blob": "288ab2f05dd6f1bfd972598972d6c56a7af62fb1",
+      "reason": "Exact db996 HEAD overlay relative to db0e; L1/isolated CI only; no Mac Gate"
     },
     ".github/workflows/ui-f3-api61-completion.yml": {
       "owner": "UI_F3",
@@ -233,9 +241,9 @@
     },
     "apps/web/app/history/history.css": {
       "owner": "UI_F3",
-      "source_sha": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
-      "git_blob": "65212fb787f4cd96372b211fb8ea0ce0aeb26948",
-      "reason": "UI62 exact tested executable tree; only last doc-only HEAD update"
+      "source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
+      "git_blob": "b5e1f8c9302dfc484e0f9c126bac05ee482ab5bd",
+      "reason": "Exact ui65 HEAD overlay relative to ui62; L1/isolated CI only; no Mac Gate"
     },
     "apps/web/app/login/route.ts": {
       "owner": "UI_F3",
@@ -299,9 +307,9 @@
     },
     "infra/postgres/dev_f3_isolated/docs/PHASE3_57_ROW_DATABASE_AUDIT_20261123.md": {
       "owner": "DATABASE_F3",
-      "source_sha": "0e301a26096cb9f8c2b8e3fde3e20e9a1add48a5",
-      "git_blob": "cdcb8894d5c24d906d95f9c016736d1498045a3e",
-      "reason": "DB0e tested isolated PG17.11, optional011 skipped, no Mac"
+      "source_sha": "996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba",
+      "git_blob": "ec2ee463c1fda3ef55253a06934dac62f9294bd1",
+      "reason": "Exact db996 HEAD overlay relative to db0e; L1/isolated CI only; no Mac Gate"
     },
     "infra/postgres/dev_f3_isolated/docs/PHASE3_PHYSICAL_SCHEMA_POLICY_DELTA_20261123.md": {
       "owner": "DATABASE_F3",
@@ -326,15 +334,131 @@
       "source_sha": "0e301a26096cb9f8c2b8e3fde3e20e9a1add48a5",
       "git_blob": "34941ee813a065c299608b410fc3a19d523f0c55",
       "reason": "DB0e tested isolated PG17.11, optional011 skipped, no Mac"
+    },
+    ".github/workflows/ui-f3-post62-owner-fence.yml": {
+      "owner": "UI_F3",
+      "source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
+      "git_blob": "b0d62be010b49556b655a77c9d2990778cd773f8",
+      "reason": "Exact ui65 HEAD overlay relative to ui62; L1/isolated CI only; no Mac Gate"
+    },
+    "apps/web/app/account/page.tsx": {
+      "owner": "UI_F3",
+      "source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
+      "git_blob": "306e6aa7a6ad39fdfd4bd0bc342f4e620d29763f",
+      "reason": "Exact ui65 HEAD overlay relative to ui62; L1/isolated CI only; no Mac Gate"
+    },
+    "apps/web/app/api/auth/logout/route.ts": {
+      "owner": "UI_F3",
+      "source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
+      "git_blob": "3e55fa2ff8ef41eca2b29aa9aaeb59040720be07",
+      "reason": "Exact ui65 HEAD overlay relative to ui62; L1/isolated CI only; no Mac Gate"
+    },
+    "apps/web/src/ui/owner-fence.ts": {
+      "owner": "UI_F3",
+      "source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
+      "git_blob": "69dcd7d940b58e44468bc8f51f8d511aa44f38cb",
+      "reason": "Exact ui65 HEAD overlay relative to ui62; L1/isolated CI only; no Mac Gate"
+    },
+    "coordination/handoffs/UI_F3_CANONICAL_262_ACTIVITIES_26_GATES.csv": {
+      "owner": "UI_F3",
+      "source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
+      "git_blob": "743a1bee9add371b55046bd38e51668cea7aed07",
+      "reason": "Exact ui65 HEAD overlay relative to ui62; L1/isolated CI only; no Mac Gate"
+    },
+    "coordination/handoffs/UI_F3_FOCUS_154_FROM_USER_TASK.csv": {
+      "owner": "UI_F3",
+      "source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
+      "git_blob": "335e2acf99ec127f3aa3bcb6e2f58352d3de6b33",
+      "reason": "Exact ui65 HEAD overlay relative to ui62; L1/isolated CI only; no Mac Gate"
+    },
+    "coordination/handoffs/UI_F3_OPERATIONAL_105_MAP_80_FOCUS.csv": {
+      "owner": "UI_F3",
+      "source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
+      "git_blob": "95c81bd9a9f72c4889032a35d78e554651be51e2",
+      "reason": "Exact ui65 HEAD overlay relative to ui62; L1/isolated CI only; no Mac Gate"
+    },
+    "coordination/handoffs/UI_F3_POST62_OWNER_FENCE.md": {
+      "owner": "UI_F3",
+      "source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
+      "git_blob": "351e80d477d1ce1d9f0a1097c217614112c03bb3",
+      "reason": "Exact ui65 HEAD overlay relative to ui62; L1/isolated CI only; no Mac Gate"
+    },
+    "tests/phase3/ui/owner-fence.test.mjs": {
+      "owner": "UI_F3",
+      "source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
+      "git_blob": "da20df905e6a32064e86e46e949d68aebdc5bd30",
+      "reason": "Exact ui65 HEAD overlay relative to ui62; L1/isolated CI only; no Mac Gate"
+    },
+    "infra/postgres/dev_f3_isolated/docs/PHASE3_105_OP_NONCOUNTING_RECONCILIATION_20261123.csv": {
+      "owner": "DATABASE_F3",
+      "source_sha": "996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba",
+      "git_blob": "f89b1652b4518c058f4674bd10f074fe010706b4",
+      "reason": "Exact db996 HEAD overlay relative to db0e; L1/isolated CI only; no Mac Gate"
+    },
+    "infra/postgres/dev_f3_isolated/docs/PHASE3_262_105_26_RECONCILIATION_README_20261123.md": {
+      "owner": "DATABASE_F3",
+      "source_sha": "996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba",
+      "git_blob": "adb1140093d6e7bd744186f73c6fb3d51b4398f7",
+      "reason": "Exact db996 HEAD overlay relative to db0e; L1/isolated CI only; no Mac Gate"
+    },
+    "infra/postgres/dev_f3_isolated/docs/PHASE3_262_ACTIVITY_DB_SCOPE_RECONCILIATION_20261123.csv": {
+      "owner": "DATABASE_F3",
+      "source_sha": "996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba",
+      "git_blob": "ad998af1ed74ae07a419368cb10dc63651d7775b",
+      "reason": "Exact db996 HEAD overlay relative to db0e; L1/isolated CI only; no Mac Gate"
+    },
+    "infra/postgres/dev_f3_isolated/docs/PHASE3_26_MODULE_GATES_RECONCILIATION_20261123.csv": {
+      "owner": "DATABASE_F3",
+      "source_sha": "996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba",
+      "git_blob": "cece7b94fcb1761b09595b45e1e92c7cebee9177",
+      "reason": "Exact db996 HEAD overlay relative to db0e; L1/isolated CI only; no Mac Gate"
+    },
+    "infra/postgres/dev_f3_isolated/docs/PHASE3_DATABASE_FINAL_FOUNDATION_HANDOFF_20261123.md": {
+      "owner": "DATABASE_F3",
+      "source_sha": "996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba",
+      "git_blob": "63680a875ee248982765dea8743c881bb2c66224",
+      "reason": "Exact db996 HEAD overlay relative to db0e; L1/isolated CI only; no Mac Gate"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/03_apply_pinned_001_010.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba",
+      "git_blob": "9cc9458c55b82f03811b346259ccf2ae3dce318d",
+      "reason": "Exact db996 HEAD overlay relative to db0e; L1/isolated CI only; no Mac Gate"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/15_populated_pre009_upgrade_restore.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba",
+      "git_blob": "f3877b0aeb280fa9c577e40d809546c0ace1555c",
+      "reason": "Exact db996 HEAD overlay relative to db0e; L1/isolated CI only; no Mac Gate"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/16_fault_injected_migration_ledger.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba",
+      "git_blob": "aa7f51303c906f1b5b9d900759a23bb17b24977e",
+      "reason": "Exact db996 HEAD overlay relative to db0e; L1/isolated CI only; no Mac Gate"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/17_populated_query_plan_and_owner.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba",
+      "git_blob": "4fec6eb70fa1240f409658c0dd67e29b50489279",
+      "reason": "Exact db996 HEAD overlay relative to db0e; L1/isolated CI only; no Mac Gate"
+    },
+    "coordination/handoffs/API_F3_SOURCE_AUDIT_262_20261123.md": {
+      "owner": "API_F3_DOCS",
+      "source_sha": "5d9df47c7ca52133ca8706bd748d535233bae050",
+      "git_blob": "adda1a8a5a9f60a5a2696ed5d3f0336cfb367091",
+      "reason": "Exact api63 HEAD overlay relative to api61; L1/isolated CI only; no Mac Gate"
     }
   },
   "status": {
+    "source_only": true,
     "NO_DISPATCH_ONLY": true,
     "mac_build": "NOT_RUN",
     "mac_c018": "NOT_RUN",
-    "optional_db011": "SKIPPED",
+    "owner_fence_L2": "NOT_RUN",
+    "optional_db011": "NOT_INSTALLED",
     "arvan": "HOLD",
     "accepted_gates": 0
   },
-  "previous_integrated_sha": "c2edbbf87f02ff2cfb8ba12a0a9594533324fd28"
+  "previous_integrated_sha": "d6dc01df5835cca8a97a778b091b769496646abb"
 }

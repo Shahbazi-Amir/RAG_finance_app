@@ -147,3 +147,38 @@ assert x["hard_delete_tombstone_policy"]=="NOT_APPROVED"
 PY2
 install -m 0600 "$synthetic_receipt" "$GITHUB_WORKSPACE/ci_receipts/synthetic_owner_restore_receipt.json"
 echo 'SANITIZED_SYNTHETIC_OWNER_RESTORE_RECEIPT=PASS'
+
+# Real second-cluster negative installer audit; only synthetic marker JSON.
+ledger="$LAB_WORK/ledger_fault_injection_receipt.json"
+[[ -s "$ledger" ]] || { echo STOP_LEDGER_FAULT_WITNESS_MISSING >&2;exit 70; }
+python3 - "$ledger" <<'PY'
+import json,sys
+from pathlib import Path
+v=json.loads(Path(sys.argv[1]).read_text())
+assert v["contract_version"] == "f3.db.ledger_fault_injection.v1"
+for k in ("partial_STARTED","duplicate_primary_key","sha256_mismatch",
+          "missing_applied_metadata","forged_complete_ledger_without_schema"):
+    assert v[k] in ("FAIL_CLOSED_NO_RETRY","REJECTED")
+assert v["second_lab_containers_volumes_removed"] is True
+assert v["existing_main_lab_untouched"] is True
+PY
+install -m 0600 "$ledger" "$GITHUB_WORKSPACE/ci_receipts/ledger_fault_injection_receipt.json"
+echo 'SANITIZED_LEDGER_FAULT_INJECTION_RECEIPT=PASS'
+
+# Real EXPLAIN ANALYZE with nonempty two-owner synthetic data. No customer rows.
+for file in populated_plan_receipt.json query_plan_populated_conversations.json query_plan_populated_messages.json; do
+  [[ -s "$LAB_WORK/$file" ]] || { echo "STOP_POPULATED_PLAN_FILE_$file" >&2;exit 70; }
+  install -m 0600 "$LAB_WORK/$file" "$GITHUB_WORKSPACE/ci_receipts/$file"
+done
+python3 - "$GITHUB_WORKSPACE/ci_receipts/populated_plan_receipt.json" <<'PY'
+import json,sys
+from pathlib import Path
+r=json.loads(Path(sys.argv[1]).read_text())
+assert r["contract_version"] == "f3.db.synthetic_populated_query_plan.v1"
+assert r["conversation_rows"] == 2400 and r["message_rows"] == 4800
+assert r["owner_a_rls_visible_conversations"] == 1200
+assert r["query_plans"]["conversations"]["actual_rows"] == 20
+assert r["query_plans"]["messages"]["actual_rows"] == 2
+assert r["production_workload_certified"] is False
+PY
+echo 'SANITIZED_TWO_OWNER_POPULATED_EXPLAIN_RECEIPT=PASS'

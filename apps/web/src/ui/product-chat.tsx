@@ -8,6 +8,7 @@ import type {Answer,Citation} from '../mock/transport';
 import {verifiedSourceUrl} from './source-locator';
 import {sourceCredits,confidenceLabel} from './source-metadata';
 import RetrievedSourcesPanel from './retrieved-sources-panel';
+import {OwnerFence} from './owner-fence';
 import {isVerifiedLiveAnswer,productOutcomeLabel} from './answer-visibility';
 import {readCheckpoints,retainCheckpoint,forgetCheckpoints,statusCorrelators,
   type AttemptCheckpoint} from './attempt-checkpoints';
@@ -99,8 +100,12 @@ export default function ProductChat(){
   const [attempts,setAttempts]=useState<Record<string,Attempt>>({});
   const [error,setError]=useState('');
   const [mobileOpen,setMobileOpen]=useState(false);
+  const mobileMenu=useRef<HTMLElement|null>(null);
+  const menuTrigger=useRef<HTMLButtonElement|null>(null);
   const [busy,setBusy]=useState(false);
   const lost=useRef(false);
+  // Never mix a former account's in-flight History with a new owner's page.
+  const ownerFence=useRef(new OwnerFence());
   const sending=useRef(false);
   const polling=useRef(new Set<string>());
   const attemptsRef=useRef(attempts);
@@ -109,34 +114,44 @@ export default function ProductChat(){
   const invalidate=useCallback((e:unknown):boolean=>{
     if(!(e instanceof HistoryFailure&&e.reason==='unauthorized'))return false;
     lost.current=true;
+    ownerFence.current.invalidate();
     const s=sessionStore();if(s)forgetCheckpoints(s);
     attemptsRef.current={};
     threadEpochs.current={};
     setAttempts({});setList({items:[],next:null,more:false});
     setThreads({});setSelected('draft:new');setDrafts({});
-    setListState('unauthorized');setError('');
+    setListState('unauthorized');setError('');setMobileOpen(false);setBusy(false);
     return true;
   },[]);
+  const matchOwner=useCallback((owner:string):boolean=>{
+    if(ownerFence.current.observe(owner))return true;
+    invalidate(new HistoryFailure(401,'unauthorized'));
+    return false;
+  },[invalidate]);
   const loadList=useCallback(async (append=false,cursor:string|null=null)=>{
     if(lost.current)return;
     try{
       // Keep the existing #49 browser A/B harness query `limit=2` stable.
       const page=await conversations(2,append?cursor:null);
-      if(lost.current)return;
+      if(lost.current||!matchOwner(page.owner))return;
       setList(prev=>({items:append?mergeUnique(prev.items,page.items,x=>x.id):page.items,
         next:page.next,more:page.more}));
       setListState('ready');
       if(!append)setSelected(current=>current==='draft:new'&&page.items.length?
         page.items[0].id:current);
-    }catch(e){if(!invalidate(e)&&!lost.current){setListState('error');setError(failureLabel(e));}}
-  },[invalidate]);
+    }catch(e){if(!invalidate(e)&&!lost.current){
+      // Do not keep stale owner-bearing results after a failed revalidation.
+      setList({items:[],next:null,more:false});
+      setListState('error');setError(failureLabel(e));
+    }}
+  },[invalidate,matchOwner]);
   const loadThread=useCallback(async (id:string,append=false,cursor:string|null=null)=>{
     if(lost.current||id.startsWith('draft:'))return;
     const epoch=(threadEpochs.current[id]??0)+1;
     threadEpochs.current[id]=epoch;
     try{
       const page=await messages(id,30,append?cursor:null);
-      if(lost.current||threadEpochs.current[id]!==epoch)return;
+      if(lost.current||threadEpochs.current[id]!==epoch||!matchOwner(page.owner))return;
       setThreads(all=>{
         const prev=all[id];
         return {...all,[id]:{
@@ -145,8 +160,11 @@ export default function ProductChat(){
           next:page.next,more:page.more
         }};
       });
-    }catch(e){if(!invalidate(e)&&!lost.current)setError(failureLabel(e));}
-  },[invalidate]);
+    }catch(e){if(!invalidate(e)&&!lost.current){
+      setThreads(all=>{const next={...all};delete next[id];return next;});
+      setError(failureLabel(e));
+    }}
+  },[invalidate,matchOwner]);
   const probe=useCallback(async (record:AttemptCheckpoint)=>{
     if(lost.current||polling.current.has(record.client_message_id))return;
     polling.current.add(record.client_message_id);
@@ -157,7 +175,8 @@ export default function ProductChat(){
       if(old?.attemptId&&status.attemptId&&old.attemptId!==status.attemptId){
         setAttempts(all=>({...all,[record.client_message_id]:{
           ...all[record.client_message_id],phase:'status_error',
-          sources:null,sourcesUnavailable:true,engine:null}}));
+          sources:null,sourcesUnavailable:true,engine:null,engineUnavailable:true,
+          answer:null,attemptId:null,messageId:null}}));
         return;
       }
       const resultPhase=status.status==='answer_committed'&&!isVerifiedLiveAnswer(status.answer)
@@ -197,7 +216,7 @@ export default function ProductChat(){
         return {...all,[record.client_message_id]:{
           ...previous,phase:resultPhase,attemptId:status.attemptId??previous.attemptId,
           messageId:status.messageId,answer:status.answer,
-          engine:technical??previous.engine,engineUnavailable,
+          engine:technical,engineUnavailable,
           sources,sourcesUnavailable,
           record:status.id?{...previous.record,resolved_conversation_id:status.id}:previous.record,
           viewId:status.id??previous.viewId,
@@ -216,7 +235,8 @@ export default function ProductChat(){
         setAttempts(all=>{
           const prev=all[record.client_message_id];
           return prev&&!isTerminal(prev.phase)?{...all,[record.client_message_id]:
-            {...prev,phase:'status_error'}}:all;
+            {...prev,phase:'status_error',answer:null,engine:null,engineUnavailable:true,
+               sources:null,sourcesUnavailable:true,attemptId:null,messageId:null}}:all;
         });
     }finally{polling.current.delete(record.client_message_id);}
   },[invalidate,loadList,loadThread]);
@@ -253,6 +273,42 @@ export default function ProductChat(){
     });
     return ()=>{active=false;};
   },[selected,loadThread]);
+  useEffect(()=>{
+    // A read-only identity heartbeat detects a revoked session or account
+    // rotation even when no Attempt is pending. It never dispatches C018.
+    const refresh=()=>{if(!lost.current&&document.visibilityState==='visible')
+      void loadList();};
+    const timer=window.setInterval(refresh,15000);
+    window.addEventListener('focus',refresh);
+    document.addEventListener('visibilitychange',refresh);
+    return ()=>{
+      window.clearInterval(timer);
+      window.removeEventListener('focus',refresh);
+      document.removeEventListener('visibilitychange',refresh);
+    };
+  },[loadList]);
+  useEffect(()=>{
+    if(!mobileOpen)return;
+    const nav=mobileMenu.current;
+    const trigger=menuTrigger.current;
+    const close=nav?.querySelector<HTMLButtonElement>('.history-mobile-close');
+    close?.focus();
+    const onKeys=(event:KeyboardEvent)=>{
+      if(event.key==='Escape'){event.preventDefault();setMobileOpen(false);return;}
+      if(event.key!=='Tab'||!nav)return;
+      const focusables=Array.from(nav.querySelectorAll<HTMLElement>(
+        'button:not([disabled]),a[href]')).filter(el=>el.getClientRects().length>0);
+      if(!focusables.length)return;
+      const first=focusables[0],last=focusables[focusables.length-1];
+      if(event.shiftKey&&document.activeElement===first){
+        event.preventDefault();last.focus();
+      }else if(!event.shiftKey&&document.activeElement===last){
+        event.preventDefault();first.focus();
+      }
+    };
+    window.addEventListener('keydown',onKeys);
+    return ()=>{window.removeEventListener('keydown',onKeys);trigger?.focus();};
+  },[mobileOpen]);
   useEffect(()=>{
     const timer=window.setInterval(()=>{
       if(lost.current||document.visibilityState==='hidden')return;
@@ -327,7 +383,7 @@ export default function ProductChat(){
   const pendingDrafts=[...new Set(Object.values(attempts).filter(a=>
     a.viewId.startsWith('draft:')&&!isTerminal(a.phase)).map(a=>a.viewId))];
   return <main className="history-shell product-shell" dir="rtl">
-    <aside id="product-chat-sidebar" className={'history-sidebar'+(mobileOpen?' is-mobile-open':'')}
+    <aside ref={mobileMenu} id="product-chat-sidebar" className={'history-sidebar'+(mobileOpen?' is-mobile-open':'')}
       role={mobileOpen?'dialog':undefined} aria-modal={mobileOpen?'true':undefined}
       aria-label="فهرست گفتگوها">
       <button type="button" className="history-mobile-close" aria-label="بستن فهرست"
@@ -376,7 +432,7 @@ export default function ProductChat(){
     <section className="history-main" aria-label="گفت‌وگوی فارسی">
       <header className="history-mobile-topbar">
         <button className="mobile-menu-trigger" type="button"
-          aria-label="بازکردن فهرست گفت‌وگوها" aria-controls="product-chat-sidebar"
+          ref={menuTrigger} aria-label="بازکردن فهرست گفت‌وگوها" aria-controls="product-chat-sidebar"
           aria-expanded={mobileOpen} onClick={()=>setMobileOpen(true)}>☰</button>
         <span className="mobile-brand">راگ مالی</span>
         <Link href="/login" className="history-link">حساب و خروج</Link>
@@ -386,6 +442,11 @@ export default function ProductChat(){
       <header className="history-heading">
         <h1>گفت‌وگوی مالی</h1>
         <p>پرسش فارسی، تاریخچهٔ خصوصی و وضعیت واقعی هر Attempt؛ بدون پاسخ نمونه.</p>
+        <p className="history-note" data-testid="educational-boundary">
+          شواهد بازیابی فنی به‌تنهایی پاسخ یا توصیهٔ مالی تأییدشده نیستند.
+          در این نسخه تولید پاسخ و پیوند استناد از مشاهدات بازیابی فعال نیست.
+        </p>
+        <Link className="history-link" href="/account">حساب، حریم خصوصی و وضعیت قابلیت‌ها</Link>
       </header>
       {listState==='unauthorized'&&<p role="alert" data-testid="history-login-required">
         برای مشاهدهٔ گفت‌وگوها باید <Link href="/login">وارد حساب شوید</Link>.

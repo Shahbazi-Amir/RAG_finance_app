@@ -27,7 +27,8 @@ def main():
         raise RuntimeError("UI_CHAT_L1_ONLY_LOOPBACK_HTTP_PORT_3000")
     state = {"posts": 0, "status_reads": 0, "engine_reads": 0,
              "logged_in": True, "request": None,
-             "source_reads": 0, "source_mode": "valid"}
+             "source_reads": 0, "source_mode": "valid",
+             "owner_mode": "original", "status_mode": "valid", "engine_mode": "valid"}
     conversation_id = "conv_uichat_013"
     user_message = "msg_uichat_013"
 
@@ -59,6 +60,9 @@ def main():
                 conv["title"] = "گفت‌وگوی تست فارسی"
                 conv["owner_user_id"] = body["scope_user_id"]
                 body["items"] = [conv]
+            if state["owner_mode"] == "changed":
+                body["scope_user_id"] = "usr_owner_B_403_3"
+                body["items"] = []
             route.fulfill(status=200, json=body)
         elif path.endswith("/api/history/messages") and method == "POST":
             state["posts"] += 1
@@ -106,6 +110,8 @@ def main():
             status["attempt_trace_id"] = "b" * 32
             status["reserved_answer_id"] = "ans_uichat_013"
             status["status"] = "attempt_pending"
+            if state["status_mode"] == "invalid":
+                status["unexpected_debug"] = "not-a-contract-field"
             route.fulfill(status=200, json=status)
         elif path.endswith("/api/history/message-requests/engine-status") and method == "GET":
             check_original_query(route.request.url)
@@ -114,6 +120,9 @@ def main():
             assert original
             # A separate API #53 *technical* document: not product Answer,
             # never a live Runner claim or a Citation.
+            if state["engine_mode"] == "invalid":
+                route.fulfill(status=200, json={"kind": "forged_extra", "answer": "fake"})
+                return
             route.fulfill(status=200, json={
                 "kind": "no_dispatch_execution_status",
                 "contract_version": "api.no_dispatch_status.v1",
@@ -209,6 +218,12 @@ def main():
             assert menu.evaluate("(el) => getComputedStyle(el).outlineStyle") != "none"
             menu.click()
             expect(menu).to_have_attribute("aria-expanded", "true")
+            expect(page.locator(".history-mobile-close")).to_be_focused()
+            page.keyboard.press("Escape")
+            expect(menu).to_have_attribute("aria-expanded", "false")
+            expect(menu).to_be_focused()
+            menu.click()
+            expect(menu).to_have_attribute("aria-expanded", "true")
             expect(page.get_by_role("dialog", name="فهرست گفتگوها")).to_be_visible()
             page.locator(".history-mobile-close").click()
             expect(menu).to_have_attribute("aria-expanded", "false")
@@ -247,7 +262,48 @@ def main():
             expect(page.get_by_test_id("retrieved-sources-observed")).to_be_visible()
             assert state["posts"] == 1
             expect(page.locator("nav.history-list")).to_contain_text("گفت‌وگوی تست فارسی")
-            # Server 401 purges old per-account list and persisted correlators.
+            # A malformed Product Status must clear previously displayed
+            # evidence, not retain stale observations from a past GET.
+            state["status_mode"] = "invalid"
+            page.get_by_test_id("recover-status").click()
+            expect(page.get_by_text("خواندن وضعیت ناموفق بود؛ نتیجه نامعلوم است.")).to_be_visible()
+            assert page.get_by_test_id("retrieved-sources-observed").count() == 0
+            state["status_mode"] = "valid"
+            page.get_by_test_id("recover-status").click()
+            expect(page.get_by_test_id("retrieved-sources-observed")).to_be_visible()
+            # Bad technical status cannot keep an old CONTEXT_READY display.
+            state["engine_mode"] = "invalid"
+            page.get_by_test_id("recover-status").click()
+            expect(page.get_by_text("وضعیت فنی جداگانه در دسترس نیست؛ فقط وضعیت اصلی پیگیری می‌شود.")).to_be_visible()
+            assert page.get_by_text("بازیابی شواهد کامل شد؛ تولید پاسخ انجام نشده است.").count() == 0
+            state["engine_mode"] = "valid"
+            page.get_by_test_id("recover-status").click()
+            expect(page.get_by_text("بازیابی شواهد کامل شد؛ تولید پاسخ انجام نشده است.")).to_be_visible()
+            # A different valid owner in a separately signed list response
+            # must clear the former owner's message/Attempt/cache before display.
+            state["owner_mode"] = "changed"
+            # Refresh is in the responsive drawer: open it before clicking.
+            menu.click()
+            expect(page.get_by_role("dialog", name="فهرست گفتگوها")).to_be_visible()
+            page.get_by_test_id("refresh-history").click()
+            expect(page.get_by_test_id("history-login-required")).to_be_visible()
+            assert page.locator("nav.history-list button").count() == 0
+            assert page.get_by_test_id("retrieved-sources-observed").count() == 0
+            assert page.evaluate(
+                "() => sessionStorage.getItem('rag-finance-attempt-correlation-v1')") is None
+            assert state["posts"] == 1
+            # A second tab, on a new validated owner-B response, never
+            # inherits the former tab's A Attempt or captured source rows.
+            tab_b = context.new_page()
+            tab_b.route("**/api/history/**", intercept)
+            tab_b.goto(base, wait_until="domcontentloaded")
+            expect(tab_b.get_by_text("هنوز گفت‌وگویی ثبت نشده است.")).to_be_visible()
+            assert tab_b.get_by_test_id("retrieved-sources-observed").count() == 0
+            assert tab_b.evaluate(
+                "() => sessionStorage.getItem('rag-finance-attempt-correlation-v1')") is None
+            tab_b.close()
+            state["owner_mode"] = "original"
+            # Server 401 still purges even on a fresh page.
             state["logged_in"] = False
             # Refresh invokes authenticated GET, even if background polling has
             # already observed the 401 and disabled the in-page Refresh button.
@@ -256,7 +312,14 @@ def main():
             assert page.locator("nav.history-list button").count() == 0
             assert page.evaluate(
                 "() => sessionStorage.getItem('rag-finance-attempt-correlation-v1')") is None
-            print("UI_CHAT_L1_BROWSER_API61_SAME_ATTEMPT_MOBILE_XSS_MISMATCH_401_PASS")
+            account_page = context.new_page()
+            account_page.goto(base + "/account", wait_until="domcontentloaded")
+            expect(account_page.get_by_role("heading", name="حساب و حریم خصوصی")).to_be_visible()
+            expect(account_page.get_by_text("امکان درخواست حذف از این رابط هنوز فعال نیست.")).to_be_visible()
+            assert account_page.locator('form[action*="delete"]').count() == 0
+            assert account_page.locator('form[action*="feedback"]').count() == 0
+            account_page.close()
+            print("UI_CHAT_L1_BROWSER_POST62_OWNER_MISMATCH_ESCAPE_ACCOUNT_401_PASS")
             context.close()
         finally:
             browser.close()
