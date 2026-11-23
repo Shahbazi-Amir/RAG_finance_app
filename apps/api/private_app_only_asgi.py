@@ -24,6 +24,7 @@ from apps.api.private_staging_asgi import (
 from src.phase3.auth.staging_service_profile import (
     PrivateStagingProfile, StagingConfigDenied,
 )
+from src.phase3.auth.service_proof import TrustRejected
 from src.phase3.auth.staging_transport_mtls import (
     TrustedBFFTLSBoundary, VerifiedPeerUnavailable, make_verified_h11_protocol,
 )
@@ -285,7 +286,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         run_app_only(args.config)
-    except (StagingConfigDenied, VerifiedPeerUnavailable,
+    except (StagingConfigDenied, VerifiedPeerUnavailable, TrustRejected,
             ImportError, ModuleNotFoundError, ValueError, RuntimeError, OSError):
         print("APP_ONLY_STARTUP_DENIED", file=sys.stderr)
         return 78
