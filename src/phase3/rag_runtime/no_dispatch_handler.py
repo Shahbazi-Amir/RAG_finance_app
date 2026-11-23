@@ -145,6 +145,14 @@ class NoDispatchLedger:
                 or receipt.get("attempt_id") != binding.engine_request_id
                 or receipt.get("attempt_trace_id") != binding.trace_id):
             raise PreflightDenied()
+        # A positive retrieval receipt must agree with the same committed
+        # C018 summary. Unavailable/invalid source evidence intentionally
+        # contains no rows and may retain an observed top10_count > 0.
+        count = summary.get("top10_count") if isinstance(summary, dict) else None
+        if (type(count) is not int or not 0 <= count <= 10
+                or (receipt.get("retrieval_state") == "PARTIAL_UNVERIFIED"
+                    and count != len(receipt.get("rows", [])))):
+            raise PreflightDenied()
         try:
             validate_public_receipt(receipt)
             encoded = json.dumps(receipt, sort_keys=True, separators=(",", ":"),
@@ -200,7 +208,7 @@ class NoDispatchLedger:
                 or not isinstance(trace_id, str) or len(trace_id) != 32):
             raise PreflightDenied()
         with self._connect() as conn:
-            row = conn.execute("""SELECT r.receipt_json, r.receipt_sha256
+            row = conn.execute("""SELECT r.receipt_json, r.receipt_sha256, o.top10_count
                 FROM retrieval_receipts r JOIN outcomes o
                 ON o.attempt_id=r.attempt_id
                 WHERE r.attempt_id=? AND r.owner_id=? AND r.trace_id=?
@@ -208,7 +216,7 @@ class NoDispatchLedger:
                 (attempt_id, owner_id, trace_id, owner_id, trace_id)).fetchone()
         if row is None:
             return None
-        raw, digest = row
+        raw, digest, stored_top10_count = row
         if (not isinstance(raw, str) or not isinstance(digest, str)
                 or not hmac.compare_digest(
                     hashlib.sha256(raw.encode("utf-8")).hexdigest(), digest)):
@@ -223,7 +231,12 @@ class NoDispatchLedger:
                 or receipt.get("attempt_trace_id") != trace_id):
             raise PreflightDenied()
         try:
-            return validate_public_receipt(receipt)
+            validated = validate_public_receipt(receipt)
+            if (validated["retrieval_state"] == "PARTIAL_UNVERIFIED"
+                    and (type(stored_top10_count) is not int
+                         or stored_top10_count != len(validated["rows"]))):
+                raise PreflightDenied()
+            return validated
         except EvidenceDenied:
             raise PreflightDenied() from None
 
