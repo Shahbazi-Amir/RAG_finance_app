@@ -43,6 +43,11 @@ export async function POST(request:Request):Promise<Response>{
     await revokeAlias(handle);
     const response=redirectLocal('/login?reason=logged_out');
     appendCookie(response,SESSION,'',0);
+    // Only after a proven REVOKED_COMMITTED receipt. Clear per-tab opaque
+    // Attempt correlations before a different account can inherit them.
+    // Browser support varies; open tabs are also fenced by authenticated
+    // owner responses/401 in the product History UI.
+    response.headers.set('Clear-Site-Data','"storage"');
     return response;
   }catch{return new Response('Logout unavailable',{status:503,headers:noStore});}
 }
