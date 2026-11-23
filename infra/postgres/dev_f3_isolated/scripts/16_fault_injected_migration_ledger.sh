@@ -50,7 +50,11 @@ second_lab="$LAB_WORK/ledger_fault_probe_$(openssl rand -hex 4)"
     VALUES('$ver','$commit','$blob','$sha','APPLIED','$cluster',clock_timestamp()-interval '1 minute',clock_timestamp(),1);" >/dev/null
   done < <(tail -n +2 "$LAB_SOURCE/manifest.tsv")
   echo 'LEDGER_FAULT_STAGE=TEN_FAKE_APPLIED_INSERTED'
-  [[ "$(dbpsql -Atc "SELECT count(*) FROM db55_audit.migration_runs")" == 10 ]] || exit 70
+  count_check="$(dbpsql -Atc "SELECT count(*) FROM db55_audit.migration_runs")" || {
+    echo STOP_LEDGER_FAKE_COUNT_QUERY_FAILED >&2;exit 70;
+  }
+  echo "LEDGER_FAULT_FAKE_ROW_COUNT=$count_check"
+  [[ "$count_check" == 10 ]] || { echo STOP_LEDGER_FAKE_TEN_NOT_WRITTEN >&2;exit 70; }
   if dbpsql -q -c "INSERT INTO db55_audit.migration_runs
   (version,source_commit,git_blob_sha1,sql_sha256,status,cluster_system_id)
   VALUES('001','$commit','$blob','$sha','STARTED','$cluster');" > "$LAB_WORK/duplicate_probe.log" 2>&1; then
