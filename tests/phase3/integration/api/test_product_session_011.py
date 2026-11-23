@@ -33,6 +33,7 @@ from initial_oidc_harness import CallbackHarness, LoginForm, IsolatedOIDCFailure
 from src.phase3.storage.postgres import auth_session
 from src.phase3.storage.postgres.service_replay import _digest_and_exp
 from apps.api import history_api
+from repository import start_t2
 
 ISSUER = "urn:rag-finance:synthetic-product-session"
 AUDIENCE = "urn:rag-finance:api:history-h1-isolated"
@@ -362,7 +363,7 @@ class RealProductSession011(unittest.TestCase):
             }
             persisted = history_api.send_t1(
                 c, a["owner_id"], send, history_api.uid(), history_api.uid())
-            attempt = history_api.start_t2(
+            attempt = start_t2(
                 c, a["owner_id"], cid, send["client_message_id"],
                 send["idempotency_key"], history_api.uid(), history_api.uid())
         path = "/v1/conversations/" + cid + "/messages"
