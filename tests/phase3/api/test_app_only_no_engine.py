@@ -74,6 +74,7 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         with patch.dict(os.environ, {
             "CI": "false", "GITHUB_ACTIONS": "false",
             "API_RUNNER_EXECUTION_MODE": "APP_ONLY",
+            "PHASE3_APP_MODE": "APP_ONLY",
         }):
             with patch("apps.api.private_app_only_asgi._test_tls_material"):
                 with patch("apps.api.private_app_only_asgi.verify_staging_database_authority"):
@@ -150,10 +151,12 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         self.save()
 
     def test_production_only_mode_fails_closed_for_dispatch_and_ci(self):
-        env = {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}
+        env = {"API_RUNNER_EXECUTION_MODE": "APP_ONLY",
+               "PHASE3_APP_MODE": "APP_ONLY"}
         assert_app_only_environment(env)
         for update in ({"API_RUNNER_EXECUTION_MODE": "NO_DISPATCH_ONLY"},
                        {"API_RUNNER_EXECUTION_MODE": "CLAIM_STUB_CI_ONLY"},
+                       {"PHASE3_APP_MODE": "ENGINE_ENABLED"},
                        {"CI": "true"}, {"GITHUB_ACTIONS": "true"},
                        {"MODEL_GATEWAY_URL": "https://invalid.example"},
                        {"C018_RUNNER_PATH": "/tmp/runner"}):
@@ -174,7 +177,7 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             return {"kind": "fixture_history"}
         wrapper = AppOnlyASGI(app, FakeProfile())
 
-        async def invoke(path, method, trusted, mode="APP_ONLY"):
+        async def invoke(path, method, trusted, mode="APP_ONLY", raw_path=None):
             receive_reads = []
             emitted = []
             async def recv():
@@ -185,7 +188,7 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             scope = {
                 "type": "http", "scheme": "https" if trusted else "http",
                 "trusted_transport_test": trusted,
-                "path": path, "raw_path": path.encode(),
+                "path": path, "raw_path": (raw_path or path).encode(),
                 "method": method, "query_string": b"", "headers": [],
                 "http_version": "1.1",
             }
@@ -208,6 +211,13 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             self.assertEqual({k.lower(): v for k, v in headers.items()}[b"cache-control"], b"no-store")
             self.assertFalse(reads)
             self.assertNotIn(b"unsafe", body)
+        # Raw encoded URI resolves to the same FastAPI route. It must not
+        # bypass the engine fence or cause a request body read.
+        status, headers, body, reads = asyncio.run(
+            invoke("/v1/messages", "POST", True,
+                   raw_path="/v1/%6dessages"))
+        self.assertEqual(status, 503)
+        self.assertEqual(reads, [])
         self.assertEqual(calls["app"], 0)
 
     def test_bff_only_history_is_routed_but_not_created_here(self):
@@ -253,6 +263,8 @@ class AppOnlyNoEngineTests(unittest.TestCase):
                         base_url="https://test.invalid",
                     ) as c:
                         response = await c.get("/internal/ready")
+                        alias = await c.get("/health/ready")
+                        self.assertEqual(alias.status_code, response.status_code)
                         self.assertEqual(response.status_code, 503)
                         self.assertEqual(response.json()["generation"], "unavailable")
                         self.assertEqual(response.headers["cache-control"], "no-store")
@@ -265,6 +277,8 @@ class AppOnlyNoEngineTests(unittest.TestCase):
                         base_url="https://test.invalid",
                     ) as c:
                         response = await c.get("/internal/ready")
+                        alias = await c.get("/health/ready")
+                        self.assertEqual(alias.status_code, response.status_code)
                         self.assertEqual(response.status_code, 200)
                         self.assertEqual(response.json()["history_db"], "verified")
                         self.assertEqual(response.json()["retrieval"], "unavailable")
