@@ -33,7 +33,7 @@ jobs:
           test "$(docker image inspect -f '{{.Architecture}}' "f3-api-l1:$GITHUB_SHA")" = amd64
           test "$(docker run --rm --network none "f3-api-l1:$GITHUB_SHA" id -u)" = 11001
           docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA"
-          docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA" python3 tests/phase3/api/run_m18_l1_without_engine_mount.py
+          docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA" python3 tests/phase3/api/run_m18_l1_without_engine_mount.py | tee "$RUNNER_TEMP/f3-api-container-suite-count.log"
           echo 'ACTUAL_API_DOCKER_BUILD_AND_TEST_IN_CONTAINER_PASS'
       - name: Real Web Docker build pinned Node and HTTP smoke
         shell: bash
@@ -68,8 +68,14 @@ jobs:
             x=json.loads(subprocess.check_output(["docker","image","inspect",f"f3-{name}-l1:{sha}"]))[0]
             imgs[name]={"image_id":x["Id"],"platform":x["Os"]+"/"+x["Architecture"],
                         "source_label":x["Config"]["Labels"]["org.opencontainers.image.revision"]}
+          import re
+          log=open(os.path.join(os.environ["RUNNER_TEMP"],"f3-api-container-suite-count.log")).read()
+          matches=re.findall(r"F3_API_CONTAINER_(\d+)_PASS_(\d+)_ENGINE_MOUNT_TESTS_BLOCKED",log)
+          assert len(matches)==1, "Missing exact in-container non-engine test count"
+          passed,blocked=map(int,matches[0])
+          assert passed>=201 and blocked==2
           doc={"schema":"f3.m18_m19.real_ci_image.v1","git_sha":sha,"images":imgs,
-               "actual_build":"PASS","api_tests_in_container":"196_OF_198_PASS_TWO_ENGINE_MOUNT_DEPENDENT_BLOCKED","web_http_200":"PASS",
+               "actual_build":"PASS","api_tests_in_container":f"{passed}_OF_{passed+blocked}_PASS_TWO_ENGINE_MOUNT_DEPENDENT_BLOCKED","web_http_200":"PASS",
                "bad_host_404":"PASS","real_api_tls_http":"NOT_RUN","mac":"NOT_RUN",
                "real_c018":"NOT_RUN","pg_app_connected":"NOT_RUN",
                "oci_security_scan":"NOT_RUN","release_gate":"NOT_ACCEPTED",

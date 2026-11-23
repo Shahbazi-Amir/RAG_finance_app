@@ -692,9 +692,9 @@
     },
     ".github/workflows/f3-m18-m19-real-image-http.yml": {
       "owner": "FOUNDATION_F3_TEST_ONLY_OVERLAY",
-      "source_sha": "b7c8928e596001de83c5f8dbd1b86284f46a57a9",
-      "git_blob": "d9e5f8c812437376e89f325a29a45f5ef04f8b28",
-      "reason": "Candidate CI workflow branch activation and latest DB roundtrip; not Foundation canonical admission"
+      "source_sha": "5bdd911d7c2d561e4224d561ae47eb10f09e415a",
+      "git_blob": "53cdb80a43b1315f2122d5a45e42728e7afa3b55",
+      "reason": "Candidate-only compatible source overlay, exact image test counts; require integrated same-SHA CI"
     },
     "tests/phase3/api/test_full_binding_fence.py": {
       "owner": "API_F3",
@@ -709,10 +709,10 @@
       "reason": "Latest owner PR #65 source overlay, integrated compatibility CI pending"
     },
     "apps/web/src/history/product-validation.ts": {
-      "owner": "UI_F3",
-      "source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
-      "git_blob": "6371ce42c52996d1574fe4049b2fbff2f9f66e12",
-      "reason": "Latest owner PR #65 source overlay, integrated compatibility CI pending"
+      "owner": "UI_F3_COMPAT_BRIDGE",
+      "source_sha": "5bdd911d7c2d561e4224d561ae47eb10f09e415a",
+      "git_blob": "6d2d90179732716f59e4f96803ea20706063d854",
+      "reason": "Candidate-only compatible source overlay, exact image test counts; require integrated same-SHA CI"
     },
     "tests/phase3/integration/ui/l2_no_dispatch_receipt_gate.py": {
       "owner": "UI_F3",
@@ -725,6 +725,12 @@
       "source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
       "git_blob": "55d61ccb69466b64044d1afb8f6b1b7b92933ffc",
       "reason": "Latest owner PR #65 source overlay, integrated compatibility CI pending"
+    },
+    "tests/phase3/api/run_m18_l1_without_engine_mount.py": {
+      "owner": "FOUNDATION_F3_TEST_ONLY_OVERLAY",
+      "source_sha": "5bdd911d7c2d561e4224d561ae47eb10f09e415a",
+      "git_blob": "7cba76ac74145497fffad4c6bcbfc40697f6aaaa",
+      "reason": "Candidate-only compatible source overlay, exact image test counts; require integrated same-SHA CI"
     }
   },
   "status": {
@@ -733,7 +739,7 @@
     "mac_c018": "NOT_RUN",
     "accepted_gates": 0,
     "arvan": "HOLD",
-    "integrated_CI": "PENDING_NEW_UI_API_OVERLAY",
+    "integrated_CI": "PENDING_COMPAT_BRIDGE",
     "app_only_full_stack": "NOT_TESTED",
     "module_gate": "NOT_ACCEPTED"
   },

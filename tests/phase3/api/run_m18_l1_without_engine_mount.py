@@ -1,4 +1,4 @@
-"""Run 196 API tests in real image; two original C018 filesystem-dependent
+"""Run the complete current non-engine API suite in a real image; two original C018 filesystem-dependent
 tests remain BLOCKED, not passed. No changes to original test suite.
 """
 import sys
@@ -21,11 +21,12 @@ def flatten(suite):
 
 all_cases = list(flatten(unittest.defaultTestLoader.discover("tests/phase3/api", pattern="test_*.py")))
 ids = {test.id() for test in all_cases}
-assert len(all_cases) == 198, f"Unexpected test count: {len(all_cases)}"
+assert len(all_cases) >= 203, f"API suite shrank unexpectedly: {len(all_cases)}"
+assert len(ids) == len(all_cases), "Duplicate API unittest IDs"
 assert BLOCKED.issubset(ids), f"Missing original engine-bound IDs: {BLOCKED - ids}"
 cases = [test for test in all_cases if test.id() not in BLOCKED]
-assert len(cases) == 196
+assert len(cases) == len(all_cases) - len(BLOCKED)
 result = unittest.TextTestRunner(verbosity=1).run(unittest.TestSuite(cases))
-if not result.wasSuccessful() or result.testsRun != 196:
+if not result.wasSuccessful() or result.testsRun != len(cases):
     sys.exit("F3_API_CONTAINER_NON_ENGINE_TESTS_FAIL")
-print("F3_API_CONTAINER_196_PASS_2_ENGINE_MOUNT_TESTS_BLOCKED")
+print(f"F3_API_CONTAINER_{len(cases)}_PASS_{len(BLOCKED)}_ENGINE_MOUNT_TESTS_BLOCKED")
