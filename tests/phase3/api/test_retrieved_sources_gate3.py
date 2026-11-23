@@ -291,6 +291,66 @@ class C018RetrievedSourcesOfflineTests(unittest.TestCase):
             ledger.read_sources("owner_A", self.binding.engine_request_id,
                                 self.binding.trace_id)
 
+    def _canonical_receipt_ledger(self, name):
+        ledger = NoDispatchLedger(self.root / name)
+        self.assertTrue(ledger.reserve("owner_A", self.binding))
+        self.assertTrue(ledger.start("owner_A", self.binding))
+        self.assertTrue(ledger.succeed(
+            "owner_A", self.binding, {"top10_count": 2}, self._convert()))
+        with sqlite3.connect(ledger.filepath) as conn:
+            (raw,) = conn.execute(
+                "SELECT receipt_json FROM retrieval_receipts").fetchone()
+        return ledger, raw
+
+    def _rehashed_raw_receipt(self, ledger, raw):
+        # Only an untrusted direct ledger mutation for this isolated negative
+        # test. The production path has no direct client SQLite write.
+        with sqlite3.connect(ledger.filepath) as conn:
+            conn.execute("""UPDATE retrieval_receipts
+                SET receipt_json=?,receipt_sha256=?""",
+                (raw, hashlib.sha256(raw.encode("utf-8")).hexdigest()))
+
+    def _assert_replay_denied_without_leak(self, ledger):
+        with self.assertRaises(PreflightDenied) as caught:
+            ledger.read_sources(
+                "owner_A", self.binding.engine_request_id,
+                self.binding.trace_id)
+        self.assertNotIn("PRIVATE_QUESTION_MARKER", str(caught.exception))
+        self.assertNotIn("PRIVATE_QUESTION_MARKER", repr(caught.exception))
+
+    def test_rehashed_duplicate_json_property_cannot_be_replayed(self):
+        ledger, raw = self._canonical_receipt_ledger("duplicate-key.sqlite")
+        # The kind property is present a second time, with a matching value;
+        # ordinary json.loads would silently accept this modified document.
+        raw = '{"kind":"retrieved_sources",' + raw[1:]
+        self.assertEqual(json.loads(raw)["kind"], "retrieved_sources")
+        self._rehashed_raw_receipt(ledger, raw)
+        self._assert_replay_denied_without_leak(ledger)
+
+    def test_rehashed_whitespace_encoding_cannot_be_replayed(self):
+        ledger, raw = self._canonical_receipt_ledger("whitespace.sqlite")
+        self._rehashed_raw_receipt(ledger, raw + " \n")
+        self._assert_replay_denied_without_leak(ledger)
+
+    def test_rehashed_oversized_ledger_document_cannot_be_replayed(self):
+        ledger, raw = self._canonical_receipt_ledger("oversize.sqlite")
+        self._rehashed_raw_receipt(ledger, raw + " " * 66000)
+        self._assert_replay_denied_without_leak(ledger)
+
+    def test_rehashed_sensitive_question_field_is_never_returned(self):
+        ledger, raw = self._canonical_receipt_ledger("private-field.sqlite")
+        secret = "PRIVATE_QUESTION_MARKER"
+        # This field is not in the existing public retrieved_sources v1 DTO.
+        raw = '{"question":' + json.dumps(secret) + "," + raw[1:]
+        self._rehashed_raw_receipt(ledger, raw)
+        self._assert_replay_denied_without_leak(ledger)
+
+    def test_rehashed_nonstandard_number_denied_on_ledger_read(self):
+        ledger, raw = self._canonical_receipt_ledger("nonstandard.sqlite")
+        raw = '{"nonfinite":NaN,' + raw[1:]
+        self._rehashed_raw_receipt(ledger, raw)
+        self._assert_replay_denied_without_leak(ledger)
+
     def test_ledger_forged_verified_link_with_recomputed_digest_denied(self):
         """Even someone tampering with SQLite cannot grant a verified locator."""
         ledger = NoDispatchLedger(self.root / "source-ledger.sqlite")
