@@ -63,7 +63,7 @@ for sha in "$old" "$new"; do
   [[ -s "$out/ci_receipts/f3_db_candidate_consumption.json" ]] || exit 70
   # Keep sanitized artifacts from each independent experiment, never dumps,
   # raw roles, credentials, PEM, postgresql logs, or test DB volumes.
-  mkdir -m 0700 "$repo/ci_comparison"
+  mkdir -p -m 0700 "$repo/ci_comparison"
   cp "$out/ci_receipts/f3_db_candidate_consumption.json" \
      "$repo/ci_comparison/baseline_$short.json"
   chmod 0600 "$repo/ci_comparison/baseline_$short.json"
