@@ -377,7 +377,13 @@ def main():
             account_page.get_by_role("link", name="بازگشت به گفت‌وگو").click()
             expect(account_page.get_by_role("heading", name="گفت‌وگوی مالی")).to_be_visible()
             account_page.goto(base + "/account", wait_until="domcontentloaded")
-            account_page.get_by_role("link", name="ورود، مشاهدهٔ نشست و خروج امن").click()
+            login_link = account_page.get_by_role(
+                "link", name="ورود، مشاهدهٔ نشست و خروج امن")
+            expect(login_link).to_have_attribute("href", "/login")
+            # Full-document browser navigation; CI has no private IdP, so a
+            # 503 at /login is an honest unprovisioned-IdP outcome.
+            login_link.evaluate("(el) => window.location.assign(el.href)")
+            account_page.wait_for_url("**/login", wait_until="domcontentloaded")
             assert urlsplit(account_page.url).path == "/login"
             account_page.close()
             print("UI_CHAT_L1_BROWSER_POST65_LATE_STATUS_MIXED_THREAD_INVALID_OWNER_MULTITAB_401_PASS")
