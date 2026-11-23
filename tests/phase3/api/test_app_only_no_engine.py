@@ -381,5 +381,58 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         asyncio.run(scenario())
 
 
+    def test_slow_pg_readiness_does_not_block_app_only_send_fence(self):
+        """A slow signed DB admission must not monopolize the ASGI loop.
+
+        The signed DB call is mocked *only* for deterministic unit control;
+        the real PG and signer acceptance stays in API-SESSION-011 Actions.
+        """
+        from threading import Event
+        started, release = Event(), Event()
+        wrapper = AppOnlyASGI(FastAPI(), FakeProfile())
+
+        async def trusted(scope, receive, send):
+            scope["scheme"] = "https"
+            scope["trusted_transport_test"] = True
+            return await wrapper(scope, receive, send)
+
+        def slow_pg(*args, **kwargs):
+            started.set()
+            if not release.wait(timeout=3):
+                raise RuntimeError("TEST_SLOW_PG_TIMED_OUT")
+            return None, None
+
+        async def scenario():
+            with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}):
+                with patch("apps.api.product_session_api._signed_history",
+                           side_effect=slow_pg) as proof:
+                    async with AsyncClient(
+                        transport=ASGITransport(app=trusted),
+                        base_url="https://test.invalid",
+                    ) as client:
+                        readiness = asyncio.create_task(client.get("/health/ready"))
+                        try:
+                            began = await asyncio.wait_for(
+                                asyncio.to_thread(started.wait, 2), timeout=2.5)
+                            self.assertTrue(began)
+                            # Send remains disabled and cannot read/dispatch,
+                            # *while* the other worker is blocked in SQL.
+                            denied = await asyncio.wait_for(
+                                client.post("/v1/messages",
+                                            content=b"malformed-large-" + b"x"*9000),
+                                timeout=1.2)
+                            self.assertEqual(denied.status_code, 503)
+                            self.assertIn("ENGINE_NOT_CONFIGURED", denied.text)
+                            self.assertFalse(release.is_set())
+                        finally:
+                            release.set()
+                        ready = await asyncio.wait_for(readiness, timeout=3)
+                        self.assertEqual(ready.status_code, 200)
+                        self.assertEqual(ready.json()["signed_actor_pg"], "verified")
+                        self.assertEqual(proof.call_count, 1)
+
+        asyncio.run(scenario())
+
+
 if __name__ == "__main__":
     unittest.main()
