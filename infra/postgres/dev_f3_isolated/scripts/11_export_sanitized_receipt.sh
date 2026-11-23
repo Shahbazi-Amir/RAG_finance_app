@@ -230,3 +230,26 @@ PY
 install -m 0600 "$backup_fault" "$GITHUB_WORKSPACE/ci_receipts/backup_integrity_fault_receipt.json"
 echo 'BACKUP_CORRUPT_AND_TRUNCATED_NEGATIVE_RECEIPT=PASS'
 echo 'BACKUP_PRODUCTION_PITR_AND_ENCRYPTION_GATE=NOT_TESTED'
+
+# Anchored History keyset cursor real-SQL two-owner and insert-race receipt.
+cursor="$LAB_WORK/history_cursor_race_receipt.json"
+[[ -s "$cursor" ]] || { echo STOP_HISTORY_CURSOR_RACE_RECEIPT_MISSING >&2;exit 70; }
+python3 - "$cursor" <<'PY'
+import json,sys
+from pathlib import Path
+r=json.loads(Path(sys.argv[1]).read_text())
+assert r["contract_version"]=="f3.db.synthetic_history_keyset_cursor.v1"
+assert r["source_repository_git_blob"]=="14f97dd680425b74f8e12fa1696d423a20bf7d76"
+assert r["two_owners"] is True
+assert r["conversations_desc_keyset_anchor_last"]=="PASS_5_ORIGINAL_NO_DUPLICATE"
+assert r["messages_asc_keyset_anchor_last"]=="PASS_5_ORIGINAL_NO_DUPLICATE"
+assert r["concurrent_after_anchor_new_conversation_hidden"] is True
+assert r["concurrent_after_anchor_new_message_hidden"] is True
+assert r["fresh_query_can_see_new_row"] is True
+assert r["cross_owner_conversation_and_message_rows_visible"]==0
+assert r["cursor_api_hmac_signing"]=="NOT_TESTED"
+assert r["real_bff_http_auth"]=="NOT_RUN" and r["module_gate"]=="NOT_ACCEPTED"
+PY
+install -m 0600 "$cursor" "$GITHUB_WORKSPACE/ci_receipts/history_cursor_race_receipt.json"
+echo 'HISTORY_KEYSET_TWO_OWNER_ANCHOR_AND_INSERT_RACE_RECEIPT=PASS'
+echo 'HISTORY_SIGNED_CURSOR_HTTP_AND_REAL_CONCURRENT_LOAD=NOT_RUN'
