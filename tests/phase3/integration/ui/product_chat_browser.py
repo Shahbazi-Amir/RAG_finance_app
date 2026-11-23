@@ -203,10 +203,34 @@ def main():
         browser = p.chromium.launch(headless=True)
         try:
             context = browser.new_context(viewport={"width": 1280, "height": 800})
+            # Real React component behind a test-only policy GET: app-only
+            # disables both native button and programmatic form submission.
+            blocked = context.new_page()
+            blocked.route("**/api/history/**", intercept)
+            blocked.route("**/api/product-capabilities", lambda route: route.fulfill(
+                status=200, json={
+                    "kind": "ui_runtime_capabilities",
+                    "contract_version": "ui.runtime_capabilities.v1",
+                    "send_mode": "DISABLED",
+                    "engine_available": False, "generation_available": False
+                }))
+            blocked.goto(base, wait_until="domcontentloaded")
+            expect(blocked.get_by_text("هنوز گفت‌وگویی ثبت نشده است.")).to_be_visible()
+            expect(blocked.get_by_test_id("app-runtime-capability")).to_contain_text(
+                "برنامه در حالت بدون موتور")
+            expect(blocked.get_by_test_id("create-conversation")).to_be_disabled()
+            expect(blocked.get_by_test_id("history-question")).to_be_disabled()
+            expect(blocked.get_by_test_id("history-send")).to_be_disabled()
+            blocked.locator("form.history-compose").evaluate(
+                "(form) => form.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))")
+            assert state["posts"] == 0, "app-only form bypass dispatched a Send"
+            blocked.close()
+            print("UI_APP_ONLY_BROWSER_DISABLED_SEND_AND_HISTORY_GET_ONLY_PASS")
             page = context.new_page()
             page.route("**/api/history/**", intercept)
             page.goto(base, wait_until="domcontentloaded")
             expect(page.get_by_text("هنوز گفت‌وگویی ثبت نشده است.")).to_be_visible()
+            expect(page.get_by_test_id("create-conversation")).to_be_enabled()
             # UI-11 actual desktop keyboard bypass: the first Tab enters a
             # visible skip link, Enter lands on a semantic <h1> inside main.
             skip = page.get_by_role("link", name="رفتن به محتوای اصلی گفت‌وگو")
