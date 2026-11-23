@@ -121,3 +121,11 @@ Status is review. Supervisor approval is pending.
 - Tested: nginx -t, Docker port readback, trusted curl 200 console, 401 unauthorized REST and 403 standard ingress. Both independent headless admin DOM methods timed out. Interactive window launched, operator login unverified. Runtime engine_mount_readiness.py, offline mode checks, five backup SHA-256 entries and seven service readiness checks passed. No engine invocation.
 - Pending: existing authorized operator sign-in and manual SMTP password entry, Test Email receipt, invitation, authenticated path, source-capable release validation and Refresh. Stop the temporary listener after use. Full isolated restore and supervisor acceptance remain open. Arvan HOLD.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — existing operator browser authentication
+
+- Status: blocked on SMTP password handoff. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), operational evidence only. Reporting baseline codex 19b6dc8 and execution baseline ops/mac-first-start 5764fff.
+- Implemented: authenticated the existing administrator in an interactive disposable Chrome profile over the approved Mac-only TLS path. Report-only updates to this ledger and docs/codex_execution/MAC_FIRST_START_FA.md, MAC_FIRST_START_FA.html and CURRENT_STATUS.md.
+- Tested: read-only aggregate Admin role and credential query, protected config field presence, installed bootstrap-admin help and official recovery documentation. Origin and form destination verified before entering the existing credential from protected config through a process-local Chrome debugging pipe. Post-login console path and Realm settings DOM confirmed. No credential, token, or cookie output.
+- Pending: account holder enters App Password in the already authenticated browser, tests SMTP and confirms receipt. Invitation and product end-to-end remain open. Review and rotate the ingress proof before product auth. Stop the local listener after admin work. Supervisor acceptance pending and Arvan HOLD.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
