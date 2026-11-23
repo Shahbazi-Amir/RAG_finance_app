@@ -501,6 +501,45 @@ class RealProductSession011(unittest.TestCase):
         self.assertEqual(self.list(a).status_code, 200)
         print("API_F3_APP_ONLY_REAL_SIGNED_PG_SEND_ZERO_T1_T2_T3_PASS", flush=True)
 
+    def test_API011_06_signed_readiness_pg_session_and_revoke_fail_closed(self):
+        """Real HTTPS pinned BFF and SQL: 200 only for signed live session.
+
+        A malformed signer/subject, missing assertion, replay or revoked
+        user never turns signed API readiness green. No synthetic dispatch.
+        """
+        path = "/health/ready"
+        a, b = self.login("A"), self.login("B")
+        self.seed(a, "ci-ready-A")
+        self.assertEqual(self.request("GET", path).status_code, 503)
+        forged_route = self.signed(a, path="/v1/conversations")[0]
+        self.assertEqual(self.request("GET", path, forged_route).status_code, 503)
+        bad_owner = self.signed(a, path=path,
+                                override={"owner_id": b["owner_id"]})[0]
+        self.assertEqual(self.request("GET", path, bad_owner).status_code, 503)
+        valid = self.signed(a, path=path)[0]
+        checked = self.request("GET", path, valid)
+        self.assertEqual(checked.status_code, 200, checked.text)
+        self.assertEqual(checked.headers.get("cache-control"), "no-store")
+        doc = checked.json()
+        self.assertEqual(doc["kind"], "api_app_only_readiness")
+        self.assertEqual(doc["state"], "ready")
+        self.assertEqual(doc["signed_actor_pg"], "verified")
+        self.assertEqual(doc["bootstrap_idp"], "not_probed")
+        self.assertEqual(doc["generation"], "unavailable")
+        self.assertEqual(self.request("GET", path, valid).status_code, 503)
+        # A's session revoke is a real committed PG transaction.
+        op = str(uuid.uuid4())
+        body = json.dumps({"operation_id": op}, separators=(",", ":")).encode()
+        revoke = self.request("POST", REVOKE,
+                              self.signed(a, "POST", REVOKE, body)[0], body=body)
+        self.assertEqual(revoke.status_code, 200, revoke.text)
+        self.assertEqual(self.request(
+            "GET", path, self.signed(a, path=path)[0]).status_code, 503)
+        good_b = self.request("GET", path, self.signed(b, path=path)[0])
+        self.assertEqual(good_b.status_code, 200, good_b.text)
+        self.assertEqual(self.list(b).status_code, 200)
+        print("API_F3_APP_ONLY_SIGNED_PG_READY_200_BAD_REVOKED_503_PASS", flush=True)
+
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
         """Actual verified HTTPS callback, same pinned redirect for Code exchange."""
         from cryptography.hazmat.primitives import serialization
