@@ -39,6 +39,21 @@ def command(args, *, env=None, input=None):
     return cp.stdout
 
 
+def pg17(tool, *parts):
+    """PG17 client from the exact disposable 17.11 image.
+
+    Ubuntu 24.04 runner's default pg_dump is v16 and cannot dump a PG17
+    database; never silently downgrade this versioned backup/restore.
+    The GHA temp directory is the only mounted path, not a Mac volume.
+    """
+    temp=str(Path(os.environ["RUNNER_TEMP"]).resolve())
+    return command(["docker","run","--rm","--network","host",
+                    "--pull","never",
+                    "-e","PGPASSWORD="+os.environ["PGPASSWORD"],
+                    "-v",temp+":"+temp,
+                    "postgres:17.11",tool,*parts])
+
+
 def ssl_server(root:Path):
     ca_key=root/"restore-ca.key"; ca=root/"restore-ca.crt"
     key=root/"restore-server.key"; crt=root/"restore-server.crt"
@@ -147,11 +162,13 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
         lab=os.environ["RUNNER_TEMP"]
         backup=Path(lab)/"f3-history-before-restore.dump"
         globals_path=Path(lab)/"f3-history-roles-private.sql"
-        command(["pg_dump","-h","127.0.0.1","-p","5432","-U","postgres",
-                 "-F","c","-f",str(backup),"history_ci"])
+        # Pull exact PG17 CLI image once in the disposable lab.
+        command(["docker","pull","postgres:17.11"])
+        pg17("pg_dump","-h","127.0.0.1","-p","5432","-U","postgres",
+             "-F","c","-f",str(backup),"history_ci")
         self.assertGreater(backup.stat().st_size,1024)
-        globals_sql=command(["pg_dumpall","-h","127.0.0.1","-p","5432",
-                             "-U","postgres","--globals-only","--no-role-passwords"])
+        globals_sql=pg17("pg_dumpall","-h","127.0.0.1","-p","5432",
+                          "-U","postgres","--globals-only","--no-role-passwords")
         globals_sql="\n".join(line for line in globals_sql.splitlines()
             if not re.match(r"^(CREATE ROLE postgres;|ALTER ROLE postgres WITH)",line))
         globals_path.write_text(globals_sql+"\n",encoding="utf-8")
@@ -205,8 +222,8 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
                 admin.execute(sql.SQL("ALTER ROLE {} PASSWORD {}").format(
                     sql.Identifier(role),sql.Literal(secret)))
             admin.execute("CREATE DATABASE history_restore_f3_ci")
-        command(["pg_restore","-h","127.0.0.1","-p","5433","-U","postgres",
-                 "--exit-on-error","-d","history_restore_f3_ci",str(backup)])
+        pg17("pg_restore","-h","127.0.0.1","-p","5433","-U","postgres",
+             "--exit-on-error","-d","history_restore_f3_ci",str(backup))
         with connect(5433,db="history_restore_f3_ci",extra=trusted) as c:
             counts_after=c.execute(
                 "SELECT owner_id,count(*) AS n FROM history_l1.conversations "
