@@ -99,6 +99,8 @@ class RealProductSession011(unittest.TestCase):
                 API_PRODUCT_PROOF_ISSUER=ISSUER,
                 API_PRODUCT_PROOF_AUDIENCE=AUDIENCE,
                 API_PRODUCT_PROOF_KID=KID,
+                API_CURSOR_KEY=secrets.token_urlsafe(48),
+                API_CURSOR_TTL_SECONDS="300",
                 # The identical AppOnlyASGI guard used in live deployment
                 # surrounds original signed Product API on real CI HTTPS/PG.
                 API_RUNNER_EXECUTION_MODE="APP_ONLY",
@@ -250,8 +252,9 @@ class RealProductSession011(unittest.TestCase):
         }
         with psycopg.connect(os.environ["DB_APP_DSN"], autocommit=True,
                              row_factory=dict_row) as c:
-            history_api.create_conversation(c, pending["owner_id"], request,
+            created = history_api.create_conversation(c, pending["owner_id"], request,
                                             history_api.uid(), history_api.uid())
+            return created["conversation"]["conversation_id"]
 
     def list(self, pending, *, override=None, token=None, query=""):
         t = token or self.signed(pending, query=query.encode(), override=override)[0]
@@ -572,6 +575,78 @@ class RealProductSession011(unittest.TestCase):
         recovered = self.request("GET", path, self.signed(a, path=path)[0])
         self.assertEqual(recovered.status_code, 200, recovered.text)
         print("API_F3_APP_ONLY_REAL_PG_GRANT_DOWN_503_RESTORED_200_PASS",
+              flush=True)
+
+    def test_API011_08_signed_real_pg_pagination_A_B_cursor_and_detail(self):
+        """Real 004/005 session and PG rows, page-2 cursor, foreign masking.
+
+        A cursor signed for owner A cannot disclose A's second page to B.
+        Refresh is read-only; no send/engine is allowed in this mode.
+        """
+        a, b = self.login("A"), self.login("B")
+        prefix = "CI_PAGE_" + uuid.uuid4().hex[:12]
+        ids = [self.seed(a, prefix + "_" + str(i)) for i in range(4)]
+        b_id = self.seed(b, prefix + "_B")
+        self.assertTrue(all(ids))
+        original, cursor, pages, seen = [], None, 0, set()
+        while pages < 25:
+            query = "?limit=2" + ("&cursor=" + cursor if cursor else "")
+            page = self.list(a, query=query)
+            self.assertEqual(page.status_code, 200, page.text)
+            doc = page.json()
+            self.assertEqual(doc["kind"], "conversation_page")
+            self.assertEqual(doc["scope_user_id"], a["owner_id"])
+            self.assertEqual(doc["page"]["limit"], 2)
+            items = doc["items"]
+            self.assertLessEqual(len(items), 2)
+            for item in items:
+                self.assertEqual(item["owner_user_id"], a["owner_id"])
+                self.assertNotIn(item["conversation_id"], seen)
+                self.assertNotEqual(item["conversation_id"], b_id)
+                seen.add(item["conversation_id"])
+                if pages == 0:
+                    original.append(item["conversation_id"])
+            next_cursor = doc["page"]["next_cursor"]
+            self.assertEqual(bool(next_cursor), doc["page"]["has_more"])
+            if pages == 0:
+                self.assertTrue(next_cursor, "Expected a real PG second page")
+                foreign = self.list(b, query="?limit=2&cursor=" + next_cursor)
+                self.assertEqual(foreign.status_code, 404, foreign.text)
+            pages += 1
+            if next_cursor is None:
+                break
+            cursor = next_cursor
+        self.assertLess(pages, 25, "Possible pagination loop")
+        self.assertTrue(set(ids).issubset(seen))
+        refreshed = self.list(a, query="?limit=2")
+        self.assertEqual(refreshed.status_code, 200, refreshed.text)
+        self.assertEqual(
+            original,
+            [x["conversation_id"] for x in refreshed.json()["items"]])
+        detail_path = "/v1/conversations/" + ids[0] + "/messages"
+        detail_query = "?limit=2"
+        token_a, _ = self.signed(
+            a, path=detail_path, query=b"limit=2")
+        owner_result = self.request(
+            "GET", detail_path, token_a, query=detail_query)
+        self.assertEqual(owner_result.status_code, 200, owner_result.text)
+        self.assertEqual(owner_result.json()["owner_user_id"], a["owner_id"])
+        token_b, _ = self.signed(
+            b, path=detail_path, query=b"limit=2")
+        blocked = self.request("GET", detail_path, token_b, query=detail_query)
+        self.assertEqual(blocked.status_code, 404, blocked.text)
+        with psycopg.connect(os.environ["DB_MIG_DSN"], autocommit=True,
+                             row_factory=dict_row) as admin:
+            rows = admin.execute(
+                "SELECT id, owner_id FROM history_l1.conversations "
+                "WHERE id = ANY(%s)",
+                (ids + [b_id],)
+            ).fetchall()
+        self.assertEqual({r["id"] for r in rows}, set(ids + [b_id]))
+        self.assertEqual(
+            {r["id"]: r["owner_id"] for r in rows},
+            {**{i: a["owner_id"] for i in ids}, b_id: b["owner_id"]})
+        print("API_F3_REAL_SIGNED_PG_CURSOR_PAGINATION_AB_DETAIL_PASS",
               flush=True)
 
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
