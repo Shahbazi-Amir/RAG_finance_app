@@ -68,7 +68,7 @@ def _validate_structural_https_url(url: str) -> None:
     """
     if (not isinstance(url, str) or not url.startswith("https://")
             or any(ord(char) <= 32 for char in url)
-            or "\\\\" in url):
+            or "\\" in url):
         raise CitationGraphDenied()
     try:
         parsed = urlsplit(url)
