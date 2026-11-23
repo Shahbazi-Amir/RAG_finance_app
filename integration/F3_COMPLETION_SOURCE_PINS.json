@@ -672,8 +672,8 @@
     },
     "apps/api/private_app_only_asgi.py": {
       "owner": "APP_ONLY_CANDIDATE",
-      "source_sha": "d6f369fee5a9f0c2d9491860463c0a636336e750",
-      "git_blob": "2f327d5387e9d47dc8dc084dc09363504f1dfeb0",
+      "source_sha": "af68868c80e6cda8efcf8c028c5f0708e45adf69",
+      "git_blob": "96a72b5167d473c88aeb3ddb5a67a284c105d4dd",
       "reason": "app-only integrated original source; no engine or target L2 claim"
     },
     "apps/api/app_only_socket_probe.py": {
@@ -684,8 +684,8 @@
     },
     "tests/phase3/api/test_app_only_no_engine.py": {
       "owner": "APP_ONLY_CANDIDATE",
-      "source_sha": "d6f369fee5a9f0c2d9491860463c0a636336e750",
-      "git_blob": "6faf00ae61f7354f9ff9640d5b002cda64c1aebf",
+      "source_sha": "af68868c80e6cda8efcf8c028c5f0708e45adf69",
+      "git_blob": "120252abdabcdc684e55f77bb1335467f908d401",
       "reason": "app-only integrated original source; no engine or target L2 claim"
     },
     "tests/phase3/integration/api/test_app_only_mtls_network.py": {
