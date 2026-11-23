@@ -241,6 +241,13 @@ def main():
             assert section.locator("a").count() == 0
             assert page.get_by_test_id("retrieval-evidence-list").count() == 0
             assert state["posts"] == 1
+            user_paragraph = page.get_by_test_id("history-message-" + user_message).locator(
+                ".history-message-text")
+            expect(user_paragraph).to_be_visible()
+            assert user_paragraph.evaluate(
+                "(el) => getComputedStyle(el).unicodeBidi") == "plaintext"
+            # RTL mixed-Latin material stays a *text* node, not guessed HTML.
+            assert page.locator(".history-message-text script, .history-message-text a").count() == 0
             # Reload MUST never invoke POST: same original client IDs/status GET.
             page.reload(wait_until="domcontentloaded")
             expect(page.get_by_test_id("attempt-" + state["request"]["client_message_id"])).to_be_visible(
@@ -303,9 +310,13 @@ def main():
             expect(menu).to_have_attribute("aria-expanded", "false")
             assert page.locator("aside[aria-modal='true']").count() == 0
             assert page.locator("section.history-main").get_attribute("inert") is None
+            page.set_viewport_size({"width": 320, "height": 568})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2")
+            assert page.locator(".history-messages").evaluate(
+                "(el) => getComputedStyle(el).direction") == "rtl"
             page.set_viewport_size({"width": 390, "height": 844})
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2")
-            print("UI_11_L1_DESKTOP_MOBILE_SKIP_INERT_FOCUS_RESIZE_CONTRAST_PASS")
+            print("UI_11_L1_DESKTOP_MOBILE_SKIP_INERT_FOCUS_RESIZE_CONTRAST_320RTL_PASS")
             screenshots=os.getenv("UI_GATE3_SCREENSHOT_DIR")
             if screenshots:
                 directory=Path(screenshots)
