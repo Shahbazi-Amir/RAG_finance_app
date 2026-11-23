@@ -274,6 +274,15 @@ jobs:
           assert app.app is not None
           print("API_F3_PRODUCT_ASGI_IMPORT_READY", flush=True)
           PY
+      - name: Generate one ephemeral HMAC cursor key for source and restored History
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os,secrets
+          with open(os.environ['GITHUB_ENV'],'a',encoding='utf-8') as f:
+              f.write('API_CURSOR_KEY='+secrets.token_urlsafe(48)+'\n')
+              f.write('API_CURSOR_TTL_SECONDS=900\n')
+          PY
       - name: Real HTTPS Callback plus Product-session API 005 004 History/revoke tests
         run: |
           set -euo pipefail
