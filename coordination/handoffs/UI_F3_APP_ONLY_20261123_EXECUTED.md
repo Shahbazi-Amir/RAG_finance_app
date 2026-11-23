@@ -24,7 +24,7 @@
 
 1. On a clean, separately isolated and authorized candidate: set the Web **server** env `PHASE3_APP_MODE=APP_ONLY`; do NOT configure Runner/Qdrant/index/Provider. Never derive this mode from a query, Browser header or URL.
 2. Run `cd apps/web && npm ci --no-audit --no-fund && npm run typecheck && npm run lint && npm test && npm run build`. In CI also run `python -m unittest discover -s tests/phase3/integration/ui -p 'test_l2_no_dispatch_receipt_gate.py' -v`. No L2 claim from this structural parser.
-3. Start **only** isolated Web `PHASE3_APP_MODE=APP_ONLY npm --prefix apps/web run start` on 127.0.0.1:3000, then `python tests/phase3/integration/ui/app_only_real_browser.py`. The script rejects a non-loopback origin. Expect `UI_APP_ONLY_REAL_NEXT_CHROMIUM_1280_390_320_NO_SEND_BFF_503_PASS`.
+3. Start a **separate** isolated Web process from `apps/web` with `PHASE3_APP_MODE=APP_ONLY ./node_modules/.bin/next start -H 127.0.0.1 -p 3100`, then from repository root run `python tests/phase3/integration/ui/app_only_real_browser.py`. Port **3100**, not the fixture server on **3000**, is required; the test rejects a different origin. Expect `UI_APP_ONLY_REAL_NEXT_CHROMIUM_1280_390_320_NO_SEND_BFF_503_PASS`.
 4. Synthetic History simulation remains `python tests/phase3/integration/ui/product_chat_browser.py` **only with intercepted routes and explicit test-only NO_DISPATCH capability**; it cannot establish genuine owner/DB/Runner behavior.
 
 ## 3. Exact remaining acceptance and owner input (without inventing decisions)
