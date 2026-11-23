@@ -61,11 +61,28 @@ class AppOnlyConfig:
         return "AppOnlyConfig(<private>)"
 
 
+def _unique_config_keys(pairs):
+    fields = {}
+    for name, value in pairs:
+        if name in fields:
+            raise StagingConfigDenied()
+        fields[name] = value
+    return fields
+
+
+def _deny_non_json_constant(_):
+    raise StagingConfigDenied()
+
+
 def load_app_only_config(path: Path) -> AppOnlyConfig:
-    """Strict 0600 server file; no runner/ledger/engine fields are permitted."""
+    """Strict 0600 server file; reject duplicate keys, non-JSON and engine."""
     _protected_file(path, secret=True)
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_unique_config_keys,
+            parse_constant=_deny_non_json_constant,
+        )
         if (not isinstance(data, dict) or set(data) != APP_ONLY_FIELDS
                 or data.get("contract_version") != APP_ONLY_VERSION
                 or data.get("listen_host") not in {"127.0.0.1", "0.0.0.0"}
