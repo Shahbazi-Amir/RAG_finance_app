@@ -58,6 +58,19 @@ jobs:
           python -m unittest discover -s tests/phase3/integration/ui -p 'test_l2_no_dispatch_receipt_gate.py' -v
       - name: All 393 canonical IDs exact source mapping and no false acceptance
         run: python -m unittest discover -s tests/phase3/integration -p 'test_integrated_393_registry.py' -v
+      - name: Isolated app-only SHA namespace and Compose preflight (no image pull)
+        env:
+          CI: 'true'
+          F3_PROJECT_NAME: f3-app-only-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          F3_RELEASE_TAG: ci
+          F3_SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          bash scripts/phase3/app_only_candidate_preflight.sh --inspect-unused
+          if F3_PROJECT_NAME=rag_finance_f3_demo bash scripts/phase3/app_only_candidate_preflight.sh; then echo UNSAFE_PROJECT_ACCEPTED; exit 1; fi
+          if F3_SOURCE_SHA=0000000000000000000000000000000000000000 bash scripts/phase3/app_only_candidate_preflight.sh; then echo SHA_DRIFT_ACCEPTED; exit 1; fi
+          if F3_RELEASE_TAG=latest bash scripts/phase3/app_only_candidate_preflight.sh; then echo UNPINNED_TAG_ACCEPTED; exit 1; fi
+          echo F3_APP_ONLY_READONLY_SOURCE_PREFLIGHT_POS_NEG_PASS
       - name: Original DB scripts static guard and protected-path negative only
         run: bash infra/postgres/dev_f3_isolated/tests/run_static.sh
       - name: Real isolated APP_ONLY Uvicorn listener, no Engine dependencies
