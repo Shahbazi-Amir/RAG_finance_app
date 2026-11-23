@@ -1,7 +1,7 @@
 name: F3 real isolated Docker images and Web HTTP smoke M18 M19
 on:
   push:
-    branches: [integration/f3-m18-m19-container-build-20261123]
+    branches: [integration/f3-m18-m19-container-build-20261123, agent/db-f3-unified-app-only-20261123]
   workflow_dispatch:
 permissions:
   contents: read
@@ -32,8 +32,34 @@ jobs:
           test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "f3-api-l1:$GITHUB_SHA")" = "$GITHUB_SHA"
           test "$(docker image inspect -f '{{.Architecture}}' "f3-api-l1:$GITHUB_SHA")" = amd64
           test "$(docker run --rm --network none "f3-api-l1:$GITHUB_SHA" id -u)" = 11001
-          docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA"
-          docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA" python3 tests/phase3/api/run_m18_l1_without_engine_mount.py
+          # Original app import smoke is still a distinct lower-level test.
+          docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA" \
+            python3 -c "from apps.api.product_session_api import app; print('API_CONTAINER_SOURCE_IMPORT_PASS')"
+          # The default CMD now starts an explicit, *isolated-CI-only* localhost
+          # API listener, not an import stub. There is no database/IdP/engine.
+          api_name=f3-api-app-only-ci
+          docker run --detach --rm --name "$api_name" --network host --tmpfs /tmp \
+            -e CI=true -e GITHUB_ACTIONS=true \
+            -e APP_ONLY_PROFILE=ISOLATED_CI_NO_ENGINE -e APP_ONLY_PORT=18880 \
+            "f3-api-l1:$GITHUB_SHA" > "$RUNNER_TEMP/f3-api-ci-container-id"
+          trap 'docker logs --tail 50 "$api_name" || true; docker rm -f "$api_name" >/dev/null 2>&1 || true' EXIT
+          for i in $(seq 1 40); do
+            if curl -fsS --max-time 2 http://127.0.0.1:18880/health/live >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS --max-time 3 http://127.0.0.1:18880/health/live | grep -F '"probe_only":true' >/dev/null
+          ready_status="$(curl -s -o "$RUNNER_TEMP/f3-api-ready.json" -w '%{http_code}' http://127.0.0.1:18880/health/ready)"
+          test "$ready_status" = 503
+          grep -F 'DEPENDENCIES_NOT_ATTESTED' "$RUNNER_TEMP/f3-api-ready.json" >/dev/null
+          curl -fsS http://127.0.0.1:18880/v1/capabilities | grep -F '"generation":"unavailable"' >/dev/null
+          send_status="$(curl -s -o "$RUNNER_TEMP/f3-api-send.json" -w '%{http_code}' \
+            -X POST -H 'Content-Type: application/json' -d '{"message":"synthetic"}' http://127.0.0.1:18880/v1/messages)"
+          test "$send_status" = 503
+          grep -F 'ENGINE_UNAVAILABLE' "$RUNNER_TEMP/f3-api-send.json" >/dev/null
+          echo 'ACTUAL_API_IMAGE_APP_ONLY_CI_LISTENER_200_LIVE_503_READY_AND_SEND_PASS'
+          docker rm -f "$api_name" >/dev/null
+          trap - EXIT
+          docker run --rm --network none --tmpfs /tmp "f3-api-l1:$GITHUB_SHA" python3 tests/phase3/api/run_m18_l1_without_engine_mount.py | tee "$RUNNER_TEMP/f3-api-container-suite-count.log"
           echo 'ACTUAL_API_DOCKER_BUILD_AND_TEST_IN_CONTAINER_PASS'
       - name: Real Web Docker build pinned Node and HTTP smoke
         shell: bash
@@ -68,9 +94,15 @@ jobs:
             x=json.loads(subprocess.check_output(["docker","image","inspect",f"f3-{name}-l1:{sha}"]))[0]
             imgs[name]={"image_id":x["Id"],"platform":x["Os"]+"/"+x["Architecture"],
                         "source_label":x["Config"]["Labels"]["org.opencontainers.image.revision"]}
+          import re
+          log=open(os.path.join(os.environ["RUNNER_TEMP"],"f3-api-container-suite-count.log")).read()
+          matches=re.findall(r"F3_API_CONTAINER_(\d+)_PASS_(\d+)_ENGINE_MOUNT_TESTS_BLOCKED",log)
+          assert len(matches)==1, "Missing exact in-container non-engine test count"
+          passed,blocked=map(int,matches[0])
+          assert passed>=201 and blocked==2
           doc={"schema":"f3.m18_m19.real_ci_image.v1","git_sha":sha,"images":imgs,
-               "actual_build":"PASS","api_tests_in_container":"196_OF_198_PASS_TWO_ENGINE_MOUNT_DEPENDENT_BLOCKED","web_http_200":"PASS",
-               "bad_host_404":"PASS","real_api_tls_http":"NOT_RUN","mac":"NOT_RUN",
+               "actual_build":"PASS","api_tests_in_container":f"{passed}_OF_{passed+blocked}_PASS_TWO_ENGINE_MOUNT_DEPENDENT_BLOCKED","web_http_200":"PASS",
+               "bad_host_404":"PASS","real_api_tls_http":"NOT_RUN","actual_api_ci_app_only_http":"LIVE_200_READY_503_SEND_503","mac":"NOT_RUN",
                "real_c018":"NOT_RUN","pg_app_connected":"NOT_RUN",
                "oci_security_scan":"NOT_RUN","release_gate":"NOT_ACCEPTED",
                "api_ci_base":"docker.io/library/python:3.13.5",

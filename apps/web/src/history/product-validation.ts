@@ -78,8 +78,8 @@ export function conformsToProductV1(value:unknown,kind:string):boolean{
     value.contract_version==='product.v1'&&matches(value,definition);
 }
 
-/** Restricted Draft 2020-12 consumer for the pinned, CI-only #53 result schema.
- * Product validation keeps its original product.v1 registry and wire types.
+/** Compatibility consumer for the existing versioned invited-result fixture.
+ * No new schema registry is introduced; uses the checked-in interpreter.
  */
 export function conformsToPinnedSchema(value:unknown,schema:unknown):boolean{
   return obj(schema)&&matches(value,schema);

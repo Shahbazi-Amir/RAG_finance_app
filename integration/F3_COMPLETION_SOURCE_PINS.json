@@ -3,27 +3,31 @@
   "parent_commit": "f7d738aa763179eba28c7847e6225640bb88b176",
   "owners": {
     "DATABASE_F3": {
-      "tested_source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "current_head": "322fc16f6602d52c16facd2d598834228bacf58d",
-      "CI_run": "45218702399",
-      "receipt_scope": "Fresh PG17.11 001-010+DB55, 15-17, owner-fence negative and independent restore; separate011 not installed",
-      "head_unverified_changes_excluded": true
+      "tested_source_sha": "b3505f545054a7d5eaa745785195403191ad72c8",
+      "current_head": "44421600269d0b9cfa59cea340f337ef1bc997c4",
+      "CI_run": "45260469796",
+      "receipt_scope": "16 sanitized real isolated PG17.11 receipts, actual SIGKILL/WAL crash recovery, no Mac/approved RPO_RTO",
+      "integrated_admission": "PENDING_16_RECEIPT_SAME_SHA_CI"
     },
     "API_F3": {
       "tested_source_sha": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
-      "current_head": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
-      "CI_run": "45226729581",
+      "current_head": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "CI_run": "45234618033 + 45234618062",
       "api_lock_sha256": "399a4e796403bd8fc5b8165c030ad4d4d8479fb946e363e29a5722ea88d35ff5",
       "documentation_only_head": "5d9df47c7ca52133ca8706bd748d535233bae050",
       "api_runtime_pin": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
-      "documentation_evidence": "API #63 262 rows / 91 API IDs; no runtime delta"
+      "documentation_evidence": "API #63 262 rows / 91 API IDs; no runtime delta",
+      "source_overlay": "NO_DISPATCH_FULL_PRODUCT_REQUEST_BINDING_FENCE",
+      "integrated_CI": "PENDING"
     },
     "UI_F3": {
       "tested_source_sha": "f45caa45139d2e147c3e45fd7349033b212342c7",
-      "current_head": "f45caa45139d2e147c3e45fd7349033b212342c7",
+      "current_head": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
       "previous_tested_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
       "CI_run": "45225396455",
-      "receipt_scope": "121/121 Node, Typecheck/Lint/Next Build, synthetic Chromium owner switch/late owner/mixed thread, no Mac"
+      "receipt_scope": "121/121 Node, Typecheck/Lint/Next Build, synthetic Chromium owner switch/late owner/mixed thread, no Mac",
+      "source_overlay": "UI65_HISTORY_320RTL_FOCUS_AND_L2_RECEIPT_VERIFIER",
+      "integrated_CI": "PENDING"
     }
   },
   "conflict_policy": {
@@ -88,9 +92,9 @@
     },
     "src/phase3/rag_runtime/no_dispatch_handler.py": {
       "owner": "API_F3",
-      "source_sha": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
-      "git_blob": "5e3472af55a1f3b5b1162a283b3a48aca01e6f21",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "git_blob": "62d1b8019b2ffb9a22f66c9a3457674748baef6d",
+      "reason": "Latest owner PR #76 source overlay, integrated compatibility CI pending"
     },
     "src/phase3/rag_runtime/retrieved_sources.py": {
       "owner": "API_F3",
@@ -118,9 +122,9 @@
     },
     "apps/web/src/ui/product-chat.tsx": {
       "owner": "UI_F3",
-      "source_sha": "f45caa45139d2e147c3e45fd7349033b212342c7",
-      "git_blob": "c417ad881a2a5cdbec476e6b7c76b8c5a3212f23",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
+      "git_blob": "3708795519f6cef44c695e754a963658191d1db3",
+      "reason": "Latest owner PR #65 source overlay, integrated compatibility CI pending"
     },
     "apps/web/src/ui/retrieved-sources-panel.tsx": {
       "owner": "UI_F3",
@@ -136,9 +140,9 @@
     },
     "tests/phase3/integration/ui/product_chat_browser.py": {
       "owner": "UI_F3",
-      "source_sha": "f45caa45139d2e147c3e45fd7349033b212342c7",
-      "git_blob": "45c02bd0aba9ef9d4c52418dda2c2b720f69dcd4",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
+      "git_blob": "1cfa8f0cbcd0180b82f900482074711e702a9893",
+      "reason": "Latest owner PR #65 source overlay, integrated compatibility CI pending"
     },
     "tests/phase3/ui/retrieved-sources-client.test.mjs": {
       "owner": "UI_F3",
@@ -214,9 +218,9 @@
     },
     "infra/postgres/dev_f3_isolated/scripts/11_export_sanitized_receipt.sh": {
       "owner": "DATABASE_F3",
-      "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "git_blob": "8df5c4e28718b5e396b1f6df69c2358d8d878a7c",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "b3505f545054a7d5eaa745785195403191ad72c8",
+      "git_blob": "592fdeeb454dbce78a42b864a9e1d7460c9800ab",
+      "reason": "CI45260469796 verified PG17 real SIGKILL 16 sanitized artifacts, no Mac/Gate"
     },
     "infra/postgres/dev_f3_isolated/scripts/shared_stack_db_witness.py": {
       "owner": "DATABASE_F3",
@@ -226,9 +230,9 @@
     },
     ".github/workflows/f3-db-isolated-fresh-install.yml": {
       "owner": "DATABASE_F3",
-      "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "git_blob": "bb8bc55a6b383e00e3adb59511b7e0cd41218eda",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "07ceb64e8c9efbd7ad7c9427c21bd4a996789400",
+      "git_blob": "c5f4c2e7e76173144c461b79a42a1b9db424aa0c",
+      "reason": "Experimental branch candidate exact workflow/DB25, integrated run pending"
     },
     ".github/workflows/ui-f3-api61-completion.yml": {
       "owner": "UI_F3",
@@ -244,9 +248,9 @@
     },
     "apps/web/app/history/history.css": {
       "owner": "UI_F3",
-      "source_sha": "f45caa45139d2e147c3e45fd7349033b212342c7",
-      "git_blob": "18947135eb5e06a0392cb8af717a61457e5c56e2",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
+      "git_blob": "8e8ebe0fe9d52dbe88285c2abd3d8544561055fa",
+      "reason": "Latest owner PR #65 source overlay, integrated compatibility CI pending"
     },
     "apps/web/app/login/route.ts": {
       "owner": "UI_F3",
@@ -310,9 +314,9 @@
     },
     "infra/postgres/dev_f3_isolated/docs/PHASE3_57_ROW_DATABASE_AUDIT_20261123.md": {
       "owner": "DATABASE_F3",
-      "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "git_blob": "f83e95e73d8fe2ddcd20ff673fff0a623c77fdf3",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "b3505f545054a7d5eaa745785195403191ad72c8",
+      "git_blob": "26dbafebfb1048fd1100c10b776cd1b6b0296922",
+      "reason": "CI45260469796 verified PG17 real SIGKILL 16 sanitized artifacts, no Mac/Gate"
     },
     "infra/postgres/dev_f3_isolated/docs/PHASE3_PHYSICAL_SCHEMA_POLICY_DELTA_20261123.md": {
       "owner": "DATABASE_F3",
@@ -340,9 +344,9 @@
     },
     ".github/workflows/ui-f3-post62-owner-fence.yml": {
       "owner": "UI_F3",
-      "source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
-      "git_blob": "b0d62be010b49556b655a77c9d2990778cd773f8",
-      "reason": "Exact ui65 HEAD overlay relative to ui62; L1/isolated CI only; no Mac Gate"
+      "source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
+      "git_blob": "2058dc8d6003338fde70f3bdb0d18165cfb2cd66",
+      "reason": "Candidate branch integration checks and receipt negative test pin"
     },
     "apps/web/app/account/page.tsx": {
       "owner": "UI_F3",
@@ -598,9 +602,9 @@
     },
     "infra/postgres/dev_f3_isolated/contracts/DBF3_EXACT_PINS_SCRIPT11_PREREQUISITES_20261123.md": {
       "owner": "DATABASE_F3",
-      "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "git_blob": "97cbbc2117f0cd04de0ea433ed3c025dcec56af4",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "b3505f545054a7d5eaa745785195403191ad72c8",
+      "git_blob": "afd14cab56ec443ed30042d8204883b7c55e9080",
+      "reason": "CI45260469796 verified PG17 real SIGKILL 16 sanitized artifacts, no Mac/Gate"
     },
     "infra/postgres/dev_f3_isolated/docs/DBF3_PHASE3_EXECUTION_CONSOLIDATED_HANDOFF_20261123.md": {
       "owner": "DATABASE_F3",
@@ -610,9 +614,9 @@
     },
     "infra/postgres/dev_f3_isolated/docs/DBF3_PROGRESS_VS_171_MAP_AND_57_SPECIALIST_20261123.md": {
       "owner": "DATABASE_F3",
-      "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "git_blob": "cc299bcdef43d2b1549b7c48d28fd843e0267f3b",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "b3505f545054a7d5eaa745785195403191ad72c8",
+      "git_blob": "e2fa90399e412ae09d905759e7c564eb28e13636",
+      "reason": "CI45260469796 verified PG17 real SIGKILL 16 sanitized artifacts, no Mac/Gate"
     },
     "infra/postgres/dev_f3_isolated/docs/DBF3_UPDATED_INSTRUCTION_EXECUTION_RECEIPT_20261123.md": {
       "owner": "DATABASE_F3",
@@ -655,6 +659,108 @@
       "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
       "git_blob": "8732a4788cb3ecf821c15d811119f8cacc3eedd1",
       "reason": "Exact owner CI tested pin, not Mac acceptance"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/22_restore_catalog_parity_probe.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "f302fbf0f4a00ae4fe80d914452906fe88029078",
+      "git_blob": "5869b15413d058acb2424199d8fcaa9d274f822c",
+      "reason": "Source-verified DB59 file at f302fbf0, isolated CI45234862871 PASS; full integration CI on this candidate pending"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/23_m04_migration_full_cycle.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "f302fbf0f4a00ae4fe80d914452906fe88029078",
+      "git_blob": "a547a58ac1555795dd73c18415973bbc955177d8",
+      "reason": "Source-verified DB59 file at f302fbf0, isolated CI45234862871 PASS; full integration CI on this candidate pending"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/24_m10_idempotency_concurrency_probe.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "f302fbf0f4a00ae4fe80d914452906fe88029078",
+      "git_blob": "395078707143c85de2d8f58c0b365445176bbf6a",
+      "reason": "Source-verified DB59 file at f302fbf0, isolated CI45234862871 PASS; full integration CI on this candidate pending"
+    },
+    "infra/postgres/dev_f3_isolated/docs/DBF3_M04_A07_CLOSURE_AND_NEXT_29_OPEN_QUEUE_20261123.md": {
+      "owner": "DATABASE_F3",
+      "source_sha": "b3505f545054a7d5eaa745785195403191ad72c8",
+      "git_blob": "4fad7295504214db177271d76f413ab52a7fee9c",
+      "reason": "CI45260469796 verified PG17 real SIGKILL 16 sanitized artifacts, no Mac/Gate"
+    },
+    ".github/workflows/f3-completion-exact-source.yml": {
+      "owner": "FOUNDATION_F3_TEST_ONLY_OVERLAY",
+      "source_sha": "07ceb64e8c9efbd7ad7c9427c21bd4a996789400",
+      "git_blob": "020d7aa489ae8ae5b6fc7f7365ebc4b0ada953ce",
+      "reason": "Experimental branch candidate exact workflow/DB25, integrated run pending"
+    },
+    ".github/workflows/f3-m18-m19-real-image-http.yml": {
+      "owner": "APP_ONLY_CI_ORCHESTRATOR",
+      "source_sha": "0e3f2f865438f98ffcd22a763eae38a269b17c26",
+      "git_blob": "2a102aacf3f105a012dfbf130b0885d2e6e4ed9d",
+      "reason": "Safe CI-only real API listener with not-ready absent IdP/PG, no engine, exact HTTP probe"
+    },
+    "tests/phase3/api/test_full_binding_fence.py": {
+      "owner": "API_F3",
+      "source_sha": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "git_blob": "d8d181d0e04dbf976f520a2166b039832d92b8ef",
+      "reason": "Latest owner PR #76 source overlay, integrated compatibility CI pending"
+    },
+    "apps/web/README.md": {
+      "owner": "UI_F3",
+      "source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
+      "git_blob": "618a4f7e25968e57874feb4d11c55f5eed9481ba",
+      "reason": "Latest owner PR #65 source overlay, integrated compatibility CI pending"
+    },
+    "apps/web/src/history/product-validation.ts": {
+      "owner": "UI_F3_COMPAT_BRIDGE",
+      "source_sha": "5bdd911d7c2d561e4224d561ae47eb10f09e415a",
+      "git_blob": "5adada8e18bbd705339118dd3d9c04d9d17c1ce4",
+      "reason": "UI65 source plus backward-compatible if/then/else + pinned schema export, dual consumer negative tests in integrated candidate"
+    },
+    "tests/phase3/integration/ui/l2_no_dispatch_receipt_gate.py": {
+      "owner": "UI_F3",
+      "source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
+      "git_blob": "c018988751d5fe36d760384409cb0994d8a96c32",
+      "reason": "Latest owner PR #65 source overlay, integrated compatibility CI pending"
+    },
+    "tests/phase3/integration/ui/test_l2_no_dispatch_receipt_gate.py": {
+      "owner": "UI_F3",
+      "source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
+      "git_blob": "55d61ccb69466b64044d1afb8f6b1b7b92933ffc",
+      "reason": "Latest owner PR #65 source overlay, integrated compatibility CI pending"
+    },
+    "tests/phase3/api/run_m18_l1_without_engine_mount.py": {
+      "owner": "FOUNDATION_F3_TEST_ONLY_OVERLAY",
+      "source_sha": "5bdd911d7c2d561e4224d561ae47eb10f09e415a",
+      "git_blob": "7cba76ac74145497fffad4c6bcbfc40697f6aaaa",
+      "reason": "Candidate-only compatible source overlay, exact image test counts; require integrated same-SHA CI"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/25_pg_crash_recovery_probe.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "b3505f545054a7d5eaa745785195403191ad72c8",
+      "git_blob": "53e921ce3bfcd907867d663cd61a465dcc6dd7ee",
+      "reason": "CI45260469796 verified PG17 real SIGKILL 16 sanitized artifacts, no Mac/Gate"
+    },
+    "coordination/handoffs/DB_F3_UNIFIED_CANDIDATE_OVERLAY_20261123.md": {
+      "owner": "FOUNDATION_F3_TEST_ONLY_OVERLAY",
+      "source_sha": "07ceb64e8c9efbd7ad7c9427c21bd4a996789400",
+      "git_blob": "ef337996666063eba4afb9271e639c39be637bb5",
+      "reason": "Experimental branch candidate exact workflow/DB25, integrated run pending"
+    },
+    "apps/api/app_only_asgi.py": {
+      "owner": "APP_ONLY_CI_ORCHESTRATOR",
+      "source_sha": "0e3f2f865438f98ffcd22a763eae38a269b17c26",
+      "git_blob": "42c7c62754265e44acf22ab4af63552a523498f2",
+      "reason": "Safe CI-only real API listener with not-ready absent IdP/PG, no engine, exact HTTP probe"
+    },
+    "tests/phase3/api/test_app_only_no_engine_listener.py": {
+      "owner": "APP_ONLY_CI_ORCHESTRATOR",
+      "source_sha": "0e3f2f865438f98ffcd22a763eae38a269b17c26",
+      "git_blob": "aaa6109804a7ff158085aa2ce8f3fda176b8b7f3",
+      "reason": "CI TestClient Host matches localhost whitelist; negative untrusted Host remains 400; exact owner CI verify pending"
+    },
+    "infra/phase3_l1/Dockerfile.api": {
+      "owner": "APP_ONLY_CI_ORCHESTRATOR",
+      "source_sha": "0e3f2f865438f98ffcd22a763eae38a269b17c26",
+      "git_blob": "e4647bcbba2e939b2aec099ba38a1afa0b907299",
+      "reason": "Safe CI-only real API listener with not-ready absent IdP/PG, no engine, exact HTTP probe"
     }
   },
   "status": {
@@ -663,19 +769,25 @@
     "mac_c018": "NOT_RUN",
     "accepted_gates": 0,
     "arvan": "HOLD",
-    "integrated_CI": "PENDING"
+    "integrated_CI": "PENDING_NEW_DB25_UI65_API76_OVERLAY",
+    "app_only_full_stack": "NOT_TESTED",
+    "module_gate": "NOT_ACCEPTED",
+    "app_only_ci_listener": "PENDING_GITHUB_IMAGE_AND_API_UNIT_TEST",
+    "real_idp_pg_mac": "NOT_RUN"
   },
   "previous_integrated_sha": "d6dc01df5835cca8a97a778b091b769496646abb",
   "previous_ui65_candidate_sha": "ce899c26a27fa0e913584384f9dac8980bb77c33",
   "source_overlay": {
-    "base": "f7d738aa763179eba28c7847e6225640bb88b176",
+    "base": "b7c8928e596001de83c5f8dbd1b86284f46a57a9",
     "source_pins": {
-      "api": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
-      "ui": "f45caa45139d2e147c3e45fd7349033b212342c7",
-      "db": "76822ac273c3f5defbb7e5cd77d497f8d3305852"
+      "api": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "ui": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
+      "db": "44421600269d0b9cfa59cea340f337ef1bc997c4"
     },
-    "db_unverified_HEAD": "322fc16f6602d52c16facd2d598834228bacf58d",
+    "db_unverified_HEAD": null,
     "owner_paths": 46,
-    "overlap_count": 0
+    "overlap_count": 0,
+    "integrated_candidate_branch": "agent/db-f3-unified-app-only-20261123",
+    "ui_api_policy": "OWNER_ORIGIN_EXACT_BLOBS_OVERRIDING_FOUNDATION_BASE_ON_INDEPENDENT_TEST_BRANCH_ONLY"
   }
 }
