@@ -57,6 +57,7 @@ jobs:
           bash scripts/14_synthetic_owner_lifecycle_restore.sh
           bash scripts/15_populated_pre009_upgrade_restore.sh
           bash scripts/23_m04_migration_full_cycle.sh
+          bash scripts/24_m10_idempotency_concurrency_probe.sh
           bash scripts/16_fault_injected_migration_ledger.sh
           bash scripts/17_populated_query_plan_and_owner.sh
           bash scripts/19_history_rls_negative_matrix.sh

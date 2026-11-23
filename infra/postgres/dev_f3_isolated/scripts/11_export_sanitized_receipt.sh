@@ -296,3 +296,27 @@ assert r["mac_runtime"]=="NOT_RUN" and r["module_gate"]=="NOT_ACCEPTED"
 PY
 install -m 0600 "$m04" "$GITHUB_WORKSPACE/ci_receipts/m04_migration_full_cycle_receipt.json"
 echo 'M04_A07_14TH_SANITIZED_CONSISTENCY_RECEIPT=PASS'
+
+# Synthetic DB-only simultaneous duplicate/NULL idempotency, not HTTP end-to-end.
+m10="$LAB_WORK/m10_idempotency_concurrency_receipt.json"
+[[ -s "$m10" ]] || { echo STOP_M10_CONCURRENCY_RECEIPT_ABSENT >&2;exit 70; }
+python3 - "$m10" <<'PY'
+import json,sys
+from pathlib import Path
+r=json.loads(Path(sys.argv[1]).read_text())
+assert r["contract_version"]=="f3.db.synthetic_m10_client_idempotency_concurrency.v1"
+assert r["concurrent_sql_clients"]==2
+assert r["concurrent_insert_commits"]==1 and r["concurrent_duplicate_key_denials"]==1
+assert r["nullable_request_idempotency_key"]=="NULLS_NOT_DISTINCT_CONFIRMED"
+assert r["simulated_lost_ack_replay"]=="DENIED_NO_SECOND_COMMIT"
+assert r["cross_owner_same_client_key"]=="ALLOWED_SCOPED"
+assert r["one_attempt_per_send_receipt"]=="SECOND_DENIED"
+assert r["owner_a_visible_receipts"]==1 and r["owner_b_visible_receipts"]==1
+assert r["unset_owner_visible_receipts"]==0
+assert r["clone_removed"] is True and r["source_lab_unchanged"] is True
+assert r["real_http_retry_or_crash"]=="NOT_RUN"
+assert r["signed_idp_same_tx_actor"]=="NOT_PROVEN"
+assert r["module_gate"]=="NOT_ACCEPTED"
+PY
+install -m 0600 "$m10" "$GITHUB_WORKSPACE/ci_receipts/m10_idempotency_concurrency_receipt.json"
+echo 'M10_A10_15TH_SANITIZED_DB_CONCURRENCY_RECEIPT=PASS'
