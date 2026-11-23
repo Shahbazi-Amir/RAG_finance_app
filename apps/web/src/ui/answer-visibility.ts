@@ -16,11 +16,11 @@ function trustedCitationSource(source:Source):boolean{
   if(!loc)return false;
   switch(loc.kind){
     case 'url':return verifiedSourceUrl(source)!==null;
-    case 'book_page':return Number.isSafeInteger(loc.page)&&loc.page!>0;
+    case 'book_page':return typeof loc.page==='number'&&Number.isSafeInteger(loc.page)&&loc.page>0;
     case 'book_anchor':return nonempty(loc.work_id)&&
       nonempty(loc.edition_id)&&nonempty(loc.anchor);
-    case 'transcript_timestamp':return Number.isSafeInteger(loc.timestamp_ms)&&
-      loc.timestamp_ms!>=0;
+    case 'transcript_timestamp':return typeof loc.timestamp_ms==='number'&&Number.isSafeInteger(loc.timestamp_ms)&&
+      loc.timestamp_ms>=0;
     case 'transcript_segment':return nonempty(loc.episode_id)&&
       nonempty(loc.segment_anchor);
     default:return false;
