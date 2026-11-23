@@ -104,9 +104,9 @@ UPDATE history_l1.answers SET payload='{}'::jsonb WHERE id='answer-a'; COMMIT;"
 expect_denied forbidden_history_delete 'permission denied' \
 "BEGIN; SET LOCAL ROLE history_app; SET LOCAL app.owner_id='synthetic-owner-a';
 DELETE FROM history_l1.conversations WHERE id='conv-a'; COMMIT;"
-expect_denied cross_owner_answer_fk 'foreign key constraint' \
-"INSERT INTO history_l1.answers(owner_id,id,conversation_id,message_id,attempt_id,payload)
-VALUES('synthetic-owner-a','bad-answer','conv-b','msg-b','attempt-a','{}'::jsonb);"
+expect_denied cross_owner_create_receipt_fk 'foreign key constraint' \
+"INSERT INTO history_l1.create_receipts(owner_id,client_conversation_id,idempotency_key,payload_sha256,conversation_id,created_snapshot)
+VALUES('synthetic-owner-a','bad-client','bad-create',repeat('c',64),'conv-b','{}'::jsonb);"
 expect_denied duplicate_send 'duplicate key value violates unique constraint' \
 "INSERT INTO history_l1.send_receipts(owner_id,id,requested_conversation_id,resolved_conversation_id,user_message_id,client_message_id,idempotency_key,payload_sha256,initial_request_id,initial_trace_id)
 VALUES('synthetic-owner-a','send-clone','conv-a','conv-a','msg-a','client-msg-a','idem-a',repeat('a',64),'req-clone','trace-clone');"
@@ -142,7 +142,7 @@ r={
 "positive_owner_a_title_update":"PASS","foreign_owner_update":"NO_ROWS",
 "negative_cases":{"forged_owner_insert":"RLS_DENIED","cross_owner_message_fk":"FK_DENIED",
 "immutable_message_update":"GRANT_DENIED","immutable_answer_update":"GRANT_DENIED",
-"forbidden_history_delete":"GRANT_DENIED","cross_owner_answer_fk":"FK_DENIED",
+"forbidden_history_delete":"GRANT_DENIED","cross_owner_create_receipt_fk":"FK_DENIED",
 "duplicate_send":"UNIQUE_DENIED"},
 "post_negative_snapshot":"NO_UNAUTHORIZED_CHANGES",
 "direct_history_role_can_set_owner_guc":True,
