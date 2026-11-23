@@ -133,3 +133,9 @@
 }
 .history-skip:focus,.history-skip:focus-visible{transform:none;outline:3px solid #b45309;outline-offset:2px}
 .history-heading h1:focus{outline:3px solid #b45309;outline-offset:5px;border-radius:4px}
+
+/* UI-06/UI-11: mixed Persian + Latin user titles, questions and claim text.
+   Isolate direction per visual paragraph, never reverse LTR identifiers. */
+.history-list .nav-thread-text,.history-message-text,.product-claim p{
+  unicode-bidi:plaintext;overflow-wrap:anywhere;
+}
