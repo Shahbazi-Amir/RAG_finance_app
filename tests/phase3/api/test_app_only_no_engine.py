@@ -86,6 +86,19 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         with self.assertRaises(StagingConfigDenied):
             load_app_only_config(link)
 
+    def test_ambiguous_duplicate_or_non_json_ops_config_denied(self):
+        valid = json.dumps(self.doc)
+        doubled = valid.replace(
+            '"bff_kid": "test-kid"',
+            '"bff_kid": "test-kid", "bff_kid": "forged"')
+        self.config_file.write_text(doubled)
+        with self.assertRaises(StagingConfigDenied):
+            load_app_only_config(self.config_file)
+        self.config_file.write_text(valid.replace('18443', 'NaN'))
+        with self.assertRaises(StagingConfigDenied):
+            load_app_only_config(self.config_file)
+        self.save()
+
     def test_non_loopback_port_type_and_missing_tls_file_denied(self):
         for update in ({"listen_host": "evil.example"},
                        {"listen_port": True},
