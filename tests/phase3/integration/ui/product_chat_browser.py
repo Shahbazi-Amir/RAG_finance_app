@@ -26,7 +26,8 @@ def main():
     if url.scheme != "http" or url.hostname != "127.0.0.1" or url.port != 3000:
         raise RuntimeError("UI_CHAT_L1_ONLY_LOOPBACK_HTTP_PORT_3000")
     state = {"posts": 0, "status_reads": 0, "engine_reads": 0,
-             "logged_in": True, "request": None}
+             "logged_in": True, "request": None,
+             "source_reads": 0, "source_mode": "valid"}
     conversation_id = "conv_uichat_013"
     user_message = "msg_uichat_013"
 
@@ -102,7 +103,7 @@ def main():
             status["message_id"] = user_message
             status["attempt_id"] = "a" * 32
             status["attempt_request_id"] = "req_attempt_uichat_013"
-            status["attempt_trace_id"] = "trace_attempt_uichat_013"
+            status["attempt_trace_id"] = "b" * 32
             status["reserved_answer_id"] = "ans_uichat_013"
             status["status"] = "attempt_pending"
             route.fulfill(status=200, json=status)
@@ -119,7 +120,7 @@ def main():
                 "request_id": "req_engine_status",
                 "trace_id": "trace_engine_status",
                 "attempt_id": "a" * 32,
-                "attempt_trace_id": "trace_attempt_uichat_013",
+                "attempt_trace_id": "b" * 32,
                 "product_status": "attempt_pending",
                 "preflight_state": "CONTEXT_READY",
                 "question_sha256_matches": True,
@@ -127,6 +128,33 @@ def main():
                 "generation_calls": 0,
                 "dispatch_performed": False,
                 "answer": None
+            })
+        elif path.endswith("/api/history/message-requests/retrieved-sources") and method == "GET":
+            check_original_query(route.request.url)
+            state["source_reads"] += 1
+            rows = [{"position": index, "chunk_id": f"observed_chunk_{index:02}",
+                     "source_id": f"observed_source_{index:02}",
+                     "chunk_match": "PASS", "source_validation": "UNVERIFIED",
+                     "locator_validation": "PENDING_STRUCTURE", "verified_locators": []}
+                    for index in range(1, 11)]
+            mode = state["source_mode"]
+            if mode == "missing":
+                route.fulfill(status=404, content_type="application/json",
+                              body='{"error":"NOT_FOUND"}')
+                return
+            if mode == "invalid":
+                rows[0]["verified_locators"] = [{"url": "https://example.org/unapproved"}]
+            if mode in ("NOT_AVAILABLE", "EVIDENCE_INVALID", "EVIDENCE_NOT_AVAILABLE"):
+                rows = []
+            route.fulfill(status=200, json={
+                "kind": "retrieved_sources",
+                "contract_version": "api.retrieved_sources.v1",
+                "attempt_id": "a" * 32,
+                "attempt_trace_id": "b" * 32,
+                "retrieval_state": mode if mode in ("NOT_AVAILABLE", "EVIDENCE_INVALID", "EVIDENCE_NOT_AVAILABLE") else "PARTIAL_UNVERIFIED",
+                "engine_sha256": "93233bfdf25e40684fd9120b82ec19c217695fdb632ed4a1f7d2bb2a3abcb17d",
+                "chunks_sha256": "3891c4ecad9332ba753cd605bbccd99da9d063f64934a30ee39e495349cffb50",
+                "generation_calls": None if mode == "NOT_AVAILABLE" else 0, "rows": rows
             })
         else:
             route.fulfill(status=404, content_type="application/json",
@@ -147,6 +175,12 @@ def main():
                 timeout=15000)
             expect(page.get_by_text(
                 "بازیابی شواهد کامل شد؛ تولید پاسخ انجام نشده است.")).to_be_visible()
+            section = page.get_by_test_id("retrieved-sources-observed")
+            expect(section).to_contain_text("observed_chunk_01")
+            expect(section).to_contain_text("observed_source_10")
+            assert section.locator("li").count() == 10
+            assert section.locator("a").count() == 0
+            assert page.get_by_test_id("retrieval-evidence-list").count() == 0
             assert state["posts"] == 1
             # Reload MUST never invoke POST: same original client IDs/status GET.
             page.reload(wait_until="domcontentloaded")
@@ -155,17 +189,43 @@ def main():
             expect(page.get_by_text("در حال پردازش؛ وضعیت از API دریافت شده است.")).to_be_visible()
             expect(page.get_by_text(
                 "بازیابی شواهد کامل شد؛ تولید پاسخ انجام نشده است.")).to_be_visible()
+            section = page.get_by_test_id("retrieved-sources-observed")
+            expect(section).to_contain_text("observed_chunk_01")
+            expect(section).to_contain_text("observed_source_10")
+            assert section.locator("li").count() == 10
+            assert section.locator("a").count() == 0
+            assert page.get_by_test_id("retrieval-evidence-list").count() == 0
             assert state["posts"] == 1 and state["status_reads"] >= 2
             assert state["engine_reads"] >= 2
+            assert state["source_reads"] >= 2
+            # A later malformed receipt must clear the previously shown rows.
+            state["source_mode"] = "invalid"
+            page.get_by_test_id("recover-status").click()
+            expect(page.get_by_test_id("retrieved-sources-unavailable")).to_be_visible()
+            assert page.get_by_test_id("retrieved-sources-observed").count() == 0
+            for mode in ("NOT_AVAILABLE", "EVIDENCE_INVALID", "EVIDENCE_NOT_AVAILABLE"):
+                state["source_mode"] = mode
+                page.get_by_test_id("recover-status").click()
+                expect(page.get_by_test_id("retrieved-sources-empty")).to_be_visible()
+                assert page.get_by_test_id("retrieved-sources-observed").count() == 0
+            state["source_mode"] = "missing"
+            page.get_by_test_id("recover-status").click()
+            expect(page.get_by_test_id("retrieved-sources-pending")).to_be_visible()
+            state["source_mode"] = "valid"
+            page.get_by_test_id("recover-status").click()
+            expect(page.get_by_test_id("retrieved-sources-observed")).to_be_visible()
+            assert state["posts"] == 1
             expect(page.locator("nav.history-list")).to_contain_text("گفت‌وگوی تست فارسی")
             # Server 401 purges old per-account list and persisted correlators.
             state["logged_in"] = False
-            page.get_by_test_id("refresh-history").click()
+            # Refresh invokes authenticated GET, even if background polling has
+            # already observed the 401 and disabled the in-page Refresh button.
+            page.reload(wait_until="domcontentloaded")
             expect(page.get_by_test_id("history-login-required")).to_be_visible()
             assert page.locator("nav.history-list button").count() == 0
             assert page.evaluate(
                 "() => sessionStorage.getItem('rag-finance-attempt-correlation-v1')") is None
-            print("UI_CHAT_L1_BROWSER_ONCE_ONLY_POST_REFRESH_STATUS_AND_401_PURGE_PASS")
+            print("UI_CHAT_L1_BROWSER_SAME_ATTEMPT_REFRESH_INVALID_MISSING_3_EMPTY_STATES_401_PASS")
             context.close()
         finally:
             browser.close()
