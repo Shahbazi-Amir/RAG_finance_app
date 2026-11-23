@@ -150,7 +150,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: f3-completion-sanitized-db-receipt
-          path: infra/postgres/dev_f3_isolated/ci_receipts/*
+          path: ci_receipts/*
           if-no-files-found: error
   ui-synthetic-browser:
     runs-on: ubuntu-24.04
