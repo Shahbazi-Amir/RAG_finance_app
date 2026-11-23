@@ -113,3 +113,11 @@ Status is review. Supervisor approval is pending.
 - Tested: docker inspect showed no published Keycloak ports. Boolean-only checks found no hostname-admin in the running config file or environment and confirmed the ingress admin deny rule. Seven containers were running. Official Keycloak guidance confirms that a separate admin hostname needs proxy-level restrictions.
 - Blocker: approval for a loopback-only TLS admin route and an existing authorized Staging operator. SMTP authentication and Test Email remain unexecuted. Arvan HOLD. Supervisor acceptance pending.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — temporary authenticated admin entry point
+
+- Status: blocked on operator. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), operational evidence only. Reporting baseline codex 1940609, execution baseline ops/mac-first-start b57bf7a. Execution changes committed locally at 5764fff.
+- Implemented: temporary non-root TLS Nginx listener published only to Mac loopback and browser launch in a separate Chrome profile. Execution paths infra/mac-first-start/keycloak-admin-local.conf, open_local_keycloak_admin.py and staging_invitation_v1.py. Existing ingress and seven containers retained. Report-only push updates this checkpoint and docs/codex_execution/MAC_FIRST_START_FA.md, MAC_FIRST_START_FA.html and CURRENT_STATUS.md.
+- Tested: nginx -t, Docker port readback, trusted curl 200 console, 401 unauthorized REST and 403 standard ingress. Both independent headless admin DOM methods timed out. Interactive window launched, operator login unverified. Runtime engine_mount_readiness.py, offline mode checks, five backup SHA-256 entries and seven service readiness checks passed. No engine invocation.
+- Pending: existing authorized operator sign-in and manual SMTP password entry, Test Email receipt, invitation, authenticated path, source-capable release validation and Refresh. Stop the temporary listener after use. Full isolated restore and supervisor acceptance remain open. Arvan HOLD.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).

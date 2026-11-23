@@ -181,3 +181,19 @@ OIDC، Signed BFF و C018 به دعوت واقعی وابسته‌اند. سؤا
 [راهنمای رسمی hostname-admin](https://www.keycloak.org/server/hostname#_exposing_the_administration_console_on_a_separate_hostname)
 
 [راهنمای رسمی محدودسازی Reverse Proxy](https://www.keycloak.org/server/reverseproxy)
+
+## مسیر موقت مدیریت روی مک و آمادگی پیش از ورود
+
+مبنای گزارش codex در 1940609 و مبنای ops/mac-first-start در b57bf7a بود. Docker زنده ۴ CPU و ۶٬۲۱۲٬۰۲۶٬۳۶۸ بایت RAM نشان داد. در نمونهٔ پس از افزودن کانتینر موقت، هر هفت سرویس اصلی فعال بودند. پنج healthcheck موفق بود، readiness مدیریت Keycloak پاسخ ۲۰۰ داد، و HTTPS محصول با CA محلی HTTP 200 و TLS_VERIFY=0 بود. این شواهد آمادگی‌اند. تراکنش محصول هنوز آزموده نشده است.
+
+کانتینر موقت rag-mac-keycloak-admin-local با ایمیج پین‌شدهٔ Nginx موجود، فقط روی 127.0.0.1 مک منتشر شد. مسیر از همان گواهی معتبر IdP با mount فقط‌خواندنی زیرشاخهٔ TLS، کاربر غیر root، filesystem فقط‌خواندنی، cap-drop ALL و شبکهٔ خصوصی Docker استفاده می‌کند. ثبت access log خاموش است. Keycloak و ingress اصلی بازپیکربندی نشدند. مقصد و Host برای IdP ثابت‌اند و Nginx هدرهای اعتماد ورودی را منتقل نمی‌کند.
+
+با docker inspect انتشار فقط روی 127.0.0.1 بررسی شد. nginx -t موفق بود. curl با CA محلی و --connect-to روی مسیر موقت برای /admin/master/console/ پاسخ ۲۰۰، روی /admin/realms بدون نشست پاسخ ۴۰۱ و روی مسیر خارج از فهرست پاسخ ۴۰۴ داد. TLS_VERIFY=0 بود. ingress معمولی روی /admin/ همچنان ۴۰۳ و TLS معتبر داشت. پاسخ ۲۰۰ کنسول شاهد ورود اپراتور نیست.
+
+پنجرهٔ مجزای Chrome با نگاشت همان hostname به پورت loopback و پین گواهی پس از اعتبارسنجی با CA محلی باز شد. در پنجرهٔ اپراتور remote debugging فعال نیست. آزمون‌های مستقل headless با dump-dom و DevTools در مشاهدهٔ فرم ورود timeout شدند. نمایش فرم در پنجرهٔ تعاملی و ورود اپراتور باید تأیید شوند. اقدام انسانی به اپراتور اعلام شد. مسیر در زمان تحویل فقط روی مک باز می‌ماند و پس از پایان تنظیم و دعوت با docker stop rag-mac-keycloak-admin-local بسته می‌شود. کانتینر موقت auto-remove دارد. کنترل دسترسی یا نقش جدید ایجاد نشد.
+
+فایل‌های infra/mac-first-start/keycloak-admin-local.conf و open_local_keycloak_admin.py و گزینهٔ پورت loopback در staging_invitation_v1.py فقط در شاخهٔ اجرایی محلی، SHA 5764fff92e038810f7e17d0d8b80adb30848df73 ثبت شدند. مرحلهٔ ورود از پنجرهٔ Chrome، حساب مدیر موجود، انتخاب Realm خصوصی Staging، مسیر Realm settings → Email → Authentication → Password، ذخیره و Test connection است. رسیدن ایمیل باید جداگانه توسط صاحب صندوق تأیید شود. SMTP AUTH، ارسال، دعوت، تأیید ایمیل و نشست هنوز شاهد ندارند. اقدام امنیتی پیش از آزمون نشست محصول داخلی پیگیری می‌شود.
+
+در کانتینر Product API، python3 -B با engine_mount_readiness.py صحت هش موتور پین‌شده، متادیتای Python و Qdrant و مسیرهای لازم را تأیید کرد. چهار mount موتور فقط‌خواندنی بودند و مسیر workspace محافظت‌شده در آن‌ها مشاهده نشد. حالت NO_DISPATCH_ONLY و تنظیمات آفلاین تأیید شدند. این بررسی موتور را اجرا نکرد. نسخهٔ زنده از api.no_dispatch_status.v1 فقط شمار منابع می‌گیرد. شاخهٔ آزمون‌نشدهٔ یکپارچه در c488837b378d67ddde624dcd2a185e62fccbc30f مسیر api.retrieved_sources.v1 را دارد و باید از نظر سازگاری و مجوز منابع روی پشته بررسی شود. تلاش واقعی، منابع UI و Refresh اجرا نشدند.
+
+در بکاپ IdP و Keycloak، shasum -a 256 -c SHA256SUMS برای هر پنج فایل موفق بود. شاهد بازیابی منطقی IdP از آزمون ایزولهٔ قبلی حفظ شده است. بازپخش کامل Globals، بارگذاری ایمیج‌ها در daemon مستقل و بازیابی یکپارچه هنوز بازند. آروان HOLD است و پذیرش سرپرست ثبت نشده است.
