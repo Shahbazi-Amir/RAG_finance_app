@@ -1,29 +1,35 @@
 {
   "schema": "foundation.f3.completion_integration.v4",
-  "parent_commit": "f7d738aa763179eba28c7847e6225640bb88b176",
+  "parent_commit": "b7c8928e596001de83c5f8dbd1b86284f46a57a9",
   "owners": {
     "DATABASE_F3": {
-      "tested_source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "current_head": "322fc16f6602d52c16facd2d598834228bacf58d",
-      "CI_run": "45218702399",
+      "tested_source_sha": "4461406829cdadc5a358b2af591c827e91e711ae",
+      "current_head": "4461406829cdadc5a358b2af591c827e91e711ae",
+      "CI_run": "PENDING_INTEGRATED",
       "receipt_scope": "Fresh PG17.11 001-010+DB55, 15-17, owner-fence negative and independent restore; separate011 not installed",
-      "head_unverified_changes_excluded": true
+      "head_unverified_changes_excluded": true,
+      "prior_pin": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
+      "owner_source_test_scope": "CODE_INTEGRATED_PENDING_SAME_SHA_DB_JOB"
     },
     "API_F3": {
-      "tested_source_sha": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
-      "current_head": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
-      "CI_run": "45226729581",
+      "tested_source_sha": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "current_head": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "CI_run": "45234618033+45234618062",
       "api_lock_sha256": "399a4e796403bd8fc5b8165c030ad4d4d8479fb946e363e29a5722ea88d35ff5",
       "documentation_only_head": "5d9df47c7ca52133ca8706bd748d535233bae050",
       "api_runtime_pin": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
-      "documentation_evidence": "API #63 262 rows / 91 API IDs; no runtime delta"
+      "documentation_evidence": "API #63 262 rows / 91 API IDs; no runtime delta",
+      "prior_pin": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
+      "owner_source_test_scope": "TESTED_AT_OWNER_SHA"
     },
     "UI_F3": {
-      "tested_source_sha": "f45caa45139d2e147c3e45fd7349033b212342c7",
-      "current_head": "f45caa45139d2e147c3e45fd7349033b212342c7",
+      "tested_source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
+      "current_head": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
       "previous_tested_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
-      "CI_run": "45225396455",
-      "receipt_scope": "121/121 Node, Typecheck/Lint/Next Build, synthetic Chromium owner switch/late owner/mixed thread, no Mac"
+      "CI_run": "45233604251",
+      "receipt_scope": "121/121 Node, Typecheck/Lint/Next Build, synthetic Chromium owner switch/late owner/mixed thread, no Mac",
+      "prior_pin": "f45caa45139d2e147c3e45fd7349033b212342c7",
+      "owner_source_test_scope": "TESTED_AT_OWNER_SHA"
     }
   },
   "conflict_policy": {
@@ -88,9 +94,9 @@
     },
     "src/phase3/rag_runtime/no_dispatch_handler.py": {
       "owner": "API_F3",
-      "source_sha": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
-      "git_blob": "5e3472af55a1f3b5b1162a283b3a48aca01e6f21",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "git_blob": "62d1b8019b2ffb9a22f66c9a3457674748baef6d",
+      "source_sha": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
     },
     "src/phase3/rag_runtime/retrieved_sources.py": {
       "owner": "API_F3",
@@ -118,9 +124,9 @@
     },
     "apps/web/src/ui/product-chat.tsx": {
       "owner": "UI_F3",
-      "source_sha": "f45caa45139d2e147c3e45fd7349033b212342c7",
-      "git_blob": "c417ad881a2a5cdbec476e6b7c76b8c5a3212f23",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "git_blob": "3708795519f6cef44c695e754a963658191d1db3",
+      "source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
     },
     "apps/web/src/ui/retrieved-sources-panel.tsx": {
       "owner": "UI_F3",
@@ -136,9 +142,9 @@
     },
     "tests/phase3/integration/ui/product_chat_browser.py": {
       "owner": "UI_F3",
-      "source_sha": "f45caa45139d2e147c3e45fd7349033b212342c7",
-      "git_blob": "45c02bd0aba9ef9d4c52418dda2c2b720f69dcd4",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "git_blob": "1cfa8f0cbcd0180b82f900482074711e702a9893",
+      "source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
     },
     "tests/phase3/ui/retrieved-sources-client.test.mjs": {
       "owner": "UI_F3",
@@ -214,9 +220,9 @@
     },
     "infra/postgres/dev_f3_isolated/scripts/11_export_sanitized_receipt.sh": {
       "owner": "DATABASE_F3",
-      "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "git_blob": "8df5c4e28718b5e396b1f6df69c2358d8d878a7c",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "git_blob": "8ac7ea78dee35bcd90d3fff066a56cc8f06bae23",
+      "source_sha": "4461406829cdadc5a358b2af591c827e91e711ae",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
     },
     "infra/postgres/dev_f3_isolated/scripts/shared_stack_db_witness.py": {
       "owner": "DATABASE_F3",
@@ -226,9 +232,9 @@
     },
     ".github/workflows/f3-db-isolated-fresh-install.yml": {
       "owner": "DATABASE_F3",
-      "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "git_blob": "bb8bc55a6b383e00e3adb59511b7e0cd41218eda",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "git_blob": "4701c68b3159557b290a2bb96315ae7928cc5a36",
+      "source_sha": "4461406829cdadc5a358b2af591c827e91e711ae",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
     },
     ".github/workflows/ui-f3-api61-completion.yml": {
       "owner": "UI_F3",
@@ -244,9 +250,9 @@
     },
     "apps/web/app/history/history.css": {
       "owner": "UI_F3",
-      "source_sha": "f45caa45139d2e147c3e45fd7349033b212342c7",
-      "git_blob": "18947135eb5e06a0392cb8af717a61457e5c56e2",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "git_blob": "8e8ebe0fe9d52dbe88285c2abd3d8544561055fa",
+      "source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
     },
     "apps/web/app/login/route.ts": {
       "owner": "UI_F3",
@@ -310,9 +316,9 @@
     },
     "infra/postgres/dev_f3_isolated/docs/PHASE3_57_ROW_DATABASE_AUDIT_20261123.md": {
       "owner": "DATABASE_F3",
-      "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "git_blob": "f83e95e73d8fe2ddcd20ff673fff0a623c77fdf3",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "git_blob": "e9422dc07ee38148862b7a2b47edd9bdb0016ecf",
+      "source_sha": "4461406829cdadc5a358b2af591c827e91e711ae",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
     },
     "infra/postgres/dev_f3_isolated/docs/PHASE3_PHYSICAL_SCHEMA_POLICY_DELTA_20261123.md": {
       "owner": "DATABASE_F3",
@@ -340,9 +346,9 @@
     },
     ".github/workflows/ui-f3-post62-owner-fence.yml": {
       "owner": "UI_F3",
-      "source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
-      "git_blob": "b0d62be010b49556b655a77c9d2990778cd773f8",
-      "reason": "Exact ui65 HEAD overlay relative to ui62; L1/isolated CI only; no Mac Gate"
+      "git_blob": "a495a23146393c7f358b00218f436a34d83defee",
+      "source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
     },
     "apps/web/app/account/page.tsx": {
       "owner": "UI_F3",
@@ -454,9 +460,9 @@
     },
     "coordination/handoffs/UI_F3_20261123_UPDATED_EXECUTION.md": {
       "owner": "UI_F3",
-      "source_sha": "f45caa45139d2e147c3e45fd7349033b212342c7",
-      "git_blob": "65b9bffa7db8e6121837e8a9f761b8f41fd47ab0",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "git_blob": "2c86219f82cae48bcd988e0b822959d4f88ddcc4",
+      "source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
     },
     "coordination/handoffs/UI_F3_API_DB_PRODUCT_CONTRACT_PROPOSALS_v0_1.md": {
       "owner": "UI_F3",
@@ -484,21 +490,21 @@
     },
     ".github/workflows/api-f3-stream-integrity-offline.yml": {
       "owner": "API_F3",
-      "source_sha": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
-      "git_blob": "f4fe3eea2eefef3acbe7add4dd3210f22df125ae",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "git_blob": "90a52881ab40e0de8033e70f53dd91f0e60b1890",
+      "source_sha": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
     },
     "coordination/handoffs/API_F3_91_ROW_L1_SOURCE_MATRIX_20261123.csv": {
       "owner": "API_F3",
-      "source_sha": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
-      "git_blob": "9d5076cde48da061e49489e18dc888b38399727f",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "git_blob": "59f8cc1fe1939201031cd78a56d4fdbe1bb9db92",
+      "source_sha": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
     },
     "coordination/handoffs/API_F3_CURRENT_ROADMAP_AND_ACCEPTANCE_20261123.md": {
       "owner": "API_F3",
-      "source_sha": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
-      "git_blob": "35533a73b432d936366e893d091baa2ffae13567",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "git_blob": "f5c23ae3343c7d4e2c733883c8de7c57b52978d7",
+      "source_sha": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
     },
     "coordination/handoffs/API_F3_POST66_REVOKE_LIFECYCLE_HANDOFF_20261123.md": {
       "owner": "API_F3",
@@ -598,9 +604,9 @@
     },
     "infra/postgres/dev_f3_isolated/contracts/DBF3_EXACT_PINS_SCRIPT11_PREREQUISITES_20261123.md": {
       "owner": "DATABASE_F3",
-      "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "git_blob": "97cbbc2117f0cd04de0ea433ed3c025dcec56af4",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "git_blob": "86299dc673082d7d82936588215173d7c749b7fc",
+      "source_sha": "4461406829cdadc5a358b2af591c827e91e711ae",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
     },
     "infra/postgres/dev_f3_isolated/docs/DBF3_PHASE3_EXECUTION_CONSOLIDATED_HANDOFF_20261123.md": {
       "owner": "DATABASE_F3",
@@ -610,9 +616,9 @@
     },
     "infra/postgres/dev_f3_isolated/docs/DBF3_PROGRESS_VS_171_MAP_AND_57_SPECIALIST_20261123.md": {
       "owner": "DATABASE_F3",
-      "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "git_blob": "cc299bcdef43d2b1549b7c48d28fd843e0267f3b",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "git_blob": "3dafc4b7b55060d3bc0e469a67de7fabe405b753",
+      "source_sha": "4461406829cdadc5a358b2af591c827e91e711ae",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
     },
     "infra/postgres/dev_f3_isolated/docs/DBF3_UPDATED_INSTRUCTION_EXECUTION_RECEIPT_20261123.md": {
       "owner": "DATABASE_F3",
@@ -655,6 +661,72 @@
       "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
       "git_blob": "8732a4788cb3ecf821c15d811119f8cacc3eedd1",
       "reason": "Exact owner CI tested pin, not Mac acceptance"
+    },
+    "coordination/handoffs/UI_F3_L2_NO_DISPATCH_EVIDENCE_CYCLE_20261123.md": {
+      "owner": "UI_F3",
+      "git_blob": "6e63097df940345942f896d8b88eadf0623f2044",
+      "source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
+    },
+    "tests/phase3/integration/ui/l2_no_dispatch_receipt_gate.py": {
+      "owner": "UI_F3",
+      "git_blob": "c018988751d5fe36d760384409cb0994d8a96c32",
+      "source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
+    },
+    "tests/phase3/integration/ui/test_l2_no_dispatch_receipt_gate.py": {
+      "owner": "UI_F3",
+      "git_blob": "55d61ccb69466b64044d1afb8f6b1b7b92933ffc",
+      "source_sha": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
+    },
+    "infra/postgres/dev_f3_isolated/docs/DBF3_M04_A07_CLOSURE_AND_NEXT_29_OPEN_QUEUE_20261123.md": {
+      "owner": "DATABASE_F3",
+      "git_blob": "b54fe4973b9d5a7893e4b06530415ca3f5a9d0aa",
+      "source_sha": "4461406829cdadc5a358b2af591c827e91e711ae",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/22_restore_catalog_parity_probe.sh": {
+      "owner": "DATABASE_F3",
+      "git_blob": "5869b15413d058acb2424199d8fcaa9d274f822c",
+      "source_sha": "4461406829cdadc5a358b2af591c827e91e711ae",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/23_m04_migration_full_cycle.sh": {
+      "owner": "DATABASE_F3",
+      "git_blob": "a547a58ac1555795dd73c18415973bbc955177d8",
+      "source_sha": "4461406829cdadc5a358b2af591c827e91e711ae",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/24_m10_idempotency_concurrency_probe.sh": {
+      "owner": "DATABASE_F3",
+      "git_blob": "395078707143c85de2d8f58c0b365445176bbf6a",
+      "source_sha": "4461406829cdadc5a358b2af591c827e91e711ae",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
+    },
+    ".github/workflows/api-session-011.yml": {
+      "owner": "API_F3",
+      "git_blob": "ed7bf4ee7dde750c1f32f4b1086482d2946a05b1",
+      "source_sha": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
+    },
+    "coordination/handoffs/API_F3_PR76_SIGNED_HISTORY_REAL_PROGRESS_20261123.md": {
+      "owner": "API_F3",
+      "git_blob": "c97a875e7d688d176f302095e3300c3ce2f98329",
+      "source_sha": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
+    },
+    "tests/phase3/api/test_full_binding_fence.py": {
+      "owner": "API_F3",
+      "git_blob": "d8d181d0e04dbf976f520a2166b039832d92b8ef",
+      "source_sha": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
+    },
+    "tests/phase3/integration/api/test_product_session_011.py": {
+      "owner": "API_F3",
+      "git_blob": "ff44a2b4b86270748058db41f3b6b2e16de4b3ed",
+      "source_sha": "865adb26fefbdbddf7da173d7680255c4a3b19c2",
+      "reason": "New owner source delta; integrated PG CI prerequisite before DB source acceptance"
     }
   },
   "status": {
@@ -663,19 +735,20 @@
     "mac_c018": "NOT_RUN",
     "accepted_gates": 0,
     "arvan": "HOLD",
-    "integrated_CI": "PENDING"
+    "integrated_CI": "PENDING",
+    "real_app_only_http": "NOT_RUN",
+    "real_browser_sql": "NOT_RUN"
   },
   "previous_integrated_sha": "d6dc01df5835cca8a97a778b091b769496646abb",
   "previous_ui65_candidate_sha": "ce899c26a27fa0e913584384f9dac8980bb77c33",
   "source_overlay": {
-    "base": "f7d738aa763179eba28c7847e6225640bb88b176",
-    "source_pins": {
-      "api": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
-      "ui": "f45caa45139d2e147c3e45fd7349033b212342c7",
-      "db": "76822ac273c3f5defbb7e5cd77d497f8d3305852"
+    "base": "b7c8928e596001de83c5f8dbd1b86284f46a57a9",
+    "latest": {
+      "ui": "48107fcd5c2c0a68d4b69e6be5ae7c2f9141c4b4",
+      "db": "4461406829cdadc5a358b2af591c827e91e711ae",
+      "api": "865adb26fefbdbddf7da173d7680255c4a3b19c2"
     },
-    "db_unverified_HEAD": "322fc16f6602d52c16facd2d598834228bacf58d",
-    "owner_paths": 46,
+    "new_owner_paths": 25,
     "overlap_count": 0
   }
 }
