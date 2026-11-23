@@ -1,4 +1,4 @@
-# CI-only real API image build; NOT production mTLS listener
+# Signed app-only API candidate; no production deployment authorization.
 ARG BASE=public.ecr.aws/docker/library/python@sha256:f3dac913ab53b78c64f26d5518fcd7043d5a1a46522d6a493b598c3ed12f62a6
 FROM ${BASE}
 ARG SOURCE_SHA
@@ -14,12 +14,14 @@ COPY references/phase2 /srv/release/references/phase2
 COPY tests/phase3 /srv/release/tests/phase3
 RUN groupadd -g 11001 api && useradd -u 11001 -g 11001 -m -d /home/api api
 USER 11001:11001
-# App-only CI candidate: actual loopback-capable non-root API process.
-# INTERNAL HTTP health/deny-only: never expose without an authenticated
-# mTLS ingress. Real signed PG History readiness is NOT asserted here.
-RUN python3 -c "from apps.api.app_only_asgi import app; print('API_APP_ONLY_IMPORT_SMOKE_PASS')"
-ENV PHASE3_APP_MODE=APP_ONLY
-EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/live', timeout=2).close()"
-CMD ["python3","-m","uvicorn","apps.api.app_only_asgi:app","--host","0.0.0.0","--port","8080","--no-access-log"]
+# Signed app-only candidate: no Ops config -> fail closed before a socket.
+# Service requires private Docker network, separate BFF client cert, trusted CA,
+# RS256 public key, and restricted PG roles. No Runner/engine/model mounts.
+RUN python3 -c "from apps.api.private_app_only_asgi import AppOnlyASGI; print('API_SIGNED_APP_ONLY_SOURCE_IMPORT_PASS')"
+ENV PHASE3_APP_MODE=APP_ONLY API_RUNNER_EXECUTION_MODE=APP_ONLY
+EXPOSE 8443
+# TCP liveness only. An authenticated service probe must separately check
+# GET /health/ready; socket liveness NEVER asserts PG/IdP readiness.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD python3 -m apps.api.app_only_socket_probe --config /run/secrets/phase3-app-only.json || exit 1
+CMD ["python3","-m","apps.api.private_app_only_asgi","--config","/run/secrets/phase3-app-only.json"]
