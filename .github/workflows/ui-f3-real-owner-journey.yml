@@ -2,7 +2,7 @@ name: UI F3 exact-candidate real browser History baseline — app-only, no inter
 
 on:
   push:
-    branches: [agent/ui-f3-real-two-owner-history-20261124]
+    branches: [agent/ui-f3-strict-ca-sha-320-20261124]
   workflow_dispatch:
 
 permissions:
@@ -56,6 +56,7 @@ jobs:
           set -euo pipefail
           python -m py_compile tests/phase3/integration/ui/app_only_entry_baseline_real_browser.py
           python -m py_compile tests/phase3/integration/ui/real_signed_two_owner_history_journey.py
+          python -m unittest discover -s tests/phase3/integration/ui -p 'test_real_history_preflight.py' -v
           if python tests/phase3/integration/ui/real_signed_two_owner_history_journey.py > "$RUNNER_TEMP/ui-signed-preflight.stdout" 2> "$RUNNER_TEMP/ui-signed-preflight.stderr"; then
             echo "ERROR: signed journey succeeded without approved IdP/PG credentials"; exit 1
           fi
