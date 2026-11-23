@@ -89,8 +89,9 @@ def configured():
     # rather than a visible button with no server cursor.
     if len(users["A"]["conversation_ids"]) < 3:
         raise RuntimeError("PG_SEED_REQUIRES_A_CONVERSATION_PAGINATION")
-    if not any(len(v) > 30 for v in users["A"]["message_ids"].values()):
-        raise RuntimeError("PG_SEED_REQUIRES_A_MESSAGE_PAGINATION_OVER_30")
+    first_a = users["A"]["conversation_ids"][0]
+    if len(users["A"]["message_ids"].get(first_a, [])) <= 30:
+        raise RuntimeError("PG_SEED_REQUIRES_FIRST_A_THREAD_OVER_30_MESSAGES")
     credentials = {}
     for alias in ("A", "B"):
         name = os.environ.get("UI_REAL_" + alias + "_USERNAME", "")
@@ -206,8 +207,9 @@ async def verify_list_and_thread(page, owner, width):
     visible = await page.locator('[data-testid^="conversation-"]').evaluate_all(
         "(nodes) => nodes.map(n => n.getAttribute('data-testid').slice(13))")
     assert visible == expected, ("PG_LIST_ORDER_MISMATCH",len(visible),len(expected))
-    target = next(cid for cid in expected if len(owner["message_ids"].get(cid, [])) > 30)
-    await page.get_by_test_id("conversation-" + target).click()
+    target = expected[0]
+    # The SQL producer must put the long thread on the first visible owner A
+    # record, making reload and cursor assertions deterministic.
     async with page.expect_response(
         lambda r: r.request.method == "GET"
         and "/api/history/conversations/" + target + "/messages?limit=30" in r.url,
