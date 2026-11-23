@@ -205,3 +205,23 @@ jobs:
           python tests/phase3/integration/ui/retrieval_evidence_preview_browser.py
           python tests/phase3/integration/ui/product_chat_browser.py
           echo 'F3_COMPLETION_BROWSER_FIXTURES_ONLY_PASS'
+      - name: Real Next APP_ONLY Chromium 1280/390/320 and BFF no-Send
+        env:
+          PHASE3_APP_MODE: APP_ONLY
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd apps/web && ./node_modules/.bin/next start -H 127.0.0.1 -p 3100) > "$RUNNER_TEMP/f3-app-only-next.log" 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 2 http://127.0.0.1:3100/api/product-capabilities >/dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          if [[ "$ready" != 1 ]]; then
+            tail -70 "$RUNNER_TEMP/f3-app-only-next.log"
+            exit 1
+          fi
+          python tests/phase3/integration/ui/app_only_real_browser.py
+          echo 'F3_INTEGRATED_APP_ONLY_ACTUAL_CHROMIUM_NO_SEND_PASS_NOT_L2'
