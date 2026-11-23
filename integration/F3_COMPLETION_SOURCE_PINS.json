@@ -1,0 +1,239 @@
+{
+  "schema": "foundation.f3.completion_integration.v1",
+  "parent_commit": "0c0a942c893d13393e47d94ca0c0d260cce6067e",
+  "owners": {
+    "DATABASE_F3": {
+      "tested_source_sha": "b6b79369006eca3a1e4c8e75a9ba4ab14d0fab74",
+      "current_head": "da8d5b48af0c4fbecf8df633356939d6cc6cdd8c",
+      "CI_run": "45082326382",
+      "receipt_scope": "isolated PG17.11 + restore only"
+    },
+    "API_F3": {
+      "tested_source_sha": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
+      "current_head": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
+      "CI_run": "45081955496",
+      "api_lock_sha256": "399a4e796403bd8fc5b8165c030ad4d4d8479fb946e363e29a5722ea88d35ff5"
+    },
+    "UI_F3": {
+      "tested_source_sha": "21fe24913f85cb9cc013ce01b1d5dbb4bc97774f",
+      "current_head": "21fe24913f85cb9cc013ce01b1d5dbb4bc97774f",
+      "CI_run": "45082202462",
+      "receipt_scope": "browser fixtures only"
+    }
+  },
+  "conflict_policy": {
+    "source_common_ancestor": "7c6b5c62817f4f06201718781a00c62e0b4c17e0",
+    "api_owned": [
+      "apps/api/**",
+      "src/phase3/rag_runtime/**",
+      "packages/contracts/**",
+      "tests/phase3/api/**"
+    ],
+    "ui_supersedes": [
+      "apps/web/src/ui/product-chat.tsx"
+    ],
+    "reason": "Keep API61 final hardened source and UI60 rendered same-Attempt display; no wholesale merge of standalone branches"
+  },
+  "file_pins": {
+    ".github/workflows/api-f3-gate3-retrieved-sources-offline.yml": {
+      "owner": "API_F3",
+      "source_sha": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
+      "git_blob": "7e8ce2b6159c15719aeead44d0c2107a11000034",
+      "reason": "API61 final hardened contract"
+    },
+    "apps/api/product_session_api.py": {
+      "owner": "API_F3",
+      "source_sha": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
+      "git_blob": "c6502fe5fbf2ec786a4713d99d7be81ca0f52701",
+      "reason": "API61 final hardened contract"
+    },
+    "apps/web/src/auth/server/product-session.ts": {
+      "owner": "API_F3",
+      "source_sha": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
+      "git_blob": "e43c98c2584df4b88ff542b30addbc62d495012a",
+      "reason": "API61 final hardened contract"
+    },
+    "apps/web/src/history/client.ts": {
+      "owner": "API_F3",
+      "source_sha": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
+      "git_blob": "6e057e4d097dd76f36bc41843b17c63dfb96e313",
+      "reason": "API61 final hardened contract"
+    },
+    "apps/web/src/history/proxy.ts": {
+      "owner": "API_F3",
+      "source_sha": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
+      "git_blob": "2588caf8f9e79470a90974e3e5dee4adecb3ad0e",
+      "reason": "API61 final hardened contract"
+    },
+    "locks/requirements-api.lock": {
+      "owner": "API_F3",
+      "source_sha": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
+      "git_blob": "17ff54547448b1121f63d0ec4c21e33eae77d420",
+      "reason": "API61 final hardened contract"
+    },
+    "locks/requirements-api.lock.sha256": {
+      "owner": "API_F3",
+      "source_sha": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
+      "git_blob": "0bf15d4ef1ab8c78bc81c21bb12f397344c801b8",
+      "reason": "API61 final hardened contract"
+    },
+    "packages/contracts/api.retrieved_sources.v1.schema.json": {
+      "owner": "API_F3",
+      "source_sha": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
+      "git_blob": "1fe1d15905e2bf2b4d4ceca48ce7e0421a11d721",
+      "reason": "API61 final hardened contract"
+    },
+    "src/phase3/rag_runtime/no_dispatch_handler.py": {
+      "owner": "API_F3",
+      "source_sha": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
+      "git_blob": "c2f94d11e33e1324261e84f26fe6595870821232",
+      "reason": "API61 final hardened contract"
+    },
+    "src/phase3/rag_runtime/retrieved_sources.py": {
+      "owner": "API_F3",
+      "source_sha": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
+      "git_blob": "0b80b6e47a3da104a046a576d03973a1571c1a7e",
+      "reason": "API61 final hardened contract"
+    },
+    "tests/phase3/api/test_retrieved_sources_gate3.py": {
+      "owner": "API_F3",
+      "source_sha": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
+      "git_blob": "77a14bcfa36c94ca6894ed25b6e884b056686d81",
+      "reason": "API61 final hardened contract"
+    },
+    "tests/phase3/api/test_retrieved_sources_http_contract.py": {
+      "owner": "API_F3",
+      "source_sha": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
+      "git_blob": "1197bea21cbd717e7dee52a2dfb5f73db695ef49",
+      "reason": "API61 final hardened contract"
+    },
+    ".github/workflows/ui-f3-api7c6-integration.yml": {
+      "owner": "UI_F3",
+      "source_sha": "21fe24913f85cb9cc013ce01b1d5dbb4bc97774f",
+      "git_blob": "caf6956ca48132d7f32ae4ccf17fc3310959227d",
+      "reason": "UI60 browser/visual same-Attempt changes"
+    },
+    "apps/web/src/ui/product-chat.tsx": {
+      "owner": "UI_F3",
+      "source_sha": "21fe24913f85cb9cc013ce01b1d5dbb4bc97774f",
+      "git_blob": "a77efeeabc989c2e491689ddd5f4dcefa3cb6e67",
+      "reason": "UI60 browser/visual same-Attempt changes"
+    },
+    "apps/web/src/ui/retrieved-sources-panel.tsx": {
+      "owner": "UI_F3",
+      "source_sha": "21fe24913f85cb9cc013ce01b1d5dbb4bc97774f",
+      "git_blob": "cbd3f64e30704d7fd638fabe19d177eb6bf632dc",
+      "reason": "UI60 browser/visual same-Attempt changes"
+    },
+    "coordination/handoffs/UI_F3_API7C6_INTEGRATION.md": {
+      "owner": "UI_F3",
+      "source_sha": "21fe24913f85cb9cc013ce01b1d5dbb4bc97774f",
+      "git_blob": "53038af6a603ce32a89a8947d3ca5cb551fd8e92",
+      "reason": "UI60 browser/visual same-Attempt changes"
+    },
+    "tests/phase3/integration/ui/product_chat_browser.py": {
+      "owner": "UI_F3",
+      "source_sha": "21fe24913f85cb9cc013ce01b1d5dbb4bc97774f",
+      "git_blob": "1dacf2882398b7937b8cad704c7b2d8edb9758d3",
+      "reason": "UI60 browser/visual same-Attempt changes"
+    },
+    "tests/phase3/ui/retrieved-sources-client.test.mjs": {
+      "owner": "UI_F3",
+      "source_sha": "21fe24913f85cb9cc013ce01b1d5dbb4bc97774f",
+      "git_blob": "82176911303cb0521d2fd1ed31d4550fb908e606",
+      "reason": "UI60 browser/visual same-Attempt changes"
+    },
+    "infra/postgres/dev_f3_isolated/Dockerfile.shared-witness": {
+      "owner": "DATABASE_F3",
+      "source_sha": "da8d5b48af0c4fbecf8df633356939d6cc6cdd8c",
+      "git_blob": "7b5e60c5e3bbc5d915341a542d1b113ecbdc59da",
+      "reason": "DB59 tested code plus HEAD documentation-only receipt"
+    },
+    "infra/postgres/dev_f3_isolated/README.md": {
+      "owner": "DATABASE_F3",
+      "source_sha": "da8d5b48af0c4fbecf8df633356939d6cc6cdd8c",
+      "git_blob": "95adb74361f59b1206e833bef70ef076ee2f98c8",
+      "reason": "DB59 tested code plus HEAD documentation-only receipt"
+    },
+    "infra/postgres/dev_f3_isolated/TEST_RECEIPT_SHARED_20261123.json": {
+      "owner": "DATABASE_F3",
+      "source_sha": "da8d5b48af0c4fbecf8df633356939d6cc6cdd8c",
+      "git_blob": "c1d74b3f92a6602221446cc58e6313d7c520f7bc",
+      "reason": "DB59 tested code plus HEAD documentation-only receipt"
+    },
+    "infra/postgres/dev_f3_isolated/compose.shared-witness.yaml": {
+      "owner": "DATABASE_F3",
+      "source_sha": "da8d5b48af0c4fbecf8df633356939d6cc6cdd8c",
+      "git_blob": "e1e8d54aff359876e9b4bf7e2c642fefe6c3086f",
+      "reason": "DB59 tested code plus HEAD documentation-only receipt"
+    },
+    "infra/postgres/dev_f3_isolated/contracts/FOUNDATION_API_DB_CONTRACT.md": {
+      "owner": "DATABASE_F3",
+      "source_sha": "da8d5b48af0c4fbecf8df633356939d6cc6cdd8c",
+      "git_blob": "099a90e6ae48ef3eb7b1070c98bd885ef9adf22a",
+      "reason": "DB59 tested code plus HEAD documentation-only receipt"
+    },
+    "infra/postgres/dev_f3_isolated/contracts/FOUNDATION_CANDIDATE_SHARED_DB_HANDOFF.md": {
+      "owner": "DATABASE_F3",
+      "source_sha": "da8d5b48af0c4fbecf8df633356939d6cc6cdd8c",
+      "git_blob": "14a3c2666ad568c528651658671eebc3c0b11501",
+      "reason": "DB59 tested code plus HEAD documentation-only receipt"
+    },
+    "infra/postgres/dev_f3_isolated/docs/PHASE3_DATABASE_CHECKLIST.md": {
+      "owner": "DATABASE_F3",
+      "source_sha": "da8d5b48af0c4fbecf8df633356939d6cc6cdd8c",
+      "git_blob": "170029c6d08fa32d16379c7f99dc9cc83ee77640",
+      "reason": "DB59 tested code plus HEAD documentation-only receipt"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/01_create_isolated_lab.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "da8d5b48af0c4fbecf8df633356939d6cc6cdd8c",
+      "git_blob": "be64e68d05e5a4de328b40f5ce359f0c3ad42b10",
+      "reason": "DB59 tested code plus HEAD documentation-only receipt"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/06_backup_restore_independent.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "da8d5b48af0c4fbecf8df633356939d6cc6cdd8c",
+      "git_blob": "74b2ff083ba3807bd39f0ef725a8b05c4d6efc92",
+      "reason": "DB59 tested code plus HEAD documentation-only receipt"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/09_shared_stack_db_preflight.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "da8d5b48af0c4fbecf8df633356939d6cc6cdd8c",
+      "git_blob": "0ab3dc33e107895c674a944f7411a06043131c2b",
+      "reason": "DB59 tested code plus HEAD documentation-only receipt"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/10_restored_stack_db_preflight.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "da8d5b48af0c4fbecf8df633356939d6cc6cdd8c",
+      "git_blob": "58c6e3b2c91f045820477ce71447d1b2d0755ca7",
+      "reason": "DB59 tested code plus HEAD documentation-only receipt"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/11_export_sanitized_receipt.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "da8d5b48af0c4fbecf8df633356939d6cc6cdd8c",
+      "git_blob": "b08652cf9fe810f8f3154ac5ede3d8f5d1ef2cc9",
+      "reason": "DB59 tested code plus HEAD documentation-only receipt"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/shared_stack_db_witness.py": {
+      "owner": "DATABASE_F3",
+      "source_sha": "da8d5b48af0c4fbecf8df633356939d6cc6cdd8c",
+      "git_blob": "532bbfcd24d9cec73dc99131319d46907ab1798c",
+      "reason": "DB59 tested code plus HEAD documentation-only receipt"
+    },
+    ".github/workflows/f3-db-isolated-fresh-install.yml": {
+      "owner": "DATABASE_F3",
+      "source_sha": "da8d5b48af0c4fbecf8df633356939d6cc6cdd8c",
+      "git_blob": "b9fb7b6b2759e806aebc9811a66fd0cb1bea509b",
+      "reason": "DB59 standalone CI provenance"
+    }
+  },
+  "status": {
+    "NO_DISPATCH_ONLY": true,
+    "engine_lock": "UNVERIFIED",
+    "mac_build": "NOT_RUN",
+    "mac_c018": "NOT_RUN",
+    "mac_backup_restore": "NOT_RUN",
+    "arvan": "HOLD"
+  }
+}

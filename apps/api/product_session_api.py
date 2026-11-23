@@ -39,6 +39,9 @@ from src.phase3.rag_runtime.staging_invited_result_contract import (
 )
 from src.phase3.rag_runtime.no_dispatch_handler import NoDispatchHandler
 from src.phase3.rag_runtime.staging_preflight import PreflightDenied
+from src.phase3.rag_runtime.retrieved_sources import (
+    CONTRACT as SOURCES_CONTRACT, CHUNKS_SHA256, ENGINE_SHA256,
+)
 from src.phase3.rag_runtime.staging_service_bootstrap import (
     PrivateStagingEngineConfig, build_private_no_dispatch_handler,
 )
@@ -75,6 +78,7 @@ _HISTORY_PATH = b"/v1/conversations"
 _SEND_PATH = b"/v1/messages"
 _STATUS_PATH = b"/v1/message-requests/status"
 _ENGINE_STATUS_PATH = b"/v1/message-requests/engine-status"
+_RETRIEVED_SOURCES_PATH = b"/v1/message-requests/retrieved-sources"
 _CLAIM_TEST_STATUS_PATH = b"/v1/message-requests/claim-test-status"
 _INVITED_RESULT_PATH = b"/v1/message-requests/invited-live-result"
 _CONVERSATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
@@ -361,6 +365,51 @@ def session_engine_status(request: Request):
             "answer": None,
         }, headers={"Cache-Control": "no-store"})
     return _signed_read(request, _ENGINE_STATUS_PATH, read, coherent_read=True)
+
+
+@app.get("/v1/message-requests/retrieved-sources")
+def session_retrieved_sources(request: Request):
+    """Same signed status correlators, OWNER-scoped immutable C018 evidence.
+
+    Does no Runner execution, no reservations, no Gateway, no History T3.
+    Source ID is an observation and no locator is VERIFIED until ENGINE's
+    independently reviewed member_locators schema/authorization is supplied.
+    """
+    def read(ctx):
+        if _SERVER_NO_DISPATCH_TASK is None:
+            raise PreflightDenied()
+        query = history._query(request, "message_request_status_query")
+        doc = history.read_status(
+            ctx["conn"], ctx["owner"], query, ctx["request_id"], ctx["trace_id"],
+            session_transaction=True)
+        if doc["owner_user_id"] != ctx["owner"]:
+            raise TrustRejected()
+        attempt_id = doc["attempt_id"]
+        attempt_trace = doc["attempt_trace_id"]
+        receipt = (_SERVER_NO_DISPATCH_TASK.read_sources(
+            ctx["owner"], attempt_id, attempt_trace)
+            if attempt_id is not None and attempt_trace is not None else None)
+        if receipt is None:
+            # Never fill an absent/failed/unknown source receipt with an
+            # archived Q2 row or a browser-supplied source.
+            receipt = {
+                "kind": "retrieved_sources",
+                "contract_version": SOURCES_CONTRACT,
+                "attempt_id": attempt_id,
+                "attempt_trace_id": attempt_trace,
+                "retrieval_state": "NOT_AVAILABLE",
+                "engine_sha256": ENGINE_SHA256,
+                "chunks_sha256": CHUNKS_SHA256,
+                "generation_calls": None,
+                "rows": [],
+            }
+        if (receipt.get("chunks_sha256") != CHUNKS_SHA256
+                or receipt.get("engine_sha256") != ENGINE_SHA256):
+            raise PreflightDenied()
+        return JSONResponse(status_code=200, content=receipt,
+                            headers={"Cache-Control": "no-store"})
+    return _signed_read(
+        request, _RETRIEVED_SOURCES_PATH, read, coherent_read=True)
 
 
 @app.get("/v1/message-requests/claim-test-status")

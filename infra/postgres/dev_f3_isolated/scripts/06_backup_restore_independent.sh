@@ -39,6 +39,35 @@ source_counts="$(DB_SERVICE=lab-db DB_NAME=rag_finance_f3_lab dbpsql -Atc "SELEC
 restore_counts="$(dbpsql -Atc "SELECT (SELECT count(*) FROM pg_tables WHERE schemaname IN ('history_l1','auth_l1')) || '|' || (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('history_l1','auth_l1'))")"
 [[ "$source_counts" == "$restore_counts" ]] || { echo "STOP_RESTORE_OBJECT_COUNT_MISMATCH:$source_counts/$restore_counts" >&2; exit 70; }
 [[ "$(dbpsql -Atc "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE (n.nspname,c.relname) IN (('history_l1','messages'),('history_l1','execution_attempts'),('auth_l1','sessions'),('auth_l1','initial_login_attempts')) AND c.relrowsecurity AND c.relforcerowsecurity")" == 4 ]] || { echo 'STOP_RESTORED_FORCE_RLS_MISSING' >&2; exit 70; }
+# The restored ledger must retain the exact execution evidence from the SOURCE cluster.
+ledger_sql="SELECT string_agg(version || '|' || source_commit || '|' || git_blob_sha1 || '|' ||
+ sql_sha256 || '|' || status || '|' || cluster_system_id, '#' ORDER BY version)
+ FROM db55_audit.migration_runs;"
+source_ledger="$(DB_SERVICE=lab-db DB_NAME=rag_finance_f3_lab dbpsql -Atc "$ledger_sql")"
+restore_ledger="$(dbpsql -Atc "$ledger_sql")"
+[[ -n "$source_ledger" && "$source_ledger" == "$restore_ledger" ]] || { echo 'STOP_RESTORED_LEDGER_CONTENT_MISMATCH' >&2; exit 70; }
+roles_sql="SELECT count(*) FROM pg_roles WHERE rolname IN
+('history_app','auth_revoker','auth_trust_api','auth_login_bootstrap',
+'auth_login_claim_reader','auth_login_issuer','auth_mapper',
+'auth_login_binder','auth_login_reader')
+AND NOT (rolsuper OR rolbypassrls OR rolinherit OR rolcreatedb OR rolcreaterole);"
+[[ "$(dbpsql -Atc "$roles_sql")" == 9 ]] || { echo 'STOP_RESTORED_ROLE_FLAGS' >&2; exit 70; }
+denial_sql="WITH r(rolname) AS (VALUES
+('history_app'),('auth_revoker'),('auth_trust_api'),('auth_login_bootstrap'),
+('auth_login_claim_reader'),('auth_login_issuer'),('auth_mapper'),
+('auth_login_binder'),('auth_login_reader')),
+t(obj) AS (VALUES
+('auth_l1.sessions'),('auth_l1.initial_login_attempts'),
+('auth_l1.service_assertion_replays'),('auth_l1.reset_c1_authorizations'),
+('auth_l1.reset_c1_operations'),('auth_l1.reset_idp_attempts'),
+('auth_l1.owners'),('auth_l1.identity_links'))
+SELECT count(*) || '|' || count(*) FILTER (WHERE
+to_regclass(obj) IS NOT NULL AND NOT has_table_privilege(rolname,obj,'SELECT'))
+FROM r CROSS JOIN t;"
+[[ "$(dbpsql -Atc "$denial_sql")" == '72|72' ]] || { echo 'STOP_RESTORED_AUTH_SELECT_MATRIX' >&2; exit 70; }
+echo 'RESTORED_MIGRATION_LEDGER_EXACT_MATCH=PASS'
+echo 'RESTORED_NINE_ROLE_FLAGS=9/9_PASS'
+echo 'RESTORED_AUTH_TABLE_SELECT_NEGATIVES=72/72_PASS'
 printf 'SOURCE_CLUSTER_ID=%s\nRESTORE_CLUSTER_ID=%s\nOBJECT_COUNTS=%s\n' "$source_id" "$restore_id" "$source_counts" > "$LAB_WORK/restore_receipt.txt"
 touch "$LAB_WORK/restore-tested.marker"; chmod 0600 "$LAB_WORK/restore-tested.marker"
 echo 'BACKUP_SHA256_VERIFIED=PASS'

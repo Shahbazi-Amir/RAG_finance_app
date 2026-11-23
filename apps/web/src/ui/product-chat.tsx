@@ -1,13 +1,13 @@
 'use client';
 import {useCallback,useEffect,useRef,useState,type FormEvent} from 'react';
 import Link from 'next/link';
-import {conversations,messages,newSend,sendMessage,recoverStatus,recoverEngineStatus,HistoryFailure,
+import {conversations,messages,newSend,sendMessage,recoverStatus,recoverEngineStatus,recoverRetrievedSources,HistoryFailure,
   failureLabel,mergeUnique,type ConversationView,type MessageView,
-  type AnswerView,type HistoryStatus,type EngineStatus} from '../history/client';
+  type AnswerView,type HistoryStatus,type EngineStatus,type RetrievedSources} from '../history/client';
 import type {Answer,Citation} from '../mock/transport';
 import {verifiedSourceUrl} from './source-locator';
+import RetrievedSourcesPanel from './retrieved-sources-panel';
 import {isVerifiedLiveAnswer,productOutcomeLabel} from './answer-visibility';
-import {recoverInvitedFixture,type InvitedFixtureView} from '../history/invited-fixture';
 import {readCheckpoints,retainCheckpoint,forgetCheckpoints,statusCorrelators,
   type AttemptCheckpoint} from './attempt-checkpoints';
 
@@ -16,7 +16,7 @@ type ThreadData={items:MessageView[];answers:AnswerView[];next:string|null;more:
 type Attempt= {record:AttemptCheckpoint;viewId:string;question:string|null;phase:HistoryStatus|'sending'|'transport_unknown'|'invalid_answer'|'status_error';
   attemptId:string|null;messageId:string|null;answer:Answer|null;confirmed:boolean;
   engine:EngineStatus|null;engineUnavailable:boolean;
-  fixture:InvitedFixtureView|null;fixtureUnavailable:boolean};
+  sources:RetrievedSources|null;sourcesUnavailable:boolean};
 const isTerminal=(phase:Attempt['phase'])=>
   ['answer_committed','invalid_answer','failed','cancelled'].includes(phase);
 function phaseLabel(attempt:Attempt):string {
@@ -81,40 +81,11 @@ function AnswerPanel({answer}:{answer:Answer}){
   </div>;
 }
 
-/** Only rendered by the server-gated, CI+loopback fixture review route.
- * NEVER source a product Answer/verified citation or a URL from this result.
- */
-function FixturePanel({result}:{result:InvitedFixtureView}){
-  const states={
-    PENDING:'نمونهٔ آزمایشی در انتظار نتیجه است.',
-    READY:'پاسخ نمونهٔ آزمایشی (نه پاسخ واقعی یا تأییدشده).',
-    FAILED:'اجرای نمونهٔ آزمایشی ناموفق بود؛ پاسخی وجود ندارد.',
-    UNKNOWN:'نتیجهٔ نمونهٔ آزمایشی نامعلوم است؛ ارسال مجدد مجاز نیست.',
-  };
-  return <section className="product-answer" aria-label="نتیجهٔ صرفاً آزمایشی"
-    data-testid="ci-fixture-result">
-    <p role="status"><strong>فقط Fixture / فاقد اعتبار منبع</strong> — {states[result.state]}</p>
-    <p className="history-note">{result.warning}</p>
-    <p className="history-note">Attempt ثابت: <code>{result.attemptId??'هنوز ثبت نشده'}</code></p>
-    {result.state==='READY'&&result.answer&&<>
-      <p data-testid="ci-fixture-answer" className="history-message-text">{result.answer.text}</p>
-      <ul aria-label="استنادهای نمونهٔ ساختگی">
-        {result.answer.citations.map(c=><li key={c.citation_id}>
-          <p>استناد Fixture، نه شاهد واقعی</p>
-          <span>شناسهٔ منبع: <code dir="ltr">{c.source_id}</code></span>
-          <span>شناسهٔ استناد: <code dir="ltr">{c.citation_id}</code></span>
-          <span>عنوان ساختگی: {c.title}</span>
-          <span>نقل‌قول و Locator: در Fixture موجود نیست؛ پیوند معتبر منبع ندارد.</span>
-        </li>)}
-      </ul>
-    </>}
-  </section>;
-}
 // Storage access is optional. Sending requires checkpoint persistence first.
 function sessionStore():Storage|null{
   try{return window.sessionStorage;}catch{return null;}
 }
-export default function ProductChat({fixtureReview=false}:{fixtureReview?:boolean}={}){
+export default function ProductChat(){
   const [list,setList]=useState<ListData>({items:[],next:null,more:false});
   const [listState,setListState]=useState<'loading'|'ready'|'error'|'unauthorized'>('loading');
   const [selected,setSelected]=useState<string>('draft:new');
@@ -180,7 +151,8 @@ export default function ProductChat({fixtureReview=false}:{fixtureReview?:boolea
       const old=attemptsRef.current[record.client_message_id];
       if(old?.attemptId&&status.attemptId&&old.attemptId!==status.attemptId){
         setAttempts(all=>({...all,[record.client_message_id]:{
-          ...all[record.client_message_id],phase:'status_error'}}));
+          ...all[record.client_message_id],phase:'status_error',
+          sources:null,sourcesUnavailable:true,engine:null}}));
         return;
       }
       const resultPhase=status.status==='answer_committed'&&!isVerifiedLiveAnswer(status.answer)
@@ -200,19 +172,17 @@ export default function ProductChat({fixtureReview=false}:{fixtureReview?:boolea
           engineUnavailable=true;
         }
       }
-      let fixture:InvitedFixtureView|null=null;
-      let fixtureUnavailable=false;
-      if(fixtureReview&&status.status!=='not_found'){
+      let sources:RetrievedSources|null=null;
+      let sourcesUnavailable=false;
+      if(status.status!=='not_found'&&status.attemptId!==null){
         try{
-          fixture=await recoverInvitedFixture(statusCorrelators(record));
-          if(fixture.conversationId!==status.id||
-             fixture.attemptId!==status.attemptId||
-             fixture.attemptRequestId!==status.attemptRequestId||
-             fixture.attemptTraceId!==status.attemptTraceId)
+          sources=await recoverRetrievedSources(statusCorrelators(record));
+          if(sources&&(sources.attemptId!==status.attemptId||
+             sources.attemptTraceId!==status.attemptTraceId))
             throw new HistoryFailure(0,'invalid');
         }catch(e){
           if(invalidate(e)||lost.current)return;
-          fixtureUnavailable=true;
+          sourcesUnavailable=true;
         }
       }
       if(lost.current)return;
@@ -223,7 +193,7 @@ export default function ProductChat({fixtureReview=false}:{fixtureReview?:boolea
           ...previous,phase:resultPhase,attemptId:status.attemptId??previous.attemptId,
           messageId:status.messageId,answer:status.answer,
           engine:technical??previous.engine,engineUnavailable,
-          fixture:fixture??previous.fixture,fixtureUnavailable,
+          sources,sourcesUnavailable,
           record:status.id?{...previous.record,resolved_conversation_id:status.id}:previous.record,
           viewId:status.id??previous.viewId,
           confirmed:status.status!=='not_found'
@@ -244,7 +214,7 @@ export default function ProductChat({fixtureReview=false}:{fixtureReview?:boolea
             {...prev,phase:'status_error'}}:all;
         });
     }finally{polling.current.delete(record.client_message_id);}
-  },[invalidate,loadList,loadThread,fixtureReview]);
+  },[invalidate,loadList,loadThread]);
   useEffect(()=>{
     let active=true;
     queueMicrotask(()=>{
@@ -260,7 +230,7 @@ export default function ProductChat({fixtureReview=false}:{fixtureReview?:boolea
             question:null,phase:'transport_unknown',
             attemptId:null,messageId:null,answer:null,confirmed:false,
             engine:null,engineUnavailable:false,
-            fixture:null,fixtureUnavailable:false};
+            sources:null,sourcesUnavailable:false};
         return next;
       });
       void loadList();
@@ -319,7 +289,7 @@ export default function ProductChat({fixtureReview=false}:{fixtureReview?:boolea
     setDrafts(all=>({...all,[selected]:''}));
     const attempt:Attempt={record,viewId:selected,question,phase:'sending',attemptId:null,
       messageId:null,answer:null,confirmed:false,engine:null,engineUnavailable:false,
-      fixture:null,fixtureUnavailable:false};
+      sources:null,sourcesUnavailable:false};
     attemptsRef.current={...attemptsRef.current,[record.client_message_id]:attempt};
     setAttempts(all=>({...all,[record.client_message_id]:attempt}));
     try{
@@ -352,9 +322,6 @@ export default function ProductChat({fixtureReview=false}:{fixtureReview?:boolea
   const pendingDrafts=[...new Set(Object.values(attempts).filter(a=>
     a.viewId.startsWith('draft:')&&!isTerminal(a.phase)).map(a=>a.viewId))];
   return <main className="history-shell product-shell" dir="rtl">
-    {fixtureReview&&<p role="status" data-testid="fixture-review-banner">
-      فقط آزمون CI روی loopback؛ پاسخ‌ها و استنادهای این صفحه واقعی نیستند.
-    </p>}
     <aside className={'history-sidebar'+(mobileOpen?' is-mobile-open':'')}
       role={mobileOpen?'dialog':undefined} aria-modal={mobileOpen?'true':undefined}
       aria-label="فهرست گفتگوها">
@@ -439,24 +406,17 @@ export default function ProductChat({fixtureReview=false}:{fixtureReview?:boolea
             <p className="history-message-text">{a.question}</p>}
           <p role="status" className="history-note">{phaseLabel(a)}</p>
           {a.attemptId&&<p className="history-note">شناسهٔ Attempt: <code>{a.attemptId}</code></p>}
-          {fixtureReview&&a.fixture&&<FixturePanel result={a.fixture}/>}
-          {fixtureReview&&a.fixtureUnavailable&&<p role="status" className="history-note">
-            پاسخ آزمایشی قابل‌اعتبارسنجی نبود؛ استناد ساختگی نمایش داده نمی‌شود.
-          </p>}
-          {a.engine&&<section className="history-note retrieval-evidence-status"
+          {a.engine&&<section className="history-note"
             data-testid={'engine-status-'+a.record.client_message_id}
             aria-label="وضعیت فنی همین درخواست">
-            <h3>شواهد بازیابی</h3>
             <p role="status">{engineLabel(a.engine)}</p>
-            {a.engine.state==='CONTEXT_READY'&&<>
-              <p>شواهد بازیابی‌شده: {a.engine.top10Count}، تعداد تولید پاسخ: {a.engine.generationCalls}</p>
-              <p data-testid="retrieval-evidence-contract-pending">
-                شناسه‌ها و مکان منابع هنوز از قرارداد جداگانهٔ تأییدشدهٔ API دریافت نشده‌اند.
-                این تعداد، استناد معتبر یا پاسخ تولیدشده نیست.
-              </p>
-            </>}
-            <p>نتیجهٔ فنی بازیابی با پاسخ تأییدشدهٔ محصول متفاوت است.</p>
+            {a.engine.state==='CONTEXT_READY'&&<p>
+              شواهد بازیابی‌شده: {a.engine.top10Count}، تعداد تولید پاسخ: {a.engine.generationCalls}
+            </p>}
+            <p>این گزارش فنی پاسخ مدل یا استناد قابل‌نمایش نیست.</p>
           </section>}
+          {a.attemptId&&<RetrievedSourcesPanel
+            receipt={a.sources} unavailable={a.sourcesUnavailable}/>}
           {a.engineUnavailable&&<p role="status" className="history-note">
             وضعیت فنی جداگانه در دسترس نیست؛ فقط وضعیت اصلی پیگیری می‌شود.
           </p>}

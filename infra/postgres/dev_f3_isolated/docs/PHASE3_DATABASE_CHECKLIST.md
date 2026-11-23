@@ -1,4 +1,4 @@
-# Gate 3 / Phase 3 — SOURCE-MAPPED STATUS (2026-11-22)
+# Gate 3 / Phase 3 — SOURCE-MAPPED STATUS (2026-11-23)
 
 This document maps the **provided** `Gate3_Docker_Execution_Checklist_Foundation_2026-11-20(4).md` and the actual pinned `RAG_finance_app` sources; it does **not** claim a more recent checklist exists. `DONE` = observed/accepted evidence at its stated boundary; `OPEN` = implementation/evidence needed; `BLOCKED` = cannot complete without missing connection/contract/host.
 
@@ -37,16 +37,17 @@ This document maps the **provided** `Gate3_Docker_Execution_Checklist_Foundation
 | DB-F3-07 scoped Bridge and DB55 | DONE | `04_bridge_and_db55.sh`: exact source pins, separate limited auditor, read-only verification; CI runtime PASS in isolated lab, not Mac |
 | DB-F3-08 role/RLS/TLS negative test program | DONE | `05_test_roles_tls_rls.sh`: 9/9 TLS, nonTLS reject, 72/72 Auth SELECT denials, 9/9 API function signatures, RLS; CI runtime PASS in isolated lab, not Mac |
 | DB-F3-09 independent backup/restore program | DONE | `06_backup_restore_independent.sh`: pg_dump -Fc / SHA256 / second cluster+volume / restored DB55; CI runtime PASS in isolated lab, not Mac |
-| DB-F3-10 **real test lab fresh install** | DONE | Separate real Docker PG17.11 CI on SHA `57b5d007c86deb7003610605d305bdc942a31312`, Run `45052366022`: 10/10 pinned migrations, DB55, 9/9 TLS, 72/72 SELECT denies, backup/restore PASS. Not Mac. |
-| DB-F3-11 source branch / CI validation | DONE | Branch `agent/database-f3-fresh-install-isolated-20261122`, CI `45052366022` both jobs PASS on source SHA `57b5d007c86deb7003610605d305bdc942a31312`; Mac Docker runtime remains Foundation/Ops scope |
+| DB-F3-10 **real test lab fresh install** | DONE | Historical CI `45052366022` on `57b5d007...` PASS. Updated integrated candidate CI `45082326382` on `b6b79369006eca3a1e4c8e75a9ba4ab14d0fab74` PASS: 10/10, DB55, 9/9 TLS, 72/72 ACL denials, backup+separate restore. Not Mac. |
+| DB-F3-11 source branch / CI validation | DONE | Draft PR #59, integrated DB+client CI `45082326382` both jobs PASS at source SHA `b6b79369006eca3a1e4c8e75a9ba4ab14d0fab74`, structured sanitized CI Artifact `f3-db-foundation-candidate-consumption`. Mac product Compose remains Foundation/Ops scope. |
 | DB-F3-12 post-010 migrations | DONE | Optional 011 source SHA `b0ba6dbf6100109cb58f8cb49da808839d68c5f0` tested separately after all 001–010 in Run `45052366022` (`DB55/live_011`, ACL/RLS, denied bogus Claim). Also standalone 011 13/13 CI `43710425019` PASS. Product dispatch deployment remains BLOCKED, 012+ not specified. |
-| DB-F3-13 Foundation/API integration | OPEN | Complete DB role/DSN/ACL contract prepared; real PRODUCT/BOOTSTRAP private network + CA + deploy pin validation pending |
+| DB-F3-13 Foundation/API database integration | DONE | Original pinned Product `verify_staging_database_authority` and Bootstrap `verify_bootstrap_roles` executed in two separate client containers on candidate's internal network, verified TLS `verify-full` 2+7; restored to second cluster and repeated actual same code with TLS 2+7, CI `45082326382`. Scope DB authority preflight ONLY, not signed ASGI HTTP. |
+| DB-F3-15 full Product/Bootstrap HTTP/IdP/C018 stack | BLOCKED | Original apps bind `127.0.0.1`, need reviewed shared namespace/sidecar and real BFF/IdP/C018 prerequisites; DB-only CI intentionally did not start ASGI listeners. Owner Foundation/API, not DB migration. |
 | DB-F3-14 accepted Mac demo invariant | DONE | No Docker, SSH, SQL, migration, backup, restore or transfer was executed against accepted Mac demo in this task |
 
 ## Runtime evidence boundary
 
-`CI_PASS` Run `45052366022` attests actual isolated disposable PostgreSQL 17.11 Docker execution on source commit `57b5d007c86deb7003610605d305bdc942a31312`, NOT Mac host/production, Product API, paid Gateway, Arvan or accepted demo. A separate CI job validates optional 011 on a second fresh 001–010 lab; no changes to base no-dispatch SQL. Earlier failed development runs were corrected before PASS. Do not rerun partial migrations or reuse accepted demo.
+`CI_PASS` Run `45082326382` attests actual disposable PostgreSQL 17.11 with pinned SQL, two **real application DB authority routines** in separate container processes, real TLS `verify-full`, independent restored cluster with matched ledger/role ACL and both service DB preflight routines. Tested source SHA `b6b79369006eca3a1e4c8e75a9ba4ab14d0fab74`, application source SHA `c5e271d0fab8ab34c92a2da933ba6b194d1f1e9a`. No BFF/IdP/C018 HTTP startup; no accepted Mac demo or Arvan access; optional 011 separate on second lab. CI Artifact ID `14777896097` contains sanitized receipt; do not rerun partial migrations or reuse accepted demo.
 
 ## Dependency / acceptance order
 
-1. Exact local Git refs + source hashes. 2. Separate Docker lab project/new volumes. 3. Ephemeral TLS/role provisioning and admin intent ledger. 4. Fresh 001..010 SQL. 5. Scoped bridge + DB55. 6. Real 9-role verify-full/72 negatives and RLS. 7. Separate PG17.11 restore/DB55. 8. Foundation/API consume versions/ACL and exact runtime receipt. 9. Any 011/paid/live feature remains a separate branch and gate.
+1. Exact local Git refs + source hashes. 2. Separate Docker lab project/new volumes. 3. Ephemeral TLS/role provisioning and admin intent ledger. 4. Fresh 001..010 SQL. 5. Scoped bridge + DB55. 6. Real 9-role verify-full/72 negatives and RLS. 7. Separate PG17.11 restore/DB55. 8. Foundation/API actual shared-network DB-only preflight of original 2+7 role verification functions. 9. Independent restored 2+7 role DB preflight plus sanitized receipt. 10. Full signed HTTP BFF/API/Bootstrap and any paid 011 remain Foundation/API separate gates.

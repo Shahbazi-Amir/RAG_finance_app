@@ -1,0 +1,126 @@
+name: Foundation F3 DB59 API61 UI60 exact-source CI — OFFLINE ONLY
+on:
+  push:
+    branches: [integration/f3-completion-db59-api61-ui60-20261123]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  app-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify all owner Git blob pins and API hashed lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,subprocess
+          m=json.load(open('integration/F3_COMPLETION_SOURCE_PINS.json'))
+          for p,v in m['file_pins'].items():
+              x=subprocess.check_output(['git','hash-object','--',p],text=True).strip()
+              assert x==v['git_blob'], (p,x,v['git_blob'])
+          b=open('locks/requirements-api.lock','rb').read()
+          assert hashlib.sha256(b).hexdigest()==m['owners']['API_F3']['api_lock_sha256']
+          print('F3_COMPLETION_OWNER_SOURCE_AND_API_LOCK_PASS',len(m['file_pins']))
+          PY
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Exact API wheel hash install; no engine/no Gateway
+        run: |
+          python -m pip install --no-cache-dir --require-hashes --only-binary=:all: -r locks/requirements-api.lock
+          python -m pip check
+      - name: Full API + product contract suite
+        run: |
+          python -m compileall -q apps/api src/phase3/auth src/phase3/rag_runtime
+          python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
+          python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.5'
+      - name: Next/BFF install, security/contract tests and build
+        run: |
+          npm ci --prefix apps/web --no-audit --no-fund
+          npm --prefix apps/web run typecheck
+          npm --prefix apps/web run lint
+          npm --prefix apps/web run test
+          npm --prefix apps/web run build
+      - name: Source-only result
+        if: always()
+        run: echo 'OFFLINE_SOURCE_ONLY; NO_MAC_NO_REAL_C018_NO_GATEWAY_NO_DEPLOY'
+  db-isolated:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Full original DB59 test on isolated synthetic PG17.11 with real client preflight and restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd infra/postgres/dev_f3_isolated
+          bash tests/run_static.sh
+          export SOURCE_REPO="$GITHUB_WORKSPACE"
+          export LAB_ROOT="$RUNNER_TEMP/f3-completion-db-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          bash scripts/00_prepare_source.sh
+          bash scripts/01_create_isolated_lab.sh
+          bash scripts/02_provision_roles.sh
+          bash scripts/03_apply_pinned_001_010.sh
+          bash scripts/04_bridge_and_db55.sh
+          bash scripts/05_test_roles_tls_rls.sh
+          bash scripts/09_shared_stack_db_preflight.sh
+          bash scripts/06_backup_restore_independent.sh
+          bash scripts/10_restored_stack_db_preflight.sh
+          bash scripts/11_export_sanitized_receipt.sh
+          echo 'F3_COMPLETION_DB_SYNTHETIC_PG17_RESTORE_ONLY_PASS'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f3-completion-sanitized-db-receipt
+          path: infra/postgres/dev_f3_isolated/ci_receipts/f3_db_candidate_consumption.json
+          if-no-files-found: warn
+  ui-synthetic-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      CI: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.5'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: npm ci --prefix apps/web --no-audit --no-fund
+      - run: npm --prefix apps/web run build
+      - name: Chromium for synthetic contract intercept ONLY
+        run: |
+          python -m pip install --no-cache-dir 'playwright==1.64.1'
+          python -m playwright install --with-deps chromium
+      - name: Same-Attempt source list and Refresh in fixture browser
+        env:
+          AUTH_CI_PRODUCT_CHAT_MODE: INVITED_RESULT_STUB_CI_ONLY
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix apps/web run start > "$RUNNER_TEMP/f3-next.log" 2>&1 &
+          next_pid=$!
+          trap 'kill "$next_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 2 http://127.0.0.1:3000/ci-evidence-preview >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3000/ci-evidence-preview >/dev/null
+          python tests/phase3/integration/ui/retrieval_evidence_preview_browser.py
+          python tests/phase3/integration/ui/product_chat_browser.py
+          echo 'F3_COMPLETION_BROWSER_FIXTURES_ONLY_PASS'

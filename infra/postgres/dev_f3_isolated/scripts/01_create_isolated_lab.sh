@@ -23,7 +23,7 @@ openssl req -newkey rsa:3072 -sha256 -nodes \
  -keyout "$LAB_SECRETS/server.key" -out "$LAB_WORK/server.csr" \
  -subj '/CN=demo-db' >/dev/null 2>&1
 cat > "$LAB_WORK/cert.ext" <<'EXT'
-subjectAltName=DNS:demo-db
+subjectAltName=DNS:demo-db,DNS:restore-db
 basicConstraints=CA:FALSE
 keyUsage=digitalSignature,keyEncipherment
 extendedKeyUsage=serverAuth
@@ -33,6 +33,7 @@ openssl x509 -req -sha256 -days 3 -in "$LAB_WORK/server.csr" \
  -extfile "$LAB_WORK/cert.ext" -out "$LAB_SECRETS/server.crt" >/dev/null 2>&1
 openssl verify -CAfile "$LAB_SECRETS/ca.crt" "$LAB_SECRETS/server.crt" >/dev/null
 openssl x509 -in "$LAB_SECRETS/server.crt" -noout -ext subjectAltName | grep -Fq 'DNS:demo-db'
+openssl x509 -in "$LAB_SECRETS/server.crt" -noout -ext subjectAltName | grep -Fq 'DNS:restore-db'
 cat > "$LAB_SECRETS/pg_hba.conf" <<'HBA'
 # ISOLATED LAB ONLY; no host port published.
 local all postgres trust
