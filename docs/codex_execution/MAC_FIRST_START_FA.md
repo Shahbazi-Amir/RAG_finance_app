@@ -27,3 +27,13 @@
 مسیر موجود خصوصی به NO_DISPATCH_ONLY مقید است. برای پذیرش بازیابی واقعی، پروفایل retrieval مجاز باید با حفاظت‌های TLS، BFF امضاشده و هویت پایگاه ادغام و آزموده شود. مرورگر، OIDC، Signed BFF، C018، منابع، شمارنده‌های Generation/Gateway و رفتار Refresh آزمایش نشده‌اند. فریز و پذیرش سرپرست ثبت نشده‌اند. آروان HOLD است.
 
 مقایسهٔ docker diff، docker cp و stat نشان داد که ایمیج linux/amd64 فایل entrypoint را با مالک root و mode 0600 دارد، در حالی که کانتینر اصلی همان فایل را با مالک 11001 و mode 0440 در لایهٔ نوشتنی دارد. docker diff تغییر مسیرهای دیگر کد را نیز نشان می‌دهد. آرشیو ایمیج این لایه را پوشش نمی‌دهد. بازسازی یا جایگزینی API تا تعیین منشأ نسخهٔ لایهٔ عملیاتی و ثبت نقطهٔ بازگشت متوقف است.
+
+## ادامهٔ Checkpoint و علت خطای API
+
+مبنای گزارش 84d58b1 و HEAD عملیاتی جدا 5fe21e9 بود. دستور docker compose --profile "*" config --services هر هفت سرویس را تأیید کرد. demo-db همچنان healthy بود. API اصلی در وضعیت Exited 78 حفظ شد.
+
+Manifest مکمل ۵ Volume و ۴ مجموعهٔ پایگاه را ثبت کرده و لایهٔ نوشتنی را خارج از پوشش اعلام کرده بود. فراداده و docker diff رمزگذاری شدند. docker commit از کانتینر متوقف‌شده snapshot محلی 6c6a05dcd26a ساخت. خروجی docker save به صورت جریان رمزگذاری‌شده در پوشهٔ امن mac-first-start-api-84d58b1 ذخیره می‌شود. این snapshot و فرادادهٔ خصوصی فقط محلی هستند. تأیید بستهٔ کامل و بازیابی از آرشیو هنوز در جریان است.
+
+آزمون جدا از snapshot با UID 11001 و mountهای فقط‌خواندنی CONFIG_PASS را ثبت کرد. پس از بررسی‌های preflight، import در repository.py:16 برای خواندن packages/contracts/product.v1.schema.json با PermissionError متوقف شد. اصلاح در شاخهٔ محلی ops/mac-first-start با commit 4752c2b ثبت شد. Dockerfile.api دسترسی گروه سرویس را فقط روی درخت‌های کد و قرارداد تنظیم می‌کند. compose.api.yaml مسیر بررسی سلامت را با /run/api-private/api.json همسان می‌کند. کلیدها، اعتبارنامه‌ها و کنترل‌های Startup دست‌نخورده‌اند.
+
+ساخت آفلاین Docker با linux/amd64، --pull=false و --network=none موفق شد. import ماژول API و schema به‌عنوان UID سرویس در مرحلهٔ build اجرا شد. manifest ایمیج اصلاحی 2754f21404d9e88c2b2dd2f8b8850cde049a3d3648e04291d9f5368cf13d5ac6 است. هنوز سرویس اصلی تعویض نشده است. راهنمای فعلی شاخهٔ Gate 3 اجرای retrieval ایزوله با NO_DISPATCH_ONLY را پیش‌بینی کرده است و Generation و Gateway مسیر جدا دارند.
