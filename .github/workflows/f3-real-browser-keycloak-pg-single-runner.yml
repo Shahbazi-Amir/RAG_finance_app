@@ -293,8 +293,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python tests/phase3/integration/ui/phase3_auth_demo.py
-          echo 'F3_REAL_KEYCLOAK_CHROMIUM_NEXT_BFF_HTTPS_PG_AB_NO_INTERCEPT_PASS'
+          python tests/phase3/integration/foundation/browser_history_restore.py
+          echo 'F3_REAL_KEYCLOAK_CHROMIUM_NEXT_PG_RESTORED_TWO_USER_PASS'
+      - name: Upload real browser-to-restored-PG lab receipt (not Mac)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3-real-browser-keycloak-pg17-independent-restore
+          path: ci_receipts/f3_history_real_browser_restored_lab.json
+          retention-days: 14
+          if-no-files-found: warn
       - name: Show bounded SQL permissions and container status
         if: always()
         run: |
