@@ -293,15 +293,16 @@ export default function ProductChat(){
     for(const record of saved)void probe(record);
   },[listState,probe]);
   useEffect(()=>{
-    if(!selected||selected.startsWith('draft:'))return;
+    if(listState!=='ready'||!selected||selected.startsWith('draft:'))return;
     let active=true;
-    // Fetch in a scheduled callback, not synchronously in an Effect.
-    // Cancel the callback when a newer conversation is selected.
+    // Load thread only after a signed owner-scoped list revalidates. A
+    // recovered GET must fetch the same conversation again, not reveal a
+    // cached thread from before the temporary identity outage.
     queueMicrotask(()=>{
       if(active)void loadThread(selected);
     });
     return ()=>{active=false;};
-  },[selected,loadThread]);
+  },[selected,loadThread,listState]);
   useEffect(()=>{
     // A read-only identity heartbeat detects a revoked session or account
     // rotation even when no Attempt is pending. It never dispatches C018.
