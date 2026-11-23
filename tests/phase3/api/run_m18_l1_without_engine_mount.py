@@ -21,11 +21,11 @@ def flatten(suite):
 
 all_cases = list(flatten(unittest.defaultTestLoader.discover("tests/phase3/api", pattern="test_*.py")))
 ids = {test.id() for test in all_cases}
-assert len(all_cases) == 210, f"Unexpected test count: {len(all_cases)}"
+assert len(all_cases) == 211, f"Unexpected test count: {len(all_cases)}"
 assert BLOCKED.issubset(ids), f"Missing original engine-bound IDs: {BLOCKED - ids}"
 cases = [test for test in all_cases if test.id() not in BLOCKED]
-assert len(cases) == 208
+assert len(cases) == 209
 result = unittest.TextTestRunner(verbosity=1).run(unittest.TestSuite(cases))
-if not result.wasSuccessful() or result.testsRun != 208:
+if not result.wasSuccessful() or result.testsRun != 209:
     sys.exit("F3_API_CONTAINER_NON_ENGINE_TESTS_FAIL")
-print("F3_API_CONTAINER_208_PASS_2_ENGINE_MOUNT_TESTS_BLOCKED")
+print("F3_API_CONTAINER_209_PASS_2_ENGINE_MOUNT_TESTS_BLOCKED")
