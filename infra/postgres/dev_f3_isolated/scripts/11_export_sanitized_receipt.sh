@@ -273,3 +273,26 @@ assert r["module_gate"]=="NOT_ACCEPTED"
 PY
 install -m 0600 "$parity" "$GITHUB_WORKSPACE/ci_receipts/restore_catalog_parity_receipt.json"
 echo 'RESTORE_CATALOG_PARITY_13TH_SANITIZED_RECEIPT=PASS'
+
+# M04-A07 exact empty 001-010 down/reinstall consistency + populated independent restore.
+m04="$LAB_WORK/m04_migration_full_cycle_receipt.json"
+[[ -s "$m04" ]] || { echo STOP_M04_A07_CONSISTENCY_MISSING >&2;exit 70; }
+python3 - "$m04" <<'PY'
+import json,sys
+from pathlib import Path
+r=json.loads(Path(sys.argv[1]).read_text())
+assert r["contract_version"]=="f3.db.p3m04_a07_full_cycle.v1"
+assert r["full_empty_001_010_down_and_forward"]=="PASS_10_DOWN_10_UP"
+assert r["source_equals_roundtrip"] is True
+assert r["schema_only_source_sha256"]==r["schema_only_roundtrip_sha256"]
+assert len(r["schema_only_source_sha256"])==64
+assert r["new_probe_ledger_applied"]==10 and r["force_rls_tables_after_roundtrip"]==14
+assert r["db55_after_roundtrip"]=="PASS_PRIVATE_NO_DISPATCH"
+assert r["populated_pre009_upgrade"]=="PASS_TWO_OWNERS_BOTH_CLUSTERS_009_010"
+assert r["populated_restore"]=="PASS_SEPARATE_PG_CLUSTER"
+assert r["data_bearing_001_003_destructive_reverse"]=="NOT_PERMITTED"
+assert r["probe_removed"] is True and r["original_lab_untouched"] is True
+assert r["mac_runtime"]=="NOT_RUN" and r["module_gate"]=="NOT_ACCEPTED"
+PY
+install -m 0600 "$m04" "$GITHUB_WORKSPACE/ci_receipts/m04_migration_full_cycle_receipt.json"
+echo 'M04_A07_14TH_SANITIZED_CONSISTENCY_RECEIPT=PASS'
