@@ -8,7 +8,7 @@
 |---:|---|---|:---:|---|
 | 1 | P3M04-A07 | DB | A | Isolated empty+populated migration cycle now DONE limited; prod/Mac pending |
 | 2 | P3M04-A02 | DB | B | Full FK/index negative suite with agreed representative workload and query-plan/SLO threshold |
-| 3 | P3M10-A10 | API+DB | B | Concurrent null-scope idempotency and crash/replay with real route semantics |
+| 3 | P3M10-A10 | API+DB | B | DB concurrent two-client null-key race + simulated lost ACK + two owners PASS in CI45234862871; still OPEN: signed API HTTP retry and real process crash/replay plus IdP same-TX |
 | 4 | P3M15-A10 | DB+API+UI | B | Concurrent History/Feedback duplicates, API transactional receipt after crash |
 | 5 | P3M06-A07 | DB+API | B | Direct Python repository calls with hostile GUC/signed actor context |
 | 6 | P3M22-A09 | DB+Ops | B | Disposable partial/full outage and recovery; approved DR topology later |
@@ -45,3 +45,8 @@ A new scratch PostgreSQL 17.11 copy of the already DB55-verified source was gran
 Foundation: use exact source `48110525aa9ac118b6b3749c956930c61cec11fe`; 03 blob `9cc9458c55b82f03811b346259ccf2ae3dce318d`; manifest blob `f67f5e985c45ae9b6a6c68417ebc54ba05ec7fdf`; new 23 blob `a547a58ac1555795dd73c18415973bbc955177d8`; exporter 11 `b9dff8a9f736d36af3916900995afb798826b3e5`; workflow `dadd5ec47d8f312b7de35533241c275961195821`; execution order as in workflow. This does not prove Foundation integrated/ran the candidate; do not update Foundation-owned Gate silently.
 
 API/Security/Product: consent/withdrawal, feedback tied to persisted Answer, tombstone/retention/export, owner-id→user-id, real signed same-TX identity and Citation/Run-version producer contracts require approval BEFORE any 012+ SQL. Ops: Mac candidate separate, full encrypted backup/PITR/anti-resurrection, RPO/RTO and signed original role+HTTP receipts missing. 011 intentionally excluded, no dispatch or Arvan.
+
+
+## Next-cycle bounded evidence on queue item #3 (not accepted)
+
+M10-A10 actual real-PG script24 `395078707143c85de2d8f58c0b365445176bbf6a`, [CI 45234862871](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45234862871) exact source `f302fbf0f4a00ae4fe80d914452906fe88029078` SUCCESS, 15 sanitized receipts. SQL duplicate/one-attempt/owner RLS passed, **not** signed API HTTP request replay, actual process kill, runtime IdP or Mac. Queue #3 remains OPEN. Totals 5/57=8.77% retained. Contract/policy decisions 012+ remain HOLD.

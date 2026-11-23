@@ -132,3 +132,13 @@ Exact executable `48110525aa9ac118b6b3749c956930c61cec11fe`, [CI 45233599373 SUC
 Order now: `00→01→02→03→03→04→05→09→06→10→22→13→12→14→15→23→16→17→19→20→21→11` (workflow actual order). Use original role/DB55/manifest pins. `CREATE DATABASE ... TEMPLATE` does not copy *database-level privileges*, hence script 23 recreates scoped lab grants on probe only. Docker Compose stdin can consume process substitution, hence manifest loops use FD3. A full-cycle reset loses POST-migration DB55 bridge function grants, hence exact bridge replay with new experimental ledger in probe is required. These code-fixes are part of validated source SHA, not speculative future policy.
 
 No Mac/approved data-bearing full rollback, no live Gateway/011/Arvan, no 012+, no signed RPO/RTO, no app API/IdP/C018: **NOT_RUN / NOT_ACCEPTED**. Foundation must repin the exact executable and all new blobs, rerun on independent integrated candidate before Gate.
+
+
+---
+## Latest executable with next OPEN-row evidence — tested exact SHA f302fbf0
+
+- Full isolated [CI 45234862871 SUCCESS](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45234862871) source SHA `f302fbf0f4a00ae4fe80d914452906fe88029078`, 15 sanitized files [artifact 14849265819](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45234862871/artifacts/14849265819).
+- **NEW** `scripts/24_m10_idempotency_concurrency_probe.sh` blob `395078707143c85de2d8f58c0b365445176bbf6a`, after script23, no external calls: actual two PostgreSQL sessions unique race, lost ACK simulated, different owner same key and one-attempt denial, all in disposed clone.
+- **CURRENT exporter** `scripts/11_export_sanitized_receipt.sh` blob `8ac7ea78dee35bcd90d3fff066a56cc8f06bae23`; validates 15th file `m10_idempotency_concurrency_receipt.json` (14th M04 file and previous 13 still gated).
+- **CURRENT workflow** `.github/workflows/f3-db-isolated-fresh-install.yml` blob `4701c68b3159557b290a2bb96315ae7928cc5a36`. Order: `00→01→02→03→03→04→05→09→06→10→22→13→12→14→15→23→24→16→17→19→20→21→11`.
+- Installer03 `9cc9458c55b82f03811b346259ccf2ae3dce318d`, manifest `f67f5e985c45ae9b6a6c68417ebc54ba05ec7fdf` / SHA256 `9ff95a59570f5f6c6188479d9c37cf684ef836c599e89d9faa2bb0e17a4946f7`, script23 `a547a58ac1555795dd73c18415973bbc955177d8` unchanged. 011 OPTIONAL skipped and no Gateway/Arvan/Mac. DB concurrency **NOT** accepted as signed API process-crash/retry. 57-specialist counts remain 5/28/24.
