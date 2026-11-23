@@ -771,6 +771,12 @@ async def session_revoke_one(request: Request):
     ambiguous connection/COMMIT response never becomes success.
     """
     try:
+        # Revoke is as sensitive as History. Require trusted TLS peer identity
+        # at the route too, before reading a token or opening an Auth DB role.
+        # Forwarded headers are never transport evidence.
+        if (_PRIVATE_STAGING_PROFILE is not None
+                and not _PRIVATE_STAGING_PROFILE.allowed_peer(request.scope)):
+            raise TrustRejected()
         if (request.scope.get("raw_path") != _REVOKE_PATH
                 or request.scope.get("query_string") != b""
                 or request.headers.get("content-type", "").split(";")[0] != "application/json"
