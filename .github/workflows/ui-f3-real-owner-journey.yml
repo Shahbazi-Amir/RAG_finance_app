@@ -3,6 +3,8 @@ name: UI F3 exact-candidate real browser History baseline — app-only, no inter
 on:
   push:
     branches: [agent/ui-f3-strict-ca-sha-320-20261124]
+  pull_request:
+    branches: [agent/ui-f3-real-two-owner-history-20261124]
   workflow_dispatch:
 
 permissions:
