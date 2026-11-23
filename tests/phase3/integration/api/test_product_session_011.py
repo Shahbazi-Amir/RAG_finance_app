@@ -441,6 +441,50 @@ class RealProductSession011(unittest.TestCase):
         print("API_F3_REAL_SIGNED_PG_T1_T2_HISTORY_REFRESH_AB_REVOKE_PASS",
               flush=True)
 
+    def test_API011_05_app_only_send_503_before_body_no_t1_t2_pg_write(self):
+        """Actual pinned-mTLS signed API wrapper must never start Send.
+
+        Unlike a standalone ASGI stub, this runs over real Uvicorn HTTPS and
+        the original live Postgres role; only synthetic CI user data exists.
+        """
+        a = self.login("A")
+        body = b"not-json-" + (b"x" * 24576)
+        signed, _ = self.signed(a, method="POST", path="/v1/messages", body=body)
+        with psycopg.connect(os.environ["DB_MIG_DSN"], autocommit=True,
+                             row_factory=dict_row) as admin:
+            before = admin.execute(
+                "SELECT "
+                "(SELECT count(*) FROM history_l1.send_receipts WHERE owner_id=%s) AS t1,"
+                "(SELECT count(*) FROM history_l1.execution_attempts WHERE owner_id=%s) AS t2,"
+                "(SELECT count(*) FROM history_l1.answers WHERE owner_id=%s) AS t3",
+                (a["owner_id"], a["owner_id"], a["owner_id"])
+            ).fetchone()
+        # The payload is deliberately too large/invalid for Product.v1.
+        # If the inner endpoint reads it, it returns validation/413 rather
+        # than 503. This proves the app-only wrapper stops it first.
+        response = self.request("POST", "/v1/messages", signed, body=body)
+        self.assertEqual(response.status_code, 503, response.text)
+        self.assertEqual(response.headers.get("cache-control"), "no-store")
+        self.assertIn("ENGINE_NOT_CONFIGURED", response.text)
+        self.assertNotIn("not-json-", response.text)
+        # H11/ASGI percent-decodes to /v1/messages; raw_path differs.
+        # No route-encoding alias is allowed to bypass the pre-body fence.
+        encoded = self.request(
+            "POST", "/v1/%6dessages", signed, body=body)
+        self.assertEqual(encoded.status_code, 503, encoded.text)
+        with psycopg.connect(os.environ["DB_MIG_DSN"], autocommit=True,
+                             row_factory=dict_row) as admin:
+            after = admin.execute(
+                "SELECT "
+                "(SELECT count(*) FROM history_l1.send_receipts WHERE owner_id=%s) AS t1,"
+                "(SELECT count(*) FROM history_l1.execution_attempts WHERE owner_id=%s) AS t2,"
+                "(SELECT count(*) FROM history_l1.answers WHERE owner_id=%s) AS t3",
+                (a["owner_id"], a["owner_id"], a["owner_id"])
+            ).fetchone()
+        self.assertEqual(before, after)
+        self.assertEqual(self.list(a).status_code, 200)
+        print("API_F3_APP_ONLY_REAL_SIGNED_PG_SEND_ZERO_T1_T2_T3_PASS", flush=True)
+
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
         """Actual verified HTTPS callback, same pinned redirect for Code exchange."""
         from cryptography.hazmat.primitives import serialization
