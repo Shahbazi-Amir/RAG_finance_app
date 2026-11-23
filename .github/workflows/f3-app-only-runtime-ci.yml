@@ -28,7 +28,7 @@ jobs:
           actual=hashlib.sha256(open("locks/requirements-api.lock","rb").read()).hexdigest()
           expected=m["owners"]["API_F3"]["api_lock_sha256"]
           assert actual==expected,"API_DEPENDENCY_LOCK_DRIFT"
-          print("APP_ONLY_114_SOURCE_BLOBS_AND_API_LOCK_EXACT_PASS",len(pins))
+          print("APP_ONLY_SOURCE_BLOBS_AND_API_LOCK_EXACT_PASS",len(pins))
           PY
       - name: Install exact hashed Python API deps, no Engine
         run: |
