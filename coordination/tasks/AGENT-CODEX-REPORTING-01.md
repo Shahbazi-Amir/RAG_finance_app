@@ -187,3 +187,11 @@ Status is review. Supervisor approval is pending.
 - Tested: browser session evidence, callback 303, POST 202 once, GET status 200, product ledger FAILED. Chrome reload left ledger unchanged but no engine-status GET 200 was observed and aggregate session evidence confirmed expiry. Verified six input digests and four pinned runtime package versions. Isolated diagnostics exited 1 and timed out at 165 and 220 seconds. The last run reached stage 4 (dense Qdrant copy and validation); timeout diagnosis remains open. No Phase 2 mount was used by the executed diagnostics. Temporary diagnostic container cleaned up.
 - Pending: diagnostic root cause and a source-producing release still need evidence. No duplicate question or replay, no Phase 2 writes, Arvan HOLD. Supervisor acceptance pending.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — C018 dense correction, real isolated retrieval and budget
+
+- Status: partial, product C018 blocked. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), operational evidence only. Reporting baseline codex 2dbfb85. Execution commits b03d54a, 121addd, 8367cf6 and 5ee8a25. Source candidate c488837 inspected separately.
+- Implemented: local prepare_c018_dense_copy.py, compose.c018-inputs.yaml, profile_c018_onnx.py and engine_mount_readiness.py guard. Existing data bytes and runner pin unchanged. Report-only updates here, MAC_FIRST_START_FA.md/.html and CURRENT_STATUS.md.
+- Tested: original Attempt spawn witness EXITED_FAILED with one child, exit 1 and failure near 75 seconds. Reproduced Qdrant lock PermissionError on the original dense clone mode. Fixed copy passed 3,488-vector logical hash and separate copy/open/validate timing. Isolated pinned runner reached CONTEXT_READY with ten results and zero generation in 193.02 seconds, no network. Both uninstrumented and thread-capped tests timed out at the ONNX stage. The second enforced 180 seconds inside the container, exit 124. Local readiness regression passed and 21 candidate source-contract fixture tests passed.
+- Pending: repeatable runtime within the current 180-second cap, verified locator contract, and product acceptance. Existing failed Attempt was not replayed. Arvan HOLD and supervisor acceptance pending.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
