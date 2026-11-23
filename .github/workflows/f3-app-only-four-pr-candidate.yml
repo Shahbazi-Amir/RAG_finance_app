@@ -221,11 +221,17 @@ jobs:
 
       - name: Real Compose isolated Web API no public ports and source pins
         env:
+          CI: 'true'
           F3_PROJECT_NAME: f3-app-only-ci-${{ github.run_id }}-${{ github.run_attempt }}
           F3_RELEASE_TAG: ci
           F3_SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          # The preflight never pulls, starts, deletes or even inspects demo.
+          bash scripts/phase3/app_only_candidate_preflight.sh --inspect-unused
+          # Deliberately bad project / source must be denied without mutation.
+          if F3_PROJECT_NAME=rag_finance_f3_demo bash scripts/phase3/app_only_candidate_preflight.sh; then exit 1; fi
+          if F3_SOURCE_SHA=0000000000000000000000000000000000000000 bash scripts/phase3/app_only_candidate_preflight.sh; then exit 1; fi
           file=infra/phase3_l1/compose.app-only.internal.yml
           docker compose -f "$file" config -q
           docker compose -f "$file" config --format json | python3 -c 'import json,sys; x=json.load(sys.stdin); assert set(x["services"])=={"api","web"}; assert all("ports" not in v for v in x["services"].values()); assert x["networks"]["private"]["internal"] is True; assert x["services"]["api"]["read_only"] is True; assert x["services"]["web"]["read_only"] is True; print("F3_COMPOSE_NO_PUBLIC_PORTS_READ_ONLY_INTERNAL_PASS")'
