@@ -114,3 +114,35 @@ jobs:
           done
           if [ "$ok" != 1 ]; then tail -n 70 "$RUNNER_TEMP/app-only-next.log"; exit 1; fi
           python tests/phase3/integration/ui/app_only_real_browser.py
+      - name: Real nonroot Web Docker image and HTTP app-only capability + direct POST fence
+        run: |
+          set -euo pipefail
+          docker build --platform linux/amd64 -f infra/phase3_l1/Dockerfile.web \
+            --build-arg BASE=docker.io/library/node:22.23.5 \
+            --build-arg "SOURCE_SHA=$GITHUB_SHA" \
+            -t "f3-app-only-web:$GITHUB_SHA" .
+          test "$(docker image inspect -f '{{.Config.User}}' "f3-app-only-web:$GITHUB_SHA")" = "11003:11003"
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "f3-app-only-web:$GITHUB_SHA")" = "$GITHUB_SHA"
+          docker run -d --rm --name app-only-next-web --network host \
+            -e PHASE3_APP_MODE=APP_ONLY "f3-app-only-web:$GITHUB_SHA"
+          trap 'docker rm -f app-only-next-web >/dev/null 2>&1 || true' EXIT
+          ok=0
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:3000/api/product-capabilities > /tmp/f3-app-only-capability.json; then ok=1; break; fi
+            sleep 2
+          done
+          test "$ok" = 1
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/f3-app-only-capability.json'))
+          assert d['send_mode']=='DISABLED'
+          assert d['engine_available'] is False
+          assert d['generation_available'] is False
+          print('APP_ONLY_WEB_REAL_DOCKER_HTTP_CAPABILITY_PASS')
+          PY
+          status="$(curl -s -o /tmp/f3-send-denied.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' -d '{}' \
+            http://127.0.0.1:3000/api/history/messages)"
+          test "$status" = 503
+          grep -F 'ENGINE_NOT_AVAILABLE' /tmp/f3-send-denied.json
+          echo 'APP_ONLY_WEB_REAL_IMAGE_HTTP_SEND_503_NO_ENGINE_PASS'
