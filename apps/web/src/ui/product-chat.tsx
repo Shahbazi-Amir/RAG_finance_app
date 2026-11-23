@@ -5,7 +5,7 @@ import {conversations,messages,newSend,sendMessage,recoverStatus,recoverEngineSt
   failureLabel,mergeUnique,type ConversationView,type MessageView,
   type AnswerView,type HistoryStatus,type EngineStatus,type RetrievedSources} from '../history/client';
 import type {Answer,Citation} from '../mock/transport';
-import {verifiedSourceUrl} from './source-locator';
+import {verifiedSourceUrl,verifiedSourceLocatorLabel,verifiedSourceTypeLabel} from './source-locator';
 import {sourceCredits,confidenceLabel} from './source-metadata';
 import RetrievedSourcesPanel from './retrieved-sources-panel';
 import {OwnerFence} from './owner-fence';
@@ -50,8 +50,11 @@ function engineLabel(s:EngineStatus):string{
 function CitationView({citation}:{citation:Citation}){
   const s=citation.source;
   const href=verifiedSourceUrl(s);
+  const locatorLabel=verifiedSourceLocatorLabel(s);
+  const sourceTypeLabel=verifiedSourceTypeLabel(s);
   const credits=sourceCredits(s);
   return <li className="product-citation">
+    {sourceTypeLabel&&<span>نوع منبع: {sourceTypeLabel}</span>}
     <span>شناسهٔ منبع: <code dir="ltr">{s.source_id??'ثبت نشده'}</code></span>
     {s.display_title&&s.display_title_origin!=='SYNTHETIC'&&
       <span>عنوان: {s.display_title}</span>}
@@ -59,12 +62,10 @@ function CitationView({citation}:{citation:Citation}){
     {s.attribution_status!=='verified'&&<span className="history-note">انتساب این منبع تأیید نشده است.</span>}
     <span>شناسهٔ استناد: <code dir="ltr">{citation.citation_id}</code></span>
     <span>نقل‌قول مستقیم منبع: در این قرارداد ارائه نشده است.</span>
-    {s.locator?.kind==='book_page'&&s.locator.page!==null&&
-      <span>صفحهٔ ثبت‌شده: {s.locator.page}</span>}
-    {s.locator?.kind==='transcript_timestamp'&&s.locator.timestamp_ms!==null&&
-      <span>زمان ثبت‌شده (میلی‌ثانیه): {s.locator.timestamp_ms}</span>}
+    {locatorLabel&&<span data-testid="verified-source-locator">{locatorLabel}</span>}
     {href?<a href={href} target="_blank" rel="noopener noreferrer">بازکردن پیوند معتبر منبع</a>
-      :<span className="history-note">Locator این شاهد پیوند وب معتبر ندارد.</span>}
+      :<span className="history-note">این نشانگر آدرس وب تأییدشده ندارد؛ امکان بازکردن پیوند وجود ندارد.</span>}
+    <span className="history-note">دلیل انتخاب این منبع در قرارداد فعلی ارائه نشده است.</span>
   </li>;
 }
 function AnswerPanel({answer}:{answer:Answer}){
