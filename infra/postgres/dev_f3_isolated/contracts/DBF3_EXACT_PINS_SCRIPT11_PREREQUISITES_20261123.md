@@ -54,6 +54,7 @@ bash scripts/16_fault_injected_migration_ledger.sh
 bash scripts/17_populated_query_plan_and_owner.sh
 bash scripts/19_history_rls_negative_matrix.sh
 bash scripts/20_backup_integrity_corruption_probe.sh
+bash scripts/21_history_cursor_race_probe.sh
 # The exporter below uses a metadata directory, NOT an installation command.
 # For CI, GITHUB_WORKSPACE and GITHUB_SHA are supplied automatically; for local,
 # use an isolated writable export root and explicitly label evidence as local.
@@ -74,9 +75,14 @@ bash scripts/11_export_sanitized_receipt.sh
 8. After 19: `history_rls_adversarial_receipt.json` proves two-owner six History table SELECT RLS, authorized title mutation and 7/7 negative forged owner/FK/immutable UPDATE/DELETE/unique cases. **It also demonstrates that a raw `history_app` SQL client can set the custom owner GUC and therefore cannot prove signed identity.** The real BFF/IdP/epoch fence remains OPEN.
 9. After 20: `backup_integrity_fault_receipt.json` proves one-byte flipped and truncated copies of an already checksummed lab dump are denied by SHA256 *before* restore, while original backup and independent source/restore cluster IDs stay intact. **No corrupt restoration is attempted**; real storage faults, encrypted off-host backups, PITR, RPO/RTO and tombstone no-reappearance remain OPEN. To audit 15, retain GitHub Actions exact-SHA log and test script pin, not a fabricated JSON receipt. This distinction is deliberate.
 
-**11 exports the historical nine sanitized files PLUS two separately gated negative-test JSON receipts (eleven total)** in ci_receipts; it must not embed secrets, private keys, DSNs, raw SQL row contents or pg_dump. It sets source_commit_tested to GITHUB_SHA, which in CI is the runner commit, and uses NO_CI_SHA if absent; NEVER relabel local evidence as exact CI attestation. The 18 two-baseline comparator is **separate** and exports three sanitized JSONs after two fresh+restore runs on the SAME disposable Runner; its results are in CI 45209570132, not produced by script 11.
+10. After 21: `history_cursor_race_receipt.json` reproduces exact repository Git blob `14f97dd680425b74f8e12fa1696d423a20bf7d76` History keyset SQL predicates on a **separate real PG17 clone** with two artificial owners, both ASC/DESC cursor sequences, a new record inserted beyond anchor and cross-user RLS denial. Cursor HMAC, actual HTTP, full transaction session fence and realistic-load SLO stay NOT_RUN.
+
+**11 exports the historical nine sanitized files PLUS three separately gated negative/race SQL receipt JSON files (twelve total)** in ci_receipts; it must not embed secrets, private keys, DSNs, raw SQL row contents or pg_dump. It sets source_commit_tested to GITHUB_SHA, which in CI is the runner commit, and uses NO_CI_SHA if absent; NEVER relabel local evidence as exact CI attestation. The 18 two-baseline comparator is **separate** and exports three sanitized JSONs after two fresh+restore runs on the SAME disposable Runner; its results are in CI 45209570132, not produced by script 11.
 
 ## Latest newly tested CI evidence (2026-11-23)
+
+- **CURRENT latest tested executable** SHA `76822ac273c3f5defbb7e5cd77d497f8d3305852`, [CI 45218702399 SUCCESS](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45218702399), [sanitized artifact 14839553522](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45218702399/artifacts/14839553522). Added script 21 `infra/postgres/dev_f3_isolated/scripts/21_history_cursor_race_probe.sh` verifying asc/desc keyset anchor across concurrent new records; 12 sanitized receipts total. Prior tested 6d remains historical and new integrated sources do not automatically include 21.
+
 
 - Latest executed source SHA `6d2339bc45ce52b4f60a50ced0bb04b588ba3748`, [CI 45216830775 SUCCESS](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45216830775), sanitized [artifact 14839885728](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45216830775/artifacts/14839885728).
 - New script 19 Git Blob `5d26843eaa129c923c4275e558c60627c15018c9`; script 20 `d7e5e1cb4bb0b04cf86e87e3eb8a232da78fc391`; enhanced exporter 11 `f3542ec51b7a5c7bea84bccb42e7eb894f804a55`; corresponding workflow version is source-bound to CI SHA above. These are **new executable changes** beyond 996dfc9, although 001–010 SQL, installer 03, PG image and DB55 remain the same. Foundation must not assume integrated commit c488837... contains scripts 19/20: observed those files absent and old 11 still present.
