@@ -1,4 +1,7 @@
 # DATABASE_F3 — گزارش تجمیعی تحویل اجرایی و مرز پذیرش فاز ۳
+
+> **UPDATED delivery delta:** CI 45209570132 PASSED independent runs of 0e301a and 996dfc9 on the SAME isolated Runner with FOUR distinct PostgreSQL source/restore system IDs and DB55 001–010 TLS roles. New physical ERD/API policy draft: docs/PHASE3_PHYSICAL_ERD_AND_FUTURE_POLICY_CONTRACT_v2_20261123.md; fresh 57-ID reviewed test requirements: docs/PHASE3_57_ROW_INDEPENDENT_RE_REVIEW_20261123.csv. Actual integrated DB subtree SHA ce899c26a27fa0e913584384f9dac8980bb77c33 has 65/65 matching blobs to 996dfc9, but integration/F3_SOURCE_PINS.json still contains OLD DB provenance. **Script 11 exporter will FAIL if only historical 12/13/14 are executed: its full CURRENT prerequisite suite is 13,12,14,15,16,17 after 00–10, then 11; see contracts/DBF3_EXACT_PINS_SCRIPT11_PREREQUISITES_20261123.md.** All these remain CI/test-only, no production Mac acceptance.
+
 **تاریخ:** 2026-11-23 · **مخزن نوشتنی:** `Shahbazi-Amir/RAG_finance_app` · **شاخه:** `agent/database-f3-fresh-install-isolated-20261122` · **Draft PR:** [#59](https://github.com/Shahbazi-Amir/RAG_finance_app/pull/59)
 
 > این گزارش شاهد کد و CI مستقل است؛ پذیرش واقعی مک/محصول، Gate ماژول، تولید پاسخ و انتشار را اعلام نمی‌کند. رجیستر رسمی فقط تحت اختیار Foundation/CENTRAL تغییر می‌کند. دادهٔ مصنوعی/CI جای دادهٔ واقعی و RTO مصوب نیست.
