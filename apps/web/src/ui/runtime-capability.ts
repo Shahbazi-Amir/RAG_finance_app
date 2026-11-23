@@ -1,3 +1,4 @@
+import canonical from '../../../../packages/contracts/ui.runtime_capabilities.v1.schema.json' with {type:'json'};
 /** App-only UI capability policy. This is NOT producer readiness or a
  * browser authority token. The signed BFF must independently reject Send
  * before body read or durable reservation in app-only mode.
@@ -31,12 +32,14 @@ export function selectRuntimeCapability(input:{
 export function decodeRuntimeCapability(value:unknown):ReadOnlyCapability|null{
   if(value===null||typeof value!=='object'||Array.isArray(value))return null;
   const o=value as Record<string,unknown>;
+  const properties=canonical.properties;
   if(Object.keys(o).sort().join('|')!==
-       ['kind','contract_version','send_mode','engine_available','generation_available'].sort().join('|')||
-     o.kind!=='ui_runtime_capabilities'||
-     o.contract_version!=='ui.runtime_capabilities.v1'||
-     !['DISABLED','NO_DISPATCH_ONLY'].includes(String(o.send_mode))||
-     o.engine_available!==false||o.generation_available!==false)return null;
+       Object.keys(properties).sort().join('|')||
+     o.kind!==properties.kind.const||
+     o.contract_version!==properties.contract_version.const||
+     typeof o.send_mode!=='string'||!properties.send_mode.enum.includes(o.send_mode)||
+     o.engine_available!==properties.engine_available.const||
+     o.generation_available!==properties.generation_available.const)return null;
   return o as ReadOnlyCapability;
 }
 
