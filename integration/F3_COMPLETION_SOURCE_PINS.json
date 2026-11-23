@@ -715,6 +715,18 @@
       "source_sha": "535678051f3847661c8f048819c8a6784a804e35",
       "git_blob": "91b7777ab7be268fe278e543deed5e53c8efc1fa",
       "reason": "app-only integrated original source; no engine or target L2 claim"
+    },
+    "tests/phase3/ui/runtime-capability.test.mjs": {
+      "owner": "UI_F3",
+      "source_sha": "535678051f3847661c8f048819c8a6784a804e35",
+      "git_blob": "c5d4140dfdc804b40f58ba3680ab8ce97f568041",
+      "reason": "verified exact owner or app-only test/workflow pin"
+    },
+    ".github/workflows/f3-app-only-runtime-ci.yml": {
+      "owner": "APP_ONLY_CANDIDATE",
+      "source_sha": "d6f369fee5a9f0c2d9491860463c0a636336e750",
+      "git_blob": "fa6436c99fca1f70fc4a1a4e026184eb7fa8ea83",
+      "reason": "verified exact owner or app-only test/workflow pin"
     }
   },
   "status": {
