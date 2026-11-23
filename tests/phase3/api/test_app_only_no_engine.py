@@ -56,6 +56,42 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         self.config_file.write_text(json.dumps(self.doc))
         self.config_file.chmod(0o600)
 
+    def test_prepare_real_product_app_without_runner_mount_or_ledger(self):
+        """Composition of actual Product ASGI is independent of engine files.
+
+        PG and TLS preflight are mocked ONLY in this source unit test; this
+        is NOT a signed Mac or real PostgreSQL readiness attestation.
+        """
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization
+        from apps.api.private_app_only_asgi import prepare_app_only, AppOnlyASGI
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        public_key = key.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo)
+        (self.root / "pub.pem").write_bytes(public_key)
+        cfg = load_app_only_config(self.config_file)
+        with patch.dict(os.environ, {
+            "CI": "false", "GITHUB_ACTIONS": "false",
+            "API_RUNNER_EXECUTION_MODE": "APP_ONLY",
+        }):
+            with patch("apps.api.private_app_only_asgi._test_tls_material"):
+                with patch("apps.api.private_app_only_asgi.verify_staging_database_authority"):
+                    with patch(
+                        "src.phase3.rag_runtime.staging_preflight.RunnerLayout.pinned",
+                        side_effect=AssertionError("ENGINE_LOCK_MUST_NOT_BE_LOADED"),
+                    ):
+                        from apps.api import product_session_api
+                        with patch.object(
+                            product_session_api, "install_private_staging_auth"
+                        ) as install:
+                            app, boundary = prepare_app_only(cfg)
+        self.assertIsInstance(app, AppOnlyASGI)
+        self.assertIsNotNone(boundary)
+        self.assertEqual(install.call_count, 1)
+        self.assertIs(app._app, product_session_api.app)
+        self.assertIsNone(product_session_api._SERVER_NO_DISPATCH_TASK)
+
     def test_config_exact_and_redacted_no_runner_no_ledger(self):
         cfg = load_app_only_config(self.config_file)
         self.assertIsInstance(cfg, AppOnlyConfig)
