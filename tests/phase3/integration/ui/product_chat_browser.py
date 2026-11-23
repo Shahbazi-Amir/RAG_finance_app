@@ -307,7 +307,9 @@ def main():
             menu.click()
             expect(page.get_by_role("dialog", name="فهرست گفتگوها")).to_be_visible()
             page.set_viewport_size({"width": 1280, "height": 800})
-            expect(menu).to_have_attribute("aria-expanded", "false")
+            # The trigger is deliberately CSS-hidden on desktop; assert its
+            # DOM state rather than searching for a visible ARIA button.
+            expect(page.locator(".mobile-menu-trigger")).to_have_attribute("aria-expanded", "false")
             assert page.locator("aside[aria-modal='true']").count() == 0
             assert page.locator("section.history-main").get_attribute("inert") is None
             page.set_viewport_size({"width": 320, "height": 568})
