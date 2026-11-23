@@ -105,13 +105,21 @@ before marking that Compose job green. There is no anonymous fallback.
 Two independent selectors must be `PHASE3_APP_MODE=APP_ONLY` and
 `API_RUNNER_EXECUTION_MODE=APP_ONLY`. Disagreeing or CI/GITHUB_ACTIONS
 true in production causes startup denial. This does not activate C018.
-`GET /health/ready` is the mTLS-only alias for `/internal/ready`,
-returning 200 only on a live permitted PG role/function check and 503
-on PG unavailability; it explicitly says `bootstrap_idp:not_probed`.
+`GET /internal/ready` remains **mTLS-only, PG role/function metadata** (200 or 503).
+`GET /health/ready` is now **stricter**: the BFF must sign this exact GET
+path using its real RSA key and a *currently active session*; original
+004/005 fenced admission, correct owner and PG commit must all succeed.
+It returns 200 only for that transaction and 503 for absent/incorrect
+RS256 proof, revoked session, wrong owner or DB failure. No query or body is
+allowed. Both probes explicitly state `bootstrap_idp:not_probed` where
+applicable; 200 is **API History readiness**, never browser-stack readiness.
 The *whole* browser login stack is NOT declared ready by that API-only 200.
 
 ### Contract exposed to Foundation/UI/DB
 
+- BFF signed readiness: `GET /health/ready` with a fresh exact-bound
+  assertion for a live owner/session; no request body. Failed signature,
+  replay or revoked session means 503, not a green Health status.
 - BFF signed Product.v1: `GET /v1/conversations?limit=20`, paginated
   `GET /v1/conversations/{id}/messages?limit=20`,
   `GET /v1/message-requests/status?requested_conversation_id=...&client_message_id=...&idempotency_key=...`,
