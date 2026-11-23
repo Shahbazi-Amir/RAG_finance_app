@@ -286,6 +286,14 @@ jobs:
           set -euo pipefail
           python -m compileall -q src/phase3/auth tests/phase3/integration/api
           python -m unittest discover -s tests/phase3/integration/api -p 'test_bootstrap_oidc_010.py' -v
+      - name: Import actual product-session ASGI for isolated CI dependency integrity
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import apps.api.product_session_api as app
+          assert app.app is not None
+          print("API_F3_PRODUCT_ASGI_IMPORT_READY", flush=True)
+          PY
       - name: Real HTTPS Callback plus Product-session API 005 004 History/revoke tests
         run: |
           set -euo pipefail
