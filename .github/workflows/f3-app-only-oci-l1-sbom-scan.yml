@@ -1,0 +1,108 @@
+name: F3 app-only actual OCI image SBOM and CVE inventory (L1 not release)
+on:
+  push:
+    branches: [integration/f3-app-only-foundation-completion-20261123]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ci-only-image-inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api, bootstrap, web]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Exact source and locally built image (approved ECR runtime digest not attested)
+        shell: bash
+        run: |
+          set -euo pipefail
+          service="${{ matrix.service }}"
+          case "$service" in
+            api|bootstrap)
+              base="docker.io/library/python:3.13.5"
+              ;;
+            web)
+              base="docker.io/library/node:22.23.5"
+              ;;
+            *)
+              echo STOP_UNKNOWN_SERVICE >&2
+              exit 70
+              ;;
+          esac
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          docker build --pull --platform linux/amd64 \
+            --file "infra/phase3_l1/Dockerfile.$service" \
+            --build-arg "BASE=$base" --build-arg "SOURCE_SHA=$GITHUB_SHA" \
+            --tag "f3-oci-$service:$GITHUB_SHA" .
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "f3-oci-$service:$GITHUB_SHA")" = "$GITHUB_SHA"
+          test "$(docker image inspect -f '{{.Architecture}}' "f3-oci-$service:$GITHUB_SHA")" = amd64
+          mkdir -p ci_receipts/oci
+          printf 'OCI_SCAN_TARGET=%s\nSOURCE_SHA=%s\n' "$service" "$GITHUB_SHA"
+      - name: Actual image SBOM CycloneDX via Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: image
+          image-ref: 'f3-oci-${{ matrix.service }}:${{ github.sha }}'
+          format: cyclonedx
+          output: ci_receipts/oci/sbom.cdx.json
+          exit-code: '0'
+      - name: Actual image OS and library vulnerability inventory via Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: image
+          image-ref: 'f3-oci-${{ matrix.service }}:${{ github.sha }}'
+          format: json
+          vuln-type: 'os,library'
+          output: ci_receipts/oci/vulnerabilities.json
+          exit-code: '0'
+      - name: Build reproducible sanitized CVE counts; never claim zero without inspection
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import collections,datetime,json,os
+          from pathlib import Path
+          service="${{ matrix.service }}"
+          sha=os.environ["GITHUB_SHA"]
+          root=Path('ci_receipts/oci')
+          sbom=json.loads((root/'sbom.cdx.json').read_text())
+          x=json.loads((root/'vulnerabilities.json').read_text())
+          assert sbom['bomFormat']=='CycloneDX'
+          assert isinstance(x.get('Results'),list)
+          counts=collections.Counter()
+          pkg=set()
+          for result in x['Results']:
+              for v in result.get('Vulnerabilities') or []:
+                  severity=v.get('Severity','UNKNOWN').upper()
+                  counts[severity]+=1
+                  if isinstance(v.get('PkgName'),str):pkg.add(v['PkgName'])
+          state='REVIEW_REQUIRED_HIGH_CRITICAL_PRESENT' if counts.get('HIGH',0)+counts.get('CRITICAL',0)>0 else 'L1_NO_HIGH_CRITICAL_OBSERVED_IN_THIS_SCAN'
+          doc={'schema':'f3.app_only_oci_vulnerability_inventory.v1','source_git_sha':sha,
+               'service':service,'result':state,'severity_counts':dict(sorted(counts.items())),
+               'distinct_package_names_count':len(pkg),
+               'sbom_components':len(sbom.get('components',[])),
+               'environment':'ephemeral GitHub hosted Ubuntu24.04 linux/amd64',
+               'scan_target':'REAL_CI_BUILT_IMAGE',
+               'base_image':'DockerHub version tag CI fallback, NOT approved ECR immutable digest',
+               'scanner':'aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25',
+               'mac_target':'NOT_RUN','accepted_release':'NO','full_engine':'NOT_CONNECTED',
+               'central_gate':'NOT_ACCEPTED'}
+          (root/'bounded_scan_summary.json').write_text(json.dumps(doc,indent=2)+'\n')
+          print('ACTUAL_IMAGE_VULNERABILITY_SCAN_EXECUTED',service,state,dict(counts))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f3-app-only-oci-${{ matrix.service }}-sbom-vuln-inventory
+          path: |
+            ci_receipts/oci/sbom.cdx.json
+            ci_receipts/oci/vulnerabilities.json
+            ci_receipts/oci/bounded_scan_summary.json
+          retention-days: 14
+          if-no-files-found: warn

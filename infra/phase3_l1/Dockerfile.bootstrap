@@ -1,0 +1,16 @@
+# Private signed OIDC Bootstrap only, no Engine or model dependency
+ARG BASE=public.ecr.aws/docker/library/python@sha256:f3dac913ab53b78c64f26d5518fcd7043d5a1a46522d6a493b598c3ed12f62a6
+FROM ${BASE}
+ARG SOURCE_SHA
+LABEL org.opencontainers.image.revision="${SOURCE_SHA}"
+ENV HOME=/home/bootstrap PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /srv/release
+COPY locks/requirements-api.lock /tmp/requirements-api.lock
+RUN python3 -m pip install --require-hashes --only-binary=:all: --no-cache-dir -r /tmp/requirements-api.lock && python3 -m pip check
+COPY apps/api /srv/release/apps/api
+COPY src/phase3 /srv/release/src/phase3
+COPY packages/contracts /srv/release/packages/contracts
+RUN groupadd -g 11002 bootstrap && useradd -u 11002 -g 11002 -m -d /home/bootstrap bootstrap
+USER 11002:11002
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD python3 -m apps.api.private_staging_bootstrap_asgi --config /run/bootstrap/config.json --preflight-only >/dev/null || exit 1
+CMD ["python3","-m","apps.api.private_staging_bootstrap_asgi","--config","/run/bootstrap/config.json"]

@@ -51,6 +51,12 @@ jobs:
       - name: All Node tests
         working-directory: apps/web
         run: npm test
+      - name: Offline Mac L2 evidence-verifier unit suite — fixture only, not L2 execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/phase3/integration/ui -p 'test_l2_no_dispatch_receipt_gate.py' -v
+          echo UI_L2_RECEIPT_STRUCTURAL_UNIT_TESTS_PASS_NOT_REAL_MAC
       - name: Next production Build only, never deployment
         working-directory: apps/web
         run: npm run build

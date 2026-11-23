@@ -1,0 +1,159 @@
+# App-only isolated candidate; separate from accepted Mac demo and Arvan.
+# No public ingress, Runner, Gateway, Qdrant, generation or active 011.
+# TLS private API + Bootstrap + Web share exactly one network namespace so
+# the pinned servers can bind 127.0.0.1 without exposing private ports.
+name: ${F3_COMPOSE_PROJECT:?set_unique_project_name}
+services:
+  pg:
+    image: ${F3_PG_BASE_REF:?approved_postgres_17_11_digest}
+    platform: linux/amd64
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: rag_finance_f3_app_only
+      POSTGRES_PASSWORD_FILE: /run/pg/password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/run/pg/pki/server.crt
+      - -c
+      - ssl_key_file=/run/pg/pki/server.key
+      - -c
+      - ssl_ca_file=/run/pg/pki/ca.crt
+      - -c
+      - hba_file=/run/pg/pki/pg_hba.conf
+      - -c
+      - password_encryption=scram-sha-256
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - type: bind
+        source: ${F3_PG_PASSWORD_FILE:?fresh_pg_password_file}
+        target: /run/pg/password
+        read_only: true
+      - type: bind
+        source: ${F3_PG_PKI_DIR:?ops_pg17_ca_server_cert_hba_dir}
+        target: /run/pg/pki
+        read_only: true
+    networks: [pg_private]
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -U postgres -d rag_finance_f3_app_only"]
+      interval: 10s
+      retries: 10
+      timeout: 5s
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 2g
+    cpus: 2.0
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/phase3_l1/Dockerfile.api
+      args:
+        BASE: ${F3_API_BASE_REF:?approved_Python3_13_digest}
+        SOURCE_SHA: ${F3_SOURCE_SHA:?exact_integrated_git_commit}
+    platform: linux/amd64
+    user: "11001:11001"
+    environment:
+      API_RUNTIME_PROFILE: APP_ONLY
+      HOME: /home/api
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m,uid=11001,gid=11001"]
+    volumes:
+      - type: bind
+        source: ${F3_API_CONFIG_FILE:?ops_api_config_0600}
+        target: /run/secrets/app_only.json
+        read_only: true
+      - type: bind
+        source: ${F3_API_PKI_DIR:?ops_api_private_pki}
+        target: /run/api-pki
+        read_only: true
+    depends_on:
+      pg:
+        condition: service_healthy
+    networks: [pg_private,auth_egress]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 1.0
+  bootstrap:
+    build:
+      context: ../..
+      dockerfile: infra/phase3_l1/Dockerfile.bootstrap
+      args:
+        BASE: ${F3_API_BASE_REF:?approved_Python3_13_digest}
+        SOURCE_SHA: ${F3_SOURCE_SHA:?exact_integrated_git_commit}
+    platform: linux/amd64
+    network_mode: "service:api"
+    user: "11002:11002"
+    environment:
+      HOME: /home/bootstrap
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m,uid=11002,gid=11002"]
+    volumes:
+      - type: bind
+        source: ${F3_BOOTSTRAP_CONFIG_FILE:?ops_bootstrap_config_0600}
+        target: /run/bootstrap/config.json
+        read_only: true
+      - type: bind
+        source: ${F3_BOOTSTRAP_PKI_DIR:?ops_bootstrap_private_pki}
+        target: /run/bootstrap/pki
+        read_only: true
+    depends_on:
+      api:
+        condition: service_healthy
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 1.0
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/phase3_l1/Dockerfile.web
+      args:
+        BASE: ${F3_NODE_BASE_REF:?approved_Node22_digest}
+        SOURCE_SHA: ${F3_SOURCE_SHA:?exact_integrated_git_commit}
+    platform: linux/amd64
+    network_mode: "service:api"
+    user: "11003:11003"
+    environment:
+      HOME: /home/web
+      AUTH_RUNTIME_PROFILE: private-staging
+      AUTH_APP_ONLY: "true"
+      AUTH_STAGING_CONFIG_FILE: /run/web/config.json
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,uid=11003,gid=11003
+      - /srv/release/apps/web/.next/cache:rw,nosuid,size=64m,uid=11003,gid=11003
+    volumes:
+      - type: bind
+        source: ${F3_WEB_CONFIG_FILE:?ops_bff_config_0600}
+        target: /run/web/config.json
+        read_only: true
+      - type: bind
+        source: ${F3_WEB_PKI_DIR:?ops_bff_private_pki}
+        target: /run/web/pki
+        read_only: true
+      - type: bind
+        source: ${F3_WEB_STORE_DIR:?fresh_UID11003_mode0700_bff_session_dir}
+        target: /run/web/session-store
+    depends_on:
+      bootstrap:
+        condition: service_healthy
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 1.0
+networks:
+  pg_private:
+    internal: true
+  auth_egress:
+    # Egress only for the separately approved OIDC/IdP upstream.
+    # Firewall allowlisting is a SERVER/Ops responsibility.
+    internal: false
+volumes:
+  pgdata:
+    name: ${F3_COMPOSE_PROJECT:?}_pg17_new_only
