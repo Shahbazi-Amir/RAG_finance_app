@@ -254,7 +254,14 @@ def prepare_app_only(cfg: AppOnlyConfig, environ=None):
     module_dir = Path(__file__).resolve().parents[2] / "src/phase3/storage/postgres"
     if str(module_dir) not in sys.path:
         sys.path.insert(0, str(module_dir))
-    from apps.api import product_session_api
+    from apps.api import product_session_api, history_api
+    # Real History pagination depends on a stable, server-owned HMAC key.
+    # Never start a seemingly "ready" API that fails on the second page.
+    # This is the original History cursor contract, not a new wire DTO.
+    try:
+        history_api._cursor_config()
+    except history_api.ApiFailure:
+        raise StagingConfigDenied() from None
     product_session_api.install_private_staging_auth(profile)
     return AppOnlyASGI(product_session_api.app, profile), boundary
 
