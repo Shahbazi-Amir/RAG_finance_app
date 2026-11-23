@@ -40,6 +40,8 @@ async def baseline(browser, width, height):
         await expect(page.get_by_test_id("history-question")).to_be_disabled()
         await expect(page.get_by_test_id("app-runtime-capability")).to_contain_text(
             "برنامه در حالت بدون موتور", timeout=15000)
+        await expect(page.get_by_test_id("app-runtime-capability")).to_contain_text(
+            "تاریخچه فقط پس از ورود و اتصال امن", timeout=15000)
         assert await page.locator('[data-testid^="history-message-"]').count() == 0
         assert await page.locator('[data-testid^="conversation-"]').count() == 0
         assert not any(method == "POST" for method, _ in events)
@@ -57,6 +59,15 @@ async def baseline(browser, width, height):
         }""")
         assert denied == {"status": 503, "body": {"error": "ENGINE_NOT_AVAILABLE"}}
         assert len([e for e in events if e[0] == "POST"]) == 1
+        # The first actual login boundary on this unconfigured app-only
+        # profile is HTTPS ingress/mTLS proxy proof, BEFORE any IdP session.
+        login = await page.goto(ORIGIN + "/login", wait_until="domcontentloaded")
+        assert login is not None and login.status == 503, (
+            "UNSIGNED_PLAINTEXT_LOGIN_MUST_NOT_ISSUE_COOKIE",
+            login.status if login else None)
+        assert not any(c["name"].startswith("__Host-rag-")
+                       for c in await context.cookies(ORIGIN))
+        print(f"UI_REAL_NEXT_LOGIN_HTTPS_INGRESS_MISSING_503_{width}_PASS", flush=True)
         print(f"UI_REAL_NEXT_UNAUTHENTICATED_HISTORY_503_NO_SEND_{width}_PASS", flush=True)
     finally:
         await context.close()
