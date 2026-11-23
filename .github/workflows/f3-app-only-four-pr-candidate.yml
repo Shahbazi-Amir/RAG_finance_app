@@ -1,0 +1,130 @@
+name: Phase3 four-PR APP_ONLY integrated source, real listener and container build
+
+on:
+  push:
+    branches: [integration/f3-app-only-four-pr-candidate-20261124]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integrated-code-and-real-loopback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      CI: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Bind one exact source tree and forbid unapproved SQL 011
+        run: |
+          set -euo pipefail
+          echo "FOUR_PR_INTEGRATED_SHA=$(git rev-parse HEAD)"
+          test -f apps/web/app/api/product-capabilities/route.ts
+          test -f apps/api/app_only_asgi.py
+          test -f tests/phase3/api/test_full_binding_fence.py
+          test -f infra/postgres/dev_f3_isolated/scripts/11_export_sanitized_receipt.sh
+          test -f infra/postgres/dev_f3_isolated/scripts/22_restore_catalog_parity_probe.sh
+          test -f infra/postgres/dev_f3_isolated/scripts/23_m04_migration_full_cycle.sh
+          test -f infra/postgres/dev_f3_isolated/scripts/24_m10_idempotency_concurrency_probe.sh
+          test ! -f infra/postgres/migrations/011_product_answer_claims.up.sql
+          echo F3_FOUR_PR_REQUIRED_SOURCES_PINNED_PASS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install API smoke/contract pins, never engine lock
+        run: |
+          python -m pip install --disable-pip-version-check --no-cache-dir -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.48.0' 'playwright==1.64.1'
+      - name: Web lock, typecheck, lint, 131+ existing tests and production build
+        run: |
+          set -euo pipefail
+          npm ci --prefix apps/web --no-audit --no-fund
+          npm --prefix apps/web run typecheck
+          npm --prefix apps/web run lint
+          npm --prefix apps/web run test
+          npm --prefix apps/web run build
+      - name: API ASGI all isolated unit and original engine-enabled regression, not dispatch
+        run: |
+          set -euo pipefail
+          python -m compileall -q apps/api src/phase3/auth src/phase3/rag_runtime
+          python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
+          python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v
+          python -m unittest discover -s tests/phase3/integration/ui -p 'test_l2_no_dispatch_receipt_gate.py' -v
+      - name: Original DB scripts: static guard and protected-path negative only
+        run: bash infra/postgres/dev_f3_isolated/tests/run_static.sh
+      - name: Real isolated APP_ONLY Uvicorn listener, no Engine dependencies
+        env:
+          PHASE3_APP_MODE: APP_ONLY
+        run: |
+          set -euo pipefail
+          python -m uvicorn apps.api.app_only_asgi:app --host 127.0.0.1 --port 8118 --no-access-log > "$RUNNER_TEMP/app-only-api.log" 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          for n in $(seq 1 40); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8118/health/live >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS --max-time 3 http://127.0.0.1:8118/health/live >/dev/null
+          test "$(curl -s --max-time 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:8118/health/ready)" = 503
+          test "$(curl -s --max-time 3 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"question":"unsafe"}' http://127.0.0.1:8118/v1/messages)" = 503
+          test "$(curl -s --max-time 3 -o /dev/null -w '%{http_code}' -H 'x-owner-user-id: forgedA' http://127.0.0.1:8118/v1/conversations)" = 503
+          echo F3_APP_ONLY_REAL_ASGI_LIVE_READY503_SEND503_OWNER503_NO_ENGINE_PASS
+      - name: Install pinned browser for synthetic History and real Next APP_ONLY
+        run: python -m playwright install --with-deps chromium
+      - name: Existing React desktop/mobile A-B 401/503 regression (synthetic intercepted History only)
+        run: |
+          set -euo pipefail
+          (cd apps/web && ./node_modules/.bin/next start -H 127.0.0.1 -p 3000) > "$RUNNER_TEMP/next-fixture.log" 2>&1 &
+          child=$!
+          trap 'kill "$child" 2>/dev/null || true' EXIT
+          for n in $(seq 1 40); do
+            if curl -fsS --max-time 2 http://127.0.0.1:3000/api/product-capabilities >/dev/null; then break; fi
+            sleep 1
+          done
+          python tests/phase3/integration/ui/product_chat_browser.py
+      - name: Real Next APP_ONLY run with disabled Send and 503 before API
+        env:
+          PHASE3_APP_MODE: APP_ONLY
+        run: |
+          set -euo pipefail
+          (cd apps/web && ./node_modules/.bin/next start -H 127.0.0.1 -p 3100) > "$RUNNER_TEMP/next-app-only.log" 2>&1 &
+          child=$!
+          trap 'kill "$child" 2>/dev/null || true' EXIT
+          for n in $(seq 1 40); do
+            if curl -fsS --max-time 2 http://127.0.0.1:3100/api/product-capabilities >/dev/null; then break; fi
+            sleep 1
+          done
+          python tests/phase3/integration/ui/app_only_real_browser.py
+          echo F3_FOUR_PR_APP_ONLY_WEB_BFF_API_ISOLATED_L1_PASS
+
+  build-api-app-only-container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build real non-root API image with locked requirements and no Engine wheelhouse
+        run: |
+          set -euo pipefail
+          docker build --pull=false --file infra/phase3_l1/Dockerfile.api --build-arg SOURCE_SHA="$(git rev-parse HEAD)" -t rag-f3-app-only-api:ci .
+          docker image inspect rag-f3-app-only-api:ci --format '{{.Id}} {{.Config.User}} {{.Config.Healthcheck.Test}}'
+      - name: Run actual no-network container, prove health and 503 without dispatch
+        run: |
+          set -euo pipefail
+          docker run -d --name f3-app-only-api-test --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m --pids-limit 64 --memory 256m rag-f3-app-only-api:ci
+          trap 'docker rm -f f3-app-only-api-test || true' EXIT
+          for n in $(seq 1 35); do
+            if docker exec f3-app-only-api-test python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/live',timeout=2)" >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec f3-app-only-api-test python3 -c "import urllib.request; from urllib.error import HTTPError; u='http://127.0.0.1:8080'; assert urllib.request.urlopen(u+'/health/live').status==200; exec('try:\\n urllib.request.urlopen(u+\"/health/ready\")\\nexcept HTTPError as e:\\n assert e.code==503')"
+          test "$(docker inspect -f '{{.State.Running}}' f3-app-only-api-test)" = true
+          test "$(docker inspect -f '{{.Config.User}}' f3-app-only-api-test)" = "11001:11001"
+          echo F3_DOCKER_APP_ONLY_API_REAL_NONROOT_LISTENER_PASS_NO_MOTOR
