@@ -14,7 +14,6 @@ jobs:
     timeout-minutes: 30
     env:
       CI: 'true'
-      PHASE3_APP_MODE: APP_ONLY
       NEXT_TELEMETRY_DISABLED: '1'
     steps:
       - name: Checkout exact UI delivery candidate, never cherry-pick old source
@@ -50,7 +49,19 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check 'playwright==1.64.1'
           python -m playwright install --with-deps chromium
+      - name: Strict signed browser harness compilation and fail-closed prerequisite check
+        run: |
+          set -euo pipefail
+          python -m py_compile tests/phase3/integration/ui/app_only_entry_baseline_real_browser.py
+          python -m py_compile tests/phase3/integration/ui/real_signed_two_owner_history_journey.py
+          if python tests/phase3/integration/ui/real_signed_two_owner_history_journey.py > "$RUNNER_TEMP/ui-signed-preflight.stdout" 2> "$RUNNER_TEMP/ui-signed-preflight.stderr"; then
+            echo "ERROR: signed journey succeeded without approved IdP/PG credentials"; exit 1
+          fi
+          grep -F 'INTEGRATED_LAB_EXECUTION_NOT_APPROVED' "$RUNNER_TEMP/ui-signed-preflight.stderr" >/dev/null
+          echo UI_SIGNED_JOURNEY_FAIL_CLOSED_WHEN_STACK_ABSENT_PASS_NOT_E2E
       - name: Actual Next Browser normal History route, observe first failing boundary
+        env:
+          PHASE3_APP_MODE: APP_ONLY
         run: |
           set -euo pipefail
           (cd apps/web && ./node_modules/.bin/next start -H 127.0.0.1 -p 3100) > "$RUNNER_TEMP/ui-f3-history-baseline-next.log" 2>&1 &
