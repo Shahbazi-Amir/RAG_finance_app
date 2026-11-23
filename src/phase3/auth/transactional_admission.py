@@ -6,6 +6,8 @@ This is still isolated synthetic SQL, never product Auth/History wiring.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 from typing import Callable, Protocol, TypeVar
 
 import psycopg
@@ -18,6 +20,10 @@ from .service_proof import BFFServiceVerifier, TrustRejected, VerifiedServicePro
 T = TypeVar("T")
 
 
+class AdmissionSerializationUnavailable(Exception):
+    """Sanitized, non-auth PostgreSQL retryable-transaction failure (no retry)."""
+
+
 class ReplayStore(Protocol):
     """Must atomically consume a JTI on THE SAME transaction/connection."""
 
@@ -25,7 +31,8 @@ class ReplayStore(Protocol):
         ...
 
 
-def protected_operation(
+@contextmanager
+def protected_transaction(
     conn: psycopg.Connection,
     *,
     verifier: BFFServiceVerifier,
@@ -35,9 +42,8 @@ def protected_operation(
     raw_path: bytes,
     raw_query: bytes,
     body: bytes,
-    action: Callable[[psycopg.Connection, str], T],
-) -> T:
-    """Verify BFF first; consume JTI + Migration 004 admit + fixture SQL in 1 TX.
+):
+    """Verify BFF, consume 005 JTI and enforce 004, then hold one outer TX.
 
     An explicit outer transaction is REQUIRED on a writable PostgreSQL primary.
     Failure, False, unavailable replay table or action error => rollback all
@@ -59,13 +65,13 @@ def protected_operation(
     # No old CI replay table, memory backend, duck-typed replacement or
     # absent configured durable DB adapter is allowed to grant an actor.
     if (not isinstance(replay_store, PostgresDurableReplayStore)
-            or verifier is None or action is None or conn is None):
+            or verifier is None or conn is None):
         raise TrustRejected() from None
     # On validation error the connection is never even asked to write.
     assertion = verifier.verify(compact_assertion, method=method,
                                 raw_path=raw_path, raw_query=raw_query,
                                 raw_body=body)
-    # This caller never opens product API History's repository/transaction.
+    # Hold one outer transaction for the History read, including Repository savepoints.
     # Even inspecting a *closed or failed* PG connection may itself raise a
     # psycopg error; that too must fail closed, before any protected callback.
     try:
@@ -102,9 +108,41 @@ def protected_operation(
             if valid is not True:
                 # One outer rollback removes the pending JTI INSERT as well.
                 raise TrustRejected() from None
-            return action(conn, assertion.owner_id)
-    except (psycopg.Error, ValueError, RuntimeError, TypeError):
-        # DB-owned adapter can raise ValueError/RuntimeError for rejected
-        # inputs or bad TX, plus psycopg.Error for UNIQUE/SQL/connection.
-        # None of these details may leak to HTTP response or logs.
+            yield assertion.owner_id
+    except psycopg.Error as exc:
+        # 40001 (serialization) and 40P01 (deadlock) are transaction failures,
+        # NOT evidence of an invalid/revoked BFF proof or Product Session.
+        # psycopg's outer transaction context has already rolled back 005 JTI
+        # and any nested T1/T2 writes before this exception handler runs.
+        # No retry and no PostgreSQL details propagate to an HTTP caller.
+        if exc.sqlstate in {"40001", "40P01"}:
+            raise AdmissionSerializationUnavailable() from None
+        # Preserve the existing 005 replay-UNIQUE and absent-grant fail-closed
+        # 401 behavior; these do not authorize a protected action.
         raise TrustRejected() from None
+    except (ValueError, RuntimeError, TypeError):
+        # Existing invalid adapter/proof and unavailable-connection behavior.
+        raise TrustRejected() from None
+
+
+def protected_operation(
+    conn: psycopg.Connection,
+    *,
+    verifier: BFFServiceVerifier,
+    replay_store: ReplayStore | None,
+    compact_assertion: str,
+    method: str,
+    raw_path: bytes,
+    raw_query: bytes,
+    body: bytes,
+    action: Callable[[psycopg.Connection, str], T],
+) -> T:
+    """Execute existing protected action within the same admission transaction."""
+    if action is None:
+        raise TrustRejected() from None
+    with protected_transaction(
+        conn, verifier=verifier, replay_store=replay_store,
+        compact_assertion=compact_assertion, method=method,
+        raw_path=raw_path, raw_query=raw_query, body=body,
+    ) as owner:
+        return action(conn, owner)
