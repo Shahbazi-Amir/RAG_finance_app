@@ -142,3 +142,8 @@ No Mac/approved data-bearing full rollback, no live Gateway/011/Arvan, no 012+, 
 - **CURRENT exporter** `scripts/11_export_sanitized_receipt.sh` blob `8ac7ea78dee35bcd90d3fff066a56cc8f06bae23`; validates 15th file `m10_idempotency_concurrency_receipt.json` (14th M04 file and previous 13 still gated).
 - **CURRENT workflow** `.github/workflows/f3-db-isolated-fresh-install.yml` blob `4701c68b3159557b290a2bb96315ae7928cc5a36`. Order: `00→01→02→03→03→04→05→09→06→10→22→13→12→14→15→23→24→16→17→19→20→21→11`.
 - Installer03 `9cc9458c55b82f03811b346259ccf2ae3dce318d`, manifest `f67f5e985c45ae9b6a6c68417ebc54ba05ec7fdf` / SHA256 `9ff95a59570f5f6c6188479d9c37cf684ef836c599e89d9faa2bb0e17a4946f7`, script23 `a547a58ac1555795dd73c18415973bbc955177d8` unchanged. 011 OPTIONAL skipped and no Gateway/Arvan/Mac. DB concurrency **NOT** accepted as signed API process-crash/retry. 57-specialist counts remain 5/28/24.
+
+
+## 2026-11-23 — 16th sanitized actual PostgreSQL SIGKILL recovery receipt
+
+Exact executable `b3505f545054a7d5eaa745785195403191ad72c8`, [CI45260469796 PASS](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45260469796), [artifact14860576246](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45260469796/artifacts/14860576246): `scripts/25_pg_crash_recovery_probe.sh` blob `53e921ce3bfcd907867d663cd61a465dcc6dd7ee`; `scripts/11_export_sanitized_receipt.sh` blob `592fdeeb454dbce78a42b864a9e1d7460c9800ab`; `.github/workflows/f3-db-isolated-fresh-install.yml` blob `d2b753e9d3a873f2b3c061010e1346f5d8d95f01`. After script20 run new 25, then 21 and exporter11 (16 receipts). **No SQL/03/manifest changes.** 011 skipped, no accepted Mac. Entire physical storage/IdP/Qdrant restore and signed RPO/RTO remain NOT_RUN.
