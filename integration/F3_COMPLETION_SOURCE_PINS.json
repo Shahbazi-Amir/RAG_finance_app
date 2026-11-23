@@ -18,21 +18,23 @@
       "documentation_evidence": "API #63 262 rows / 91 API IDs; no runtime delta"
     },
     "UI_F3": {
-      "tested_source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
-      "current_head": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
-      "CI_run": "45201568224",
-      "receipt_scope": "118/118 Node + synthetic Chromium desktop/mobile/OwnerFence; no Mac"
+      "tested_source_sha": "f5321d4d647a355313907255a69f35d0d291b02f",
+      "current_head": "f5321d4d647a355313907255a69f35d0d291b02f",
+      "previous_tested_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
+      "CI_run": "45210742242",
+      "receipt_scope": "121/121 Node, Typecheck/Lint/Next Build, synthetic Chromium owner switch/late owner/mixed thread, no Mac"
     }
   },
   "conflict_policy": {
     "ui_source_from": "86bf2c2f1a0491d20496c704dbdfe3f9f1696d85",
-    "ui_source_to": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
+    "ui_source_to": "f5321d4d647a355313907255a69f35d0d291b02f",
     "db_source_from": "0e301a26096cb9f8c2b8e3fde3e20e9a1add48a5",
     "db_source_to": "996dfc9b66cf8cbd4b37b7a267d08cc5acd5deba",
     "api_runtime_only": "c02ba7896edb78febd2042f7afb1243f2a6aca34",
     "api63_documentation_only": true,
     "collision_count": 0,
-    "base_integration": "d6dc01df5835cca8a97a778b091b769496646abb"
+    "base_integration": "d6dc01df5835cca8a97a778b091b769496646abb",
+    "ui65_earlier_pass": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef"
   },
   "file_pins": {
     ".github/workflows/api-f3-gate3-retrieved-sources-offline.yml": {
@@ -115,9 +117,9 @@
     },
     "apps/web/src/ui/product-chat.tsx": {
       "owner": "UI_F3",
-      "source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
-      "git_blob": "121add9756072ab934c306adaf9f52fe4031d31a",
-      "reason": "Exact ui65 HEAD overlay relative to ui62; L1/isolated CI only; no Mac Gate"
+      "source_sha": "f5321d4d647a355313907255a69f35d0d291b02f",
+      "git_blob": "70556819d5e714ea2bd84b9ba5a4f613de4a3ea3",
+      "reason": "Latest UI65 exact tested source overlay after earlier ac0e, CI 45210742242 121 tests fixture-only"
     },
     "apps/web/src/ui/retrieved-sources-panel.tsx": {
       "owner": "UI_F3",
@@ -133,9 +135,9 @@
     },
     "tests/phase3/integration/ui/product_chat_browser.py": {
       "owner": "UI_F3",
-      "source_sha": "ac0e7159e6c7d673fb5607c0b7824a0981f7ceef",
-      "git_blob": "f4c67696d18d40052f249dac6a908d8c5d6df47d",
-      "reason": "Exact ui65 HEAD overlay relative to ui62; L1/isolated CI only; no Mac Gate"
+      "source_sha": "f5321d4d647a355313907255a69f35d0d291b02f",
+      "git_blob": "c4fbdfc1043f2c0372668634012f6f4e6053f598",
+      "reason": "Latest UI65 exact tested source overlay after earlier ac0e, CI 45210742242 121 tests fixture-only"
     },
     "tests/phase3/ui/retrieved-sources-client.test.mjs": {
       "owner": "UI_F3",
@@ -448,6 +450,30 @@
       "source_sha": "5d9df47c7ca52133ca8706bd748d535233bae050",
       "git_blob": "adda1a8a5a9f60a5a2696ed5d3f0336cfb367091",
       "reason": "Exact api63 HEAD overlay relative to api61; L1/isolated CI only; no Mac Gate"
+    },
+    "coordination/handoffs/UI_F3_20261123_UPDATED_EXECUTION.md": {
+      "owner": "UI_F3",
+      "source_sha": "f5321d4d647a355313907255a69f35d0d291b02f",
+      "git_blob": "6b9061e3d98f65b438e3fb409cb914a9f7f8beea",
+      "reason": "Latest UI65 exact tested source overlay after earlier ac0e, CI 45210742242 121 tests fixture-only"
+    },
+    "coordination/handoffs/UI_F3_API_DB_PRODUCT_CONTRACT_PROPOSALS_v0_1.md": {
+      "owner": "UI_F3",
+      "source_sha": "f5321d4d647a355313907255a69f35d0d291b02f",
+      "git_blob": "7ec171518fbf7a415ac9a17a9b97a9c11b76e905",
+      "reason": "Latest UI65 exact tested source overlay after earlier ac0e, CI 45210742242 121 tests fixture-only"
+    },
+    "tests/phase3/ui/fixtures/ui-f3-contract-candidates.v0_1.json": {
+      "owner": "UI_F3",
+      "source_sha": "f5321d4d647a355313907255a69f35d0d291b02f",
+      "git_blob": "18804685395a00a2296293fbf1b25b13b679364a",
+      "reason": "Latest UI65 exact tested source overlay after earlier ac0e, CI 45210742242 121 tests fixture-only"
+    },
+    "tests/phase3/ui/ui-contract-candidates.test.mjs": {
+      "owner": "UI_F3",
+      "source_sha": "f5321d4d647a355313907255a69f35d0d291b02f",
+      "git_blob": "5110eea0693c9ff02ab6b7157fb658ecd96c0917",
+      "reason": "Latest UI65 exact tested source overlay after earlier ac0e, CI 45210742242 121 tests fixture-only"
     }
   },
   "status": {
@@ -460,5 +486,6 @@
     "arvan": "HOLD",
     "accepted_gates": 0
   },
-  "previous_integrated_sha": "d6dc01df5835cca8a97a778b091b769496646abb"
+  "previous_integrated_sha": "d6dc01df5835cca8a97a778b091b769496646abb",
+  "previous_ui65_candidate_sha": "ce899c26a27fa0e913584384f9dac8980bb77c33"
 }
