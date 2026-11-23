@@ -3,11 +3,11 @@
   "parent_commit": "f7d738aa763179eba28c7847e6225640bb88b176",
   "owners": {
     "DATABASE_F3": {
-      "tested_source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "current_head": "322fc16f6602d52c16facd2d598834228bacf58d",
-      "CI_run": "45218702399",
-      "receipt_scope": "Fresh PG17.11 001-010+DB55, 15-17, owner-fence negative and independent restore; separate011 not installed",
-      "head_unverified_changes_excluded": true
+      "tested_source_sha": "f302fbf0f4a00ae4fe80d914452906fe88029078",
+      "current_head": "4461406829cdadc5a358b2af591c827e91e711ae",
+      "CI_run": "45234862871",
+      "receipt_scope": "15 sanitized real PG17.11 isolated receipts: 001-010, DB55, 22 catalog parity, 23 empty rollback/restore, 24 DB-only idempotency; no Mac/Gate",
+      "integrated_admission": "PENDING_CANDIDATE_CI"
     },
     "API_F3": {
       "tested_source_sha": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
@@ -214,9 +214,9 @@
     },
     "infra/postgres/dev_f3_isolated/scripts/11_export_sanitized_receipt.sh": {
       "owner": "DATABASE_F3",
-      "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "git_blob": "8df5c4e28718b5e396b1f6df69c2358d8d878a7c",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "f302fbf0f4a00ae4fe80d914452906fe88029078",
+      "git_blob": "8ac7ea78dee35bcd90d3fff066a56cc8f06bae23",
+      "reason": "Source-verified DB59 file at f302fbf0, isolated CI45234862871 PASS; full integration CI on this candidate pending"
     },
     "infra/postgres/dev_f3_isolated/scripts/shared_stack_db_witness.py": {
       "owner": "DATABASE_F3",
@@ -226,9 +226,9 @@
     },
     ".github/workflows/f3-db-isolated-fresh-install.yml": {
       "owner": "DATABASE_F3",
-      "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "git_blob": "bb8bc55a6b383e00e3adb59511b7e0cd41218eda",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "f302fbf0f4a00ae4fe80d914452906fe88029078",
+      "git_blob": "8018888b250eedd5505b8bc84071a772605df683",
+      "reason": "New candidate CI branch added to tested DB59 workflow; exact integrated verification pending"
     },
     ".github/workflows/ui-f3-api61-completion.yml": {
       "owner": "UI_F3",
@@ -310,9 +310,9 @@
     },
     "infra/postgres/dev_f3_isolated/docs/PHASE3_57_ROW_DATABASE_AUDIT_20261123.md": {
       "owner": "DATABASE_F3",
-      "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "git_blob": "f83e95e73d8fe2ddcd20ff673fff0a623c77fdf3",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "f302fbf0f4a00ae4fe80d914452906fe88029078",
+      "git_blob": "e9422dc07ee38148862b7a2b47edd9bdb0016ecf",
+      "reason": "Source-verified DB59 file at f302fbf0, isolated CI45234862871 PASS; full integration CI on this candidate pending"
     },
     "infra/postgres/dev_f3_isolated/docs/PHASE3_PHYSICAL_SCHEMA_POLICY_DELTA_20261123.md": {
       "owner": "DATABASE_F3",
@@ -598,9 +598,9 @@
     },
     "infra/postgres/dev_f3_isolated/contracts/DBF3_EXACT_PINS_SCRIPT11_PREREQUISITES_20261123.md": {
       "owner": "DATABASE_F3",
-      "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "git_blob": "97cbbc2117f0cd04de0ea433ed3c025dcec56af4",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "f302fbf0f4a00ae4fe80d914452906fe88029078",
+      "git_blob": "86299dc673082d7d82936588215173d7c749b7fc",
+      "reason": "Source-verified DB59 file at f302fbf0, isolated CI45234862871 PASS; full integration CI on this candidate pending"
     },
     "infra/postgres/dev_f3_isolated/docs/DBF3_PHASE3_EXECUTION_CONSOLIDATED_HANDOFF_20261123.md": {
       "owner": "DATABASE_F3",
@@ -610,9 +610,9 @@
     },
     "infra/postgres/dev_f3_isolated/docs/DBF3_PROGRESS_VS_171_MAP_AND_57_SPECIALIST_20261123.md": {
       "owner": "DATABASE_F3",
-      "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
-      "git_blob": "cc299bcdef43d2b1549b7c48d28fd843e0267f3b",
-      "reason": "Exact owner CI tested pin, not Mac acceptance"
+      "source_sha": "f302fbf0f4a00ae4fe80d914452906fe88029078",
+      "git_blob": "3dafc4b7b55060d3bc0e469a67de7fabe405b753",
+      "reason": "Source-verified DB59 file at f302fbf0, isolated CI45234862871 PASS; full integration CI on this candidate pending"
     },
     "infra/postgres/dev_f3_isolated/docs/DBF3_UPDATED_INSTRUCTION_EXECUTION_RECEIPT_20261123.md": {
       "owner": "DATABASE_F3",
@@ -655,6 +655,42 @@
       "source_sha": "76822ac273c3f5defbb7e5cd77d497f8d3305852",
       "git_blob": "8732a4788cb3ecf821c15d811119f8cacc3eedd1",
       "reason": "Exact owner CI tested pin, not Mac acceptance"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/22_restore_catalog_parity_probe.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "f302fbf0f4a00ae4fe80d914452906fe88029078",
+      "git_blob": "5869b15413d058acb2424199d8fcaa9d274f822c",
+      "reason": "Source-verified DB59 file at f302fbf0, isolated CI45234862871 PASS; full integration CI on this candidate pending"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/23_m04_migration_full_cycle.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "f302fbf0f4a00ae4fe80d914452906fe88029078",
+      "git_blob": "a547a58ac1555795dd73c18415973bbc955177d8",
+      "reason": "Source-verified DB59 file at f302fbf0, isolated CI45234862871 PASS; full integration CI on this candidate pending"
+    },
+    "infra/postgres/dev_f3_isolated/scripts/24_m10_idempotency_concurrency_probe.sh": {
+      "owner": "DATABASE_F3",
+      "source_sha": "f302fbf0f4a00ae4fe80d914452906fe88029078",
+      "git_blob": "395078707143c85de2d8f58c0b365445176bbf6a",
+      "reason": "Source-verified DB59 file at f302fbf0, isolated CI45234862871 PASS; full integration CI on this candidate pending"
+    },
+    "infra/postgres/dev_f3_isolated/docs/DBF3_M04_A07_CLOSURE_AND_NEXT_29_OPEN_QUEUE_20261123.md": {
+      "owner": "DATABASE_F3",
+      "source_sha": "f302fbf0f4a00ae4fe80d914452906fe88029078",
+      "git_blob": "b54fe4973b9d5a7893e4b06530415ca3f5a9d0aa",
+      "reason": "Source-verified DB59 file at f302fbf0, isolated CI45234862871 PASS; full integration CI on this candidate pending"
+    },
+    ".github/workflows/f3-completion-exact-source.yml": {
+      "owner": "FOUNDATION_F3_TEST_ONLY_OVERLAY",
+      "source_sha": "b7c8928e596001de83c5f8dbd1b86284f46a57a9",
+      "git_blob": "f7ce20265d2bf9ba68056f4360df1c9eb67da184",
+      "reason": "Candidate CI workflow branch activation and latest DB roundtrip; not Foundation canonical admission"
+    },
+    ".github/workflows/f3-m18-m19-real-image-http.yml": {
+      "owner": "FOUNDATION_F3_TEST_ONLY_OVERLAY",
+      "source_sha": "b7c8928e596001de83c5f8dbd1b86284f46a57a9",
+      "git_blob": "d9e5f8c812437376e89f325a29a45f5ef04f8b28",
+      "reason": "Candidate CI workflow branch activation and latest DB roundtrip; not Foundation canonical admission"
     }
   },
   "status": {
@@ -663,19 +699,22 @@
     "mac_c018": "NOT_RUN",
     "accepted_gates": 0,
     "arvan": "HOLD",
-    "integrated_CI": "PENDING"
+    "integrated_CI": "PENDING",
+    "app_only_full_stack": "NOT_TESTED",
+    "module_gate": "NOT_ACCEPTED"
   },
   "previous_integrated_sha": "d6dc01df5835cca8a97a778b091b769496646abb",
   "previous_ui65_candidate_sha": "ce899c26a27fa0e913584384f9dac8980bb77c33",
   "source_overlay": {
-    "base": "f7d738aa763179eba28c7847e6225640bb88b176",
+    "base": "b7c8928e596001de83c5f8dbd1b86284f46a57a9",
     "source_pins": {
       "api": "aeb8798f44e7ef570624ea2564edf5ead3e3a063",
       "ui": "f45caa45139d2e147c3e45fd7349033b212342c7",
-      "db": "76822ac273c3f5defbb7e5cd77d497f8d3305852"
+      "db": "4461406829cdadc5a358b2af591c827e91e711ae"
     },
-    "db_unverified_HEAD": "322fc16f6602d52c16facd2d598834228bacf58d",
+    "db_unverified_HEAD": null,
     "owner_paths": 46,
-    "overlap_count": 0
+    "overlap_count": 0,
+    "integrated_candidate_branch": "agent/db-f3-unified-app-only-20261123"
   }
 }

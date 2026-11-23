@@ -1,7 +1,7 @@
 name: F3 real isolated Docker images and Web HTTP smoke M18 M19
 on:
   push:
-    branches: [integration/f3-m18-m19-container-build-20261123]
+    branches: [integration/f3-m18-m19-container-build-20261123, agent/db-f3-unified-app-only-20261123]
   workflow_dispatch:
 permissions:
   contents: read
