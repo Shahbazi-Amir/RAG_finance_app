@@ -50,7 +50,7 @@ from src.phase3.rag_runtime.staging_service_bootstrap import (
     PrivateStagingEngineConfig, build_private_no_dispatch_handler,
 )
 from src.phase3.auth.staging_service_profile import (
-    PrivateStagingProfile, StagingConfigDenied, db_attributes_approved,
+    PrivateStagingProfile, StagingConfigDenied, private_db_connection_options,
 )
 from src.phase3.auth.service_proof import (
     BFFServiceVerifier, TrustRejected, assertion_from_asgi_headers, wire_request,
@@ -116,16 +116,20 @@ def _conn(operation: str):
     key = "DB_APP_DSN" if operation == "history" else "AUTH_REVOKER_DSN"
     dsn = (_PRIVATE_STAGING_PROFILE.dsn(operation)
            if _PRIVATE_STAGING_PROFILE is not None else os.getenv(key, ""))
-    opts = psycopg.conninfo.conninfo_to_dict(dsn)
+    connection_options = {}
     if _PRIVATE_STAGING_PROFILE is not None:
-        if not db_attributes_approved(opts, operation):
-            raise RuntimeError("PRIVATE_STAGING_DB_DENIED")
-    elif (opts.get("host") != "127.0.0.1" or opts.get("port") != "5432"
-            or opts.get("dbname") != "history_ci"
-            or opts.get("user") != _SESSION_ROLES[operation]):
-        raise RuntimeError("CI_DSN_NOT_ALLOWED")
+        try:
+            connection_options = private_db_connection_options(dsn, operation)
+        except StagingConfigDenied:
+            raise RuntimeError("PRIVATE_STAGING_DB_DENIED") from None
+    else:
+        opts = psycopg.conninfo.conninfo_to_dict(dsn)
+        if (opts.get("host") != "127.0.0.1" or opts.get("port") != "5432"
+                or opts.get("dbname") != "history_ci"
+                or opts.get("user") != _SESSION_ROLES[operation]):
+            raise RuntimeError("CI_DSN_NOT_ALLOWED")
     conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row,
-                           connect_timeout=5)
+                           connect_timeout=5, **connection_options)
     try:
         role = conn.execute(
             "SELECT rolname,rolsuper,rolbypassrls FROM pg_roles "
@@ -244,10 +248,7 @@ def install_private_staging_auth(profile: PrivateStagingProfile) -> None:
             or os.getenv("GITHUB_ACTIONS") == "true"):
         raise StagingConfigDenied()
     for operation in ("history", "revoke"):
-        if not db_attributes_approved(
-                psycopg.conninfo.conninfo_to_dict(profile.dsn(operation)),
-                operation):
-            raise StagingConfigDenied()
+        private_db_connection_options(profile.dsn(operation), operation)
     verifier = BFFServiceVerifier(
         issuer=profile.issuer, audience=profile.audience,
         public_keys={profile.kid: profile.load_public_key()})

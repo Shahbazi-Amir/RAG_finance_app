@@ -722,5 +722,58 @@ class AppOnlyNoEngineTests(unittest.TestCase):
                     commit.assert_not_called()
 
 
+    def test_private_db_destination_cannot_be_overridden(self):
+        from src.phase3.auth.staging_service_profile import (
+            private_db_connection_options,
+        )
+        for operation, role in (("history", "history_app"), ("revoke", "auth_revoker")):
+            local = "host=127.0.0.1 dbname=stage user=" + role
+            remote = ("host=pg-restore dbname=stage user=" + role
+                      + " sslmode=verify-full sslrootcert=/run/secrets/pg-ca.pem")
+            with patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(private_db_connection_options(local, operation),
+                                 {"gssencmode": "disable"})
+                self.assertEqual(private_db_connection_options(remote, operation),
+                                 {"gssencmode": "disable"})
+                for invalid in (
+                    local + " hostaddr=192.0.2.10",
+                    local + " service=other",
+                    local + " port=5432,5433",
+                    local.replace("127.0.0.1", "127.0.0.1,pg-restore"),
+                    remote + " hostaddr=192.0.2.10",
+                    remote + " gssencmode=prefer",
+                    remote + " gssencmode=require",
+                    local + " invalid_option=private_test_secret",
+                    local + " password='private_test_secret",
+                ):
+                    with self.subTest(operation=operation), self.assertRaises(StagingConfigDenied) as caught:
+                        private_db_connection_options(invalid, operation)
+                    self.assertEqual(str(caught.exception), "PRIVATE_STAGING_CONFIG_DENIED")
+                for override in ("PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE"):
+                    with patch.dict(os.environ, {override:"private_test_secret"}):
+                        with self.assertRaises(StagingConfigDenied):
+                            private_db_connection_options(local, operation)
+                with patch.dict(os.environ, {"PGGSSENCMODE":"require"}):
+                    self.assertEqual(private_db_connection_options(remote, operation),
+                                     {"gssencmode": "disable"})
+
+    def test_private_db_bad_dsn_is_rejected_before_connect_or_startup(self):
+        from src.phase3.auth.staging_service_profile import PrivateStagingProfile
+        from apps.api.private_staging_asgi import verify_staging_database_authority
+        from apps.api import product_session_api
+        profile = PrivateStagingProfile(
+            issuer="urn:test:issuer", audience="urn:test:api", kid="test-key",
+            public_key_path=self.root / "pub.pem",
+            history_dsn="host=127.0.0.1 dbname=stage user=history_app hostaddr=192.0.2.10",
+            revoke_dsn=self.doc["revoke_dsn"], peer_verifier=lambda _: False)
+        with patch("psycopg.connect", side_effect=AssertionError("MUST_NOT_CONNECT")) as connect:
+            with self.assertRaises(StagingConfigDenied):
+                verify_staging_database_authority(profile)
+            with patch.object(product_session_api, "_PRIVATE_STAGING_PROFILE", profile):
+                with self.assertRaisesRegex(RuntimeError, "^PRIVATE_STAGING_DB_DENIED$"):
+                    product_session_api._conn("history")
+            connect.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

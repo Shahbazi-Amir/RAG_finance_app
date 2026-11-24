@@ -185,6 +185,7 @@ class AppOnlyBrowserDemo(Demo):
             result = docker("run", "-d", "--pull", "never", "--name", name,
                             "--label", label, "--network", network,
                             "--network-alias", "pg-restore",
+                            "--network-alias", "wrong-pg-name",
                             "-p", "127.0.0.1::5432",
                             "--mount", "type=volume,source=" + volume +
                             ",target=/var/lib/postgresql/data",
@@ -436,20 +437,19 @@ class AppOnlyBrowserDemo(Demo):
             p.chmod(0o600)
 
         save("phase3-app-only.json", config)
-        # A trusted TLS CA with a wrong hostname must fail startup. Use
-        # hostaddr only to keep the network destination the new PG instance.
-        pg_ip = run("docker", "network", "inspect", network,
-                    "--format", "{{range .Containers}}{{.IPv4Address}}{{end}}").decode().strip().split("/")[0]
-        import ipaddress
-        assert ipaddress.ip_address(pg_ip).is_private
+        # Second Docker DNS alias resolves to the same PG container, but
+        # the pinned certificate does not cover that name. No hostaddr override.
         invalid = dict(config)
         invalid["history_dsn"] = make_conninfo(config["history_dsn"],
-                            host="wrong-name.invalid", hostaddr=pg_ip)
+                            host="wrong-pg-name")
         save("wrong-dns.json", invalid)
         invalid = dict(config)
         invalid["history_dsn"] = make_conninfo(config["history_dsn"],
                             sslrootcert="/run/secrets/bff-ca.pem")
         save("wrong-ca.json", invalid)
+        invalid = dict(config)
+        invalid["history_dsn"] = make_conninfo(config["history_dsn"], hostaddr="192.0.2.10")
+        save("hostaddr-override.json", invalid)
         envfile = self.root / "restore-api-cursor.env"
         envfile.write_text("API_CURSOR_KEY=" + self.api_env["API_CURSOR_KEY"] + "\n"
                            "API_CURSOR_TTL_SECONDS=" + self.api_env["API_CURSOR_TTL_SECONDS"] + "\n")
@@ -459,7 +459,7 @@ class AppOnlyBrowserDemo(Demo):
                   "--security-opt", "no-new-privileges",
                   "--mount", "type=bind,source=" + str(mount) +
                   ",target=/run/secrets,readonly", "--env-file", str(envfile)]
-        for negative in ("wrong-dns.json", "wrong-ca.json"):
+        for negative in ("wrong-dns.json", "wrong-ca.json", "hostaddr-override.json"):
             denied = subprocess.run(["docker", "run", "--rm", *common, image,
                       "python3", "-m", "apps.api.private_app_only_asgi",
                       "--config", "/run/secrets/" + negative], capture_output=True,
@@ -467,7 +467,7 @@ class AppOnlyBrowserDemo(Demo):
             assert denied.returncode == 78, "PG_TLS_NEGATIVE_MUST_EXIT_78"
             assert b"APP_ONLY_STARTUP_DENIED" in denied.stderr
             assert b"password=" not in denied.stderr
-        print("API_F3_CONTAINER_PG_WRONG_CA_AND_DNS_DENIED_PASS", flush=True)
+        print("API_F3_CONTAINER_PG_WRONG_CA_DNS_HOSTADDR_DENIED_PASS", flush=True)
         port = self.api_env["APP_ONLY_CI_API_PORT"]
         name = "api-restored-" + uuid.uuid4().hex
         self.api_container = run("docker", "run", "-d", "--pull", "never", "--name", name,

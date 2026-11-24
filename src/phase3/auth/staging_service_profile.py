@@ -105,7 +105,12 @@ def db_attributes_approved(options: Mapping, operation: str) -> bool:
     host = options.get("host")
     database = options.get("dbname")
     if (user != _SAFE_ROLE[operation]
-            or not isinstance(host, str) or not host
+            or not isinstance(host, str) or not host or "," in host
+            # libpq hostaddr/service may silently change the destination
+            # behind the hostname that this trust policy actually approved.
+            or any(k in options for k in ("hostaddr", "service", "servicefile"))
+            or options.get("gssencmode") not in (None, "disable")
+            or (isinstance(options.get("port"), str) and "," in options["port"])
             or not isinstance(database, str) or not database
             or database in {"history_ci", "postgres", "template0", "template1"}
             or options.get("sslmode") in {"disable", "allow", "prefer", "require"}):
@@ -116,3 +121,22 @@ def db_attributes_approved(options: Mapping, operation: str) -> bool:
     rootcert = options.get("sslrootcert")
     return (options.get("sslmode") == "verify-full"
             and isinstance(rootcert, str) and Path(rootcert).is_absolute())
+
+
+def private_db_connection_options(dsn: str, operation: str) -> dict:
+    """Validate the actual libpq connection configuration before connecting.
+
+    A local DSN must not become remote via PGHOSTADDR or PGSERVICE. A
+    verify-full DSN must not negotiate GSS instead of validating the pinned
+    TLS server certificate. Never leak malformed DSNs through parser errors.
+    """
+    import psycopg
+    try:
+        options = psycopg.conninfo.conninfo_to_dict(dsn)
+    except (psycopg.Error, TypeError, ValueError):
+        raise StagingConfigDenied() from None
+    if (not db_attributes_approved(options, operation)
+            or any(os.environ.get(k) for k in ("PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE"))):
+        raise StagingConfigDenied()
+    # Pass explicitly to libpq, overriding the ambient GSS encryption default.
+    return {"gssencmode": "disable"}
