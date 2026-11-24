@@ -205,4 +205,14 @@ Attempt محصول و Refresh اجرا نشدند. هیچ Build، Deploy، تغ�
 
 شاخهٔ اجرایی محلی `ops/mac-first-start-resume` در `c90cfa73de7c8f7a264f59f5dedbfaec4dd3693c` ثبت شد. اسکریپت تکرار و log در `/private/tmp/rag-c018-resume` قرار دارند. پس از آزمون، هر دو فایل dense در درخت اصلی و کپی با manifest فریز‌شده تطبیق داشتند و کپی فایل lock نداشت.
 </pre></section>
+<section dir="rtl"><h2>آزمون آمادگی پیش از اجرای واقعی محصول</h2><pre style="white-space:pre-wrap">هفت کانتینر تاریخی حاضر بودند و هر هفت جفت شناسهٔ کامل کانتینر و ایمیج با Freeze Manifest تطبیق داشتند. پنج healthcheck سالم بود، readiness کی‌کلاک 200 و ورودی فارسی محصول HTTP 200 با TLS verify=0 داد. SHA-256 موتور روی mount زنده با Pin `93233bfdf25e40684fd9120b82ec19c217695fdb632ed4a1f7d2bb2a3abcb17d` تطبیق داشت. Worktree محلی `ops/mac-first-start-resume` در `c90cfa7` حاضر بود.
+
+یک آزمون مستقل با ایمیج ثابت API، کپی ورودی read-only، scratch مجزا، شبکه قطع، Generation غیرفعال و تنظیم تشخیصی ONNX بدون spinning آغاز شد. فرمان قابل بازتولید `/bin/zsh /private/tmp/rag-c018-resume/run-repeat.zsh` و شواهد `repeat.log` است. شروع 02:02:02 UTC و timeout داخلی دقیقاً ۱۸۰ ثانیه بود. زمان بیرونی ۱۸۵ ثانیه و خروج ۱۲۴ ثبت شد. آزمون از Qdrant و Sparse عبور کرد، به Stage 6 رسید و هنگام batch چهارم متوقف شد. بارگذاری ONNX برابر ۸٫۶۶۵ ثانیه و سه batch کامل برابر ۱۰٫۴۸۳، ۱۱٫۷۵۰ و ۱۰٫۴۵۵ ثانیه بود. بیشترین RSS مشاهده‌شده ۱٬۳۲۷٬۸۹۶ KiB بود. نتیجهٔ نهایی، CONTEXT_READY و Top-10 تازه صادر نشدند. علت نوسان زمانی قطعی نیست.
+
+حالت Qdrant در API زنده `0555` و مالک آن UID/GID `11001:11001` بود. Runner هنگام ساخت نسخهٔ خصوصی حالت پوشه را حفظ می‌کند. سه سرویس BFF، Bootstrap و HTTPS به namespace کانتینر API متصل‌اند. اصلاحات محلی به محصول منتقل نشدند. شمارش SQLite با `mode=ro` یک Attempt تاریخی FAILED و یک witness مستقل EXITED_FAILED با exit 1 نشان داد. شمارش نخست witness در فایل outcomes خطای نبود جدول داد و با خواندن فایل مجزای spawn-audit اصلاح شد.
+
+آزمون مستقل شرط شروع Attempt محصول بود. پنجرهٔ ورود تازه باز نشد و Attempt جدید، Refresh و نمایش منابع اجرا نشدند. Locator جداگانه BLOCKED است. Generation/Gateway در آزمون ایزوله غیرفعال بودند و برای Attempt جدید محصول سنجیده نشدند. هیچ Build، تغییر Runtime، دریافت کد موازی یا تغییر فاز دوم انجام نشد. آروان HOLD است.
+
+گزارش مالک دربارهٔ موتور سریع‌تر، احتمالاً در NB23، و زمان تقریبی ۲۰ ثانیه ثبت شد. آن نسخه هنوز بررسی، تأیید یا به Docker متصل نشده است. اولویت بعدی بررسی مرحله‌به‌مرحلهٔ نوسان نسخهٔ فعلی و آماده‌سازی اصلاح mount و rollback مشترک namespace است. پذیرش سرپرست ثبت نشده است.
+</pre></section>
 </html>
