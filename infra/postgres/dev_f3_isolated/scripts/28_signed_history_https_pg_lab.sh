@@ -66,6 +66,57 @@ run_probe(){
 }
 run_probe seed
 run_probe before
+
+# REAL Next/Web productRequest TypeScript in a separate Node22 container,
+# signing HTTPS mTLS requests for server-side synthetic session data. No
+# browser context/cookie injection or fake HTTP responses.
+bff_dir="$LAB_WORK/real_web_bff_private"
+[[ ! -e "$bff_dir" ]] || { echo STOP_BFF_PRIVATE_DIR_PREEXISTS >&2; exit 70; }
+mkdir -m 0700 "$bff_dir"
+for pair in 'signer.key:signer.key' 'ca.pem:ca.pem' 'bff.pem:bff.pem' 'bff.key:bff.key' 'session_state.json:actors.json'; do
+ from="$probe_dir/private/${pair%%:*}"
+ to="$bff_dir/${pair#*:}"
+ cp "$from" "$to"
+done
+chmod 0600 "$bff_dir"/*
+sudo chown -R 11003:11003 "$bff_dir"
+api_bff_name="f3-bff-api-$short_sha"
+docker run -d --name "$api_bff_name" --no-healthcheck \
+  --network "$network" --read-only --security-opt no-new-privileges:true \
+  --pids-limit 96 --memory 512m --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --mount "type=bind,src=$probe_dir,dst=/run/f3_http_probe" \
+  -e API_RUNNER_EXECUTION_MODE=APP_ONLY \
+  -e F3_ISOLATED_DB_HTTP=YES \
+  "$image" /bin/sh -c 'export API_CURSOR_KEY="$(cat /run/f3_http_probe/private/cursor.key)"; export API_CURSOR_TTL_SECONDS=300; exec python3 -m apps.api.private_app_only_asgi --config /run/f3_http_probe/private/server-config.json' >/dev/null
+trap 'docker rm -f "$api_bff_name" >/dev/null 2>&1 || true' EXIT
+api_bff_ready=0
+for n in $(seq 1 45); do
+ if docker exec "$api_bff_name" python3 /srv/release/tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py ready200 >/dev/null 2>&1; then
+  api_bff_ready=1; break
+ fi
+ sleep 1
+done
+[[ "$api_bff_ready" == 1 ]] || { echo STOP_BFF_SOURCE_API_NOT_READY >&2; exit 70; }
+node_image='public.ecr.aws/docker/library/node@sha256:47725aca53d3295ec2d3be8f62726599b3033cc262edc2c7e429909b3ac599fc'
+docker pull --quiet "$node_image" > /dev/null
+docker run --rm --network "container:$api_bff_name" --user 11003:11003 \
+  --read-only --security-opt no-new-privileges:true --pids-limit 96 --memory 384m \
+  --mount "type=bind,src=$SOURCE_REPO,dst=/repo,readonly" \
+  --mount "type=bind,src=$bff_dir,dst=/tmp,readonly" \
+  -e CI=true -e AUTH_CI_DEMO_MODE=true -e PHASE3_APP_MODE=APP_ONLY \
+  -e AUTH_CI_PRODUCT_ORIGIN=https://127.0.0.1:18443 \
+  -e AUTH_CI_PRODUCT_SIGN_KEY=/tmp/signer.key \
+  -e AUTH_CI_BOOTSTRAP_CA=/tmp/ca.pem \
+  -e AUTH_CI_BOOTSTRAP_CERT=/tmp/bff.pem \
+  -e AUTH_CI_BOOTSTRAP_KEY=/tmp/bff.key \
+  -e AUTH_CI_PRODUCT_ISSUER=urn:rag-finance:synthetic-bff \
+  -e AUTH_CI_PRODUCT_AUDIENCE=urn:rag-finance:api:internal-ci \
+  -e AUTH_CI_PRODUCT_KID=ci-rsa-1 \
+  "$node_image" node --experimental-strip-types \
+  /repo/tests/phase3/integration/ui/f3_app_only_bff_product_request_pg.mjs
+docker rm -f "$api_bff_name" >/dev/null
+trap - EXIT
+echo APP_ONLY_REAL_NEXT_BFF_SOURCE_TO_ACTUAL_MTLS_SIGNED_PG_HISTORY=PASS
 dump="$LAB_WORK/f3_http_ab.dump"
 compose exec -T lab-db pg_dump -U postgres -d "$src" -Fc > "$dump"
 [[ -s "$dump" ]] || { echo STOP_EMPTY_SOURCE_AB_DUMP >&2; exit 70; }
@@ -150,6 +201,7 @@ report={
  "private_api_listener":"REAL_UVICORN_H11_MTLS",
  "postgres_service":"history_app_TLS_VERIFY_FULL_CA_SAN",
  "real_signed_http_history":"SOURCE_AND_INDEPENDENT_RESTORE",
+ "real_web_product_request_bff":"ACTUAL_NEXT_SOURCE_NODE22_SIGNED_MTLS_TWO_OWNERS",
  "two_owner_conversations":[5,3],
  "two_owner_messages":[4,2],
  "authenticated_session_revoke_after_restore":"A_DENIED_B_ALLOWED",
