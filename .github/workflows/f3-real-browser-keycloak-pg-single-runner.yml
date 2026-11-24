@@ -2,6 +2,8 @@ name: FOUNDATION_F3 real Chromium Keycloak Next BFF API and SQL — disposable o
 
 on:
   push:
+    branches: [agent/ui-f3-foundation-joined-20261124]
+  pull_request:
     branches: [integration/f3-foundation-history-two-users-20261124]
   workflow_dispatch:
 
@@ -13,7 +15,8 @@ jobs:
     if: >-
       github.event_name == 'push'
       || (github.event_name == 'pull_request'
-          && github.event.pull_request.head.ref == 'agent/api-product-session-history-revoke-011'
+          && (github.event.pull_request.head.ref == 'agent/api-product-session-history-revoke-011'
+              || github.event.pull_request.head.ref == 'agent/ui-f3-foundation-joined-20261124')
           && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 55
@@ -301,6 +304,12 @@ jobs:
           npm --prefix apps/web run build
           python -m pip install --no-cache-dir 'playwright==1.64.1'
           python -m playwright install --with-deps chromium
+      - name: Provision NSS trust CLI on disposable runner for verified lab CA
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libnss3-tools ca-certificates
+          command -v certutil
       - name: Actual Keycloak two subjects browser login to signed BFF and PG history
         shell: bash
         run: |
