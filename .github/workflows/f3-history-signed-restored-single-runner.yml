@@ -2,6 +2,8 @@ name: FOUNDATION_F3 same-run signed API/PG A-B and independent volume restore â€
 
 on:
   push:
+    branches: [agent/ui-f3-foundation-latest-20261124]
+  pull_request:
     branches: [integration/f3-foundation-history-two-users-20261124]
   workflow_dispatch:
 
@@ -13,7 +15,8 @@ jobs:
     if: >-
       github.event_name == 'push'
       || (github.event_name == 'pull_request'
-          && github.event.pull_request.head.ref == 'agent/api-product-session-history-revoke-011'
+          && (github.event.pull_request.head.ref == 'agent/api-product-session-history-revoke-011'
+              || github.event.pull_request.head.ref == 'agent/ui-f3-foundation-latest-20261124')
           && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 55
