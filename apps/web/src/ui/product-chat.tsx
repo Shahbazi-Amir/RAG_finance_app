@@ -521,7 +521,8 @@ export default function ProductChat(){
         </button>)}
       </nav>
       {list.more&&<button type="button" className="secondary"
-        onClick={()=>void loadList(true,list.next)}>نمایش گفت‌وگوهای بیشتر</button>}
+        data-testid="more-conversations"
+        onClick={()=>void loadList(true,list.next)}>نمایش گفت‌وگوهای بیشتر</button>
       <button type="button" className="secondary" data-testid="refresh-history"
         onClick={()=>void loadList()} disabled={listState==='unauthorized'}>بازخوانی</button>
       <div className="history-sidebar-bottom">
@@ -551,7 +552,7 @@ export default function ProductChat(){
             :capabilityState==='unavailable'
             ?'قابلیت ارسال از سرور قابل تأیید نیست؛ ارسال غیرفعال است.'
             :runtimeCapability.send_mode==='DISABLED'
-            ?'برنامه در حالت بدون موتور فعال است؛ تاریخچه قابل مشاهده است، اما ارسال پرسش و تولید پاسخ غیرفعال است.'
+            ?'برنامه در حالت بدون موتور فعال است؛ ارسال پرسش و تولید پاسخ غیرفعال است. تاریخچه فقط پس از ورود و اتصال امن به سرور داده قابل مشاهده است.'
             :'فقط ثبت و بازیابی فنی NO_DISPATCH_ONLY مجاز است؛ تولید پاسخ و موتور زنده فعال نیست.'}
         </p>
         <Link className="history-link" href="/account">حساب، حریم خصوصی و وضعیت قابلیت‌ها</Link>
@@ -611,6 +612,7 @@ export default function ProductChat(){
           </button>}
         </article>)}
         {messagesFor?.more&&<button type="button" className="secondary"
+          data-testid="more-messages"
           onClick={()=>void loadThread(selected,true,messagesFor.next)}>
           پیام‌های بیشتر
         </button>}
