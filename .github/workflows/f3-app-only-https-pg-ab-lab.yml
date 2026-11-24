@@ -1,7 +1,7 @@
 name: F3 APP_ONLY real mTLS signed HTTPS PG History A-B and restore lab
 on:
-  push:
-    branches: [agent/ui-f3-next-verified-20261124]
+  pull_request:
+    branches: [integration/f3-foundation-history-two-users-20261124]
   workflow_dispatch:
 permissions:
   contents: read
