@@ -347,11 +347,16 @@ jobs:
           p.parent.mkdir(exist_ok=True)
           p.write_text(json.dumps({"source_sha":sha,"run_id":os.environ["GITHUB_RUN_ID"],
               "api_image_id":data["Id"],"source":"clean git archive",
-              "api_owner_source_sha":"23db3da6367e6a8279072ee96b56a2bd4b7f0fbc","scope":"CI_RUNNER_SOURCE_HOST_WEB_BOOTSTRAP_POST_RESTORE_SHARED_COMPOSE_SUBSET",
+              "api_owner_source_sha":"23db3da6367e6a8279072ee96b56a2bd4b7f0fbc","scope":"CI_RUNNER_SOURCE_AND_RESTORED_SHARED_COMPOSE_CI_FIXTURE_BOOTSTRAP",
               "full_compose_verified":False,"target_verified":False,"accepted":False},indent=2)+"\n")
           r=json.loads(Path("ci_receipts/f3_post_restore_shared_compose.json").read_text())
           assert r["source_sha"]==sha and r["api_image_id"]==data["Id"]
           assert r["post_restore_ordinary_browser_replay_passed"] is True
+          assert r["shared_compose_before_after_lab_verified"] is True
+          assert r["two_independent_pg_volumes"] is True and r["source_pg_id_distinct_from_restore"] is True
+          assert r["source_witness"]["source_browser_sql_http_dom_and_send_passed"] is True
+          assert r["source_witness"]["web_image_id"] == r["web_image_id"]
+          assert r["source_witness"]["api_image_id"] == r["api_image_id"]
           assert r["full_compose_verified"] is False and r["accepted"] is False
           PY
       - uses: actions/upload-artifact@v4
