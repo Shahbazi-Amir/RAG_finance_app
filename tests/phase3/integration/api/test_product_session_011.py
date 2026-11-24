@@ -935,7 +935,7 @@ class RealProductSession011(unittest.TestCase):
         a = self.login("A")
         cid = self.seed(a, "CI_REPLAY_RACE_" + uuid.uuid4().hex)
         token, claims = self.signed(a)
-        key = sha256((claims["iss"] + "\\x00" + claims["jti"]).encode(
+        key = sha256((claims["iss"] + "\x00" + claims["jti"]).encode(
             "utf-8")).hexdigest()
         with psycopg.connect(os.environ["AUTH_MIG_DSN"], autocommit=True,
                              row_factory=dict_row) as auth_admin:
