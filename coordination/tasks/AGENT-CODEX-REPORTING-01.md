@@ -219,3 +219,12 @@ Status is review. Supervisor approval is pending.
 - Tested: docker ps -a --no-trunc, docker inspect with selected metadata, docker info, docker stats --no-stream, df -h, GET /health/ready on Keycloak management port (200), curl with the mounted public CA and existing loopback hostname (302, TLS verify=0). Missing Health keys required a narrower inspect template. Default curl trust failed with code 60 and passed with the existing CA.
 - Open: missing temporary execution checkout and Compose overlay, complete provenance, bounded Runner, approved Locator, product and Refresh, isolated integrated restore. Supervisor acceptance pending. No canonical checklist changes.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — Bounded C018 replay and pinned source membership
+
+- Status: review. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), P3M11-A02 (Module 11, activity 2, source authorization remains blocked).
+- Baseline: report ref codex 3382eaee6cd38c2363d81ab3a1fa33605f394196, execution starting 5ee8a25 descended from 5fe21e9, C011 and C018 exact pins, frozen API image 438ba61c69ea. Recovered local checkout with git worktree add --detach and retained branch ops/mac-first-start-resume at c90cfa73de7c8f7a264f59f5dedbfaec4dd3693c.
+- Implemented locally: infra/mac-first-start/profile_c018_onnx.py and audit_c018_sources.py. Report-only changes: MAC_FIRST_START_FA.md/.html, CURRENT_STATUS.md, and this ledger.
+- Tested: 11 asset pins and two dense file hashes, real corpus validation and five negative cases, 38 contract unit tests. Sequential Docker trials in a read-only, no-network container, UID/GID 11001:11001, `timeout 180 ... profile_c018_onnx.py --disable-intra-op-spinning --audit-sources`. First retrieval 102.35s and exit 0, repeat exit 0 and outer wall 179s. Local command and trace are run-repeat.zsh / repeat.log under /private/tmp/rag-c018-resume. The initial launch exited 127 because tmpfs masked Python, corrected by moving scratch to /tmp. Dense copy parent was initially absent and creation resolved that error.
+- Open: product deployment and acceptance, approved Locator and release permission, Refresh, and integrated restore. Supervisor decision pending. No parallel code import, production Attempt, timeout change, Generation or Gateway. No canonical checklist changes.
+- [Persian evidence and decision options](../../docs/codex_execution/MAC_FIRST_START_FA.md).
