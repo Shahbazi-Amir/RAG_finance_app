@@ -12,11 +12,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 REGISTER = ROOT / "coordination" / "phase3_checklist.md"
-ACT = re.compile(r"^\\| \\*\\*(P3M\\d{2}-A\\d{2})\\*\\*")
-OP = re.compile(r"^\\| \\*\\*(P3OP\\d{2}-R\\d{2})\\*\\*")
-MOD = re.compile(r"^### (P3M\\d{2}) — ")
-GATE = re.compile(r"^- \\[([ x])\\] \\*\\*Independent Module Gate — (NOT PASSED|PASSED):")
-ACT_REF = re.compile(r"P3M\\d{2}-A\\d{2}")
+ACT = re.compile(r"^\| \*\*(P3M\d{2}-A\d{2})\*\*")
+OP = re.compile(r"^\| \*\*(P3OP\d{2}-R\d{2})\*\*")
+MOD = re.compile(r"^### (P3M\d{2}) — ")
+GATE = re.compile(r"^- \[([ x])\] \*\*Independent Module Gate — (NOT PASSED|PASSED):")
+ACT_REF = re.compile(r"P3M\d{2}-A\d{2}")
 
 
 def unique(label: str, rows: list[str], pattern: re.Pattern[str], count: int) -> list[str]:
@@ -68,7 +68,7 @@ class Phase3CanonicalRegisterIntegrity(unittest.TestCase):
             self.assertIn(" — ", line, m.group(1))
             # Preserve the original source's MANY legitimate test states;
             # column presence matters, not invented enum classification.
-            self.assertRegex(line, r"\\|\\s*`(blocked|planned|active|review|accepted)`\\s*\\|")
+            self.assertRegex(line, r"\|\s*`(blocked|planned|active|review|accepted)`\s*\|")
             self.assertGreaterEqual(line.count(" | "), 7, m.group(1))
 
     def test_all_105_crosswalk_references_resolve_to_canonical_activities(self) -> None:
