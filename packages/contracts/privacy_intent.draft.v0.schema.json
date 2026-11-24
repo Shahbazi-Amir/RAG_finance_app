@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ragfinance:privacy-intent:draft-v0",
+  "title": "RAG_finance policy-neutral, NON-EXECUTABLE privacy intent draft",
+  "$comment": "DRAFT ONLY. No approved scopes, consent/retention/delete/export policy, identity assertion, service endpoint, export body, remote call or owner signature. Product.v1 remains unchanged. Draft intent is not actionable.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/consent_intent"
+    },
+    {
+      "$ref": "#/$defs/withdrawal_intent"
+    },
+    {
+      "$ref": "#/$defs/export_intent"
+    },
+    {
+      "$ref": "#/$defs/policy_pending"
+    }
+  ],
+  "$defs": {
+    "consent_intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "consent_intent_draft"
+        },
+        "contract_version": {
+          "const": "privacy_intent.draft.v0"
+        },
+        "request_nonce": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "purpose_reference": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{2,63}$"
+        },
+        "requested_action": {
+          "const": "REQUEST_POLICY_REVIEW"
+        }
+      },
+      "required": [
+        "kind",
+        "contract_version",
+        "request_nonce",
+        "purpose_reference",
+        "requested_action"
+      ]
+    },
+    "withdrawal_intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "withdrawal_intent_draft"
+        },
+        "contract_version": {
+          "const": "privacy_intent.draft.v0"
+        },
+        "request_nonce": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "prior_consent_ref": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{12,96}$"
+        },
+        "requested_action": {
+          "const": "REQUEST_POLICY_REVIEW"
+        }
+      },
+      "required": [
+        "kind",
+        "contract_version",
+        "request_nonce",
+        "prior_consent_ref",
+        "requested_action"
+      ]
+    },
+    "export_intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "export_intent_draft"
+        },
+        "contract_version": {
+          "const": "privacy_intent.draft.v0"
+        },
+        "request_nonce": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "data_category_reference": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{2,63}$"
+        },
+        "requested_action": {
+          "const": "REQUEST_POLICY_REVIEW"
+        }
+      },
+      "required": [
+        "kind",
+        "contract_version",
+        "request_nonce",
+        "data_category_reference",
+        "requested_action"
+      ]
+    },
+    "policy_pending": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "privacy_policy_pending_receipt"
+        },
+        "contract_version": {
+          "const": "privacy_intent.draft.v0"
+        },
+        "request_nonce": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "status": {
+          "const": "POLICY_NOT_APPROVED"
+        },
+        "request_accepted": {
+          "const": false
+        },
+        "side_effects_performed": {
+          "const": false
+        }
+      },
+      "required": [
+        "kind",
+        "contract_version",
+        "request_nonce",
+        "status",
+        "request_accepted",
+        "side_effects_performed"
+      ]
+    }
+  }
+}
