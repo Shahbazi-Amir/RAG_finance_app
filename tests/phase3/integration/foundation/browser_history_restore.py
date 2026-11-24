@@ -679,20 +679,24 @@ async def send_denied(page):
         assert (await r.json())["error"]=="ENGINE_NOT_AVAILABLE"
 
 
-def restore_separate_volume(demo,original_records,source_system_id,pg_tls):
-    work=Path(os.environ["RUNNER_TEMP"])
-    backup=work/"f3-browser-full-history.dump"
-    roles=work/"f3-browser-roles.sql"
-    command(["docker","pull","postgres:17.11"])
+def restore_separate_volume(demo,original_records,source_system_id,pg_tls,stage='pre-revoke'):
+    assert stage in ("pre-revoke","post-revoke")
+    work=Path(os.environ["RUNNER_TEMP"])/("f3-browser-backup-"+stage)
+    work.mkdir(mode=0o700,exist_ok=False)
+    backup=work/"full-history.dump"
+    roles=work/"roles.sql"
+    # The exact source CI service image is already local; no second registry pull.
+    command(["docker","image","inspect","postgres:17.11"])
     pg17("pg_dump","-h","127.0.0.1","-p","5432","-U","postgres",
          "-F","c","-f",str(backup),"history_ci")
+    backup.chmod(0o600)
     assert backup.stat().st_size>1024
     globals_sql=pg17("pg_dumpall","-h","127.0.0.1","-p","5432",
         "-U","postgres","--globals-only","--no-role-passwords")
     roles.write_text("\n".join(line for line in globals_sql.splitlines()
       if not re.match(r"^(CREATE ROLE postgres;|ALTER ROLE postgres WITH)",line))+"\n")
     roles.chmod(0o600)
-    suffix=os.environ["GITHUB_RUN_ID"]+"-"+os.environ.get("GITHUB_RUN_ATTEMPT","1")
+    suffix=os.environ["GITHUB_RUN_ID"]+"-"+os.environ.get("GITHUB_RUN_ATTEMPT","1")+"-"+stage
     volume="f3browser-history-restore-"+suffix
     name="f3browser-restore-pg-"+suffix
     command(["docker","volume","create",volume])
@@ -718,7 +722,10 @@ def restore_separate_volume(demo,original_records,source_system_id,pg_tls):
                     sql.Identifier(user),sql.Literal(secret)))
         c.execute("CREATE DATABASE history_ci")
     pg17("pg_restore","-h","127.0.0.1","-p","5433","-U","postgres",
-         "--exit-on-error","-d","history_ci",str(backup))
+         "--single-transaction","--exit-on-error","-d","history_ci",str(backup))
+    backup.unlink()
+    roles.unlink()
+    work.rmdir()
     with connect(5433) as c:
         actual=c.execute(
             "SELECT owner_id,id,title FROM history_l1.conversations "
@@ -900,6 +907,27 @@ async def execute():
             migration_ledger_snapshot("AFTER_REVOKE",source_cluster,ledger_before)
             physical_owner_graph(demo,raw_a,raw_b,"AFTER_REVOKE",graph_before,revoked=True)
             oidc_same_transaction_matrix(demo,raw_a,raw_b,"AFTER_REVOKE",ids_a,ids_b,revoked=True)
+            # Now create a SECOND new volume from the post-logout state.
+            # Never start the stale pre-logout snapshot again.
+            pre_revoke_cluster=restored[2]
+            command(["docker","rm","-f",restored[0]])
+            command(["docker","volume","rm",restored[1]])
+            restored=None
+            restored=restore_separate_volume(demo,source,source_cluster,pg_tls,stage="post-revoke")
+            assert restored[2] not in (pre_revoke_cluster,source_cluster)
+            restricted_history_snapshot(demo,"POST_REVOKE_RESTORE",restricted_before)
+            migration_ledger_snapshot("POST_REVOKE_RESTORE",source_cluster,ledger_before)
+            physical_owner_graph(demo,raw_a,raw_b,"POST_REVOKE_RESTORE",graph_before,revoked=True)
+            oidc_same_transaction_matrix(demo,raw_a,raw_b,"POST_REVOKE_RESTORE",ids_a,ids_b,revoked=True)
+            assert (await page_a.request.get(ORIGIN+"/api/history/conversations?limit=2")).status==401
+            await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
+            await signed_pagination(page_b,ids_b)
+            await foreign_owner_denied(page_b,ids_a)
+            await send_denied(page_b)
+            assert inventory(demo)[0]==source and inventory(demo)[1]==receipt_before
+            assert message_inventory(demo)==messages_before
+            assert (Path(os.environ["RUNNER_TEMP"])/"f3-data-bearing-up-verified.txt").read_text().splitlines()==[f"{n:03d}" for n in range(2,11)]
+            print("DB_REAL_OIDC_POST_REVOKE_SECOND_INDEPENDENT_VOLUME_A401_B200_HISTORY_EXACT=PASS",flush=True)
             result={
                 "schema":"foundation.f3.real_browser_pg_restored_same_context.v1",
                 "sha":command(["git","rev-parse","HEAD"]).strip(),
@@ -928,7 +956,7 @@ async def execute():
                 "db_restricted_sql_read_only":True,
                 "db_restricted_six_tables_exact_parity":True,
                 "db_restricted_cross_owner_unset_context_zero":True,
-                "db_restricted_sql_checkpoints":7,
+                "db_restricted_sql_checkpoints":8,
                 "db_restricted_owner_counts":{
                     label:{table:entry[0] for table,entry in tables.items()}
                     for label,tables in restricted_before.items()},
@@ -939,11 +967,13 @@ async def execute():
                 "db_real_oidc_replay_rollback_and_forged_binding_denied":True,
                 "db_browser_migration_ledger":"ACTUAL_PINNED_001_010_EXECUTION_SOURCE_RESTORE_ROLLBACK_REVOKE_EXACT_PRIVATE",
                 "db_browser_migration_ledger_rows":10,
-                "db_browser_migration_ledger_checkpoints":4,
+                "db_browser_migration_ledger_checkpoints":5,
+                "db_data_bearing_up_002_010":9,
+                "db_post_revoke_second_fresh_volume_a401_b200":True,
                 "db_browser_db55_bridge":"NOT_RUN_IN_BROWSER_FIXTURE",
                 "db_physical_owner_graph":"12_REQUIRED_1_CONDITIONAL_1_SERVICE_REAL_OIDC_LINEAGE_AND_SCHEMA_PARITY",
-                "db_physical_owner_graph_checkpoints":4,
-                "db_cross_schema_select_denials":104,
+                "db_physical_owner_graph_checkpoints":5,
+                "db_cross_schema_select_denials":130,
                 "db_global_history_auth_fk":"NOT_PRESENT_LEGACY_HISTORY_PRECEDES_AUTH",
                 "db_owner_id_user_id_policy":"REQUIRES_OWNER_APPROVAL",
                 "approved_rto_threshold":None,
