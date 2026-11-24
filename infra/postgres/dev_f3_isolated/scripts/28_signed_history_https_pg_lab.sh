@@ -220,6 +220,29 @@ trap - EXIT
 [[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM history_l1.conversations")" == 8 ]] || exit 70
 [[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM history_l1.send_receipts")" == 0 ]] || exit 70
 [[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM history_l1.answers")" == 0 ]] || exit 70
+# Backup *after* revocation, then restore into a fresh clone on the other
+# independent cluster. No attempt to activate a stale pre-revocation backup.
+revoked_copy=rag_finance_f3_http_ab_revoked_copy
+[[ "$(admin lab-db -c "SELECT count(*) FROM pg_database WHERE datname='$revoked_copy'")" == 0 ]] || exit 70
+revoked_dump="$LAB_WORK/f3_http_ab_post_revoke.dump"
+[[ ! -e "$revoked_dump" ]] || exit 70
+compose exec -T restore-db pg_dump -U postgres -d "$dst" -Fc > "$revoked_dump"
+[[ -s "$revoked_dump" ]] || exit 70
+chmod 0600 "$revoked_dump"
+shasum -a 256 "$revoked_dump" > "$revoked_dump.sha256"
+shasum -a 256 -c "$revoked_dump.sha256" >/dev/null
+admin lab-db -c "CREATE DATABASE $revoked_copy OWNER postgres" >/dev/null
+admin lab-db -c "REVOKE CONNECT,TEMP ON DATABASE $revoked_copy FROM PUBLIC" >/dev/null
+admin lab-db -c "GRANT CONNECT ON DATABASE $revoked_copy TO history_app,auth_mapper,auth_sessions,auth_revoker" >/dev/null
+compose exec -T lab-db pg_restore --exit-on-error -U postgres -d "$revoked_copy" < "$revoked_dump" > "$LAB_WORK/revoked_copy_restore.log" 2>&1
+[[ "$(DB_SERVICE=lab-db DB_NAME="$revoked_copy" dbpsql -Atc "SELECT count(*) FROM db55_audit.migration_runs WHERE status='APPLIED'")" == 10 ]] || exit 70
+[[ "$(DB_SERVICE=lab-db DB_NAME="$revoked_copy" dbpsql -Atc 'SELECT system_identifier FROM pg_control_system()')" != "$dst_id" ]] || exit 70
+run_probe snapshot_revoked_copy
+run_probe verify_revoked_copy
+run_probe snapshot_revoked_copy
+admin lab-db -c "DROP DATABASE $revoked_copy WITH (FORCE)" >/dev/null
+[[ "$(admin lab-db -c "SELECT count(*) FROM pg_database WHERE datname='$revoked_copy'")" == 0 ]] || exit 70
+echo DB_POST_REVOKE_BACKUP_INDEPENDENT_RESTORE_CLEANUP=PASS
 # Sanitized receipt only; never publish keys, role passwords, opaque session
 # tokens, service config, internal logs, or the raw pg_dump.
 export F3_HTTP_DUMP_SHA="$(awk '{print $1}' "$dump.sha256")"
@@ -248,6 +271,8 @@ report={
  "backup_key_custody":"EPHEMERAL_MEMORY_ONLY_NOT_PRODUCTION_KMS_OR_RETENTION",
  "catalog_parity":"SIX_TABLES_COLUMNS_CONSTRAINTS_INDEXES_RLS_EXACT_SOURCE_RESTORE",
  "keyset_index_paths":"FORCED_PLANNER_ELIGIBILITY_NOT_LATENCY_BENCHMARK",
+ "post_revoke_backup_restore":"NEW_DB_OTHER_CLUSTER_A401_B200_HISTORY_PARITY",
+ "stale_pre_revoke_backup_admission":"NOT_AUTHORIZED_REQUIRES_OWNER_SECURITY_POLICY",
  "two_owner_conversations":[5,3],
  "two_owner_messages":[4,2],
  "authenticated_session_revoke_after_restore":"A_DENIED_B_ALLOWED",
