@@ -2,6 +2,8 @@ name: FOUNDATION F3 exact-branch full isolated app-only source images and PG17.1
 
 on:
   push:
+    branches: [agent/ui-f3-next-verified-20261124]
+  pull_request:
     branches: [integration/f3-foundation-history-two-users-20261124]
   workflow_dispatch:
 
