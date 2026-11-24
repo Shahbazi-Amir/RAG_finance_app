@@ -213,7 +213,18 @@ class AppOnlyASGI:
                     status_code=503)(scope, receive, private_send)
             try:
                 from starlette.requests import Request
-                from apps.api import product_session_api
+                from apps.api import product_session_api, history_api
+                request = Request(scope, receive)
+
+                def probe_history(ctx):
+                    # Verify the actual canonical owner-scoped History read,
+                    # including cursor config and response validation. Do not
+                    # expose the returned conversations in a readiness DTO.
+                    history_api._cursor_config()
+                    page = history_api.conversations(request, ctx)
+                    if page.status_code != 200:
+                        raise StagingConfigDenied()
+
                 # No synthetic owner, no Auth override. Cryptographic
                 # issuer/audience/method/path/session/PG binding is checked
                 # inside the original signed, transaction-fenced function.
@@ -223,8 +234,7 @@ class AppOnlyASGI:
                 # remain schedulable while readiness probes PG.
                 await run_in_threadpool(
                     product_session_api._signed_history,
-                    Request(scope, receive), b"", b"/health/ready",
-                    lambda _ctx: None,
+                    request, b"", b"/health/ready", probe_history,
                 )
             except Exception:
                 # Signature, role, session, revoked user, PG outage and

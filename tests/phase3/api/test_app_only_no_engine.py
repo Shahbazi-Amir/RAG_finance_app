@@ -584,5 +584,50 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         asyncio.run(scenario())
 
 
+    def test_signed_readiness_checks_actual_history_action_without_leaking_page(self):
+        from starlette.responses import JSONResponse
+        from apps.api import history_api, product_session_api
+        wrapper = AppOnlyASGI(FastAPI(), FakeProfile())
+        context = {"owner": "test_owner_only", "conn": object()}
+
+        async def trusted(scope, receive, send):
+            scope["scheme"] = "https"
+            scope["trusted_transport_test"] = True
+            return await wrapper(scope, receive, send)
+
+        def invoke_action(request, body, path, action):
+            self.assertEqual(body, b"")
+            self.assertEqual(path, b"/health/ready")
+            return None, action(context)
+
+        async def scenario():
+            with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}):
+                with patch.object(product_session_api, "_signed_history",
+                                  side_effect=invoke_action):
+                    with patch.object(history_api, "_cursor_config",
+                                      return_value=(b"x" * 32, 300)):
+                        async with AsyncClient(
+                            transport=ASGITransport(app=trusted),
+                            base_url="https://test.invalid",
+                        ) as client:
+                            with patch.object(history_api, "conversations",
+                                              return_value=JSONResponse({
+                                                  "title": "PRIVATE_TEST_HISTORY"
+                                              })) as read:
+                                ready = await client.get("/health/ready")
+                                self.assertEqual(ready.status_code, 200)
+                                self.assertNotIn("PRIVATE_TEST_HISTORY", ready.text)
+                                self.assertNotIn("test_owner_only", ready.text)
+                                self.assertIs(read.call_args.args[1], context)
+                            with patch.object(history_api, "conversations",
+                                              side_effect=RuntimeError(
+                                                  "PRIVATE_DB_FAILURE")):
+                                denied = await client.get("/health/ready")
+                                self.assertEqual(denied.status_code, 503)
+                                self.assertNotIn("PRIVATE_DB_FAILURE", denied.text)
+
+        asyncio.run(scenario())
+
+
 if __name__ == "__main__":
     unittest.main()

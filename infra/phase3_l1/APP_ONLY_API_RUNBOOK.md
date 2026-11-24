@@ -119,8 +119,16 @@ true in production causes startup denial. This does not activate C018.
 path using its real RSA key and a *currently active session*; original
 004/005 fenced admission, correct owner and PG commit must all succeed.
 It returns 200 only for that transaction and 503 for absent/incorrect
-RS256 proof, revoked session, wrong owner or DB failure. No query or body is
-allowed. Both probes explicitly state `bootstrap_idp:not_probed` where
+RS256 proof, revoked session, wrong owner or DB failure. The exact canonical
+owner-scoped History list and stable cursor configuration must also succeed
+inside that same fenced transaction. A missing History SELECT privilege
+therefore returns 503 and rolls back the pending replay record; the History
+DTO is discarded, not exposed by readiness. No query or body is allowed.
+All GETs must use empty body framing (absent Content-Length or a single zero,
+no Transfer-Encoding); invalid framing is rejected before PG admission.
+Revoke verification and the complete owner/session transaction run together
+in a worker thread, returning success only after commit; a slow DB lock
+cannot monopolize the ASGI event loop. Both probes explicitly state `bootstrap_idp:not_probed` where
 applicable; 200 is **API History readiness**, never browser-stack readiness.
 The *whole* browser login stack is NOT declared ready by that API-only 200.
 

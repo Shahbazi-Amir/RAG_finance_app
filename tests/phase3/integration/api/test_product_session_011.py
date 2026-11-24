@@ -1084,6 +1084,46 @@ class RealProductSession011(unittest.TestCase):
                 "GET", "/internal/ready", body=b"{}").status_code, 503)
         print("API_F3_REAL_SIGNED_GET_BODY_FENCE_BEFORE_PG_REPLAY_PASS", flush=True)
 
+    def test_API011_15_signed_ready_requires_actual_history_read_privilege(self):
+        """A live session/005 grant is insufficient if the History table is unreadable."""
+        a = self.login("A")
+        cid = self.seed(a, "CI_READY_PRIVATE_TITLE_" + uuid.uuid4().hex)
+        path = "/health/ready"
+        before = self.request("GET", path, self.signed(a, path=path)[0])
+        self.assertEqual(before.status_code, 200, before.text)
+        self.assertNotIn(cid, before.text)
+        with psycopg.connect(os.environ["DB_MIG_DSN"], autocommit=True) as admin:
+            admin.execute("REVOKE SELECT ON history_l1.conversations FROM history_app")
+            try:
+                with psycopg.connect(os.environ["DB_APP_DSN"],
+                                    autocommit=True, row_factory=dict_row) as role:
+                    self.assertFalse(role.execute(
+                        "SELECT has_table_privilege(current_user,"
+                        "'history_l1.conversations','SELECT') AS ok"
+                    ).fetchone()["ok"])
+                token, claims = self.signed(a, path=path)
+                denied = self.request("GET", path, token)
+                self.assertEqual(denied.status_code, 503, denied.text)
+                self.assertEqual(denied.headers.get("cache-control"), "no-store")
+                self.assertNotIn(cid, denied.text)
+                key = sha256((claims["iss"] + "\x00" + claims["jti"]).encode(
+                    "utf-8")).hexdigest()
+                with psycopg.connect(os.environ["AUTH_MIG_DSN"], autocommit=True,
+                                     row_factory=dict_row) as auth_admin:
+                    self.assertEqual(auth_admin.execute(
+                        "SELECT count(*) AS n FROM auth_l1.service_assertion_replays "
+                        "WHERE issuer_jti_sha256=%s", (key,)).fetchone()["n"], 0)
+                self.assertNotEqual(self.list(a).status_code, 200)
+            finally:
+                admin.execute("GRANT SELECT ON history_l1.conversations TO history_app")
+        recovered = self.request("GET", path, self.signed(a, path=path)[0])
+        self.assertEqual(recovered.status_code, 200, recovered.text)
+        self.assertNotIn(cid, recovered.text)
+        history = self.list(a)
+        self.assertEqual(history.status_code, 200, history.text)
+        self.assertIn(cid, [row["conversation_id"] for row in history.json()["items"]])
+        print("API_F3_REAL_SIGNED_READY_HISTORY_GRANT_DOWN_503_RECOVERY_PASS", flush=True)
+
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
         """Actual verified HTTPS callback, same pinned redirect for Code exchange."""
         from cryptography.hazmat.primitives import serialization
