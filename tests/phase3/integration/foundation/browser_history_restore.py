@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 import re
 import secrets
+import socket
+import ssl
 import subprocess
 import sys
 import time
@@ -38,6 +40,39 @@ def verify_isolation():
     assert "dbname=history_ci" in os.environ.get("AUTH_MIG_DSN","")
     assert os.environ.get("PGHOST")=="127.0.0.1"
     assert os.environ.get("PGPORT")=="5432"
+
+
+def trust_ephemeral_browser_ca(demo):
+    """Install ONLY this job's ephemeral CA for genuine Chrome and Python trust.
+
+    No ignore_https_errors, no certificate pin bypass and no shared machine.
+    This mutates only the disposable GitHub Actions runner and does not
+    distribute any CA key or copy a trust root to repository artifacts.
+    """
+    verify_isolation()
+    ca=Path(demo.ca)
+    assert ca.is_file() and ca.parent==demo.root and not ca.is_symlink(), (
+        "UNTRUSTED_CI_CA_INPUT")
+    run_id=os.environ["GITHUB_RUN_ID"]
+    assert run_id.isdecimal() and len(run_id)<=24
+    trust_path="/usr/local/share/ca-certificates/f3-disposable-ui-"+run_id+".crt"
+    subprocess.run(["sudo","install","-m","0644",str(ca),trust_path],check=True)
+    subprocess.run(["sudo","update-ca-certificates"],check=True,
+                   stdout=subprocess.DEVNULL)
+    nss=Path.home()/".pki"/"nssdb"
+    nss.mkdir(parents=True,exist_ok=True)
+    spec="sql:"+str(nss)
+    if not (nss/"cert9.db").exists():
+        subprocess.run(["certutil","-N","--empty-password","-d",spec],check=True)
+    subprocess.run(["certutil","-A","-d",spec,"-n","f3-disposable-ui-"+run_id,
+                    "-t","C,,","-i",str(ca)],check=True)
+    # Enforce OpenSSL chain + 127.0.0.1 SAN; the browser independently
+    # enforces the same with ignore_https_errors=False.
+    with socket.create_connection(("127.0.0.1",3443),timeout=8) as sock:
+        with ssl.create_default_context().wrap_socket(
+                sock,server_hostname="127.0.0.1") as verified:
+            assert verified.version() in ("TLSv1.2","TLSv1.3")
+    print("F3_LAB_OS_CA_CHROMIUM_NSS_TRUST_AND_LOOPBACK_IP_SAN_PASS",flush=True)
 
 
 def inventory(demo):
@@ -348,11 +383,14 @@ async def execute():
     ctx_a=ctx_b=None
     try:
         demo.start()
+        trust_ephemeral_browser_ca(demo)
         output=Path(os.environ["RUNNER_TEMP"])/"f3-browser-source-restored"
         async with async_playwright() as pw:
             browser=await pw.chromium.launch(headless=True)
-            ctx_a,page_a,_,_=await demo.browser_login(browser,"A",False,output)
-            ctx_b,page_b,_,_=await demo.browser_login(browser,"B",False,output)
+            ctx_a,page_a,_,_=await demo.browser_login(
+                browser,"A",False,output,require_trusted_tls=True)
+            ctx_b,page_b,_,_=await demo.browser_login(
+                browser,"B",False,output,require_trusted_tls=True)
             a_id=create_extra_question(demo,"A",count=31)
             b_id=create_extra_question(demo,"B")
             source,receipt_before,source_cluster=inventory(demo)
@@ -411,6 +449,7 @@ async def execute():
                 "sha":os.environ["GITHUB_SHA"],
                 "env":"disposable-GitHub-Actions-standard-Keycloak-Chromium-Next-mTLS-PG17",
                 "genuine_two_browser_context_oidc":True,
+                "strict_https_browser_ca_loopback_ip_san":True,
                 "browser_default_history_sql_equal":True,
                 "browser_pagination_and_detail_sql_equal":True,
                 "browser_detail_message_id_and_body_sql_equal":True,
