@@ -1,0 +1,120 @@
+name: F3 DB A-B History, restore and owner transaction fence / SAME SHA
+on:
+  push:
+    branches: [agent/ui-f3-next-verified-20261124]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: f3-db-isolated-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  unified-db-history:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Guard pinned isolated provenance, static tests and no 011
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "F3_UNIFIED_DB_SHA=$(git rev-parse HEAD)"
+          for n in 19 21 24 26 27; do
+            file="$(find infra/postgres/dev_f3_isolated/scripts -maxdepth 1 -name "${n}_*.sh" -print)"
+            test -n "$file"
+            bash -n "$file"
+          done
+          bash infra/postgres/dev_f3_isolated/tests/run_static.sh
+          for ref in d93dcf7cbf9290acd4cd3aa0164ef05689049da4 656604356dadea953031fcdb74650a5d42df4e9b 1678e87b7984094b74ec995383b8d4383e5f5ae7 bfd6b1d9ed23e5f4cc6f126b579f90d7c877a7a6; do
+            git cat-file -e "$ref^{commit}"
+          done
+          test ! -f infra/postgres/migrations/011_product_answer_claims.up.sql
+      - name: PostgreSQL 17.11 TLS/roles, SQL History A/B, independent restore, GUC/session threat and concurrency
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd infra/postgres/dev_f3_isolated
+          export SOURCE_REPO="$GITHUB_WORKSPACE"
+          export LAB_ROOT="$RUNNER_TEMP/f3-db-unified-ab-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          bash scripts/00_prepare_source.sh
+          bash scripts/01_create_isolated_lab.sh
+          bash scripts/02_provision_roles.sh
+          bash scripts/03_apply_pinned_001_010.sh
+          bash scripts/03_apply_pinned_001_010.sh | grep -F ALREADY_APPLIED_EXACT_PINS_NO_RERUN
+          bash scripts/04_bridge_and_db55.sh
+          bash scripts/05_test_roles_tls_rls.sh
+          bash scripts/06_backup_restore_independent.sh
+          bash scripts/26_two_owner_history_sql_restore.sh
+          bash scripts/27_history_actor_transaction_pool_fence.sh
+          bash scripts/19_history_rls_negative_matrix.sh
+          bash scripts/21_history_cursor_race_probe.sh
+          bash scripts/24_m10_idempotency_concurrency_probe.sh
+          echo "F3_UNIFIED_DB_AB_HISTORY_SOURCE_SHA=$GITHUB_SHA"
+          echo 'F3_UNIFIED_DB_NO_011_NO_ENGINE_NO_DEMO=PASS'
+      - name: Validate five SQL receipts, keep security gaps OPEN and export safe summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP']) / ('f3-db-unified-ab-'+os.environ['GITHUB_RUN_ID']+'-'+os.environ['GITHUB_RUN_ATTEMPT'])
+          work=root/'work'
+          def load(path):
+              return json.loads(path.read_text())
+          a=load(Path('ci_receipts/ab_history_restore_receipt.json'))
+          t=load(Path('ci_receipts/actor_tx_pool_receipt.json'))
+          n=load(work/'history_rls_adversarial_receipt.json')
+          c=load(work/'history_cursor_race_receipt.json')
+          m=load(work/'m10_idempotency_concurrency_receipt.json')
+          assert a['contract_version']=='f3.db.two_owner_history_sql_restore.v1'
+          assert a['before_sql_assertions']==a['after_sql_assertions']==18
+          assert (a['owner_a_conversations'],a['owner_b_conversations'])==(5,3)
+          assert a['source_restore_exact_sql_parity'] and a['source_restore_independent_clusters']
+          assert a['signed_oidc_actor_same_transaction']=='NOT_PROVEN'
+          assert t['contract_version']=='f3.db.history_transaction_actor_scope.v1'
+          assert t['same_connection_a_then_unset_then_b_then_unset']=='PASS_1_0_1_0'
+          assert t['underlying_direct_sql_guc_is_spoofable'] is True
+          assert t['owner_guc_spoof_is_a_security_pass'] is False
+          assert t['persistent_set_cross_transaction_leak_reproduced'] is True
+          assert t['signed_actor_binding']=='NOT_PROVEN_BLOCKS_LIVE_HISTORY'
+          assert n['owner_a_visible_each']==[1]*6 and n['owner_b_visible_each']==[1]*6
+          assert n['no_owner_visible_each']==[0]*6
+          assert n['same_transaction_signed_actor_fence']=='NOT_PROVEN_REQUIRES_REAL_API_IDP'
+          assert c['conversations_desc_keyset_anchor_last']=='PASS_5_ORIGINAL_NO_DUPLICATE'
+          assert c['messages_asc_keyset_anchor_last']=='PASS_5_ORIGINAL_NO_DUPLICATE'
+          assert c['cross_owner_conversation_and_message_rows_visible']==0
+          assert m['concurrent_insert_commits']==1 and m['concurrent_duplicate_key_denials']==1
+          assert m['real_http_retry_or_crash']=='NOT_RUN'
+          assert all(x['module_gate']=='NOT_ACCEPTED' for x in (n,c,m))
+          summary={'contract':'f3.db.a_b_restore_owner_tx_unified.v1',
+            'git_sha':os.environ['GITHUB_SHA'],
+            'environment':'isolated_real_pg17.11_tls_single_runner',
+            'synthetic_subjects':2,'history_sql_assertions_before':18,
+            'history_sql_assertions_after':18,
+            'independent_restore_equal':True,
+            'cross_owner_rls_six_tables':'PASS',
+            'keyset_sql_race':'PASS',
+            'm10_db_only_duplicate_winner_one':'PASS',
+            'persistent_owner_session_set_leak':'REPRODUCED_DANGER',
+            'spoofed_guc':'REPRODUCED_NOT_AN_AUTHENTICATED_IDP_SUBJECT',
+            'real_signed_http':'NOT_RUN',
+            'main_roadmap_accepted_delta':0,
+            'module_gate':'NOT_ACCEPTED'}
+          Path('ci_receipts/ab_history_unified_summary.json').write_text(
+            json.dumps(summary,sort_keys=True,indent=2)+'\n')
+          print('DB_F3_UNIFIED_FIVE_SQL_PROBES_ONE_REAL_PG_SHA=PASS')
+          PY
+      - name: Upload sanitized evidence only, never credentials or raw pg_dump
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3-db-unified-ab-history-restore-owner-tx
+          path: |
+            ci_receipts/ab_history_restore_receipt.json
+            ci_receipts/actor_tx_pool_receipt.json
+            ci_receipts/ab_history_unified_summary.json
+          if-no-files-found: error
+          retention-days: 14
