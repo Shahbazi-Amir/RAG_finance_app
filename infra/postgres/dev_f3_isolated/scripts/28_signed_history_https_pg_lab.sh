@@ -76,7 +76,7 @@ mkdir -m 0700 "$bff_dir"
 for pair in 'signer.key:signer.key' 'ca.pem:ca.pem' 'bff.pem:bff.pem' 'bff.key:bff.key' 'session_state.json:actors.json'; do
  from="$probe_dir/private/${pair%%:*}"
  to="$bff_dir/${pair#*:}"
- cp "$from" "$to"
+ sudo cp "$from" "$to"
 done
 chmod 0600 "$bff_dir"/*
 sudo chown -R 11003:11003 "$bff_dir"
