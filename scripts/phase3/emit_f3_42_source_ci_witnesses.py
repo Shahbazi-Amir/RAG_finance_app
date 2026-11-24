@@ -79,10 +79,7 @@ def attest(original: dict, matrix: dict, sha: str, run: str, workflow: str) -> t
         if kind=="DB_LAB":
             assert "bash scripts/"+Path(src).name in workflow, "DB_SCRIPT_NOT_IN_CI:"+id
         if kind=="WEB_UNIT":
-            assert (src.endswith(".mjs") or
-                    (src==".github/workflows/f3-foundation-candidate-full-isolated-regression.yml"
-                     and marker=="npm --prefix apps/web run typecheck")), (
-                "WEB_UNIT_SOURCE_NOT_EXACT_ASSERTION",id,src,marker)
+            assert src.endswith(".mjs"), ("WEB_UNIT_ONLY_TEST_SOURCE",id,src)
         if kind=="WEB_BUILD":
             assert src==".github/workflows/f3-foundation-candidate-full-isolated-regression.yml"
             assert marker=="npm --prefix apps/web run typecheck"
