@@ -329,6 +329,11 @@ jobs:
           docker build --platform linux/amd64 --file "$clean/infra/phase3_l1/Dockerfile.web" \
             --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "f3-compose-browser-web:$GITHUB_SHA" "$clean"
           echo "F3_COMPOSE_BROWSER_WEB_IMAGE=f3-compose-browser-web:$GITHUB_SHA" >> "$GITHUB_ENV"
+      - name: Install exact signed API and Web from verified local OCI archive
+        run: |
+          set -euo pipefail
+          bash -n scripts/phase3/f3_signed_install_archive_ci.sh
+          bash scripts/phase3/f3_signed_install_archive_ci.sh
       - name: Real Chromium ordinary login and signed app-only History journey
         env:
           API_F3_ISOLATED_PG_CID: ${{ job.services.postgres.id }}
@@ -338,7 +343,7 @@ jobs:
           set -euo pipefail
           python -m playwright install --with-deps chromium
           python -u tests/phase3/integration/foundation/compose_restored_browser.py
-      - name: Write minimal exact-source journey receipt (post-restore Compose subset only)
+      - name: Write exact-source local installation and both-sides journey receipt
         run: |
           python - <<'PY'
           import json, os, subprocess
@@ -363,6 +368,110 @@ jobs:
           assert r["source_witness"]["web_image_id"] == r["web_image_id"]
           assert r["source_witness"]["api_image_id"] == r["api_image_id"]
           assert r["full_compose_verified"] is False and r["accepted"] is False
+          install=json.loads(Path("ci_receipts/f3_signed_archive_install.json").read_text())
+          assert install["source_sha"]==sha and install["run_id"]==os.environ["GITHUB_RUN_ID"]
+          assert install["run_attempt"]==os.environ["GITHUB_RUN_ATTEMPT"]
+          for key in ("api_image_id","web_image_id"):
+              assert install[key]==r[key]==r["source_witness"][key]
+          for key in ("tampered_archive_rejected_before_load","both_tags_absent_before_load","exact_local_image_ids_restored"):
+              assert install[key] is True
+          assert install["target_verified"] is False and install["accepted"] is False
+          install["reimported_images_completed_both_sides_browser_pg_restore"]=True
+          Path("ci_receipts/f3_signed_archive_install_journey.json").write_text(json.dumps(install,indent=2)+"\n")
+          print("F3_SIGNED_ARCHIVE_INSTALL_AND_REAL_BROWSER_PG_RESTORE_PASS")
+          PY
+      - name: Build previous green signed images from exact clean source
+        run: |
+          set -euo pipefail
+          prior=c9f52669a5b86d89bd08b6992f1a150fba9b2a9f
+          git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git "$prior"
+          test "$(git rev-parse FETCH_HEAD)" = "$prior"
+          for p in apps src/phase3 packages/contracts infra/phase3_l1 infra/postgres/migrations locks references/phase2; do
+            test "$(git rev-parse "$prior:$p")" = "$(git rev-parse "$GITHUB_SHA:$p")"
+          done
+          clean="$(mktemp -d "$RUNNER_TEMP/f3-prior-signed.XXXXXXXX")"
+          trap 'rm -rf "$clean"' EXIT
+          git archive "$prior" | tar -xf - -C "$clean"
+          base="$(docker image inspect -f '{{index .RepoDigests 0}}' docker.io/library/python:3.13.5)"
+          [[ "$base" =~ @sha256:[a-f0-9]{64}$ ]]
+          docker build --platform linux/amd64 -f "$clean/infra/phase3_l1/Dockerfile.api.signed_history" --build-arg "BASE=$base" --build-arg "SOURCE_SHA=$prior" -t "f3-rollback-signed-api:$prior" "$clean"
+          docker build --platform linux/amd64 -f "$clean/infra/phase3_l1/Dockerfile.web" --build-arg "SOURCE_SHA=$prior" -t "f3-rollback-signed-web:$prior" "$clean"
+      - name: Real previous-image rollback on restored PostgreSQL with ordinary two-owner browser
+        env:
+          API_F3_ISOLATED_PG_CID: ${{ job.services.postgres.id }}
+          PHASE3_APP_MODE: APP_ONLY
+          API_RUNNER_EXECUTION_MODE: APP_ONLY
+        run: |
+          set -euo pipefail
+          python -m py_compile tests/phase3/integration/foundation/signed_prior_rollback_browser.py
+          python -u tests/phase3/integration/foundation/signed_prior_rollback_browser.py
+      - name: Prepare same-image SBOM scan directories
+        run: mkdir -p ci_receipts/foundation ci_receipts/private_scan
+      - name: SPDX SBOM of the actual reloaded API image
+        uses: anchore/sbom-action@a930d0ac434e3182448fe678398ba5713717112a
+        with:
+          image: api-f3-browser:${{ github.sha }}
+          format: spdx-json
+          syft-version: v1.38.0
+          output-file: ci_receipts/foundation/airgap_api.spdx.json
+          upload-artifact: 'false'
+          dependency-snapshot: 'false'
+          upload-release-assets: 'false'
+      - name: SPDX SBOM of the actual reloaded Web image
+        uses: anchore/sbom-action@a930d0ac434e3182448fe678398ba5713717112a
+        with:
+          image: f3-compose-browser-web:${{ github.sha }}
+          format: spdx-json
+          syft-version: v1.38.0
+          output-file: ci_receipts/foundation/airgap_web.spdx.json
+          upload-artifact: 'false'
+          dependency-snapshot: 'false'
+          upload-release-assets: 'false'
+      - name: Grype vulnerabilities for the reloaded API SBOM (HOLD)
+        uses: anchore/scan-action@16910ac423301c6d30554b83a7f71ac6ff4a51f3
+        with:
+          sbom: ci_receipts/foundation/airgap_api.spdx.json
+          grype-version: v0.110.0
+          output-format: json
+          output-file: ci_receipts/private_scan/api-grype.json
+          fail-build: 'false'
+          cache-db: 'false'
+      - name: Grype vulnerabilities for the reloaded Web SBOM (HOLD)
+        uses: anchore/scan-action@16910ac423301c6d30554b83a7f71ac6ff4a51f3
+        with:
+          sbom: ci_receipts/foundation/airgap_web.spdx.json
+          grype-version: v0.110.0
+          output-format: json
+          output-file: ci_receipts/private_scan/web-grype.json
+          fail-build: 'false'
+          cache-db: 'false'
+      - name: Verify scan image identity and write sanitized install manifest (HOLD)
+        run: |
+          python - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          base=Path("ci_receipts")
+          d=json.loads((base/"f3_signed_archive_install_journey.json").read_text())
+          assert d["source_sha"]==os.environ["GITHUB_SHA"] and d["run_id"]==os.environ["GITHUB_RUN_ID"]
+          d["images"]={}
+          for kind,tag in (("api",os.environ["API_F3_BROWSER_IMAGE"]),("web",os.environ["F3_COMPOSE_BROWSER_WEB_IMAGE"])):
+              image=json.loads(subprocess.check_output(["docker","image","inspect",tag]))[0]
+              assert image["Id"]==d[kind+"_image_id"]
+              assert image["Config"]["Labels"]["org.opencontainers.image.revision"]==d["source_sha"]
+              sbom=base/"foundation"/("airgap_"+kind+".spdx.json")
+              document=json.loads(sbom.read_text())
+              assert document["spdxVersion"]=="SPDX-2.3" and len(document["packages"])>0
+              matches=json.loads((base/"private_scan"/(kind+"-grype.json")).read_text())["matches"]
+              assert isinstance(matches,list)
+              levels={}
+              for m in matches:
+                  severity=str(m["vulnerability"].get("severity","UNKNOWN")).upper()
+                  levels[severity]=levels.get(severity,0)+1
+              d["images"][kind]={"image_id":image["Id"],"sbom_sha256":hashlib.sha256(sbom.read_bytes()).hexdigest(),
+                "package_count":len(document["packages"]),"vulnerability_matches":len(matches),"by_severity":levels}
+          d["security_approved"]=False
+          (base/"f3_signed_install_manifest.json").write_text(json.dumps(d,indent=2)+"\n")
+          print("F3_SIGNED_REIMPORTED_IMAGE_SBOM_GRYPE_MANIFEST_PASS_RELEASE_HOLD")
           PY
       - uses: actions/upload-artifact@v4
         with:
@@ -370,7 +479,13 @@ jobs:
           path: |
             ci_receipts/f3_integrated_signed_oci_browser.json
             ci_receipts/f3_post_restore_shared_compose.json
+            ci_receipts/f3_signed_archive_install.json
+            ci_receipts/f3_signed_archive_install_journey.json
+            ci_receipts/f3_signed_install_manifest.json
+            ci_receipts/f3_signed_prior_rollback_browser.json
             ci_receipts/f3_m10_a10_signed_post_replay.json
+            ci_receipts/foundation/airgap_api.spdx.json
+            ci_receipts/foundation/airgap_web.spdx.json
           if-no-files-found: error
       - name: Show bounded SQL permissions and container status
         if: always()
