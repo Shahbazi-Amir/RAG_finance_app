@@ -1261,6 +1261,10 @@ def pg_lifecycle_preflight():
     try:
         with demo.fresh_volume() as (dsns, pg_id, _):
             dsns = demo.configure_restore_pg_tls(pg_id, dsns)
+            # Separate owned preflight volume, never used for the browser journey.
+            import db_repository_scale_ci as scale
+            scale.seed(demo, dsns, pg_id)
+            scale_before=scale.observe(demo,dsns,pg_id,"BEFORE_RESTART")
             def witness():
                 with psycopg.connect(dsns["DB_APP_DSN"], autocommit=True,
                                      row_factory=dict_row) as conn:
@@ -1290,6 +1294,8 @@ def pg_lifecycle_preflight():
             else:
                 demo.restore_pg_diagnostic(pg_id)
                 raise RuntimeError("PG_PREFLIGHT_RESTART_FAILED")
+            scale_after=scale.observe(demo,dsns,pg_id,"AFTER_RESTART")
+            scale.receipt(scale_before,scale_after)
             print("API_F3_PG_PREFLIGHT_FRESH_VOLUME_TLS_STOP_START_PASS", flush=True)
     finally:
         demo.stop()

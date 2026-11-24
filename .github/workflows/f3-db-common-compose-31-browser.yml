@@ -442,6 +442,16 @@ jobs:
           print("DB_COMPOSE_EXACT_SHA_TWO_IMAGE_IDS_SQL_TLS_RECEIPT=PASS")
           assert db["migration_install_origin"]=="ACTIONS_PG_BEFORE_FIRST_CLONE"
           assert db["two_journey_clusters_distinct_from_installer"] is True
+          scale=json.loads(Path("ci_receipts/db_repository_scale.json").read_text())
+          assert scale["source_sha"]==sha and scale["exact_restart_parity"] is True
+          assert scale["synthetic_conversations"]==12000 and scale["synthetic_messages"]==49200
+          assert scale["approved_workload"] is False and scale["http_latency"] is False and scale["accepted"] is False
+          for stage in ("before","after"):
+              x=scale[stage]
+              assert x["distinct_tls_logins"]==8 and x["repository_page_samples"]==536
+              assert x["foreign_and_unknown_denials"]==16 and x["zero_send_attempt_answer"] is True
+              assert x["no_owner_after_transaction"] is True
+          print("DB_SCALE_EXACT_SHA_SANITIZED_RECEIPT=PASS")
           PY
       - uses: actions/upload-artifact@v4
         with:
@@ -452,6 +462,7 @@ jobs:
             ci_receipts/db_oci_browser_restricted_parity.json
             ci_receipts/db_common_image_archive.json
             ci_receipts/db_postcommit_migration.json
+            ci_receipts/db_repository_scale.json
           if-no-files-found: error
       - name: Show bounded SQL permissions and container status
         if: always()
