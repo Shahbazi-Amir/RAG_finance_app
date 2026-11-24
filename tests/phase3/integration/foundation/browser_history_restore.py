@@ -257,6 +257,71 @@ def oidc_same_transaction_matrix(demo,raw_a,raw_b,phase,ids_a,ids_b,revoked=Fals
     print("DB_OIDC_SAME_TX_"+phase+"_TWO_REAL_OWNERS_BINDING_REPLAY_ROLLBACK=PASS",flush=True)
 
 
+async def prove_real_logout_waits_for_admitted_transaction(demo,tab,raw,ids):
+    """Hold the real signed SQL transaction while normal browser Logout runs.
+
+    A real pg_blocking_pids edge, not a sleep alone, proves that 003 revoke
+    waits for 004's protected read transaction. No raw actor/proof exported.
+    """
+    from concurrent.futures import Future
+    from threading import Event
+    ready=Future()
+    release=Event()
+    path=b"/v1/conversations"
+    query=b"limit=2"
+    def hold():
+        try:
+            now=int(time.time())
+            claims=dict(iss=SIGN_ISS,aud=SIGN_AUD,iat=now,nbf=now,exp=now+25,
+                jti=secrets.token_urlsafe(24),method="GET",
+                raw_path_sha256=sha256(path).hexdigest(),
+                raw_query_sha256=sha256(query).hexdigest(),
+                body_sha256=sha256(b"").hexdigest(),body_len=0,**raw)
+            token=jwt.encode(claims,demo.product_signer,algorithm="RS256",
+                             headers={"typ":"JWT","kid":SIGN_KID})
+            verifier=BFFServiceVerifier(issuer=SIGN_ISS,audience=SIGN_AUD,public_keys={
+                SIGN_KID:demo.product_signer.public_key().public_bytes(
+                    serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo)})
+            with psycopg.connect(os.environ["DB_APP_DSN"],autocommit=True,row_factory=dict_row) as c:
+                with protected_transaction(c,verifier=verifier,replay_store=PostgresDurableReplayStore(),
+                        compact_assertion=token,method="GET",raw_path=path,raw_query=query,body=b"") as owner:
+                    assert owner==raw["owner_id"]
+                    assert {x["conversation_id"] for x in repository.list_conversations(c,owner,limit=100)["items"]}==ids
+                    ready.set_result(c.info.backend_pid)
+                    assert release.wait(12),"LOCK_OBSERVER_DID_NOT_RELEASE"
+                assert c.info.transaction_status==TransactionStatus.IDLE
+        except BaseException as exc:
+            if not ready.done():ready.set_exception(exc)
+            raise
+    def observe(pid):
+        deadline=time.monotonic()+5
+        with connect() as admin:
+            while time.monotonic()<deadline:
+                blocked=admin.execute("""SELECT EXISTS(SELECT 1 FROM pg_stat_activity a
+                    WHERE a.datname=current_database() AND a.usename='auth_revoker'
+                    AND %s=ANY(pg_blocking_pids(a.pid)))""",(pid,)).fetchone()[0]
+                if blocked:return True
+                time.sleep(.05)
+        return False
+    worker=asyncio.create_task(asyncio.to_thread(hold))
+    click=None
+    try:
+        pid=await asyncio.wait_for(asyncio.wrap_future(ready),timeout=8)
+        async with tab.expect_response(lambda x:x.url.endswith("/api/auth/logout")
+                and x.request.method=="POST",timeout=25000) as waiting:
+            click=asyncio.create_task(tab.get_by_test_id("logout-submit").click())
+            assert await asyncio.to_thread(observe,pid),"NO_REAL_REVOKER_BLOCKING_EDGE"
+            print("DB_OIDC_REAL_BROWSER_LOGOUT_PG_BLOCKING_PID_EDGE=PASS",flush=True)
+            release.set()
+            await asyncio.wait_for(worker,timeout=8)
+            await click
+        assert (await waiting.value).status==303
+        print("DB_OIDC_REAL_BROWSER_LOGOUT_COMMITTED_AFTER_READ_TX_RELEASE=PASS",flush=True)
+    finally:
+        release.set()
+        await asyncio.gather(worker,*([] if click is None else [click]),return_exceptions=True)
+
+
 def migration_ledger_snapshot(phase,source_cluster,baseline=None):
     manifest=ROOT/"infra/postgres/dev_f3_isolated/MIGRATIONS_001_010_PINNED.tsv"
     assert sha256(manifest.read_bytes()).hexdigest()=="9ff95a59570f5f6c6188479d9c37cf684ef836c599e89d9faa2bb0e17a4946f7"
@@ -745,10 +810,7 @@ async def execute():
             tab=await ctx_a.new_page()
             await tab.goto(ORIGIN+"/login")
             await expect(tab.get_by_test_id("logout-submit")).to_be_visible()
-            async with tab.expect_response(lambda x:x.url.endswith("/api/auth/logout")
-                and x.request.method=="POST",timeout=25000) as waiting:
-                await tab.get_by_test_id("logout-submit").click()
-            assert (await waiting.value).status==303
+            await prove_real_logout_waits_for_admitted_transaction(demo,tab,raw_a,ids_a)
             stale=await page_a.request.get(
                 ORIGIN+"/api/history/conversations?limit=2")
             assert stale.status==401,("REVOKED_A_STILL_READS",stale.status)
@@ -804,6 +866,7 @@ async def execute():
                 "signed_history_a_after_restore":200,
                 "signed_history_b_after_restore":200,
                 "old_a_after_revoke":401,
+                "db_real_browser_logout_pg_lock_edge_then_commit":True,
                 "b_alive_after_a_revoke":200,
                 "engine_calls":0,
                 "sql_011":False,

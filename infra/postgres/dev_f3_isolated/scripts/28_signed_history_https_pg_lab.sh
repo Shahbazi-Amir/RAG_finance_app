@@ -92,6 +92,22 @@ for pair in 'signer.key:signer.key' 'ca.pem:ca.pem' 'bff.pem:bff.pem' 'bff.key:b
 done
 sudo chmod 0600 "$bff_dir"/*
 sudo chown -R 11003:11003 "$bff_dir"
+# Obtain the exact immutable Node image once, not once per replay phase.
+# A transient registry timeout must not invalidate a local verified digest.
+node_image='public.ecr.aws/docker/library/node@sha256:47725aca53d3295ec2d3be8f62726599b3033cc262edc2c7e429909b3ac599fc'
+node_ready=0
+for attempt in 1 2 3; do
+ if timeout 120 docker pull --quiet "$node_image" > /dev/null; then
+  node_ready=1; break
+ fi
+ echo "DB_LAB_PINNED_NODE_PULL_RETRY_${attempt}" >&2
+ sleep "$((attempt*2))"
+done
+[[ "$node_ready" == 1 ]] || { echo STOP_PINNED_NODE_REGISTRY_UNAVAILABLE >&2; exit 70; }
+docker image inspect "$node_image" --format '{{range .RepoDigests}}{{println .}}{{end}}' | grep -Fxq "$node_image" || {
+ echo STOP_PINNED_NODE_DIGEST_MISMATCH >&2; exit 70;
+}
+echo DB_LAB_NODE_PIN_ONCE_VERIFIED_NO_REPLAY_PULL=PASS
 run_bff(){
 local phase="$1"
 api_bff_name="f3-bff-api-$short_sha"
@@ -122,9 +138,7 @@ if [[ "$api_bff_ready" != 1 ]]; then
   echo STOP_BFF_SOURCE_API_NOT_READY >&2
   exit 70
 fi
-node_image='public.ecr.aws/docker/library/node@sha256:47725aca53d3295ec2d3be8f62726599b3033cc262edc2c7e429909b3ac599fc'
-docker pull --quiet "$node_image" > /dev/null
-docker run --rm --network "container:$api_bff_name" --user 11003:11003 \
+docker run --pull=never --rm --network "container:$api_bff_name" --user 11003:11003 \
   --read-only --security-opt no-new-privileges:true --pids-limit 96 --memory 384m \
   --mount "type=bind,src=$SOURCE_REPO,dst=/repo,readonly" \
   --mount "type=bind,src=$bff_dir,dst=/tmp,readonly" \
