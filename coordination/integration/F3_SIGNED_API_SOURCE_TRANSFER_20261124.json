@@ -1,0 +1,94 @@
+{
+  "schema": "foundation.f3.explicit_signed_api_transfer.v1",
+  "root_candidate_sha": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+  "previous_foundation_sha": "71c5e13366bec9b3101188f49b0dcf4fff197537",
+  "source_sha": "23db3da6367e6a8279072ee96b56a2bd4b7f0fbc",
+  "source_runs": [
+    45392028003,
+    45392028018
+  ],
+  "scope": "CI_SOURCE_TRANSFER_NOT_OWNER_ACCEPTANCE",
+  "p0_1_accepted": false,
+  "rows": [
+    {
+      "path": "apps/api/app_only_socket_probe.py",
+      "previous_blob_sha": "36c5e45d79547d1cfc27ff97862b339adcc7c854",
+      "source_blob_sha": "bbc803942b0d59a674f116a78c6b9a5786ab14d6",
+      "candidate_blob_sha": "bbc803942b0d59a674f116a78c6b9a5786ab14d6",
+      "historical_58_path": false,
+      "owner_signed_acceptance": false
+    },
+    {
+      "path": "apps/api/private_app_only_asgi.py",
+      "previous_blob_sha": "96a72b5167d473c88aeb3ddb5a67a284c105d4dd",
+      "source_blob_sha": "5a4807dbb725e9474676b21be221aed4b7a52d38",
+      "candidate_blob_sha": "5a4807dbb725e9474676b21be221aed4b7a52d38",
+      "historical_58_path": false,
+      "owner_signed_acceptance": false
+    },
+    {
+      "path": "apps/api/private_staging_asgi.py",
+      "previous_blob_sha": "6072e7586d922737117dee27d61798df0cb9a6fc",
+      "source_blob_sha": "0f87572041cf179db6de004a41cc266a16994b67",
+      "candidate_blob_sha": "0f87572041cf179db6de004a41cc266a16994b67",
+      "historical_58_path": false,
+      "owner_signed_acceptance": false
+    },
+    {
+      "path": "apps/api/product_session_api.py",
+      "previous_blob_sha": "a1d19754703ebe3704b0127e0274f09b214dd894",
+      "source_blob_sha": "32d6148e1eb9f014ee62a4e607516547e510c7ec",
+      "candidate_blob_sha": "32d6148e1eb9f014ee62a4e607516547e510c7ec",
+      "historical_58_path": true,
+      "owner_signed_acceptance": false
+    },
+    {
+      "path": "src/phase3/auth/service_proof.py",
+      "previous_blob_sha": "85106ed9ba5f260510e34a9f9567added1b5bd36",
+      "source_blob_sha": "63f85aa2f15a435faa44e9f41d25df8e7f2e43be",
+      "candidate_blob_sha": "63f85aa2f15a435faa44e9f41d25df8e7f2e43be",
+      "historical_58_path": false,
+      "owner_signed_acceptance": false
+    },
+    {
+      "path": "src/phase3/auth/staging_service_profile.py",
+      "previous_blob_sha": "5fc1f3f64708ebb5f6756d5cf4d37d3acf9167b3",
+      "source_blob_sha": "bfc45cfcc1989c4fbe1bef9df975eb3c13733c97",
+      "candidate_blob_sha": "bfc45cfcc1989c4fbe1bef9df975eb3c13733c97",
+      "historical_58_path": false,
+      "owner_signed_acceptance": false
+    },
+    {
+      "path": "tests/phase3/api/test_app_only_no_engine.py",
+      "previous_blob_sha": "b66ff9f4339ddcd3e2d5d93625ea956140356035",
+      "source_blob_sha": "9514d9ac21b3f45542a3bcdeaf689168f1096912",
+      "candidate_blob_sha": "9514d9ac21b3f45542a3bcdeaf689168f1096912",
+      "historical_58_path": false,
+      "owner_signed_acceptance": false
+    },
+    {
+      "path": "tests/phase3/api/test_service_proof.py",
+      "previous_blob_sha": "24a19882968c0f721b02d2d9962d68c6af3b00d1",
+      "source_blob_sha": "cc6368349602ce1e358a0e8efd4152a219fd7b85",
+      "candidate_blob_sha": "cc6368349602ce1e358a0e8efd4152a219fd7b85",
+      "historical_58_path": false,
+      "owner_signed_acceptance": false
+    },
+    {
+      "path": "tests/phase3/integration/api/app_only_signed_pg_ci_h11.py",
+      "previous_blob_sha": null,
+      "source_blob_sha": "50131268814dd39e9de2b0e2d7744ed9dd4189a6",
+      "candidate_blob_sha": "50131268814dd39e9de2b0e2d7744ed9dd4189a6",
+      "historical_58_path": false,
+      "owner_signed_acceptance": false
+    },
+    {
+      "path": "tests/phase3/integration/api/test_app_only_browser_journey.py",
+      "previous_blob_sha": null,
+      "source_blob_sha": "52e0f1632cb8573a80911e0b1c8dfba8ff2055e4",
+      "candidate_blob_sha": "52e0f1632cb8573a80911e0b1c8dfba8ff2055e4",
+      "historical_58_path": false,
+      "owner_signed_acceptance": false
+    }
+  ]
+}

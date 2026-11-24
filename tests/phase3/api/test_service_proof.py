@@ -198,5 +198,35 @@ class StrictBFFServiceProof(unittest.TestCase):
             self.check(self.token(), body=b"x"*8193)
 
 
+    def test_TRU11_signed_duplicate_json_members_rejected(self):
+        """Valid RSA signatures cannot make ambiguous JSON authoritative."""
+        import base64
+        import json
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import padding
+        data = self.signer.claims(owner_id=OWNER, session_ref=SESSION)
+        header = json.dumps({"alg": "RS256", "kid": KID, "typ": "JWT"})
+        payload = json.dumps(data)
+        def encode(raw):
+            return base64.urlsafe_b64encode(raw).rstrip(b"=")
+        def sign(raw_header, raw_payload):
+            message = encode(raw_header.encode()) + b"." + encode(raw_payload.encode())
+            return (message + b"." + encode(self.signer.private.sign(
+                message, padding.PKCS1v15(), hashes.SHA256()))).decode("ascii")
+        self.check(sign(header, payload))
+        for h, p in (
+            ('{"alg":"HS256",' + header[1:], payload),
+            ('{"kid":"other",' + header[1:], payload),
+            (header, '{"owner_id":"foreign_owner",' + payload[1:]),
+            (header, '{"owner\u005fid":"foreign_owner",' + payload[1:]),
+            (header, '{"epoch":99,' + payload[1:]),
+            (header, '{"jti":"duplicateJTI01234567890",' + payload[1:]),
+            (header, '{"owner_id":' + json.dumps(OWNER) + ',' + payload[1:]),
+            (header, '{"iat":NaN,' + payload[1:]),
+        ):
+            with self.assertRaises(TrustRejected):
+                self.check(sign(h, p))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

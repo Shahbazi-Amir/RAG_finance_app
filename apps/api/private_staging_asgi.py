@@ -174,7 +174,7 @@ def verify_staging_database_authority(profile: PrivateStagingProfile) -> None:
     """
     import psycopg
     from psycopg.rows import dict_row
-    from src.phase3.auth.staging_service_profile import db_attributes_approved
+    from src.phase3.auth.staging_service_profile import private_db_connection_options
 
     procedures = {
         "history": (
@@ -190,12 +190,11 @@ def verify_staging_database_authority(profile: PrivateStagingProfile) -> None:
     role_names = {"history": "history_app", "revoke": "auth_revoker"}
     for operation, names in procedures.items():
         dsn = profile.dsn(operation)
-        if not db_attributes_approved(
-                psycopg.conninfo.conninfo_to_dict(dsn), operation):
-            raise StagingConfigDenied()
+        connection_options = private_db_connection_options(dsn, operation)
         try:
             with psycopg.connect(dsn, autocommit=True,
-                                 row_factory=dict_row, connect_timeout=5) as conn:
+                                 row_factory=dict_row, connect_timeout=5,
+                                 **connection_options) as conn:
                 row = conn.execute(
                     "SELECT rolname,rolsuper,rolbypassrls "
                     "FROM pg_roles WHERE rolname=current_user").fetchone()
