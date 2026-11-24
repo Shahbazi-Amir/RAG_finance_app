@@ -66,7 +66,7 @@ def conn(role: str, host: str, db: str):
     cfg = json.loads((LAB / "role_passwords.json").read_text())
     assert host in ("demo-db", "restore-db")
     assert db in ("rag_finance_f3_http_ab_source", "rag_finance_f3_http_ab_restored",
-                  "rag_finance_f3_m10_process_crash")
+                  "rag_finance_f3_m10_process_crash", "rag_finance_f3_http_ab_revoked_copy")
     assert role in ("auth_mapper", "auth_sessions", "auth_revoker", "history_app")
     dsn = psycopg.conninfo.make_conninfo(
         host=host, port=5432, dbname=db, user=role,
@@ -176,8 +176,11 @@ def create_fixture():
 
 def sql_snapshot(phase: str):
     """Independent service-role SQL, never derived from HTTP or UI output."""
-    host, db = (("demo-db", "rag_finance_f3_http_ab_source") if phase == "snapshot_source"
-                else ("restore-db", "rag_finance_f3_http_ab_restored"))
+    host, db = {
+        "snapshot_source": ("demo-db", "rag_finance_f3_http_ab_source"),
+        "snapshot_restore": ("restore-db", "rag_finance_f3_http_ab_restored"),
+        "snapshot_revoked_copy": ("demo-db", "rag_finance_f3_http_ab_revoked_copy"),
+    }[phase]
     state = json.loads((PRIVATE / "session_state.json").read_text())
     assert state["a"]["owner"] != state["b"]["owner"], "OWNER_COLLISION"
     rows = {}
@@ -626,9 +629,35 @@ def revoke_and_check():
     print("HTTPS_APP_ONLY_REVOKED_A_401_B_UNAFFECTED_200=PASS", flush=True)
 
 
+def verify_revoked_backup_copy():
+    # Restore of a snapshot taken AFTER revocation. The older pre-revoke
+    # snapshot is not safe to admit without a separately approved fence.
+    state=json.loads((PRIVATE/"session_state.json").read_text())
+    with tls_client() as c:
+        for path,query in (
+            ("/v1/conversations","limit=2"),
+            ("/v1/conversations/f3-net-a-1/messages","limit=2"),
+        ):
+            request(c,"a",path,query,expect=401)
+        b=request(c,"b","/v1/conversations","limit=2").json()
+        assert b["scope_user_id"]==state["b"]["owner"]
+        assert [x["conversation_id"] for x in b["items"]]==["f3-net-b-3","f3-net-b-2"]
+        own=request(c,"b","/v1/conversations/f3-net-b-1/messages","limit=2").json()
+        assert len(own["items"])==2
+        assert all(x["message_id"].startswith("f3-net-b-") for x in own["items"])
+        foreign=request(c,"b","/v1/conversations/f3-net-a-1/messages",expect=404).json()
+        unknown=request(c,"b","/v1/conversations/f3-net-missing/messages",expect=404).json()
+        # Do not compare per-request correlation identifiers.
+        for result in (foreign,unknown):
+            assert isinstance(result.get("error"),dict)
+        assert foreign["error"]["code"]==unknown["error"]["code"]
+        assert foreign["error"]["category"]==unknown["error"]["category"]
+    print("DB_POST_REVOKE_BACKUP_RESTORED_A401_B200_FOREIGN_UNKNOWN_404=PASS",flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("phase", choices=("seed", "before", "after", "revoke", "snapshot_source", "snapshot_restore", "ready200", "ready503", "m10_process", "m10_child", "authenticated_backup", "catalog_source", "catalog_restore"))
+    parser.add_argument("phase", choices=("seed", "before", "after", "revoke", "snapshot_source", "snapshot_restore", "ready200", "ready503", "m10_process", "m10_child", "authenticated_backup", "catalog_source", "catalog_restore", "snapshot_revoked_copy", "verify_revoked_copy"))
     parser.add_argument("--crash", choices=("t1_before", "t1_after", "t2_before", "t2_after"))
     args = parser.parse_args()
     require_lab()
@@ -656,8 +685,11 @@ def main():
         return
     if not (PRIVATE / "session_state.json").is_file():
         raise RuntimeError("NO_SYNTHETIC_SESSION_FIXTURE")
-    if args.phase in ("snapshot_source", "snapshot_restore"):
+    if args.phase in ("snapshot_source", "snapshot_restore", "snapshot_revoked_copy"):
         sql_snapshot(args.phase)
+        return
+    if args.phase == "verify_revoked_copy":
+        run_server("demo-db", "rag_finance_f3_http_ab_revoked_copy", verify_revoked_backup_copy)
         return
     host = "demo-db" if args.phase == "before" else "restore-db"
     db = ("rag_finance_f3_http_ab_source" if args.phase == "before"

@@ -9,7 +9,7 @@ on:
       - 'tests/phase3/integration/ui/f3_app_only_bff_product_request_pg.mjs'
       - 'apps/api/private_app_only_asgi.py'
   pull_request:
-    branches: [agent/db-f3-m10-process-crash-20261124]
+    branches: [agent/db-f3-backup-authenticated-catalog-20261124]
     paths:
       - 'infra/postgres/dev_f3_isolated/scripts/28_signed_history_https_pg_lab.sh'
       - 'tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py'
@@ -77,6 +77,8 @@ jobs:
           assert r["authenticated_session_revoke_after_restore"]=="A_DENIED_B_ALLOWED"
           assert r["real_mtls_api_dependency_readiness"]=="200_THEN_503_PG_DOWN_THEN_200_RECOVERED"
           assert r["real_web_product_request_bff"]=="ACTUAL_NEXT_SOURCE_NODE22_SIGNED_MTLS_TWO_OWNERS"
+          assert r["post_revoke_backup_restore"]=="NEW_DB_OTHER_CLUSTER_A401_B200_HISTORY_PARITY"
+          assert r["stale_pre_revoke_backup_admission"]=="NOT_AUTHORIZED_REQUIRES_OWNER_SECURITY_POLICY"
           assert r["backup_aead"]=="AES256_GCM_ACTUAL_PG_RESTORE_WRONG_KEY_TAMPER_TRUNCATION_AAD_DENIED"
           assert r["backup_key_custody"]=="EPHEMERAL_MEMORY_ONLY_NOT_PRODUCTION_KMS_OR_RETENTION"
           assert r["catalog_parity"]=="SIX_TABLES_COLUMNS_CONSTRAINTS_INDEXES_RLS_EXACT_SOURCE_RESTORE"
