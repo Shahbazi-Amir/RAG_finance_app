@@ -1,0 +1,17 @@
+{
+  "schema": "foundation.f3.ui_draft_privacy_followup.v1",
+  "parent_sha": "9b73484965afb9f174946f5a8c9c293bee9d2002",
+  "path": "apps/web/src/ui/product-chat.tsx",
+  "previous_blob_sha": "b1ba457f4a4eca179739b6a010993697c1633aa5",
+  "candidate_blob_sha": "f20cdbe10bb7d8c6e4ea537aa96bd47e520ac803",
+  "tests": "tests/phase3/integration/ui/history_thread_retry_browser.py",
+  "canonical_ids": [
+    "P3M14-A09",
+    "P3M15-A07"
+  ],
+  "scope": "L1_FIXTURE_ONLY_NO_OWNER_ACCEPTANCE",
+  "owner_signed_acceptance": false,
+  "target_verified": false,
+  "canonical_activity_accepted": false,
+  "module_gate_accepted": false
+}

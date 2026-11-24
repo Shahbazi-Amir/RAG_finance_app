@@ -2,7 +2,7 @@ name: F3 #84 one-SHA full source 393 and app-only 42 bounded CI witness regressi
 
 on:
   push:
-    branches: [agent/foundation-f3-84-31-message-restore-20261124, agent/ui-f3-122-signed-three-engine-20261124, agent/ui-f3-124-real-outage-recovery-20261124, agent/ui-f3-128-thread-retry-account-20261124]
+    branches: [agent/foundation-f3-84-31-message-restore-20261124, agent/ui-f3-122-signed-three-engine-20261124, agent/ui-f3-124-real-outage-recovery-20261124, agent/ui-f3-128-thread-retry-account-20261124, agent/ui-f3-129-content-guard-refresh-20261125]
   pull_request:
     branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124, agent/foundation-f3-84-31-message-restore-20261124]
   workflow_dispatch:
@@ -178,7 +178,9 @@ jobs:
             sleep 1
           done
           python tests/phase3/integration/ui/product_chat_browser.py
-          python tests/phase3/integration/ui/history_thread_retry_browser.py
+          python tests/phase3/integration/ui/history_thread_retry_browser.py | tee "$RUNNER_TEMP/f3-thread-draft-fixture.log"
+          grep -Fx F3_L1_THREAD_LOADING_EMPTY_SCOPED_ERROR_RETRY_GET_ONLY_PASS "$RUNNER_TEMP/f3-thread-draft-fixture.log"
+          grep -Fx F3_L1_DRAFT_HIDDEN_ON_OUTAGE_SAME_OWNER_ONLY_RESTORE_ZERO_POST_PASS "$RUNNER_TEMP/f3-thread-draft-fixture.log"
       - name: Real Next APP_ONLY run with disabled Send and 503 before API
         env:
           PHASE3_APP_MODE: APP_ONLY

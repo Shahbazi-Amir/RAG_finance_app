@@ -653,8 +653,13 @@ export default function ProductChat(){
         <label htmlFor="product-question" className="sr-only">پرسش فارسی</label>
         <div className="composer">
           <textarea id="product-question" rows={2} data-testid="history-question"
-            value={drafts[selected]??''} disabled={busy||!verifiedPage||!canSend}
-            onChange={e=>setDrafts(all=>({...all,[selected]:e.target.value}))}
+            // Keep the unsent in-memory draft private until the same owner
+            // is revalidated. Invalidate already clears drafts on 401/change.
+            value={verifiedPage?(drafts[selected]??''):''} disabled={busy||!verifiedPage||!canSend}
+            onChange={e=>{
+              if(verifiedPage&&canSend&&!busy)
+                setDrafts(all=>({...all,[selected]:e.target.value}));
+            }}
             placeholder="سؤال خود را به فارسی بنویسید…"/>
           <button type="submit" className="primary" data-testid="history-send"
             disabled={busy||!verifiedPage||!canSend||!(drafts[selected]??'').trim()}>ارسال پرسش</button>

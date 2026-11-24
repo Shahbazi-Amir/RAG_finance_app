@@ -2,7 +2,7 @@ name: F3 signed three-engine 31 SQL History before/after restore, real OIDC and 
 
 on:
   push:
-    branches: [agent/foundation-f3-84-31-message-restore-20261124, agent/ui-f3-122-signed-three-engine-20261124, agent/ui-f3-124-real-outage-recovery-20261124, agent/ui-f3-128-thread-retry-account-20261124]
+    branches: [agent/foundation-f3-84-31-message-restore-20261124, agent/ui-f3-122-signed-three-engine-20261124, agent/ui-f3-124-real-outage-recovery-20261124, agent/ui-f3-128-thread-retry-account-20261124, agent/ui-f3-129-content-guard-refresh-20261125]
   pull_request:
     branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124, agent/foundation-f3-84-31-message-restore-20261124]
   workflow_dispatch:
@@ -333,6 +333,10 @@ jobs:
           grep -Fx F3_SIGNED_REAL_PG_OUTAGE_UI_HIDDEN_RETRY_RECOVERY_NO_STALE_ALERT_PASS "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log"
           grep -Fx F3_SIGNED_REAL_KEYBOARD_WRAP_RESIZE_FOCUS_PASS "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log"
           grep -Fx F3_SIGNED_ACCOUNT_READONLY_RETURN_OWNER_NO_MUTATION_PASS "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log"
+          test "$(grep -Fxc F3_SIGNED_LITERAL_TITLE_BODY_NO_ACTIVE_MARKUP_NO_FOREIGN_BODY_PASS "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log")" = 3
+          grep -Fx F3_SIGNED_SYMMETRIC_FOREIGN_CONTENT_DENIED_NO_WRITES_PASS "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log"
+          grep -Fx F3_SIGNED_FULL_RELOAD_31_LITERAL_IDS_ZERO_MUTATION_PASS "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log"
+          grep -Ex "F3_SIGNED_RELOAD_DOCUMENT_STATUS=(200|304)" "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log"
           echo F3_84_ACTUAL_BROWSER_SQL_BEFORE_AFTER_RESTORE_SAME_SHA_PASS
       - name: Write minimal exact-source journey receipt (not Compose or target acceptance)
         env:
@@ -350,7 +354,7 @@ jobs:
           p.parent.mkdir(exist_ok=True)
           p.write_text(json.dumps({"source_sha":sha,"run_id":os.environ["GITHUB_RUN_ID"],
               "api_image_id":data["Id"],"source":"clean git archive",
-              "browser_engine":os.environ["SIGNED_BROWSER_ENGINE"],"exact_dom_order_checks":2,"real_ui_pg_outage_recovery":True,"keyboard_wrap_resize_focus":True,"account_readonly_return_owner":True,
+              "browser_engine":os.environ["SIGNED_BROWSER_ENGINE"],"exact_dom_order_checks":2,"real_ui_pg_outage_recovery":True,"keyboard_wrap_resize_focus":True,"account_readonly_return_owner":True,"literal_content_guard_checkpoints":3,"symmetric_foreign_content_denied":True,"full_reload_31_no_mutations":True,
               "api_owner_source_sha":"23db3da6367e6a8279072ee96b56a2bd4b7f0fbc","scope":"CI_RUNNER_BROWSER_HOST_WEB_BOOTSTRAP_REAL_OCI_API_RESTORED_TLS_PG",
               "full_compose_verified":False,"target_verified":False,"accepted":False},indent=2)+"\n")
           PY
