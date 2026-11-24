@@ -16,6 +16,7 @@ import ssl
 import subprocess
 import sys
 import time
+import traceback
 import uuid
 
 import psycopg
@@ -519,4 +520,19 @@ async def execute():
             command(["docker","volume","rm",restored[1]])
 
 if __name__=="__main__":
-    asyncio.run(execute())
+    try:
+        asyncio.run(execute())
+    except Exception as exc:
+        # Playwright's raw exception renders the full HTTP request headers,
+        # including the real ephemeral __Host-rag-session cookie. Do NOT log
+        # an exception traceback or args. Keep only the failing source line,
+        # exception class and a stable redacted failure marker.
+        frames=traceback.extract_tb(exc.__traceback__)
+        safe_file=Path(__file__).resolve()
+        own=next((frame for frame in reversed(frames)
+                  if Path(frame.filename).resolve()==safe_file),None)
+        location=own.lineno if own else 0
+        print("F3_BROWSER_INTEGRATED_FAILED_REDACTED class="
+              +type(exc).__name__+" source_line="+str(location),
+              file=sys.stderr,flush=True)
+        raise SystemExit(1) from None
