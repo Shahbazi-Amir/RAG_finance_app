@@ -9,7 +9,7 @@ on:
       - 'tests/phase3/integration/ui/f3_app_only_bff_product_request_pg.mjs'
       - 'apps/api/private_app_only_asgi.py'
   pull_request:
-    branches: [agent/db-f3-ab-history-restore-20261124]
+    branches: [agent/db-f3-bff-restore-replay-20261124]
     paths:
       - 'infra/postgres/dev_f3_isolated/scripts/28_signed_history_https_pg_lab.sh'
       - 'tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py'
@@ -77,6 +77,8 @@ jobs:
           assert r["authenticated_session_revoke_after_restore"]=="A_DENIED_B_ALLOWED"
           assert r["real_mtls_api_dependency_readiness"]=="200_THEN_503_PG_DOWN_THEN_200_RECOVERED"
           assert r["real_web_product_request_bff"]=="ACTUAL_NEXT_SOURCE_NODE22_SIGNED_MTLS_TWO_OWNERS"
+          assert r["m10_process_crash"]=="REAL_SIGKILL_T1_T2_PRE_POST_COMMIT_REPLAY_IDS_STABLE"
+          assert r["m10_process_crash_scope"]=="TRUSTED_REPOSITORY_FIXTURE_NOT_HTTP_SEND_NO_DISPATCH"
           assert r["bff_restore_replay"]=="BEFORE_AFTER_REFRESH_AND_REVOKED_A401_B200"
           assert r["sql_independent_history_snapshot"]=="EXACT_PARITY_SOURCE_RESTORE_A5_B3_M4_M2_ZERO_SEND"
           assert r["send_without_engine"]=="503_ZERO_DURABLE_WRITES"

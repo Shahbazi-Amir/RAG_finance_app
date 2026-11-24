@@ -64,6 +64,14 @@ run_probe(){
   -e PYTHONPATH=/srv/release \
   "$image" python3 /srv/release/tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py "$1"
 }
+m10_db=rag_finance_f3_m10_process_crash
+[[ "$(admin lab-db -c "SELECT count(*) FROM pg_database WHERE datname='$m10_db'")" == 0 ]] || exit 70
+admin lab-db -c "CREATE DATABASE $m10_db TEMPLATE rag_finance_f3_lab OWNER postgres" >/dev/null
+admin lab-db -c "REVOKE CONNECT,TEMP ON DATABASE $m10_db FROM PUBLIC" >/dev/null
+admin lab-db -c "GRANT CONNECT ON DATABASE $m10_db TO history_app" >/dev/null
+run_probe m10_process
+admin lab-db -c "DROP DATABASE $m10_db WITH (FORCE)" >/dev/null
+[[ "$(admin lab-db -c "SELECT count(*) FROM pg_database WHERE datname='$m10_db'")" == 0 ]] || exit 70
 run_probe seed
 run_probe snapshot_source
 run_probe before
@@ -228,6 +236,8 @@ report={
  "real_web_product_request_bff":"ACTUAL_NEXT_SOURCE_NODE22_SIGNED_MTLS_TWO_OWNERS",
  "bff_restore_replay":"BEFORE_AFTER_REFRESH_AND_REVOKED_A401_B200",
  "sql_independent_history_snapshot":"EXACT_PARITY_SOURCE_RESTORE_A5_B3_M4_M2_ZERO_SEND",
+ "m10_process_crash":"REAL_SIGKILL_T1_T2_PRE_POST_COMMIT_REPLAY_IDS_STABLE",
+ "m10_process_crash_scope":"TRUSTED_REPOSITORY_FIXTURE_NOT_HTTP_SEND_NO_DISPATCH",
  "two_owner_conversations":[5,3],
  "two_owner_messages":[4,2],
  "authenticated_session_revoke_after_restore":"A_DENIED_B_ALLOWED",

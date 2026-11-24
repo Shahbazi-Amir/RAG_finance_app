@@ -63,7 +63,8 @@ def write_secret(path: Path, data: bytes):
 def conn(role: str, host: str, db: str):
     cfg = json.loads((LAB / "role_passwords.json").read_text())
     assert host in ("demo-db", "restore-db")
-    assert db in ("rag_finance_f3_http_ab_source", "rag_finance_f3_http_ab_restored")
+    assert db in ("rag_finance_f3_http_ab_source", "rag_finance_f3_http_ab_restored",
+                  "rag_finance_f3_m10_process_crash")
     assert role in ("auth_mapper", "auth_sessions", "auth_revoker", "history_app")
     dsn = psycopg.conninfo.make_conninfo(
         host=host, port=5432, dbname=db, user=role,
@@ -205,6 +206,100 @@ def sql_snapshot(phase: str):
     else:
         assert baseline.read_text() == digest, "SQL_HISTORY_SNAPSHOT_DRIFT"
     print("BFF_SQL_" + phase.upper() + "_A5_B3_M4_M2_ZERO_SEND_EXACT_PARITY=PASS", flush=True)
+
+
+M10_DB = "rag_finance_f3_m10_process_crash"
+M10_OWNER = "f3-crash-owner-a"
+M10_OTHER = "f3-crash-owner-b"
+
+
+def m10_request():
+    return {"kind": "send_message_request", "contract_version": "product.v1",
+            "requested_conversation_id": None, "client_message_id": "1"*32,
+            "idempotency_key": "f3-m10-process-replay", "question": "synthetic crash probe"}
+
+
+def m10_child(mode):
+    # Trusted repository fixture only; never expose through HTTP or dispatch.
+    from apps.api import history_api
+    import repository
+    assert mode in ("t1_before", "t1_after", "t2_before", "t2_after")
+    req = m10_request()
+    def operation(c):
+        if mode.startswith("t1"):
+            return history_api.send_t1(c, M10_OWNER, req, history_api.uid(), history_api.uid())
+        return repository.start_t2(c, M10_OWNER, None, req["client_message_id"],
+                                   req["idempotency_key"], history_api.uid(), history_api.uid())
+    with conn("history_app", "demo-db", M10_DB) as c:
+        if mode.endswith("before"):
+            # Repository transaction nests as savepoint; enclosing tx uncommitted.
+            with c.transaction():
+                operation(c)
+                os.kill(os.getpid(), signal.SIGKILL)
+        else:
+            operation(c)
+            os.kill(os.getpid(), signal.SIGKILL)
+    raise AssertionError("PROCESS_CRASH_DID_NOT_OCCUR")
+
+
+def m10_process():
+    from apps.api import history_api
+    import repository
+    req = m10_request()
+    def kill_at(mode):
+        p = subprocess.run([sys.executable, __file__, "m10_child", "--crash", mode],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
+        assert p.returncode == -signal.SIGKILL and not p.stdout, "CHILD_NOT_KILLED_BEFORE_ACK"
+        print("M10_REAL_PROCESS_SIGKILL_" + mode.upper() + "=PASS", flush=True)
+    def inventory(owner):
+        with conn("history_app", "demo-db", M10_DB) as c:
+            with c.transaction():
+                c.execute("SET TRANSACTION READ ONLY")
+                c.execute("SELECT set_config('app.owner_id', %s, true)", (owner,))
+                return {table:c.execute(f"SELECT * FROM history_l1.{table} ORDER BY id").fetchall()
+                        for table in ("conversations", "messages", "send_receipts", "execution_attempts", "answers")}
+    def counts(rows):
+        return tuple(len(rows[t]) for t in (
+            "conversations", "messages", "send_receipts", "execution_attempts", "answers"))
+    assert counts(inventory(M10_OWNER)) == counts(inventory(M10_OTHER)) == (0,0,0,0,0)
+    kill_at("t1_before")
+    assert counts(inventory(M10_OWNER)) == (0,0,0,0,0), "UNCOMMITTED_T1_SURVIVED"
+    kill_at("t1_after")
+    committed = inventory(M10_OWNER)
+    assert counts(committed) == (1,1,1,0,0), "COMMITTED_T1_LOST_OR_DUPLICATED"
+    original = committed["send_receipts"][0]
+    with conn("history_app", "demo-db", M10_DB) as c:
+        replay = history_api.send_t1(c, M10_OWNER, req, history_api.uid(), history_api.uid())
+        assert replay["disposition"] == "replayed"
+        assert replay["message_id"] == original["user_message_id"]
+        assert replay["resolved_conversation_id"] == original["resolved_conversation_id"]
+        try:
+            history_api.send_t1(c, M10_OWNER, dict(req, question="changed payload"),
+                                history_api.uid(), history_api.uid())
+        except repository.Conflict:
+            pass
+        else:
+            raise AssertionError("CHANGED_PAYLOAD_REPLAY_ACCEPTED")
+        b = history_api.send_t1(c, M10_OTHER, req, history_api.uid(), history_api.uid())
+        assert b["disposition"] == "created" and b["message_id"] != replay["message_id"]
+    assert inventory(M10_OWNER) == committed
+    assert counts(inventory(M10_OTHER)) == (1,1,1,0,0)
+    kill_at("t2_before")
+    assert inventory(M10_OWNER) == committed, "UNCOMMITTED_T2_SURVIVED"
+    kill_at("t2_after")
+    reserved = inventory(M10_OWNER)
+    assert counts(reserved) == (1,1,1,1,0)
+    attempt = reserved["execution_attempts"][0]
+    with conn("history_app", "demo-db", M10_DB) as c:
+        replay_attempt = repository.start_t2(c, M10_OWNER, None, req["client_message_id"],
+                                            req["idempotency_key"], history_api.uid(), history_api.uid())
+        assert replay_attempt["id"] == attempt["id"]
+        assert replay_attempt["reserved_answer_id"] == attempt["reserved_answer_id"]
+        assert replay_attempt["send_receipt_id"] == original["id"]
+    assert inventory(M10_OWNER) == reserved
+    assert counts(inventory(M10_OTHER)) == (1,1,1,0,0)
+    assert counts(inventory("")) == (0,0,0,0,0)
+    print("M10_REAL_T1_T2_PROCESS_CRASH_REPLAY_EXACT_DURABLE_IDS_ZERO_ANSWERS=PASS", flush=True)
 
 
 def signature(label, method: str, raw_path: str, raw_query: str = "", body: bytes = b"",
@@ -425,9 +520,16 @@ def revoke_and_check():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("phase", choices=("seed", "before", "after", "revoke", "snapshot_source", "snapshot_restore", "ready200", "ready503"))
+    parser.add_argument("phase", choices=("seed", "before", "after", "revoke", "snapshot_source", "snapshot_restore", "ready200", "ready503", "m10_process", "m10_child"))
+    parser.add_argument("--crash", choices=("t1_before", "t1_after", "t2_before", "t2_after"))
     args = parser.parse_args()
     require_lab()
+    if args.phase == "m10_process":
+        m10_process()
+        return
+    if args.phase == "m10_child":
+        m10_child(args.crash)
+        return
     if args.phase in ("ready200", "ready503"):
         expected = 200 if args.phase == "ready200" else 503
         with tls_client() as c:
