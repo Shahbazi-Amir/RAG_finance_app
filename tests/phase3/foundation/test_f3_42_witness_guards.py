@@ -40,9 +40,9 @@ class WitnessGuards(unittest.TestCase):
         with self.assertRaises(AssertionError):
             mod.verified_repo_file("/etc/hosts","x")
     def test_refuse_marker_not_in_source(self):
-        with self.assertRaises(AssertionError):
-            mod.verified_repo_file("tests/phase3/ui/source-display.test.mjs",
-                                   "REAL_WITNESS_DOES_NOT_EXIST")
+        self.assertFalse(mod.verified_repo_file(
+            "tests/phase3/ui/source-display.test.mjs",
+            "REAL_WITNESS_DOES_NOT_EXIST"))
     def test_refuse_fake_baseline(self):
         original={"generated_source_sha":SHA,"counts":{"activities":2},
                   "acceptance_claim":"NONE_GENERATED_LEDGER_IS_NOT_OWNER_ACCEPTANCE",

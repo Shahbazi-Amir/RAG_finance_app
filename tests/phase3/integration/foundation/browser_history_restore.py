@@ -385,6 +385,8 @@ async def execute():
             # same Keycloak process and Next/BFF/API, now independent PG volume.
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
             await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
+            await mobile_320_keyboard_accessibility(page_a)
+            await mobile_320_keyboard_accessibility(page_b)
             await signed_pagination(page_a,ids_a)
             await signed_pagination(page_b,ids_b)
             await foreign_owner_denied(page_a,ids_b)
@@ -403,6 +405,8 @@ async def execute():
             rollback_seconds=rollback_to_original_lab_database(restored,source_cluster)
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
             await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
+            await mobile_320_keyboard_accessibility(page_a)
+            await mobile_320_keyboard_accessibility(page_b)
             await signed_pagination(page_a,ids_a)
             await signed_pagination(page_b,ids_b)
             await foreign_owner_denied(page_a,ids_b)
@@ -451,6 +455,7 @@ async def execute():
                 "same_browser_cookie_after_pg_restore":True,
                 "same_browser_cookie_after_pg_rollback":True,
                 "rollback_returns_to_original_ci_pg_cluster":True,
+                "real_authenticated_browser_mobile_320_rtl_keyboard_after_rollback":True,
                 "rollback_source_rows_and_messages_exact_sql_equal":True,
                 "rollback_without_intervening_durable_send":True,
                 "rollback_wall_clock_seconds":rollback_seconds,
