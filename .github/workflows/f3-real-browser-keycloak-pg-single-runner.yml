@@ -305,8 +305,13 @@ jobs:
           npm --prefix apps/web run build
           python -m pip install --no-cache-dir 'playwright==1.64.1'
           python -m playwright install --with-deps chromium
+      - name: Install pinned signed listener dependencies for the independent Foundation branch
+        if: github.ref == 'refs/heads/integration/f3-foundation-send-fence-restore-20261124'
+        run: python -m pip install --require-hashes --only-binary=:all: -r locks/requirements-api.lock
       - name: Actual Keycloak two subjects browser login to signed BFF and PG history
         shell: bash
+        env:
+          F3_BROWSER_PRIVATE_RUNTIME: ${{ github.ref == 'refs/heads/integration/f3-foundation-send-fence-restore-20261124' && '1' || '0' }}
         run: |
           set -euo pipefail
           python tests/phase3/integration/foundation/browser_history_restore.py

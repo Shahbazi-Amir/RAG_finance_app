@@ -28,9 +28,84 @@ sys.path[:0]=[
  str(ROOT),
 ]
 from phase3_auth_demo import Demo,ORIGIN
-from test_history_restore_signed import command,pg17,connect
+from test_history_restore_signed import command,pg17,connect as pg_connect,ssl_server
 from apps.api import history_api
 
+# This runner preserves the original history_ci test DB. A distinctly named
+# clone is created only inside the disposable runner for the real listener.
+PRIVATE_DB="history_ci_f3_signed"
+PG_TLS=None
+DB_NAME="history_ci"
+
+def connect(port_number=5432, *, db=None):
+    chosen=db or DB_NAME
+    extra=("sslmode=verify-full sslrootcert="+str(PG_TLS[0])
+           if PG_TLS is not None and chosen==PRIVATE_DB else "")
+    return pg_connect(port_number,db=chosen,extra=extra)
+
+def source_service():
+    candidates=[]
+    for cid in command(["docker","ps","-q"]).splitlines():
+        ports=json.loads(command(["docker","inspect","--format",
+                     "{{json .NetworkSettings.Ports}}",cid]))
+        if any(b.get("HostPort")=="5432" for b in (ports.get("5432/tcp") or [])):
+            candidates.append(cid)
+    assert len(candidates)==1,("PG_SOURCE_HOST_PORT_COLLISION",len(candidates))
+    assert command(["docker","inspect","--format","{{.Config.Image}}",
+                    candidates[0]]).strip()=="postgres:17.11"
+    return candidates[0]
+
+def install_pg_tls(container, port_number):
+    ca,key,crt=PG_TLS
+    for src,dst in ((key,"server.key"),(crt,"server.crt")):
+        target="/var/lib/postgresql/data/"+dst
+        command(["docker","cp",str(src),container+":"+target])
+        command(["docker","exec","-u","0",container,"chown","postgres:postgres",target])
+    command(["docker","exec","-u","0",container,"chmod","0600",
+             "/var/lib/postgresql/data/server.key"])
+    with pg_connect(port_number,db="postgres") as admin:
+        admin.execute("ALTER SYSTEM SET ssl='on'")
+        admin.execute("ALTER SYSTEM SET ssl_cert_file='server.crt'")
+        admin.execute("ALTER SYSTEM SET ssl_key_file='server.key'")
+    command(["docker","restart",container])
+    for _ in range(60):
+        try:
+            with pg_connect(port_number,db="postgres",
+                extra="sslmode=verify-full sslrootcert="+str(ca)) as c:
+                if c.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()[0]:
+                    return
+        except psycopg.Error:time.sleep(.5)
+    raise AssertionError("BROWSER_LAB_PG_TLS_NOT_VERIFIED")
+
+def prepare_private_database():
+    global PG_TLS,DB_NAME
+    root=Path(os.environ["RUNNER_TEMP"])/"f3-browser-private-pg-tls"
+    root.mkdir(mode=0o700)
+    PG_TLS=ssl_server(root)
+    install_pg_tls(source_service(),5432)
+    updates={}
+    roles=set()
+    for k,v in os.environ.items():
+        if not k.endswith("_DSN"):continue
+        opts=psycopg.conninfo.conninfo_to_dict(v)
+        if opts.get("dbname")!="history_ci":continue
+        assert opts.get("host")=="127.0.0.1" and opts.get("port")=="5432"
+        roles.add(opts["user"])
+        updates[k]=psycopg.conninfo.make_conninfo(v,dbname=PRIVATE_DB,
+            sslmode="verify-full",sslrootcert=str(PG_TLS[0]))
+    assert {"DB_APP_DSN","AUTH_REVOKER_DSN","AUTH_MIG_DSN"} <= updates.keys()
+    with pg_connect(db="postgres") as c:
+        c.execute(sql.SQL("CREATE DATABASE {} TEMPLATE history_ci").format(sql.Identifier(PRIVATE_DB)))
+        c.execute(sql.SQL("REVOKE CONNECT ON DATABASE {} FROM PUBLIC").format(sql.Identifier(PRIVATE_DB)))
+        for role in sorted(roles):
+            c.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
+                sql.Identifier(PRIVATE_DB),sql.Identifier(role)))
+    DB_NAME=PRIVATE_DB
+    os.environ.update(updates)
+    # Actual product-role TLS, not just a postgres superuser probe.
+    for name in ("DB_APP_DSN","AUTH_REVOKER_DSN"):
+        with psycopg.connect(os.environ[name]) as c:
+            assert c.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()[0]
 
 def verify_isolation():
     assert os.environ.get("CI")=="true" and os.environ.get("GITHUB_ACTIONS")=="true"
@@ -239,7 +314,7 @@ def restore_separate_volume(demo,original_records,source_system_id):
     roles=work/"f3-browser-roles.sql"
     command(["docker","pull","postgres:17.11"])
     pg17("pg_dump","-h","127.0.0.1","-p","5432","-U","postgres",
-         "-F","c","-f",str(backup),"history_ci")
+         "-F","c","-f",str(backup),DB_NAME)
     assert backup.stat().st_size>1024
     globals_sql=pg17("pg_dumpall","-h","127.0.0.1","-p","5432",
         "-U","postgres","--globals-only","--no-role-passwords")
@@ -273,9 +348,17 @@ def restore_separate_volume(demo,original_records,source_system_id):
             if user in available:
                 c.execute(sql.SQL("ALTER ROLE {} PASSWORD {}").format(
                     sql.Identifier(user),sql.Literal(secret)))
-        c.execute("CREATE DATABASE history_ci")
+        c.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(DB_NAME)))
+        if demo.private_product:
+            c.execute(sql.SQL("REVOKE CONNECT ON DATABASE {} FROM PUBLIC").format(sql.Identifier(DB_NAME)))
+            for role in sorted(users):
+                if role in available:
+                    c.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
+                        sql.Identifier(DB_NAME),sql.Identifier(role)))
+    if demo.private_product:
+        install_pg_tls(name,5433)
     pg17("pg_restore","-h","127.0.0.1","-p","5433","-U","postgres",
-         "--exit-on-error","-d","history_ci",str(backup))
+         "--exit-on-error","-d",DB_NAME,str(backup))
     with connect(5433) as c:
         actual=c.execute(
             "SELECT owner_id,id,title FROM history_l1.conversations "
@@ -298,6 +381,8 @@ def restore_separate_volume(demo,original_records,source_system_id):
     original_image=command(["docker","inspect","--format","{{.Config.Image}}",service[0]]).strip()
     assert original_image=="postgres:17.11",("NOT_GITHUB_PG17_SERVICE",original_image)
     command(["docker","stop",service[0]])
+    if demo.private_product:
+        demo.assert_private_readiness(503)
     command(["docker","rm","-f",name])
     new_name="f3browser-replayed-pg-"+suffix
     command(["docker","run","-d","--name",new_name,"--restart","no",
@@ -345,7 +430,10 @@ def rollback_to_original_lab_database(restored, source_system_id):
 async def execute():
     verify_isolation()
     os.environ["PHASE3_APP_MODE"]="APP_ONLY"
-    demo=Demo()
+    private=os.environ.get("F3_BROWSER_PRIVATE_RUNTIME")=="1"
+    if private:
+        prepare_private_database()
+    demo=Demo(private_product=private)
     restored=None
     browser=None
     ctx_a=ctx_b=None
@@ -381,6 +469,8 @@ async def execute():
                   flush=True)
 
             restored=restore_separate_volume(demo,source,source_cluster)
+            if private:
+                demo.assert_private_readiness(200)
             # Continue same real two browser contexts, same session cookie,
             # same Keycloak process and Next/BFF/API, now independent PG volume.
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
@@ -403,6 +493,8 @@ async def execute():
             # *unchanged* GitHub Actions PostgreSQL service. No writes since the
             # initial snapshot: fake or resurrected Answer/receipt is forbidden.
             rollback_seconds=rollback_to_original_lab_database(restored,source_cluster)
+            if private:
+                demo.assert_private_readiness(200)
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
             await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
             await mobile_320_keyboard_accessibility(page_a)
@@ -441,6 +533,11 @@ async def execute():
                 "sha":os.environ["GITHUB_SHA"],
                 "env":"disposable-GitHub-Actions-standard-Keycloak-Chromium-Next-mTLS-PG17",
                 "genuine_two_browser_context_oidc":True,
+                "actual_private_app_only_entrypoint":private,
+                "pg_tls_verify_full_product_roles":private,
+                "private_readiness_source_200_pg_stop_503_restored_200_rollback_200":private,
+                "actual_signed_runtime_image":False,
+                "ci_bootstrap_and_https_proxy_used":True,
                 "browser_default_history_sql_equal":True,
                 "browser_pagination_and_detail_sql_equal":True,
                 "browser_detail_message_id_and_body_sql_equal":True,

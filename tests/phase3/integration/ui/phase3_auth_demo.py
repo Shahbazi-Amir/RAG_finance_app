@@ -67,7 +67,8 @@ def save_bytes(path,data):
 
 
 class Demo:
-    def __init__(self):
+    def __init__(self, *, private_product=False):
+        self.private_product=private_product
         self.tmp=TemporaryDirectory(prefix="rag-phase3-demo-")
         self.root=Path(self.tmp.name)
         self.kc=DisposableKeycloak()
@@ -224,14 +225,45 @@ class Demo:
             API_PRODUCT_PROOF_AUDIENCE=SIGN_AUD,
             API_PRODUCT_PROOF_KID=SIGN_KID,
         )
-        self.add([sys.executable,"-m","uvicorn","apps.api.product_session_api:app",
-            "--host","127.0.0.1","--port",str(product_port),
-            "--ssl-certfile",server[0],"--ssl-keyfile",server[1],
-            "--ssl-ca-certs",ca,"--ssl-cert-reqs","2","--no-access-log"],product_env)
+        if self.private_product:
+            # This opt-in is only used by the disposable Foundation browser
+            # runner with a separate TLS-enabled DB. No production guard changes.
+            for material in (ca,server[0],server[1],client[0],client[1],product_pub):
+                Path(material).chmod(0o600)
+            config=self.root/"private-app-only.json"
+            config.write_text(json.dumps({
+                "contract_version":"api.private_app_only_asgi.v1",
+                "listen_host":"127.0.0.1","listen_port":product_port,
+                "server_tls_cert_file":server[0],"server_tls_key_file":server[1],
+                "trusted_bff_ca_file":ca,
+                "bff_leaf_cert_sha256":sha256(client[2]).hexdigest(),
+                "bff_issuer":SIGN_ISS,"bff_audience":SIGN_AUD,"bff_kid":SIGN_KID,
+                "bff_rs256_public_key_file":product_pub,
+                "history_dsn":os.environ["DB_APP_DSN"],
+                "revoke_dsn":os.environ["AUTH_REVOKER_DSN"],
+            }))
+            config.chmod(0o600)
+            # Same pattern as the existing private signed Restore test:
+            # child uses the server entrypoint, not CI fixture mode.
+            product_env={k:v for k,v in product_env.items()
+                if not k.endswith("_DSN") and k not in {
+                    "CI","GITHUB_ACTIONS","OPENAI_API_KEY","API_PROVIDER_KEY",
+                    "C018_RUNNER_PATH","QDRANT_URL","MODEL_GATEWAY_URL",
+                    "API_ENGINE_ENABLED"}}
+            product_env["API_RUNNER_EXECUTION_MODE"]="APP_ONLY"
+            self.add([sys.executable,"-m","apps.api.private_app_only_asgi",
+                      "--config",str(config)],product_env)
+        else:
+            self.add([sys.executable,"-m","uvicorn","apps.api.product_session_api:app",
+                "--host","127.0.0.1","--port",str(product_port),
+                "--ssl-certfile",server[0],"--ssl-keyfile",server[1],
+                "--ssl-ca-certs",ca,"--ssl-cert-reqs","2","--no-access-log"],product_env)
         private_context=ssl.create_default_context(cafile=ca)
         private_context.load_cert_chain(client[0],client[1])
         self.await_url(self.bootstrap_origin+"/__fixture_health",private_context)
         self.await_url(self.product_origin+"/v1/conversations",private_context,401)
+        if self.private_product:
+            self.assert_private_readiness(200)
 
         shared=self.root/"aliases"
         shared.mkdir(mode=0o700)
@@ -271,6 +303,19 @@ class Demo:
         # Public TLS does not require a client cert; private links do.
         self.await_url(ORIGIN+"/login",ssl.create_default_context(cafile=ca))
         print("DEMO_REAL_KEYCLOAK_NEXT_MTLS_API_PG_READY",flush=True)
+
+    def assert_private_readiness(self, expected):
+        if not self.private_product:
+            raise AssertionError("PRIVATE_RUNTIME_NOT_SELECTED")
+        tls=ssl.create_default_context(cafile=self.ca)
+        tls.load_cert_chain(self.client[0],self.client[1])
+        with httpx.Client(verify=tls,trust_env=False,timeout=15) as c:
+            result=c.get(self.product_origin+"/internal/ready")
+        assert result.status_code==expected,("PRIVATE_PRODUCT_READINESS",result.status_code)
+        obj=result.json()
+        assert obj["generation"]=="unavailable" and obj["retrieval"]=="unavailable"
+        if expected==200:
+            assert obj["history_db"]=="verified" and obj["bootstrap_idp"]=="not_probed"
 
     def raw_from_alias(self,handle):
         name="alias-"+sha256(handle.encode()).hexdigest()+".json"
