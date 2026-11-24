@@ -91,9 +91,20 @@ class OrderedSignedBrowserDemo(SignedContentGuardMixin, AppOnlyBrowserDemo):
                 lambda r: "/api/history/conversations?limit=2" in r.url
                 and "cursor=" not in r.url and r.request.method=="GET",timeout=30000) as wait:
                 response=await page.reload(wait_until="domcontentloaded")
-            assert response.status==200
+            # The document is a static, owner-independent Next shell. A real
+            # conditional reload may legitimately yield 304 (Firefox). Private
+            # signed History must ALWAYS be a fresh 200/no-store response.
+            assert response is not None, "RELOAD_DOCUMENT_RESPONSE_MISSING"
+            status=response.status
+            print("F3_SIGNED_RELOAD_DOCUMENT_STATUS="+str(status),flush=True)
+            assert status in (200,304), "RELOAD_DOCUMENT_UNEXPECTED_STATUS"
+            nav=await page.evaluate("""() => {
+                const entry=performance.getEntriesByType('navigation')[0];
+                return {type:entry?.type,path:location.pathname};
+            }""")
+            assert nav=={"type":"reload","path":"/"}, "RELOAD_NAVIGATION_NOT_OBSERVED"
             result=await wait.value
-            assert result.status==200
+            assert result.status==200 and result.headers.get("cache-control")=="no-store"
             doc=await result.json()
             assert doc["scope_user_id"]==owner
             assert any(x["conversation_id"]==conversation_id and x["title"]==TITLE
@@ -105,6 +116,12 @@ class OrderedSignedBrowserDemo(SignedContentGuardMixin, AppOnlyBrowserDemo):
             actual=await nodes.evaluate_all("(nodes) => nodes.map(n => n.getAttribute('data-testid'))")
             assert actual==["history-message-"+row["id"] for row in rows]
             await assert_content_dom(page,conversation_id,self.guard_mid,TITLE,BODY,self.guard_foreign_body)
+            # Assert exact rendered text for ALL 31 SQL rows, not substring
+            # matches or the single adversarial fixture only.
+            for row in rows:
+                text_node=page.get_by_test_id("history-message-"+row["id"]).locator(".history-message-text")
+                assert await text_node.count()==1
+                assert await text_node.text_content()==row["body"], "RELOAD_SQL_BODY_MISMATCH"
             await expect(page.get_by_test_id("more-messages")).to_have_count(0)
             await expect(page.get_by_test_id("history-send")).to_be_disabled()
             assert not mutations and self.counts()==before

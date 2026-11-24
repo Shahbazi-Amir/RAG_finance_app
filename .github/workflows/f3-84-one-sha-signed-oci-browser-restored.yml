@@ -336,6 +336,7 @@ jobs:
           test "$(grep -Fxc F3_SIGNED_LITERAL_TITLE_BODY_NO_ACTIVE_MARKUP_NO_FOREIGN_BODY_PASS "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log")" = 3
           grep -Fx F3_SIGNED_SYMMETRIC_FOREIGN_CONTENT_DENIED_NO_WRITES_PASS "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log"
           grep -Fx F3_SIGNED_FULL_RELOAD_31_LITERAL_IDS_ZERO_MUTATION_PASS "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log"
+          grep -Ex "F3_SIGNED_RELOAD_DOCUMENT_STATUS=(200|304)" "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log"
           echo F3_84_ACTUAL_BROWSER_SQL_BEFORE_AFTER_RESTORE_SAME_SHA_PASS
       - name: Write minimal exact-source journey receipt (not Compose or target acceptance)
         env:
