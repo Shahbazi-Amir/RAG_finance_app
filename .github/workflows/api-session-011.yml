@@ -7,6 +7,7 @@ on:
       - 'src/phase3/auth/**'
       - 'apps/api/product_session_api.py'
       - 'tests/phase3/integration/api/test_product_session_011.py'
+      - 'tests/phase3/integration/api/test_app_only_browser_journey.py'
       - 'tests/phase3/integration/api/app_only_signed_pg_ci_h11.py'
       - 'apps/api/private_app_only_asgi.py'
       - 'infra/phase3_l1/Dockerfile.api'
@@ -26,6 +27,7 @@ on:
       - 'src/phase3/auth/**'
       - 'apps/api/product_session_api.py'
       - 'tests/phase3/integration/api/test_product_session_011.py'
+      - 'tests/phase3/integration/api/test_app_only_browser_journey.py'
       - 'tests/phase3/integration/api/app_only_signed_pg_ci_h11.py'
       - 'apps/api/private_app_only_asgi.py'
       - 'infra/phase3_l1/Dockerfile.api'
@@ -322,6 +324,25 @@ jobs:
       - name: Verify full identity T2 ledger positive and negative (offline subset)
         run: |
           python -m unittest discover -s tests/phase3/api -p 'test_full_binding_fence.py' -v
+      - name: Real Next build for ordinary browser app-only journey
+        if: github.ref == 'refs/heads/agent/api-f3-pr84-signed-history-20261124'
+        working-directory: apps/web
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run build
+      - name: Real Chromium ordinary login and signed app-only History journey
+        if: github.ref == 'refs/heads/agent/api-f3-pr84-signed-history-20261124'
+        env:
+          PHASE3_APP_MODE: APP_ONLY
+          API_RUNNER_EXECUTION_MODE: APP_ONLY
+        run: |
+          set -euo pipefail
+          python -m pip install --no-cache-dir --index-url https://pypi.org/simple 'playwright==1.64.1'
+          python -m playwright install --with-deps chromium
+          python -u tests/phase3/integration/api/test_app_only_browser_journey.py
       - name: Show bounded SQL permissions and container status
         if: always()
         run: |
