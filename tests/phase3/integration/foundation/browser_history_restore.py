@@ -21,7 +21,7 @@ import uuid
 import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
-from playwright.async_api import async_playwright,expect
+from playwright.async_api import async_playwright,expect,Error as BrowserTransportError
 
 ROOT=Path(__file__).resolve().parents[4]
 sys.path[:0]=[
@@ -160,8 +160,21 @@ def create_extra_question(demo,label):
     return cid
 
 
+BROWSER_NETWORK_CHANGED_RETRIES=0
+
 async def browser_history(page,label,expected_ids,expected_owner,expected_messages):
-    await page.reload()
+    global BROWSER_NETWORK_CHANGED_RETRIES
+    # Docker deliberately replaces interfaces during restore. Chromium may
+    # invalidate a navigation when the OS reports that change. Retry exactly
+    # this transport error once, never an HTTP status or failed assertion.
+    try:
+        await page.reload(wait_until="domcontentloaded")
+    except BrowserTransportError as exc:
+        if "net::ERR_NETWORK_CHANGED" not in str(exc):raise
+        BROWSER_NETWORK_CHANGED_RETRIES+=1
+        print("F3_CHROMIUM_NETWORK_CHANGED_ONE_BOUNDED_NAVIGATION_RETRY",flush=True)
+        await asyncio.sleep(.8)
+        await page.reload(wait_until="domcontentloaded")
     await expect(page.locator('[data-testid^="conversation-"]').first).to_be_visible(
         timeout=20000)
     if len(expected_ids)>2:
@@ -340,9 +353,13 @@ async def negative_identity_and_private_cache(page_a,page_b,owner_a,owner_b,ids_
             assert r.status==404 and r.headers.get("cache-control")=="no-store"
             assert "F3_REAL_POSTGRES_" not in await r.text()
     # Neither a forged direct owner header nor absence of a session admits read.
-    response=await page_a.request.get(ORIGIN+"/api/history/conversations?limit=2",
-        headers={"Cookie":"","x-owner-id":owner_a})
-    assert response.status==401 and response.headers.get("cache-control")=="no-store"
+    anonymous=await page_a.context.browser.new_context(ignore_https_errors=True)
+    try:
+        response=await anonymous.request.get(ORIGIN+"/api/history/conversations?limit=2",
+            headers={"x-owner-id":owner_a})
+        assert response.status==401 and response.headers.get("cache-control")=="no-store"
+    finally:
+        await anonymous.close()
 
 
 async def environment_observation(page):
@@ -743,6 +760,7 @@ async def execute():
                 "forged_owner_headers_query_and_no_session_denied_pre_post_rollback":True,
                 "locale_encoding_lab":env_receipt,
                 "private_log_negative":log_receipt,
+                "bounded_chromium_network_changed_navigation_retries":BROWSER_NETWORK_CHANGED_RETRIES,
                 "synthetic_backup_aes256gcm_roundtrip":demo.backup_evidence,
                 "all_a_conversations_cross_owner_404":True,
                 "all_b_conversations_cross_owner_404":True,
