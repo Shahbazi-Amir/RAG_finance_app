@@ -359,3 +359,9 @@ Status is review. Supervisor approval is pending.
 - Report baseline 2ddff18, execution af57f26, V4 f49f536f4d82. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
 - Tested: 4/4 fixture transport tests; PostgreSQL provisioning and Compose up exit 0; Worker-backed API startup, verified HTTPS status and Keycloak; real Chrome callback and signed History. Chrome stopped before POST because Send stayed disabled.
 - Implemented locally: wait for UI History readiness and two-question/Refresh assertions in check_session_browser.py; cumulative ledger and private T01–T20 matrix. Formal 5/20, private 5/20 PASS, official acceptance pending. [Evidence and next command](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### Docker_3 / NB23-SESSION-RESUME-17 — real Chrome-origin V4 context
+
+- Report baseline c2be263, execution af57f26, V4 f49f536f4d82. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
+- Tested: real Chrome Send and Refresh same Conversation/Attempt, one POST, SQL Send-only renewal. Real Worker CONTEXT_READY with 10 results and 95,537 ms. UI context wait expired at 95 seconds; extended recheck running. Generation/Gateway remain disabled.
+- Implemented locally: V4 duration measurement persistence, conditionally exposed via existing signed API and consumed by BFF UI; staged banner and offline derivative recipe. Exact paths in report. Build and runtime validation pending. Formal 5/20, private 11/20, acceptance and Freeze pending. [Evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).

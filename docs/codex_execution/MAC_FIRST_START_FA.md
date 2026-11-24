@@ -713,3 +713,15 @@ checkpoint `NB23-SESSION-RESUME-16`. نسخهٔ مستقل NB23 V4 از ایمی
 | T20 | PARTIAL | رویهٔ کنترل‌شده توقف پروژه ثبت شد؛ تحویل انسانی باز است |
 
 فرمان ادامه از worktree اجرایی `python3 -B -u infra/nb23-v4/check_session_browser.py ../nb23-session-product-local --chrome-v4` است. نتایج HTTP جایگزین مسیر Chrome نیستند. اگر آزمون قبل از POST متوقف شد، `--http-v4` آزمون واقعی API و Worker را مستقل انجام می‌دهد. فایل‌های گزارش ۱۲ تا ۱۵ در `2ddff18` روی GitHub تأیید شدند.
+
+## Docker_3 — نخستین Retrieval واقعی از مسیر Chrome
+
+checkpoint `NB23-SESSION-RESUME-17`. Chrome یک سؤال واقعی ارسال کرد و پس از Refresh همان Conversation و Attempt حفظ شد. در trace فقط یک POST مشاهده شد. شاهد PostgreSQL تمدید Send با Idle=120 و Absolute=500 و ثابت‌ماندن شمار Attempt و مهلت‌ها پس از GET و Refresh را نشان داد. Worker واقعی وضعیت CONTEXT_READY، شمار ۱۰ نتیجه و زمان **۹۵٫۵۳۷ ثانیه** را ثبت کرد. این زمان اجرای Worker است. آستانهٔ ۹۵ ثانیه‌ای harness پیش از مشاهدهٔ نتیجه در UI تمام شد. رخداد موفق در SQLite عملیاتی ثبت شد و هنوز شاهد نمایش صفحه محسوب نمی‌شود.
+
+harness با سقف ۱۱۵ ثانیه از Send، همچنان داخل مهلت Idle، در حال بررسی است. اجرای جدید Login و Refresh همان Attempt را گذرانده است. بررسی نتیجه، Send دوم با صفحه‌کلید، انتخاب History و Logout در جریان است.
+
+تغییرات محلی آمادهٔ build و آزمون شامل ستون زمان در `infra/nb23-v4/session_product_api.py`، فیلد اختیاری در `apps/api/product_session_api.py`، parser و نمایش زمان در `apps/web/src/history/client.ts` و `apps/web/src/ui/product-chat.tsx` و image محلی مستقل در `infra/nb23-v4/Dockerfile.session-v4-web` و `session-compose.yaml` است. متغیر staging برای هماهنگ‌کردن نسخهٔ BFF و پاسخ اختیاری تعریف شد. این نسخه هنوز فعال نشده است. فرمان `--owner-window` در ابزار مرورگر آماده شده و فقط پس از اعتبارسنجی TLS، پروفایل Chrome محلی باز می‌کند.
+
+- رسمی ۵/۲۰ → ۵/۲۰ (۲۵٪) [#####---------------].
+- خصوصی ۵/۲۰ → ۱۱/۲۰ (۵۵٪) [###########---------]. T05، T06، T09، T10، T11 و T12 PASS شدند. T08 به PARTIAL رسید. سایر موارد طبق جدول قبل تا شاهد جدید بازند.
+- پذیرش رسمی و Freeze در انتظار. Generation غیرفعال و Golden حل‌نشده است.

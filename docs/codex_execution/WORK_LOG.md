@@ -46,3 +46,7 @@
 ## NB23-SESSION-RESUME-16
 
 - شروع پشته مستقل و HTTPS معتبر پس از گرم‌شدن Keycloak. چهار fixture موفق. Chrome Callback و History موفق؛ SEND_BUTTON_NOT_ENABLED قبل از POST. Harness با readiness و مسیر دو پرسش به‌روز شد.
+
+## NB23-SESSION-RESUME-17
+
+- Chrome Send و Refresh همان Attempt، یک POST، مهلت SQL معتبر. Worker واقعی CONTEXT_READY و ۹۵٫۵۳۷ ثانیه. ابزار مشاهدهٔ UI به ۹۵ ثانیه رسید؛ سقف هدفمند اصلاح شد. فایل‌های نمایش زمان و image مستقل آمادهٔ build هستند.

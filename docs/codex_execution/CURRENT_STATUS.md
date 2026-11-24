@@ -91,3 +91,7 @@ HTTPS برنامه و IdP پس از ترمیم namespace تأیید شدند. Ch
 ### NB23-SESSION-RESUME-16
 
 پشتهٔ مستقل و Worker Ready شدند. ورود واقعی Chrome و History موفق بود. Send قبل از POST فعال نشد. رسمی ۵/۲۰؛ خصوصی ۵/۲۰ PASS؛ Freeze در انتظار.
+
+### NB23-SESSION-RESUME-17
+
+Retrieval واقعی از Chrome روی Attempt ثبت شد، CONTEXT_READY، Top-10=10، Worker ۹۵٫۵۳۷ ثانیه. Refresh همان Attempt را حفظ کرد. نتیجهٔ UI و آزمون دوم بازند. رسمی ۵/۲۰ و خصوصی ۱۱/۲۰.
