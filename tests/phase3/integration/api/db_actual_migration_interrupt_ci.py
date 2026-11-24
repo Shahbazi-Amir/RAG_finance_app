@@ -53,8 +53,8 @@ with psycopg.connect(**opts,dbname="postgres",autocommit=True) as admin:
                 while time.monotonic()<deadline:
                     hits=observer.execute("""SELECT pid FROM pg_stat_activity WHERE datname=current_database()
                        AND usename='history_migrator' AND application_name='f3_ci_interrupt_002'
-                       AND wait_event_type='Lock' AND query LIKE 'CREATE UNIQUE INDEX one_attempt_per_send_receipt%'
-                       AND %s=ANY(pg_blocking_pids(pid))""",(blocker,)).fetchall()
+                       AND wait_event_type='Lock' AND query LIKE %s
+                       AND %s=ANY(pg_blocking_pids(pid))""",('CREATE UNIQUE INDEX one_attempt_per_send_receipt%',blocker)).fetchall()
                     assert len(hits)<=1
                     if hits:
                         target=hits[0][0]
