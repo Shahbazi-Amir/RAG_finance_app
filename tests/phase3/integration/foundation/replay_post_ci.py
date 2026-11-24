@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import secrets
 import subprocess
 import sys
 import time
@@ -26,6 +27,7 @@ class ReplayPostCI(base.RealProductSession011):
         try:
             cls.lab=cls.temp/"replay-post-ci"
             cls.lab.mkdir(mode=0o700)
+            cls.cursor_key=secrets.token_urlsafe(48)
             cls.stop_api()
             cls.start_api()
         except BaseException:
@@ -48,6 +50,7 @@ class ReplayPostCI(base.RealProductSession011):
         env={k:os.environ[k] for k in ("PATH","HOME","DB_APP_DSN","AUTH_REVOKER_DSN")}
         env.update(CI="true",GITHUB_ACTIONS="true",F3_REPLAY_PERSISTENCE_CI_ONLY="true",
                    API_RUNNER_EXECUTION_MODE="NO_DISPATCH_ONLY",
+                   API_CURSOR_KEY=cls.cursor_key,API_CURSOR_TTL_SECONDS="300",
                    F3_REPLAY_LAB_DIR=str(cls.lab),
                    API_PRODUCT_PROOF_PUBLIC_KEY_PATH=str(cls.pubkey),
                    API_PRODUCT_PROOF_ISSUER=base.ISSUER,API_PRODUCT_PROOF_AUDIENCE=base.AUDIENCE,
@@ -157,9 +160,6 @@ class ReplayPostCI(base.RealProductSession011):
         self.assertEqual(again.json()["disposition"],"replayed")
         self.assertEqual(again.json()["message_id"],original["user_message_id"])
         endpoint="/v1/message-requests/status"
-        query="?"+urlencode({"requested_conversation_id":"",
-                   "client_message_id":payload["client_message_id"],
-                   "idempotency_key":payload["idempotency_key"]})
         # The canonical status contract represents the original null conversation
         # by omitting the optional requested_conversation_id parameter.
         query="?"+urlencode({"client_message_id":payload["client_message_id"],
