@@ -404,6 +404,20 @@ async def journey(browser, receipt, idp, credentials, width):
         still_b = await browser_fetch(pb, "/api/history/conversations?limit=2")
         assert still_b["status"] == 200
         assert json.loads(still_b["text"])["scope_user_id"] == receipt["users"]["B"]["owner_id"]
+        # Revalidate B in the real product DOM after A's revoke. A 200 alone
+        # cannot prove that another account's UI was not accidentally wiped.
+        await open_mobile_drawer(pb, width)
+        async with pb.expect_response(
+            lambda response: response.request.method == "GET"
+            and "/api/history/conversations?limit=2" in response.url,
+            timeout=20000
+        ) as unaffected_b:
+            await pb.get_by_test_id("refresh-history").click()
+        assert (await unaffected_b.value).status == 200
+        for cid in receipt["users"]["B"]["conversation_ids"]:
+            await expect(pb.get_by_test_id("conversation-" + cid)).to_be_attached()
+        for cid in receipt["users"]["A"]["conversation_ids"]:
+            assert await pb.get_by_test_id("conversation-" + cid).count() == 0
         print("UI_REAL_REVOKE_A_401_PURGE_B_200_PASS",flush=True)
         return {
             "viewport":width,
