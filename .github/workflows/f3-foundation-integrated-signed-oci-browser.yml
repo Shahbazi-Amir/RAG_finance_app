@@ -10,7 +10,7 @@ permissions:
 jobs:
   api-session-011:
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 55
     services:
       postgres:
         image: postgres:17.11
@@ -380,6 +380,31 @@ jobs:
           Path("ci_receipts/f3_signed_archive_install_journey.json").write_text(json.dumps(install,indent=2)+"\n")
           print("F3_SIGNED_ARCHIVE_INSTALL_AND_REAL_BROWSER_PG_RESTORE_PASS")
           PY
+      - name: Build previous green signed images from exact clean source
+        run: |
+          set -euo pipefail
+          prior=9c14c56d847cc3657fc69327e4df59b002273719
+          git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git "$prior"
+          test "$(git rev-parse FETCH_HEAD)" = "$prior"
+          for p in apps src/phase3 packages/contracts infra/phase3_l1 infra/postgres/migrations locks references/phase2; do
+            test "$(git rev-parse "$prior:$p")" = "$(git rev-parse "$GITHUB_SHA:$p")"
+          done
+          clean="$(mktemp -d "$RUNNER_TEMP/f3-prior-signed.XXXXXXXX")"
+          trap 'rm -rf "$clean"' EXIT
+          git archive "$prior" | tar -xf - -C "$clean"
+          base="$(docker image inspect -f '{{index .RepoDigests 0}}' docker.io/library/python:3.13.5)"
+          [[ "$base" =~ @sha256:[a-f0-9]{64}$ ]]
+          docker build --platform linux/amd64 -f "$clean/infra/phase3_l1/Dockerfile.api.signed_history" --build-arg "BASE=$base" --build-arg "SOURCE_SHA=$prior" -t "f3-rollback-signed-api:$prior" "$clean"
+          docker build --platform linux/amd64 -f "$clean/infra/phase3_l1/Dockerfile.web" --build-arg "SOURCE_SHA=$prior" -t "f3-rollback-signed-web:$prior" "$clean"
+      - name: Real previous-image rollback on restored PostgreSQL with ordinary two-owner browser
+        env:
+          API_F3_ISOLATED_PG_CID: ${{ job.services.postgres.id }}
+          PHASE3_APP_MODE: APP_ONLY
+          API_RUNNER_EXECUTION_MODE: APP_ONLY
+        run: |
+          set -euo pipefail
+          python -m py_compile tests/phase3/integration/foundation/signed_prior_rollback_browser.py
+          python -u tests/phase3/integration/foundation/signed_prior_rollback_browser.py
       - name: Prepare same-image SBOM scan directories
         run: mkdir -p ci_receipts/foundation ci_receipts/private_scan
       - name: SPDX SBOM of the actual reloaded API image
@@ -457,6 +482,7 @@ jobs:
             ci_receipts/f3_signed_archive_install.json
             ci_receipts/f3_signed_archive_install_journey.json
             ci_receipts/f3_signed_install_manifest.json
+            ci_receipts/f3_signed_prior_rollback_browser.json
             ci_receipts/foundation/airgap_api.spdx.json
             ci_receipts/foundation/airgap_web.spdx.json
           if-no-files-found: error
