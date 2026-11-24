@@ -287,6 +287,11 @@ jobs:
           set -euo pipefail
           python -m compileall -q apps/api/product_session_api.py src/phase3/auth tests/phase3/integration/api/test_product_session_011.py
           python -m unittest discover -s tests/phase3/integration/api -p 'test_product_session_011.py' -v
+      - name: M10-A10 actual signed client POST replay and restart in separate CI-only persistence profile
+        run: |
+          set -euo pipefail
+          python -m py_compile tests/phase3/integration/foundation/replay_post_ci{,_server}.py
+          python -u tests/phase3/integration/foundation/replay_post_ci.py
       - name: Verify full identity T2 ledger positive and negative (offline subset)
         run: |
           python -m unittest discover -s tests/phase3/api -p 'test_full_binding_fence.py' -v
