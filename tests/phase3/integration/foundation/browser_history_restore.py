@@ -6,6 +6,7 @@ Only a disposable CI runner may stop its own PG service on port 5432.
 """
 from __future__ import annotations
 import asyncio
+from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -60,6 +61,59 @@ def message_inventory(demo):
             "SELECT owner_id,conversation_id,id,body FROM history_l1.messages "
             "WHERE owner_id IN (%s,%s) ORDER BY owner_id,conversation_id,id",
             (demo.owners["A"], demo.owners["B"])).fetchall()
+
+
+HISTORY_TABLES=("conversations","messages","create_receipts","send_receipts",
+                "execution_attempts","answers")
+
+
+def restricted_history_snapshot(demo, phase, baseline=None):
+    """Independent read-only SQL on the same limited product LOGIN, not admin.
+    Trusted test owner IDs originate from real CI OIDC logins, not request input.
+    GUC assignment here exercises RLS only; it does not establish API identity.
+    Keep row values and digests private; receipt contains only PASS and counts.
+    """
+    verify_isolation()
+    dsn=os.environ["DB_APP_DSN"]
+    cfg=psycopg.conninfo.conninfo_to_dict(dsn)
+    assert (cfg.get("host"),cfg.get("port"),cfg.get("dbname"),cfg.get("user")) == (
+        "127.0.0.1","5432","history_ci","history_app"),"UNSAFE_HISTORY_ROLE_DSN"
+    owners=(demo.owners["A"],demo.owners["B"])
+    assert all(owners) and owners[0]!=owners[1],"OIDC_OWNER_COLLISION"
+    result={}
+    with psycopg.connect(dsn,autocommit=True) as c:
+        flags=c.execute("SELECT current_user,rolsuper,rolbypassrls,rolinherit,"
+                        "rolcreaterole,rolcreatedb FROM pg_roles "
+                        "WHERE rolname=current_user").fetchone()
+        assert flags==("history_app",False,False,False,False,False),"UNSAFE_HISTORY_ROLE"
+        for label,owner,other in (("A",owners[0],owners[1]),("B",owners[1],owners[0])):
+            with c.transaction():
+                c.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                c.execute("SELECT set_config('app.owner_id',%s,true)",(owner,))
+                data={}
+                for table in HISTORY_TABLES:
+                    qualified=sql.Identifier("history_l1",table)
+                    assert c.execute("SELECT row_security_active(%s::regclass)",
+                                     ("history_l1."+table,)).fetchone()[0],"RLS_INACTIVE"
+                    rows=c.execute(sql.SQL("SELECT to_jsonb(t)::text FROM {} t ORDER BY 1")
+                                   .format(qualified)).fetchall()
+                    assert all(json.loads(r[0])["owner_id"]==owner for r in rows),"OWNER_LEAK"
+                    assert c.execute(sql.SQL("SELECT count(*) FROM {} WHERE owner_id=%s")
+                                     .format(qualified),(other,)).fetchone()[0]==0,"FOREIGN_ROW"
+                    payload=json.dumps(rows,separators=(",",":"),ensure_ascii=True)
+                    data[table]=(len(rows),sha256(payload.encode()).hexdigest())
+                assert data["conversations"][0]==3 and data["messages"][0]>0,"EMPTY_OWNER"
+                result[label]=data
+            # Same physical connection after COMMIT: no owner context may leak.
+            with c.transaction():
+                c.execute("SET TRANSACTION READ ONLY")
+                for table in HISTORY_TABLES:
+                    assert c.execute(sql.SQL("SELECT count(*) FROM {}")
+                        .format(sql.Identifier("history_l1",table))).fetchone()[0]==0,"UNSET_OWNER_LEAK"
+    if baseline is not None:
+        assert result==baseline,"RESTRICTED_HISTORY_CONTENT_OR_COUNT_DRIFT"
+    print("F3_DB_REAL_OIDC_ROLE_SIX_TABLES_"+phase+"_PARITY_PASS",flush=True)
+    return result
 
 
 def create_extra_question(demo,label):
@@ -360,6 +414,7 @@ async def execute():
             b_id=create_extra_question(demo,"B")
             source,receipt_before,source_cluster=inventory(demo)
             messages_before=message_inventory(demo)
+            restricted_before=restricted_history_snapshot(demo,"SOURCE")
             ids_a={r[1] for r in source if r[0]==demo.owners["A"]}
             ids_b={r[1] for r in source if r[0]==demo.owners["B"]}
             assert len(ids_a)==3 and len(ids_b)==3 and ids_a.isdisjoint(ids_b)
@@ -377,10 +432,12 @@ async def execute():
             await send_denied(page_b)
             assert inventory(demo)[1]==receipt_before
             assert message_inventory(demo)==messages_before,("NO_ENGINE_SEND_CREATED_MESSAGE",)
+            restricted_history_snapshot(demo,"SOURCE_AFTER_SEND",restricted_before)
             print("F3_REAL_BROWSER_KEYCLOAK_NEXT_PG17_AB_PAGING_DETAIL_SEND503_PRE_RESTORE_PASS",
                   flush=True)
 
             restored=restore_separate_volume(demo,source,source_cluster)
+            restricted_history_snapshot(demo,"RESTORED_BEFORE_BROWSER",restricted_before)
             # Continue same real two browser contexts, same session cookie,
             # same Keycloak process and Next/BFF/API, now independent PG volume.
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
@@ -396,11 +453,13 @@ async def execute():
             assert source==after and receipt_before==receipt_after
             assert message_inventory(demo)==messages_before,("RESTORED_MESSAGES_SQL_DRIFT",)
             assert new_cluster==restored[2] and new_cluster!=source_cluster
+            restricted_history_snapshot(demo,"RESTORED_AFTER_BROWSER",restricted_before)
 
             # Exercise a genuine reversal: restored disposable volume -> original
             # *unchanged* GitHub Actions PostgreSQL service. No writes since the
             # initial snapshot: fake or resurrected Answer/receipt is forbidden.
             rollback_seconds=rollback_to_original_lab_database(restored,source_cluster)
+            restricted_history_snapshot(demo,"ROLLBACK_BEFORE_BROWSER",restricted_before)
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
             await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
             await signed_pagination(page_a,ids_a)
@@ -414,6 +473,7 @@ async def execute():
             assert reverted_cluster==source_cluster,("ROLLBACK_DIFFERENT_PG_CLUSTER",)
             assert reverted==source and reverted_receipts==receipt_before
             assert message_inventory(demo)==messages_before,("ROLLBACK_MESSAGE_DRIFT",)
+            restricted_history_snapshot(demo,"ROLLBACK_AFTER_BROWSER",restricted_before)
             print("F3_REAL_BROWSER_CI_PG_BACKUP_RESTORE_ROLLBACK_REAL_AB_HISTORY_PASS",
                   flush=True)
 
@@ -432,9 +492,10 @@ async def execute():
                 ORIGIN+"/api/history/conversations?limit=2")
             assert surviving.status==200
             await foreign_owner_denied(page_b,ids_a)
+            restricted_history_snapshot(demo,"AFTER_REVOKE",restricted_before)
             result={
                 "schema":"foundation.f3.real_browser_pg_restored_same_context.v1",
-                "sha":os.environ["GITHUB_SHA"],
+                "sha":command(["git","rev-parse","HEAD"]).strip(),
                 "env":"disposable-GitHub-Actions-standard-Keycloak-Chromium-Next-mTLS-PG17",
                 "genuine_two_browser_context_oidc":True,
                 "browser_default_history_sql_equal":True,
@@ -454,6 +515,16 @@ async def execute():
                 "rollback_source_rows_and_messages_exact_sql_equal":True,
                 "rollback_without_intervening_durable_send":True,
                 "rollback_wall_clock_seconds":rollback_seconds,
+                "db_restricted_history_role":"history_app",
+                "db_restricted_sql_read_only":True,
+                "db_restricted_six_tables_exact_parity":True,
+                "db_restricted_cross_owner_unset_context_zero":True,
+                "db_restricted_sql_checkpoints":7,
+                "db_restricted_owner_counts":{
+                    label:{table:entry[0] for table,entry in tables.items()}
+                    for label,tables in restricted_before.items()},
+                "db_transport":"CI_LOOPBACK_PG_NOT_TLS_ATTESTATION",
+                "db_guc_is_not_identity_proof":True,
                 "approved_rto_threshold":None,
                 "signed_history_a_after_restore":200,
                 "signed_history_b_after_restore":200,
