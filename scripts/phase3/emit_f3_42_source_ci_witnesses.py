@@ -19,6 +19,7 @@ SHA=re.compile(r"^[a-f0-9]{40}$")
 ID=re.compile(r"^P3M\d{2}-A\d{2}$")
 COMMAND={
  "WEB_UNIT":"npm --prefix apps/web run test",
+ "WEB_BUILD":"npm --prefix apps/web run typecheck",
  "API_UNIT":"python -m unittest discover -s tests/phase3/api",
  "CONTRACT_UNIT":"python -m unittest discover -s tests/phase3/contracts",
  "DB_LAB":"bash scripts/",
@@ -77,7 +78,11 @@ def attest(original: dict, matrix: dict, sha: str, run: str, workflow: str) -> t
         assert verified_repo_file(src,marker), "SOURCE_PROOF_MISSING:"+id
         if kind=="DB_LAB":
             assert "bash scripts/"+Path(src).name in workflow, "DB_SCRIPT_NOT_IN_CI:"+id
-        if kind=="WEB_UNIT": assert src.endswith(".mjs")
+        if kind=="WEB_UNIT":
+            assert src.endswith(".mjs"), ("WEB_UNIT_ONLY_TEST_SOURCE",id,src)
+        if kind=="WEB_BUILD":
+            assert src==".github/workflows/f3-foundation-candidate-full-isolated-regression.yml"
+            assert marker=="npm --prefix apps/web run typecheck"
         if kind=="API_UNIT": assert src.startswith("tests/phase3/api/") or src=="apps/api/app_only_asgi.py"
         if kind=="CONTRACT_UNIT": assert src.startswith("tests/phase3/contracts/")
         # The CI job and source test are verified, but not every part of the
