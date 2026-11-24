@@ -317,3 +317,19 @@ codex login status ورود CLI با ChatGPT را گزارش کرد. این وض
 در کاندید c488837، receipt نسخهٔ ۱ شناسهٔ قطعه را با دادهٔ پین‌شده تطبیق می‌دهد. source_validation برابر UNVERIFIED و locator_validation برابر PENDING_STRUCTURE است و verified_locators خالی می‌ماند. هر ۲۱ آزمون fixture قرارداد موفق بود، ولی این قرارداد شاهد locator معتبر در محصول نیست. Attempt موجود FAILED دست‌نخورده است و Attempt تازه، نمایش منابع معتبر و Refresh موفق ثبت نشدند. آروان HOLD و پذیرش سرپرست در انتظار است.
 
 پس از بازگشت Docker و پایان آزمون ایزوله، هفت کانتینر موجود بدون بازسازی با docker start فعال شدند. در آخرین نمونه هر هفت در حال اجرا، چهار healthcheck موفق و Bootstrap در health: starting بود. لاگ Keycloak پس از تلاش اولیهٔ readiness، پایان startup بدون دستهٔ خطای fatal را نشان داد. آزمون‌های محصول تکرار نشدند.
+
+## Freeze Audit نسخهٔ عملیاتی مک
+
+مبنای گزارش codex در e1583be و شاخهٔ اجرایی محلی ops/mac-first-start در 5ee8a25ee9647c3ed1ef29ad4fd240ca9ac95313 بود. 5fe21e9 مبنای بررسی فایل‌های اجرایی بود. Manifest نسخهٔ rag-finance-mac-freeze.v1 در محل امن مک با mode 0600 ذخیره شد. هفت سرویس، Container ID، Image ID، digest موجود، زمان‌ها، شمار restart، ورودی اجرا، نام کلیدهای محیط، Compose، mount، شبکه، پورت، UID و محدودیت‌ها ثبت شدند. ورودی‌های محتمل برای اسرار پالایش شدند.
+
+شناسه‌های زنده در زمان Audit با checkpoint عملیاتی تطبیق داشتند. demo-db: ceb8cfcc9b1a / ff87138949ad. idp-db: f1ce62cc6476 / ff87138949ad. product-api: 61ff7a7ce511 / 438ba61c69ea. auth-bootstrap: 52d6a9967656 / 8e5d6a79f945. web-bff: aaa462b24e36 / ead7afb7f9ec. web-https: f5ca6e14ad66 / caf4e1e032a2. idp-keycloak: 39a6d2d1828a / 338942f0b25e. پنج healthcheck Docker موفق بودند. هر هفت سرویس Running بودند.
+
+۹ فایل خواندنی از Product API، Bootstrap و BFF با blobهای Git مبنای 5fe21e9 برابر بودند. این شاهد تطبیق نمونه‌ها و شناسهٔ Runtime است. provenance تمام لایه‌ها و خروجی کامپایل‌شدهٔ Web ثبت نشده و برای این قسمت UNKNOWN است. هیچ Fetch اجرایی، Merge، Build یا تغییر Runtime در این checkpoint انجام نشد.
+
+PARALLEL DEVELOPMENT IMPORTED INTO MAC DOCKER: UNKNOWN
+
+برای Runner، مانفیست C011، CHUNKS، سه فایل sparse، مدل ONNX و چهار فایل tokenizer، یازده هش از فایل‌های زنده با پین‌ها تطبیق داشتند. بایت‌های dense منبع زنده و کپی مستقل برابر بودند. چهار نسخهٔ بسته با C011 برابر بودند و scratch برای UID موجود قابل‌نوشتن گزارش شد. مسیرهای Repo و Artifacts زنده هنوز به منابع فقط‌خواندنی تاریخی متصل‌اند. آزمون‌های جدید فقط از کپی مستقل استفاده می‌کنند. هیچ اجرای تازه‌ای از مسیرهای اصلی انجام نشد.
+
+بررسی shasum -a 256 -c برای سه مجموعهٔ بکاپ، ۱۵، ۴۰ و ۵ مورد موفق و صفر مغایرت ثبت کرد. شاهد قبلی بازیابی منطقی ایزوله محفوظ است. بازپخش Globals، بارگذاری ایمیج‌ها در daemon مستقل و بازیابی یکپارچه هنوز بازند.
+
+Checkpoint پیش از آزمون سنگین: فقط یک Attempt تاریخی FAILED موجود است. آخرین اجرای موفق تشخیصی به Stage 7 و CONTEXT_READY رسید و زمان کل ۱۹۳٫۰۲ ثانیه بود. آخرین آزمون با سقف دقیق ۱۸۰ ثانیه در Stage 6 متوقف شد. آزمون بعدی گرم‌کردن فقط فایل‌های ثابت و اجرای مستقل در همان سقف بدون تغییر مراحل اعتبارسنجی است. فرمان ترکیبی قبلی در بازبینی خودکار با ۴۰۴ رد شد و اجرا نشد. ساخت فایل موقت و اجرای Docker جدا می‌شوند. آروان HOLD و پذیرش سرپرست در انتظار است.

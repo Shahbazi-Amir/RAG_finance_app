@@ -195,3 +195,11 @@ Status is review. Supervisor approval is pending.
 - Tested: original Attempt spawn witness EXITED_FAILED with one child, exit 1 and failure near 75 seconds. Reproduced Qdrant lock PermissionError on the original dense clone mode. Fixed copy passed 3,488-vector logical hash and separate copy/open/validate timing. Isolated pinned runner reached CONTEXT_READY with ten results and zero generation in 193.02 seconds, no network. Both uninstrumented and thread-capped tests timed out at the ONNX stage. The second enforced 180 seconds inside the container, exit 124. Local readiness regression passed and 21 candidate source-contract fixture tests passed.
 - Pending: repeatable runtime within the current 180-second cap, verified locator contract, and product acceptance. Existing failed Attempt was not replayed. Arvan HOLD and supervisor acceptance pending.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — recovered frozen runtime and pre-probe checkpoint
+
+- Status: review. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), operational evidence only. Report baseline e1583be, local execution baseline 5ee8a25 and frozen source sample baseline 5fe21e9.
+- Implemented: private mode-0600 freeze manifest and sanitized checkpoint in this ledger and MAC_FIRST_START_FA.md, MAC_FIRST_START_FA.html and CURRENT_STATUS.md. No image or container changes.
+- Tested: inspected all seven exact image/container identities, compared nine source files, verified 11 current asset pins, dense file equality and package versions. Three backup sets returned 60 matching hashes total. Full provenance UNKNOWN; no parallel source was fetched or deployed in this audit.
+- Pending: static-only warm trial under unchanged 180-second cap, locator contract and real product verification. Combined approval review returned HTTP 404 and did not execute. Existing failed Attempt preserved. Arvan HOLD and supervisor acceptance pending.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
