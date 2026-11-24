@@ -203,3 +203,11 @@ Status is review. Supervisor approval is pending.
 - Tested: inspected all seven exact image/container identities, compared nine source files, verified 11 current asset pins, dense file equality and package versions. Three backup sets returned 60 matching hashes total. Full provenance UNKNOWN; no parallel source was fetched or deployed in this audit.
 - Pending: static-only warm trial under unchanged 180-second cap, locator contract and real product verification. Combined approval review returned HTTP 404 and did not execute. Existing failed Attempt preserved. Arvan HOLD and supervisor acceptance pending.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — frozen comparison, closed security probes and budget trials
+
+- Status: partial. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), operational evidence only. Report baseline 61591d8. Execution SHA 5ee8a25 and frozen sample base 5fe21e9.
+- Implemented: final private mode-0600 freeze manifest and sanitized reports in this checkpoint, MAC_FIRST_START_FA.md, MAC_FIRST_START_FA.html and CURRENT_STATUS.md. No Runtime code, image, mount, timeout, data or identity change.
+- Tested: matched all seven frozen identities and stable metadata after canonicalizing Docker mount order. Verified exact pin equality and one unchanged FAILED Attempt with one spawn witness. Noninteractive ingress and private mTLS signature negatives passed after fixing the shell variable and Bootstrap method. Warm static files and exact 180-second runner resulted in Stage 6 exit 124. ONNX schedule trial timed out in Stage 4 and did not exercise the candidate option. Sampled cgroups had no reported quota throttling, swap or OOM.
+- Pending: product runtime budget and approved locator contract, valid product Refresh and integrated backup restore. Full prior image provenance UNKNOWN. No parallel code imported during this audit. Arvan HOLD and supervisor acceptance pending.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
