@@ -1,0 +1,97 @@
+name: F3 UI source-boundaries real Chromium Firefox WebKit no-engine negative
+
+on:
+  push:
+    branches: [agent/ui-f3-source-boundaries-20261124]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Multiple rapid source-review commits must not leave older matrix jobs
+# occupying runners or being mistaken for evidence for the newest SHA.
+concurrency:
+  group: ui-f3-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-next-browser-no-signed-history:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, firefox, webkit]
+    env:
+      CI: 'true'
+      UI_BASELINE_BROWSER: ${{ matrix.engine }}
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout exact UI delivery candidate, never cherry-pick old source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Report exact SHA and assert actual production routing code
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -f apps/web/src/history/proxy.ts
+          test -f apps/web/app/api/auth/callback/route.ts
+          test -f apps/web/app/api/history/'[...path]'/route.ts
+          test -f tests/phase3/integration/ui/app_only_entry_baseline_real_browser.py
+          echo "UI_TWO_OWNER_DELIVERY_SOURCE_SHA=$GITHUB_SHA"
+          echo "UI_BASELINE_REAL_NEXT_NO_SIGNED_HISTORY_EXPECTED_503"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Web exact lockfile, lint, typecheck, full Node suite, production build
+        run: |
+          set -euo pipefail
+          npm ci --prefix apps/web --no-audit --no-fund
+          npm --prefix apps/web run typecheck
+          npm --prefix apps/web run lint
+          npm --prefix apps/web run test
+          npm --prefix apps/web run build
+      - name: Real ${{ matrix.engine }} browser, no mocks and no fake Auth/session
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check 'playwright==1.64.1'
+          python -m playwright install --with-deps "${{ matrix.engine }}"
+      - name: Strict signed browser harness compilation and fail-closed prerequisite check
+        env:
+          PHASE3_APP_MODE: APP_ONLY
+        run: |
+          set -euo pipefail
+          python -m py_compile tests/phase3/integration/ui/app_only_entry_baseline_real_browser.py
+          python -m py_compile tests/phase3/integration/ui/real_signed_two_owner_history_journey.py
+          python -m unittest discover -s tests/phase3/integration/ui -p 'test_real_history_preflight.py' -v
+          if python tests/phase3/integration/ui/real_signed_two_owner_history_journey.py > "$RUNNER_TEMP/ui-signed-preflight.stdout" 2> "$RUNNER_TEMP/ui-signed-preflight.stderr"; then
+            echo "ERROR: signed journey succeeded without approved IdP/PG credentials"; exit 1
+          fi
+          grep -F 'INTEGRATED_LAB_EXECUTION_NOT_APPROVED' "$RUNNER_TEMP/ui-signed-preflight.stderr" >/dev/null
+          echo UI_SIGNED_JOURNEY_FAIL_CLOSED_WHEN_STACK_ABSENT_PASS_NOT_E2E
+      - name: Actual Next Browser normal History route, observe first failing boundary
+        env:
+          PHASE3_APP_MODE: APP_ONLY
+        run: |
+          set -euo pipefail
+          (cd apps/web && ./node_modules/.bin/next start -H 127.0.0.1 -p 3100) > "$RUNNER_TEMP/ui-f3-history-baseline-next.log" 2>&1 &
+          next_pid=$!
+          trap 'kill "$next_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 45); do
+            if curl -fsS --max-time 2 http://127.0.0.1:3100/api/product-capabilities >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS --max-time 3 http://127.0.0.1:3100/api/product-capabilities >/dev/null
+          python -u tests/phase3/integration/ui/app_only_entry_baseline_real_browser.py
+          echo "UI_REAL_NEXT_BROWSER_ENGINE=${{ matrix.engine }}"
+          echo UI_REAL_NEXT_HISTORY_503_NEGATIVE_BASELINE_ONLY_NOT_L2_A_B
+      - name: Bounded evidence no screenshots of account data
+        if: always()
+        run: |
+          echo "UI_SOURCE_SHA=$GITHUB_SHA"
+          echo "UI_REAL_BROWSER_A_B_200_404_REVOKE=NOT_EXECUTED_NO_SIGNED_IDP_PG_STACK"
+          echo "UI_REAL_BROWSER_BASELINE=ANONYMOUS_503_NO_ENGINE"
