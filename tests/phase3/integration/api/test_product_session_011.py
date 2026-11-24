@@ -1182,6 +1182,92 @@ class RealProductSession011(unittest.TestCase):
         self.assertEqual(self.list(b).status_code, 200)
         print("API_F3_REAL_PG_REVOKE_LOCK_OTHER_OWNER_HISTORY_AND_SEND_PASS", flush=True)
 
+    def test_API011_17_rejected_revoke_body_leaves_assertion_unused(self):
+        """Real signed HTTPS: invalid revoke input never consumes the durable JTI."""
+        a, b = self.login("A"), self.login("B")
+        op = str(uuid.uuid4())
+        body = json.dumps({"operation_id": op}).encode()
+        token, claims = self.signed(a, "POST", REVOKE, body)
+        key = sha256((claims["iss"] + "\x00" + claims["jti"]).encode("utf-8")).hexdigest()
+        with psycopg.connect(os.environ["AUTH_MIG_DSN"], autocommit=True,
+                             row_factory=dict_row) as admin:
+            def count():
+                return admin.execute(
+                    "SELECT count(*) AS n FROM auth_l1.service_assertion_replays "
+                    "WHERE issuer_jti_sha256=%s", (key,)).fetchone()["n"]
+            self.assertEqual(count(), 0)
+            tls = ssl.create_default_context(cafile=self.fixture.ca)
+            tls.load_cert_chain(self.fixture.cert, self.fixture.key)
+            with httpx.Client(verify=tls, trust_env=False, timeout=12,
+                              follow_redirects=False) as client:
+                invalid = client.post(self.url + REVOKE, content=body, headers=[
+                    ("Authorization", "BFF-Assertion " + token),
+                    ("Content-Type", "application/json"),
+                    ("Content-Type", "text/plain"),
+                ])
+            self.assertEqual(invalid.status_code, 422, invalid.text)
+            self.assertEqual(invalid.headers.get("cache-control"), "no-store")
+            self.assertEqual(count(), 0)
+            invalid = self.request("POST", REVOKE, token, body=b"x" * 513)
+            self.assertEqual(invalid.status_code, 413, invalid.text)
+            self.assertEqual(invalid.headers.get("cache-control"), "no-store")
+            self.assertEqual(count(), 0)
+            duplicate_json = ('{"operation_id":"%s","operation_id":"%s"}' % (op, op)).encode()
+            invalid = self.request("POST", REVOKE, token, body=duplicate_json)
+            self.assertEqual(invalid.status_code, 422, invalid.text)
+            self.assertEqual(count(), 0)
+            # The exact same assertion is still usable for the original
+            # correctly framed body. This revokes A in the real 003/005 TX.
+            revoked = self.request("POST", REVOKE, token, body=body)
+            self.assertEqual(revoked.status_code, 200, revoked.text)
+            self.assertEqual(revoked.json(), {"state": "REVOKED_COMMITTED", "operation_id": op})
+            self.assertEqual(count(), 1)
+        self.assertEqual(self.list(a).status_code, 401)
+        self.assertEqual(self.list(b).status_code, 200)
+        print("API_F3_REVOKE_BAD_BODY_ZERO_REPLAY_THEN_VALID_COMMIT_PASS", flush=True)
+
+    def test_API011_18_parallel_app_only_send_retries_never_write_or_consume_jti(self):
+        """Test disabled Send retries; NOT successful write idempotency or T3."""
+        from concurrent.futures import ThreadPoolExecutor
+        a = self.login("A")
+        body = b"not-json-app-only-retry"
+        shared_token, shared = self.signed(a, "POST", "/v1/messages", body)
+        fresh = [self.signed(a, "POST", "/v1/messages", body) for _ in range(4)]
+        tokens = [shared_token] * 4 + [token for token, _ in fresh]
+        claims = [shared] + [proof for _, proof in fresh]
+        keys = [sha256((proof["iss"] + "\x00" + proof["jti"]).encode("utf-8")).hexdigest()
+                for proof in claims]
+        self.assertEqual(len(set(keys)), 5)
+        with psycopg.connect(os.environ["DB_MIG_DSN"], autocommit=True,
+                             row_factory=dict_row) as db:
+            with psycopg.connect(os.environ["AUTH_MIG_DSN"], autocommit=True,
+                                 row_factory=dict_row) as auth:
+                def counts():
+                    return db.execute(
+                        "SELECT "
+                        "(SELECT count(*) FROM history_l1.send_receipts WHERE owner_id=%s) AS t1,"
+                        "(SELECT count(*) FROM history_l1.execution_attempts WHERE owner_id=%s) AS t2,"
+                        "(SELECT count(*) FROM history_l1.answers WHERE owner_id=%s) AS t3",
+                        (a["owner_id"], a["owner_id"], a["owner_id"])).fetchone()
+                def replay_count():
+                    return auth.execute(
+                        "SELECT count(*) AS n FROM auth_l1.service_assertion_replays "
+                        "WHERE issuer_jti_sha256=ANY(%s)", (keys,)).fetchone()["n"]
+                before = counts()
+                self.assertEqual(replay_count(), 0)
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    responses = list(pool.map(lambda token: self.request(
+                        "POST", "/v1/messages", token, body=body), tokens))
+                for response in responses:
+                    self.assertEqual(response.status_code, 503, response.text)
+                    self.assertIn("ENGINE_NOT_CONFIGURED", response.text)
+                    self.assertEqual(response.headers.get("cache-control"), "no-store")
+                    self.assertNotIn(body.decode(), response.text)
+                self.assertEqual(counts(), before)
+                self.assertEqual(replay_count(), 0)
+        self.assertEqual(self.list(a).status_code, 200)
+        print("API_F3_APP_ONLY_PARALLEL_SEND_RETRIES_ZERO_T1_T2_T3_REPLAY_PASS", flush=True)
+
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
         """Actual verified HTTPS callback, same pinned redirect for Code exchange."""
         from cryptography.hazmat.primitives import serialization

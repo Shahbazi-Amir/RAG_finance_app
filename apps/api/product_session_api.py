@@ -817,10 +817,20 @@ async def session_revoke_one(request: Request):
         if (_PRIVATE_STAGING_PROFILE is not None
                 and not _PRIVATE_STAGING_PROFILE.allowed_peer(request.scope)):
             raise TrustRejected()
+        # Reject ambiguous HTTP metadata before reading the request or
+        # entering the signed one-time session transaction. The BFF sends
+        # exactly one Content-Type and a single Content-Length. Preserve
+        # bounded chunked input without an advisory length for compatibility.
+        content_types = request.headers.getlist("content-type")
+        lengths = request.headers.getlist("content-length")
+        encodings = request.headers.getlist("transfer-encoding")
         if (request.scope.get("raw_path") != _REVOKE_PATH
                 or request.scope.get("query_string") != b""
-                or request.headers.get("content-type", "").split(";")[0] != "application/json"
-                or len(request.headers.getlist("content-length")) > 1):
+                or len(content_types) != 1
+                or content_types[0].split(";")[0] != "application/json"
+                or len(lengths) > 1
+                or (encodings and (lengths or len(encodings) != 1
+                    or encodings[0].strip().lower() != "chunked"))):
             return _err(422, "INVALID_REQUEST")
         declared = request.headers.get("content-length")
         if declared is not None:

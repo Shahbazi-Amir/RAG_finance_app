@@ -679,5 +679,48 @@ class AppOnlyNoEngineTests(unittest.TestCase):
                     commit.assert_not_called()
 
 
+    def test_revoke_ambiguous_headers_reject_before_body_or_admission(self):
+        from apps.api import product_session_api
+        wrapper = AppOnlyASGI(product_session_api.app, FakeProfile())
+        path = "/internal/auth/session/v1/revoke-one"
+
+        async def scenario():
+            ct = (b"content-type", b"application/json")
+            for headers in (
+                [],
+                [ct, ct],
+                [ct, (b"content-type", b"text/plain")],
+                [ct, (b"content-length", b"1"), (b"transfer-encoding", b"chunked")],
+                [ct, (b"transfer-encoding", b"chunked"), (b"transfer-encoding", b"chunked")],
+                [ct, (b"transfer-encoding", b"gzip")],
+            ):
+                with self.subTest(headers=headers):
+                    events = []
+                    async def receive():
+                        raise AssertionError("AMBIGUOUS_HEADERS_MUST_NOT_READ_BODY")
+                    async def send(event):
+                        events.append(event)
+                    await wrapper({
+                        "type": "http", "scheme": "https", "trusted_transport_test": True,
+                        "path": path, "raw_path": path.encode(), "root_path": "",
+                        "method": "POST", "query_string": b"", "http_version": "1.1",
+                        "headers": headers, "client": ("127.0.0.1", 12345),
+                        "server": ("test.invalid", 443),
+                    }, receive, send)
+                    start = next(e for e in events if e["type"] == "http.response.start")
+                    self.assertEqual(start["status"], 422)
+                    self.assertEqual(dict(start["headers"])[b"cache-control"], b"no-store")
+                    body = b"".join(e.get("body", b"") for e in events
+                                    if e["type"] == "http.response.body")
+                    self.assertEqual(json.loads(body), {"error": "INVALID_REQUEST"})
+
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}):
+            with patch.object(product_session_api, "_PRIVATE_STAGING_PROFILE", None):
+                with patch.object(product_session_api, "_revoke_committed",
+                                  side_effect=AssertionError("NO_DB_ADMISSION")) as commit:
+                    asyncio.run(scenario())
+                    commit.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
