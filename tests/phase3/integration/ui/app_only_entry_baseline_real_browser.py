@@ -96,12 +96,19 @@ async def main():
     target = urlsplit(os.environ.get("UI_BASELINE_ORIGIN", ORIGIN))
     if target.geturl() != ORIGIN:
         raise RuntimeError("BASELINE_ORIGIN_MUST_BE_ISOLATED_127_0_0_1_3100")
+    # Explicit allowlist prevents caller-selected remote or unreviewed
+    # browser channels. CI executes each engine independently, without mocks.
+    engine = os.environ.get("UI_BASELINE_BROWSER", "chromium")
+    if engine not in {"chromium", "firefox", "webkit"}:
+        raise RuntimeError("UI_BASELINE_BROWSER_NOT_IN_PINNED_ENGINE_MATRIX")
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=True)
+        browser = await getattr(playwright, engine).launch(headless=True)
         try:
             await baseline(browser, 1280, 800)
             await baseline(browser, 390, 844)
             await baseline(browser, 320, 700)
+            print("UI_REAL_NEXT_NEGATIVE_BROWSER_ENGINE_" + engine.upper()
+                  + "_DESKTOP_390_320_PASS", flush=True)
         finally:
             await browser.close()
 
