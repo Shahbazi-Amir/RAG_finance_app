@@ -313,6 +313,21 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
+      - name: Emit immutable SOURCE+local OCI image provenance and exact PG migration hashes
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/phase3/write_f3_app_only_provenance.py
+          python3 scripts/phase3/write_f3_app_only_provenance.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f3-foundation-local-image-source-provenance-not-release
+          path: ci_receipts/foundation/app_only_local_source_provenance.json
+          retention-days: 14
+          if-no-files-found: warn
+
   integrated-isolated-pg17:
     name: Integrated PG17.11 pinned 001-010, TLS RLS DB55 backup restore
     runs-on: ubuntu-24.04
