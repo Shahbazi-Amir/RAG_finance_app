@@ -39,7 +39,7 @@ for(const bad of ['2026-02-29T00:00:00Z','2026-02-30T00:00:00Z',
   '2026-04-31T00:00:00Z','2026-01-01T24:00:00Z',
   '1900-02-29T00:00:00Z','2026-02-30T01:00:00+01:00']){
   test('message calendar guard: '+bad,async()=>{
-    const p=historyMessages(first,bad);
+    const p=historyMessages(bad.startsWith('1900')?'1899-12-31T00:00:00Z':first,bad);
     await withPage(p,()=>assert.rejects(messages('conv_1',2),invalidError));
   });
 }
@@ -59,10 +59,9 @@ test('century divisible by 400 remains valid',async()=>{
   const got=await withPage(p,()=>messages('conv_1',2));
   assert.equal(got.items.length,2);
 });
-const cursor=fixture('valid_paginated_conversations').page.next_cursor;
-assert.equal(typeof cursor,'string');
-assert.ok(cursor.length);
-const alternate=cursor+'A';
+// Explicit synthetic opaque tokens: the original valid fixture is terminal.
+const cursor='fixture-cursor-page-2';
+const alternate='fixture-cursor-page-1';
 for(const [name,build,read] of [
   ['messages',()=>historyMessages(first,second),c=>messages('conv_1',2,c)],
   ['conversations',()=>historyConversations(second,first),c=>conversations(2,c)]]){

@@ -102,6 +102,10 @@ jobs:
           PY
       - name: All 393 canonical IDs exact source mapping and no false acceptance
         run: python -m unittest discover -s tests/phase3/integration -p 'test_integrated_393_registry.py' -v
+      - name: Reject tampered History follow-up pins and retain prior microsecond source receipt
+        run: |
+          python -m unittest discover -s tests/phase3/foundation -p 'test_f3_history_microsecond_source_integrity.py' -v
+          python -m unittest discover -s tests/phase3/foundation -p 'test_f3_history_page_contract_followup.py' -v
       - name: Emit all 393 canonical owner/criterion/test-state rows, no Gate promotion
         run: |
           set -euo pipefail
