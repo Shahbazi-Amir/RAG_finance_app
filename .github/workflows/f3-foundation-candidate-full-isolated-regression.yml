@@ -219,7 +219,7 @@ jobs:
                   "has_healthcheck":True,"registry_manifest_digest":None}
           with open("ci_receipts/foundation/local_image_identity.json","w") as out:
               json.dump(result,out,indent=2,sort_keys=True)
-              out.write("\\n")
+              out.write(chr(10))
           print("F3_FOUNDATION_LOCAL_IMAGE_IDS_SHA_NONROOT_HEALTH_PASS_NOT_RELEASE_DIGEST")
           PY
       - uses: actions/upload-artifact@v4
