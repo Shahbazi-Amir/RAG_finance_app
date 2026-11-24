@@ -100,7 +100,11 @@ export default function ProductChat(){
   const [drafts,setDrafts]=useState<Record<string,string>>({});
   const [threads,setThreads]=useState<Record<string,ThreadData>>({});
   const [attempts,setAttempts]=useState<Record<string,Attempt>>({});
+  // Keep transport failures scoped to their own operation. A successful
+  // signed History retry must not leave an old outage alert in the DOM.
   const [error,setError]=useState('');
+  const [listError,setListError]=useState('');
+  const [threadErrors,setThreadErrors]=useState<Record<string,string>>({});
   const [mobileOpen,setMobileOpen]=useState(false);
   const mobileMenu=useRef<HTMLElement|null>(null);
   const menuTrigger=useRef<HTMLButtonElement|null>(null);
@@ -162,7 +166,7 @@ export default function ProductChat(){
     privacyEpoch.current++;
     setAttempts({});setList({items:[],next:null,more:false});
     setThreads({});setSelected('draft:new');setDrafts({});
-    setListState('unauthorized');setError('');setMobileOpen(false);setBusy(false);
+    setListState('unauthorized');setError('');setListError('');setThreadErrors({});setMobileOpen(false);setBusy(false);
     return true;
   },[]);
   const matchOwner=useCallback((owner:string):boolean=>{
@@ -179,6 +183,7 @@ export default function ProductChat(){
       if(lost.current||!matchOwner(page.owner)||listEpoch.current!==epoch)return;
       setList(prev=>({items:append?mergeUnique(prev.items,page.items,x=>x.id):page.items,
         next:page.next,more:page.more}));
+      setListError('');
       setListState('ready');
       if(!append)setSelected(current=>current==='draft:new'&&page.items.length?
         page.items[0].id:current);
@@ -196,8 +201,8 @@ export default function ProductChat(){
       // only GET-only non-secret checkpoint state for a later valid owner.
       privacyEpoch.current++;
       threadEpochs.current={};
-      setThreads({});
-      setListState('error');setError(failureLabel(e));
+      setThreads({});setThreadErrors({});
+      setListState('error');setListError(failureLabel(e));
     }
   },[invalidate,matchOwner]);
   const loadThread=useCallback(async (id:string,append=false,cursor:string|null=null)=>{
@@ -209,8 +214,12 @@ export default function ProductChat(){
       const page=await messages(id,30,append?cursor:null);
       if(lost.current||privacyEpoch.current!==privacyAtStart||
          threadEpochs.current[id]!==epoch||!matchOwner(page.owner))return;
+      setThreadErrors(all=>{
+        if(privacyEpoch.current!==privacyAtStart||threadEpochs.current[id]!==epoch)return all;
+        const next={...all};delete next[id];return next;
+      });
       setThreads(all=>{
-        if(privacyEpoch.current!==privacyAtStart)return all;
+        if(privacyEpoch.current!==privacyAtStart||threadEpochs.current[id]!==epoch)return all;
         const prev=all[id];
         return {...all,[id]:{
           items:append&&prev?mergeUnique(prev.items,page.items,x=>x.id):page.items,
@@ -225,8 +234,12 @@ export default function ProductChat(){
       if(e instanceof HistoryFailure&&e.reason==='invalid'){
         invalidate(new HistoryFailure(401,'unauthorized'));return;
       }
-      setThreads(all=>{const next={...all};delete next[id];return next;});
-      setError(failureLabel(e));
+      setThreads(all=>{
+        if(privacyEpoch.current!==privacyAtStart||threadEpochs.current[id]!==epoch)return all;
+        const next={...all};delete next[id];return next;
+      });
+      setThreadErrors(all=>privacyEpoch.current===privacyAtStart&&
+        threadEpochs.current[id]===epoch?{...all,[id]:failureLabel(e)}:all);
     }
   },[invalidate,matchOwner]);
   const probe=useCallback(async (record:AttemptCheckpoint)=>{
@@ -481,6 +494,7 @@ export default function ProductChat(){
   // currently authenticated owner cannot be revalidated.
   const verifiedPage=listState==='ready';
   const messagesFor=verifiedPage?threads[selected]:undefined;
+  const threadError=verifiedPage?threadErrors[selected]:undefined;
   const renderedIds=new Set(messagesFor?.items.map(m=>m.id)??[]);
   const answers=new Map((messagesFor?.answers??[]).map(a=>[a.messageId,a.payload]));
   const selectedAttempts=verifiedPage?Object.values(attempts).filter(a=>a.viewId===selected):[];
@@ -569,14 +583,24 @@ export default function ProductChat(){
         برای مشاهدهٔ گفت‌وگوها باید <Link href="/login">وارد حساب شوید</Link>.
       </p>}
       {error&&<p className="history-error" role="alert">{error}</p>}
+      {listError&&<p className="history-error" role="alert" data-testid="history-list-error">{listError}</p>}
+      {threadError&&<div>
+        <p className="history-error" role="alert" data-testid="history-thread-error">{threadError}</p>
+        <button type="button" className="secondary" data-testid="retry-history-thread"
+          onClick={()=>void loadThread(selected)}>بازخوانی پیام‌های همین گفت‌وگو</button>
+      </div>}
       {listState==='error'&&<p role="status" data-testid="history-owner-revalidation-required"
         className="history-note">
         اتصال برای تأیید مالک و نشست برقرار نیست؛ پیام‌های قبلی موقتاً پنهان
         و ارسال پرسش تا بازخوانی موفق غیرفعال است.
       </p>}
       <div className="history-messages" aria-live="polite">
-        {!messagesFor&&!selectedAttempts.length&&listState!=='unauthorized'&&
+        {verifiedPage&&!selectedAttempts.length&&!threadError&&selected.startsWith('draft:')&&
           <p className="history-empty">پرسشتان را بنویسید یا گفت‌وگویی از فهرست باز کنید.</p>}
+        {verifiedPage&&!selected.startsWith('draft:')&&!messagesFor&&!threadError&&
+          <p role="status" className="history-note" data-testid="history-thread-loading">در حال بارگذاری پیام‌ها…</p>}
+        {messagesFor&&messagesFor.items.length===0&&!selectedAttempts.length&&
+          <p role="status" className="history-note" data-testid="history-thread-empty">هنوز پیامی در این گفت‌وگو ثبت نشده است.</p>}
         {(messagesFor?.items??[]).map(m=><article key={m.id}
           data-testid={'history-message-'+m.id}
           className={m.role==='user'?'history-user':'history-answer'}>

@@ -86,8 +86,31 @@ def reviewed_ui_overrides():
             assert row["historical_58_decision"] is None
         actual=subprocess.run(["git","hash-object",row["path"]],
             cwd=ROOT,capture_output=True,text=True,check=True).stdout.strip()
-        assert actual==row["source_blob_sha"],row["path"]
+        if row["path"]=="apps/web/src/ui/product-chat.tsx":
+            follow=guarded_ui_history_recovery(row,actual)
+            row["historical_transferred_blob_sha"]=row["source_blob_sha"]
+            row["source_blob_sha"]=follow["candidate_blob_sha"]
+            row["candidate_blob_sha"]=follow["candidate_blob_sha"]
+        else:
+            assert actual==row["source_blob_sha"],row["path"]
     return {r["path"]:r for r in rows}
+
+UI_HISTORY_RECOVERY=ROOT/"coordination/integration/F3_84_UI_HISTORY_RECOVERY_FOLLOWUP_20261124.json"
+
+def guarded_ui_history_recovery(row,actual):
+    d=json.loads(UI_HISTORY_RECOVERY.read_text(encoding="utf8"))
+    assert set(d)=={"schema","parent_sha","path","previous_blob_sha","candidate_blob_sha","canonical_ids","scope","owner_signed_acceptance","target_verified","canonical_activity_accepted","module_gate_accepted"}
+    assert d["schema"]=="foundation.f3.ui_history_recovery_followup.v1"
+    assert d["parent_sha"]=="e55f9ae8406f52fe0437bd442ac8cd4d946ef1bd"
+    assert d["path"]==row["path"]=="apps/web/src/ui/product-chat.tsx"
+    assert row["source_blob_sha"]==row["candidate_blob_sha"]==d["previous_blob_sha"]=="5f120827d93cbbf11e534c227cda82f55fbd83ec"
+    assert actual==d["candidate_blob_sha"]=="b1ba457f4a4eca179739b6a010993697c1633aa5"
+    assert row["owner_signed_acceptance"] is False
+    assert d["canonical_ids"]==["P3M14-A02","P3M14-A03","P3M14-A09","P3M14-A10","P3M15-A03"]
+    assert d["scope"]=="CI_CANDIDATE_NOT_OWNER_ACCEPTANCE"
+    assert all(d[k] is False for k in ("owner_signed_acceptance","target_verified",
+        "canonical_activity_accepted","module_gate_accepted"))
+    return d
 
 
 
