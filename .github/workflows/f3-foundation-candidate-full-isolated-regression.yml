@@ -58,6 +58,33 @@ jobs:
           python -m unittest discover -s tests/phase3/integration/ui -p 'test_l2_no_dispatch_receipt_gate.py' -v
       - name: All 393 canonical IDs exact source mapping and no false acceptance
         run: python -m unittest discover -s tests/phase3/integration -p 'test_integrated_393_registry.py' -v
+      - name: Emit all 393 canonical owner/criterion/test-state rows, no Gate promotion
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/phase3/build_f3_unified_register.py
+          python scripts/phase3/build_f3_unified_register.py --sha "$GITHUB_SHA" --out ci_receipts/foundation
+          python - <<'PY'
+          import csv,json,os
+          from pathlib import Path
+          out=Path("ci_receipts/foundation")
+          doc=json.loads((out/"f3_393_evidence_ledger.json").read_text())
+          rows=list(csv.DictReader((out/"f3_393_evidence_ledger.csv").open()))
+          assert len(doc["rows"])==len(rows)==393
+          assert doc["generated_source_sha"]==os.environ["GITHUB_SHA"]
+          assert sum(x["counts_as_activity"]=="true" for x in rows)==262
+          assert len(set(x["id"] for x in rows))==393
+          assert all(x["acceptance_status"]!="ACCEPTED" for x in rows)
+          print("F3_UNIFIED_REGISTER_393_NO_AUTOMATIC_ACCEPTANCE_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f3-foundation-393-per-id-unaccepted-canonical-ledger
+          path: |
+            ci_receipts/foundation/f3_393_evidence_ledger.csv
+            ci_receipts/foundation/f3_393_evidence_ledger.json
+          retention-days: 14
+          if-no-files-found: warn
       - name: Isolated app-only SHA namespace and Compose preflight (no image pull)
         env:
           CI: 'true'
