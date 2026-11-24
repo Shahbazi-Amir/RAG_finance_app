@@ -8,7 +8,7 @@ import type {Answer,Citation} from '../mock/transport';
 import {verifiedSourceUrl,verifiedSourceLocatorLabel,verifiedSourceTypeLabel} from './source-locator';
 import {sourceCredits,confidenceLabel} from './source-metadata';
 import RetrievedSourcesPanel from './retrieved-sources-panel';
-import {OwnerFence} from './owner-fence';
+import {OwnerFence,sameOwnerPrivacyEpoch} from './owner-fence';
 import {isVerifiedLiveAnswer,productOutcomeLabel} from './answer-visibility';
 import {blockedCapability,decodeRuntimeCapability,type RuntimeCapability} from './runtime-capability';
 import {readCheckpoints,retainCheckpoint,forgetCheckpoints,statusCorrelators,
@@ -429,6 +429,11 @@ export default function ProductChat(){
         !isTerminal(a.phase)&&
         (a.record.resolved_conversation_id??a.record.requested_conversation_id)===original))
       return;
+    // The signed owner established by the latest History page is frozen
+    // for this POST. A delayed receipt must never repopulate the UI after
+    // a 401, session rotation or transient owner-revalidation failure.
+    const privacyAtStart=privacyEpoch.current;
+    const ownerRevision=ownerFence.current.capture();
     const request=newSend(question,original);
     const record:AttemptCheckpoint={
       requested_conversation_id:request.requested_conversation_id,
@@ -448,7 +453,8 @@ export default function ProductChat(){
     setAttempts(all=>({...all,[record.client_message_id]:attempt}));
     try{
       const receipt=await sendMessage(request); // exactly one POST per user action
-      if(lost.current)return;
+      if(lost.current||!sameOwnerPrivacyEpoch(ownerFence.current,
+          ownerRevision,privacyAtStart,privacyEpoch.current))return;
       setAttempts(all=>{const prev=all[record.client_message_id];return prev?
         {...all,[record.client_message_id]:{
           ...prev,
@@ -462,6 +468,8 @@ export default function ProductChat(){
       void loadList();void loadThread(receipt.id);
       void probe(record); // GET only
     }catch(e){
+      if(lost.current||!sameOwnerPrivacyEpoch(ownerFence.current,
+          ownerRevision,privacyAtStart,privacyEpoch.current))return;
       if(invalidate(e)||lost.current)return;
       setAttempts(all=>{const prev=all[record.client_message_id];return prev?
         {...all,[record.client_message_id]:{...prev,phase:'transport_unknown'}}:all;});
@@ -521,6 +529,7 @@ export default function ProductChat(){
         </button>)}
       </nav>
       {list.more&&<button type="button" className="secondary"
+        data-testid="more-conversations"
         onClick={()=>void loadList(true,list.next)}>نمایش گفت‌وگوهای بیشتر</button>}
       <button type="button" className="secondary" data-testid="refresh-history"
         onClick={()=>void loadList()} disabled={listState==='unauthorized'}>بازخوانی</button>
@@ -551,7 +560,7 @@ export default function ProductChat(){
             :capabilityState==='unavailable'
             ?'قابلیت ارسال از سرور قابل تأیید نیست؛ ارسال غیرفعال است.'
             :runtimeCapability.send_mode==='DISABLED'
-            ?'برنامه در حالت بدون موتور فعال است؛ تاریخچه قابل مشاهده است، اما ارسال پرسش و تولید پاسخ غیرفعال است.'
+            ?'برنامه در حالت بدون موتور فعال است؛ ارسال پرسش و تولید پاسخ غیرفعال است. تاریخچه فقط پس از ورود و اتصال امن به سرور داده قابل مشاهده است.'
             :'فقط ثبت و بازیابی فنی NO_DISPATCH_ONLY مجاز است؛ تولید پاسخ و موتور زنده فعال نیست.'}
         </p>
         <Link className="history-link" href="/account">حساب، حریم خصوصی و وضعیت قابلیت‌ها</Link>
@@ -611,6 +620,7 @@ export default function ProductChat(){
           </button>}
         </article>)}
         {messagesFor?.more&&<button type="button" className="secondary"
+          data-testid="more-messages"
           onClick={()=>void loadThread(selected,true,messagesFor.next)}>
           پیام‌های بیشتر
         </button>}
