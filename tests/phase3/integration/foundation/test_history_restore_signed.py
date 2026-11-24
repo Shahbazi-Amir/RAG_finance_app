@@ -47,9 +47,14 @@ def pg17(tool, *parts):
     The GHA temp directory is the only mounted path, not a Mac volume.
     """
     temp=str(Path(os.environ["RUNNER_TEMP"]).resolve())
+    tls=[]
+    if os.environ.get("PGSSLMODE")=="verify-full":
+        ca=Path(os.environ["PGSSLROOTCERT"]).resolve()
+        assert ca.is_relative_to(Path(temp)) and ca.is_file()
+        tls=["-e","PGSSLMODE=verify-full","-e","PGSSLROOTCERT="+str(ca)]
     return command(["docker","run","--rm","--network","host",
                     "--pull","never",
-                    "-e","PGPASSWORD="+os.environ["PGPASSWORD"],
+                    "-e","PGPASSWORD="+os.environ["PGPASSWORD"],*tls,
                     "-v",temp+":"+temp,
                     "postgres:17.11",tool,*parts])
 
