@@ -38,3 +38,16 @@ Original #84 `apps/api/app_only_asgi.py` is **deny-only**: `GET /v1/conversation
 ## Reproduce without target access
 
 On independently approved private candidate environment: install `API_CURSOR_KEY`, TTL, owned 0600 TLS/config files and restricted PG roles, build `infra/phase3_l1/Dockerfile.api`, run `python3 -m apps.api.private_app_only_asgi --config /run/secrets/phase3-app-only.json`; BFF must sign /health/ready exact path and signed History as described. For reproducible CI, use the two workflows noted above on the **same** commit SHA. Never expose API on a public host/port; no volume deletion/merge/deploy/engine call.
+
+## API extension — observed 2026-11-24, actual PG service-loss proof
+
+Relative to former exact-head `727438bbaf9088bf5fa62ddc8433671165026a31`, we closed one previously **unobserved** app-only failure mode, not an entire product Gate.
+
+- `test_API011_11_real_isolated_pg_container_loss_readiness_503_recovery` uses the **exact GitHub Actions `job.services.postgres.id`**; before stop it requires `CI=GITHUB_ACTIONS=true`, DSN `dbname=history_ci`, loopback PG:5432, a strictly hexadecimal one-service ID, and Docker image `postgres:17.11`. It rejects any uncertain environment before issuing `docker stop` and restores the same disposable container in a `finally` block.
+- With a REAL mTLS+RS256 signed GET from a still-active owner, `/health/ready` is **200 before outage**, **503 while PG17 is genuinely stopped**, **200 after original PG container restart**, and the same synthetic owner's History ID remains present. This is not an isolated mocking of `psycopg.Error` or a role-grant-only denial.
+- The earlier `apps/api/private_app_only_asgi.py` readiness admission runs in a Starlette thread pool. New `test_slow_pg_readiness_does_not_block_app_only_send_fence` proves in-process that a deliberately stalled PG worker cannot block the main ASGI event loop's **503-before-body** Send fence. The SQL delay is *unit simulated*, not a second PG-live outage. This test **does not imply** complete SLO performance readiness.
+- All other negative protections remain: authentic H11 pinned client certificate, RS256 exact body/path/query, replay JTI, A/B owner B404, revoked A401, after-restart History/Status ID parity with independent PG JOIN, UNKNOWN→CANCELLED one original T2/zero T3, engine disabled.
+- Existing 46/46 portable local browser↔SQL verifier tests are **only offline/simulated**. Original Migration 001 has FORCE RLS with `TO history_app`, so Foundation/DB must provide an explicitly approved scoped audit principal/policy before independently reading A/B. Do not solve it with BYPASSRLS, superuser or disabling RLS.
+- There is still no single same-namespace Next browser→real BFF→OIDC callback→API Docker service→PG, no fresh-volume restore followed by browser journey, no Mac owner approval. The API branch is **Draft** and must not be counted as any officially accepted Phase3 activity/Gate.
+
+**CI source and attribution rule:** only the final GitHub Actions job results at the exact candidate SHA count; past runs and tests on independent SHA are diagnostic. Foundation remains owner of #84 integration, DB owner of scoped read-only SQL/restore, UI owner of authentic two-browser ceremony. Release and target decisions belong to CENTRAL/Ops.
