@@ -775,5 +775,59 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             connect.assert_not_called()
 
 
+    def test_app_only_startup_refuses_inherited_execution_capability(self):
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization
+        from apps.api.private_app_only_asgi import prepare_app_only
+        from apps.api import product_session_api
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        (self.root / "pub.pem").write_bytes(key.public_key().public_bytes(
+            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
+        cfg = load_app_only_config(self.config_file)
+        with patch.dict(os.environ, {"PHASE3_APP_MODE":"APP_ONLY",
+                "API_RUNNER_EXECUTION_MODE":"APP_ONLY", "API_CURSOR_KEY":"x"*48,
+                "API_CURSOR_TTL_SECONDS":"300", "CI":"false", "GITHUB_ACTIONS":"false"}):
+            with patch("apps.api.private_app_only_asgi._test_tls_material"), patch(
+                    "apps.api.private_app_only_asgi.verify_staging_database_authority"), patch.object(
+                    product_session_api, "install_private_staging_auth") as install:
+                for name in ("_SERVER_NO_DISPATCH_TASK", "_CI_CLAIM_STUB",
+                             "_CI_DISPATCH_REPORTER_DSN", "_CI_INVITED_RESULT_STORE"):
+                    with self.subTest(name=name), patch.object(product_session_api, name, object()):
+                        with self.assertRaises(StagingConfigDenied):
+                            prepare_app_only(cfg)
+                install.assert_not_called()
+
+    def test_actual_app_only_send_never_invokes_spawn_gateway_or_persistence(self):
+        from contextlib import ExitStack
+        from apps.api import product_session_api
+        wrapper = AppOnlyASGI(product_session_api.app, FakeProfile())
+        async def invoke():
+            async def trusted(scope, receive, send):
+                scope["trusted_transport_test"] = True
+                return await wrapper(scope, receive, send)
+            async with AsyncClient(transport=ASGITransport(app=trusted),
+                                   base_url="https://test.invalid") as client:
+                for path in ("/v1/messages", "/v1/%6dessages"):
+                    response = await client.post(path, content=b"not-json")
+                    self.assertEqual(response.status_code, 503)
+                    self.assertEqual(response.headers["cache-control"], "no-store")
+                    self.assertIn("ENGINE_NOT_CONFIGURED", response.text)
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE":"APP_ONLY"}):
+            with ExitStack() as stack:
+                forbidden = [
+                    "subprocess.Popen", "httpx.Client.request",
+                    "psycopg.connect", "apps.api.product_session_api.answer_from_fixture",
+                    "apps.api.product_session_api.start_t2",
+                    "apps.api.product_session_api.finalize_t3",
+                    "apps.api.product_session_api.after_definitive_commit",
+                    "apps.api.product_session_api._run_ci_claim_send",
+                ]
+                spies = [stack.enter_context(patch(name, side_effect=AssertionError(
+                         "FORBIDDEN_APP_ONLY_EFFECT"))) for name in forbidden]
+                asyncio.run(invoke())
+                for spy in spies:
+                    spy.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

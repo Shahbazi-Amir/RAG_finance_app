@@ -294,6 +294,13 @@ def prepare_app_only(cfg: AppOnlyConfig, environ=None):
     if str(module_dir) not in sys.path:
         sys.path.insert(0, str(module_dir))
     from apps.api import product_session_api, history_api
+    # App-only must never inherit an already installed execution capability
+    # from another composition in this interpreter. Reject rather than clear
+    # it silently (which would conceal an invalid server startup).
+    if any(getattr(product_session_api, name) is not None for name in (
+            "_SERVER_NO_DISPATCH_TASK", "_CI_CLAIM_STUB",
+            "_CI_DISPATCH_REPORTER_DSN", "_CI_INVITED_RESULT_STORE")):
+        raise StagingConfigDenied()
     # Real History pagination depends on a stable, server-owned HMAC key.
     # Never start a seemingly "ready" API that fails on the second page.
     # This is the original History cursor contract, not a new wire DTO.
