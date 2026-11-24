@@ -111,20 +111,22 @@ class ComposeRestoredBrowserDemo(AppOnlyBrowserDemo):
         for d in (webfiles,bootfiles,ingressfiles,auditdir,fixture):
             d.mkdir(mode=0o700)
 
-        def copy_secret(src, directory, name):
+        def copy_secret(src, directory, name, target="/run/lab"):
             dst=directory/name
             shutil.copyfile(src,dst)
             dst.chmod(0o600)
-            return "/run/lab/"+name
+            return target+"/"+name
 
         env=dict(self.web_env)
         for key in ("AUTH_CI_BOOTSTRAP_SIGN_KEY","AUTH_CI_PRODUCT_SIGN_KEY",
                     "AUTH_CI_BOOTSTRAP_CA","AUTH_CI_BOOTSTRAP_CERT",
                     "AUTH_CI_BOOTSTRAP_KEY"):
-            env[key]=copy_secret(env[key],webfiles,key.lower())
+            # Existing CI-only BFF readers require /tmp paths. Preserve
+            # the trust check; place only the fixture mount under /tmp.
+            env[key]=copy_secret(env[key],webfiles,key.lower(),"/tmp/f3-ci-lab")
         proxy_tls={key:copy_secret(env.pop(key),ingressfiles,key.lower())
                    for key in ("AUTH_CI_TLS_CERT","AUTH_CI_TLS_KEY")}
-        env["AUTH_CI_SHARED_STORE_DIR"]="/run/aliases"
+        env["AUTH_CI_SHARED_STORE_DIR"]="/tmp/f3-ci-aliases"
         env.update(CI="true",PHASE3_APP_MODE="APP_ONLY",NEXT_TELEMETRY_DISABLED="1")
         env.pop("AUTH_CI_PRODUCT_CHAT_MODE",None)
         assert env["AUTH_CI_PUBLIC_ORIGIN"] == ORIGIN
@@ -186,7 +188,8 @@ class ComposeRestoredBrowserDemo(AppOnlyBrowserDemo):
              "networks":["restored"],"ports":["127.0.0.1:3443:3444"],
              "tmpfs":["/tmp:rw,nosuid,noexec,size=32m,uid=11003,gid=11003",
                       "/srv/release/apps/web/.next/cache:rw,nosuid,size=64m,uid=11003,gid=11003"],
-             "volumes":[mount(webfiles,"/run/lab"),mount(self.shared,"/run/aliases",False)]}
+             "volumes":[mount(webfiles,"/tmp/f3-ci-lab"),
+                        mount(self.shared,"/tmp/f3-ci-aliases",False)]}
         bootstrap={**common(api_image,11001),"network_mode":"service:web",
                    "depends_on":["web"],
                    "command":["python3","-u","/srv/release/tests/phase3/integration/api/bootstrap_010_worker.py",
@@ -274,6 +277,28 @@ class ComposeRestoredBrowserDemo(AppOnlyBrowserDemo):
             "full_compose_verified":False,"target_verified":False,"accepted":False,
         }
         print("F3_POST_RESTORE_SHARED_COMPOSE_NAMESPACE_READY",flush=True)
+
+    async def verify_browser_privacy(self, browser, a, b, raw_a, raw_b, aid, message):
+        # Do not parse JSON blindly on an empty 304/502/503. Before the
+        # unchanged adversarial assertions, diagnose the first HTTP boundary
+        # with the already established real browser sessions. Never print
+        # URLs, headers, cookie values, raw body, identity or signing data.
+        for label,page in (("A",a),("B",b)):
+            for conditional in (False,True):
+                result=await page.evaluate("""async conditional => {
+                    const headers=conditional?{'If-None-Match':'*',
+                        'If-Modified-Since':'Tue, 01 Jan 2030 00:00:00 GMT'}:{};
+                    const r=await fetch('/api/history/conversations?limit=2',
+                        {cache:'no-store',headers});
+                    return {status:r.status, json:(r.headers.get('content-type')||'')
+                      .toLowerCase().includes('application/json'),
+                      noStore:r.headers.get('cache-control')==='no-store'};
+                }""",conditional)
+                print("F3_COMPOSE_BROWSER_HTTP_BOUNDARY",json.dumps(
+                    {"actor":label,"conditional":conditional,**result}),flush=True)
+                assert result=={"status":200,"json":True,"noStore":True}, (
+                    "COMPOSE_REAL_HISTORY_BOUNDARY",label,conditional,result)
+        await super().verify_browser_privacy(browser,a,b,raw_a,raw_b,aid,message)
 
     def switch_to_restored(self, dsns, network):
         super().switch_to_restored(dsns,network)
