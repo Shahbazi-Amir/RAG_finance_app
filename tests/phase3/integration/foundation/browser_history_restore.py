@@ -137,6 +137,51 @@ async def browser_history(page,label,expected_ids,expected_owner,expected_messag
     return ids
 
 
+async def browser_long_thread_dom(page, owner, conversation_id):
+    """Real React DOM cursor page 2, exact PG IDs/order before and after reload.
+
+    The 31 source rows were persisted directly by disposable restricted
+    fixture SQL before the zero-Send baseline; browser only GETs History.
+    """
+    with connect() as c:
+        expected=[r[0] for r in c.execute(
+            "SELECT id FROM history_l1.messages "
+            "WHERE owner_id=%s AND conversation_id=%s "
+            "ORDER BY created_at ASC,id ASC",
+            (owner,conversation_id)).fetchall()]
+    assert len(expected)==31,("LONG_THREAD_FIXTURE_NOT_31_PG_ROWS",len(expected))
+    for repeated in range(2):
+        if repeated==0:
+            response=await page.goto(ORIGIN+"/history",wait_until="domcontentloaded")
+            assert response is not None and response.status==200
+        else:
+            await page.reload(wait_until="domcontentloaded")
+        await expect(page.get_by_test_id("conversation-"+conversation_id)
+                     ).to_be_attached(timeout=20000)
+        messages=page.locator('[data-testid^="history-message-"]')
+        await expect(messages).to_have_count(30,timeout=25000)
+        observed=await messages.evaluate_all(
+            "(nodes)=>nodes.map(n=>n.getAttribute('data-testid').replace('history-message-',''))")
+        assert observed==expected[:30],("UI_LONG_THREAD_FIRST_PAGE_SQL_ORDER",repeated)
+        button=page.get_by_test_id("more-messages")
+        await expect(button).to_be_visible(timeout=12000)
+        async with page.expect_response(
+            lambda r: r.request.method=="GET"
+            and "/api/history/conversations/"+conversation_id+
+                "/messages?limit=30&cursor=" in r.url,
+            timeout=20000) as next_page:
+            await button.click()
+        assert (await next_page.value).status==200,(
+            "UI_LONG_THREAD_CURSOR_2_NOT_SIGNED_HTTP_200",repeated)
+        await expect(messages).to_have_count(len(expected),timeout=20000)
+        final=await messages.evaluate_all(
+            "(nodes)=>nodes.map(n=>n.getAttribute('data-testid').replace('history-message-',''))")
+        assert final==expected and len(final)==len(set(final)),(
+            "UI_LONG_THREAD_DOM_SQL_REFRESH_ID_ORDER_DRIFT",repeated)
+        await expect(button).to_have_count(0)
+    print("F3_REAL_REACT_DOM_31_PG_MESSAGE_PAGE2_REFRESH_STABLE_IDS_PASS",flush=True)
+
+
 async def mobile_320_keyboard_accessibility(page):
     """Test actual authenticated Keycloak session, without mocked UI routes."""
     await page.set_viewport_size({"width":320,"height":568})
@@ -318,6 +363,7 @@ async def execute():
             assert a_id in ids_a and b_id in ids_b
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
             await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
+            await browser_long_thread_dom(page_a,demo.owners["A"],a_id)
             await signed_pagination(page_a,ids_a)
             await signed_pagination(page_b,ids_b)
             await mobile_320_keyboard_accessibility(page_a)
@@ -334,6 +380,7 @@ async def execute():
             # same Keycloak process and Next/BFF/API, now independent PG volume.
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
             await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
+            await browser_long_thread_dom(page_a,demo.owners["A"],a_id)
             await signed_pagination(page_a,ids_a)
             await signed_pagination(page_b,ids_b)
             await foreign_owner_denied(page_a,ids_b)
@@ -367,6 +414,8 @@ async def execute():
                 "browser_default_history_sql_equal":True,
                 "browser_pagination_and_detail_sql_equal":True,
                 "browser_detail_message_id_and_body_sql_equal":True,
+                "real_react_message_cursor_page2_pg_31_ids_pre_post_restore":True,
+                "react_message_cursor_stable_after_refresh":True,
                 "all_a_conversations_cross_owner_404":True,
                 "all_b_conversations_cross_owner_404":True,
                 "real_authenticated_browser_mobile_320_rtl_keyboard_pre_post_restore":True,
