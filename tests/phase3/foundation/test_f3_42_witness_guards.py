@@ -62,6 +62,31 @@ class WitnessGuards(unittest.TestCase):
         self.assertTrue(all(x["owner_acceptance"] is False and
                             x["target_verified"] is False and
                             x["full_criterion_satisfied"] is False for x in d["rows"]))
+    def test_web_build_has_distinct_workflow_scope_not_mjs_unit(self):
+        import json
+        d=json.loads((ROOT/"coordination/integration/F3_42_NEW_BOUNDED_CI_LAB_SLICES.json").read_text())
+        matches=[x for x in d["rows"] if x["id"]=="P3M02-A06"]
+        self.assertEqual(len(matches),1)
+        self.assertEqual(matches[0]["ci_job"],"WEB_BUILD")
+        self.assertEqual(matches[0]["source_file"],
+            ".github/workflows/f3-foundation-candidate-full-isolated-regression.yml")
+        self.assertIn("npm --prefix apps/web run typecheck",
+                      mod.COMMAND["WEB_BUILD"])
+
+    def test_web_unit_never_uses_non_mjs_source_and_typecheck_is_exact_web_build(self):
+        import json
+        data=json.loads((ROOT/"coordination/integration/F3_42_NEW_BOUNDED_CI_LAB_SLICES.json").read_text())
+        unusual=[r for r in data["rows"] if r["ci_job"]=="WEB_UNIT"
+                 and not r["source_file"].endswith(".mjs")]
+        self.assertEqual(unusual,[])
+        build=[r for r in data["rows"] if r["ci_job"]=="WEB_BUILD"]
+        self.assertEqual(len(build),1)
+        self.assertEqual(build[0]["id"],"P3M02-A06")
+        self.assertEqual(build[0]["source_file"],
+            ".github/workflows/f3-foundation-candidate-full-isolated-regression.yml")
+        self.assertEqual(build[0]["literal_assertion"],
+            "npm --prefix apps/web run typecheck")
+
     def test_42_all_match_actual_source_markers(self):
         import json
         d=json.loads((ROOT/"coordination/integration/F3_42_NEW_BOUNDED_CI_LAB_SLICES.json").read_text())
