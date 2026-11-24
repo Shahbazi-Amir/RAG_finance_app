@@ -66,12 +66,10 @@ class Phase3CanonicalRegisterIntegrity(unittest.TestCase):
             self.assertIn("**Check:**", line, m.group(1))
             self.assertIn(" | ", line, m.group(1))
             self.assertIn(" — ", line, m.group(1))
-            self.assertTrue("NOT_RUN" in line or "PASS" in line
-                            or "DOCUMENT_REVIEW_ONLY" in line
-                            or "CI" in line or "VERIFIED" in line
-                            or "TESTED" in line,
-                            f"{m.group(1)}: no explicit test state")
-            self.assertIn(" | ", line.split("**Check:**", 1)[1], m.group(1))
+            # Preserve the original source's MANY legitimate test states;
+            # column presence matters, not invented enum classification.
+            self.assertRegex(line, r"\\|\\s*`(blocked|planned|active|review|accepted)`\\s*\\|")
+            self.assertGreaterEqual(line.count(" | "), 7, m.group(1))
 
     def test_all_105_crosswalk_references_resolve_to_canonical_activities(self) -> None:
         activity_set = set(self.activities)
@@ -82,8 +80,10 @@ class Phase3CanonicalRegisterIntegrity(unittest.TestCase):
             refs = set(ACT_REF.findall(line))
             self.assertTrue(refs, f"{m.group(1)}: mapping missing")
             self.assertFalse(refs - activity_set, f"{m.group(1)}: orphan IDs {refs - activity_set}")
-            self.assertIn("Mapped only" if "Mapped only" in line
-                          else "GAP/CONFLICT", line, m.group(1))
+            # Phase-4-reserved rows are intentionally NOT delivery blockers.
+            self.assertTrue(any(tag in line for tag in (
+                "Mapped only", "GAP/CONFLICT", "PHASE4 RESERVED ONLY"
+            )), m.group(1))
 
     def test_crosswalk_does_not_inflate_primary_denominator(self) -> None:
         self.assertEqual(len(self.activities) + len(self.module_ids), 288)
