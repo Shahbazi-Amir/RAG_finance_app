@@ -134,7 +134,8 @@ def _err(status: int, code: str):
                         headers={"Cache-Control": "no-store"})
 
 
-def _signed_history(request, raw_body, expected_path, action, *, coherent_read=False):
+def _signed_history(request, raw_body, expected_path, action, *, coherent_read=False,
+                    renew_staging_idle=False):
     # Service assertions cannot substitute for real private transport identity.
     if (_PRIVATE_STAGING_PROFILE is not None
             and not _PRIVATE_STAGING_PROFILE.allowed_peer(request.scope)):
@@ -155,6 +156,7 @@ def _signed_history(request, raw_body, expected_path, action, *, coherent_read=F
             conn, verifier=verifier, replay_store=_REPLAY,
             compact_assertion=token, method=method,
             raw_path=path, raw_query=query, body=body,
+            renew_staging_idle=renew_staging_idle,
         ) as owner:
             ctx = {"owner": owner, "conn": conn, "request_id": history.uid(),
                    "trace_id": history.uid(), "session_transaction": True,
@@ -565,7 +567,11 @@ def _run_server_no_dispatch_send(request, raw_body, payload, background_tasks):
 
         # _signed_history's outer transaction must EXIT and COMMIT before
         # this function returns to prepare_post_commit_no_dispatch.
-        proof, value = _signed_history(request, raw_body, _SEND_PATH, reserve)
+        proof, value = _signed_history(
+            request, raw_body, _SEND_PATH, reserve,
+            renew_staging_idle=(_PRIVATE_STAGING_PROFILE is not None
+                                and os.environ.get("STAGING_RENEW_IDLE_ON_SEND") == "1"),
+        )
         accepted_owner["id"] = proof.owner_id
         return value
 

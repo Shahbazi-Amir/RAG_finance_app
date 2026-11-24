@@ -7,6 +7,7 @@ This is still isolated synthetic SQL, never product Auth/History wiring.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from hashlib import sha256
 
 from typing import Callable, Protocol, TypeVar
 
@@ -42,6 +43,7 @@ def protected_transaction(
     raw_path: bytes,
     raw_query: bytes,
     body: bytes,
+    renew_staging_idle: bool = False,
 ):
     """Verify BFF, consume 005 JTI and enforce 004, then hold one outer TX.
 
@@ -64,6 +66,8 @@ def protected_transaction(
     """
     # No old CI replay table, memory backend, duck-typed replacement or
     # absent configured durable DB adapter is allowed to grant an actor.
+    if renew_staging_idle and (method != "POST" or raw_path != b"/v1/messages" or raw_query):
+        raise TrustRejected() from None
     if (not isinstance(replay_store, PostgresDurableReplayStore)
             or verifier is None or conn is None):
         raise TrustRejected() from None
@@ -80,10 +84,18 @@ def protected_transaction(
         with conn.transaction():
             if replay_store.consume(conn, assertion) is not True:
                 raise TrustRejected() from None
-            permitted = auth_session.admit_session_fenced(
-                conn, assertion.session_ref, assertion.owner_id,
-                assertion.epoch, assertion.generation,
-            )
+            if renew_staging_idle:
+                row = conn.execute(
+                    "SELECT auth_l1.admit_and_renew_staging_session(%s,%s,%s,%s) AS permitted",
+                    (assertion.owner_id, sha256(assertion.session_ref.encode("ascii")).hexdigest(),
+                     assertion.epoch, assertion.generation),
+                ).fetchone()
+                permitted = row.get("permitted") if isinstance(row, dict) else row[0] if row else None
+            else:
+                permitted = auth_session.admit_session_fenced(
+                    conn, assertion.session_ref, assertion.owner_id,
+                    assertion.epoch, assertion.generation,
+                )
             if permitted is not True:
                 raise TrustRejected() from None
             # Critical TOCTOU boundary: replay insert OR the SQL admission
