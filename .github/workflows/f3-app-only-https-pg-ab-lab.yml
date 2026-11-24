@@ -65,6 +65,7 @@ jobs:
           assert r["two_owner_messages"]==[4,2]
           assert r["source_restore_distinct_pg_clusters"] and r["source_and_restored_history_equal"]
           assert r["authenticated_session_revoke_after_restore"]=="A_DENIED_B_ALLOWED"
+          assert r["real_mtls_api_dependency_readiness"]=="200_THEN_503_PG_DOWN_THEN_200_RECOVERED"
           assert r["send_without_engine"]=="503_ZERO_DURABLE_WRITES"
           assert r["no_cert_wrong_leaf"]=="REJECTED"
           assert r["identity_same_tx_bound_to_real_oidc"]=="NOT_PROVEN"
