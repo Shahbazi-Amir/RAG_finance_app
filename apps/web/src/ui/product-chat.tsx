@@ -522,7 +522,7 @@ export default function ProductChat(){
       </nav>
       {list.more&&<button type="button" className="secondary"
         data-testid="more-conversations"
-        onClick={()=>void loadList(true,list.next)}>نمایش گفت‌وگوهای بیشتر</button>
+        onClick={()=>void loadList(true,list.next)}>نمایش گفت‌وگوهای بیشتر</button>}
       <button type="button" className="secondary" data-testid="refresh-history"
         onClick={()=>void loadList()} disabled={listState==='unauthorized'}>بازخوانی</button>
       <div className="history-sidebar-bottom">
