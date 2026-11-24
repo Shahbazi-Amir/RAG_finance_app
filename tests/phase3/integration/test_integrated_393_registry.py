@@ -104,10 +104,27 @@ def guarded_ui_history_recovery(row,actual):
     assert d["parent_sha"]=="e55f9ae8406f52fe0437bd442ac8cd4d946ef1bd"
     assert d["path"]==row["path"]=="apps/web/src/ui/product-chat.tsx"
     assert row["source_blob_sha"]==row["candidate_blob_sha"]==d["previous_blob_sha"]=="5f120827d93cbbf11e534c227cda82f55fbd83ec"
-    assert actual==d["candidate_blob_sha"]=="b1ba457f4a4eca179739b6a010993697c1633aa5"
+    assert d["candidate_blob_sha"]=="b1ba457f4a4eca179739b6a010993697c1633aa5"
     assert row["owner_signed_acceptance"] is False
     assert d["canonical_ids"]==["P3M14-A02","P3M14-A03","P3M14-A09","P3M14-A10","P3M15-A03"]
     assert d["scope"]=="CI_CANDIDATE_NOT_OWNER_ACCEPTANCE"
+    assert all(d[k] is False for k in ("owner_signed_acceptance","target_verified",
+        "canonical_activity_accepted","module_gate_accepted"))
+    # The historic recovery manifest is unchanged. This exact follow-up is
+    # only a UI draft visibility correction, not a new accepted witness row.
+    return guarded_ui_draft_privacy(d,actual)
+
+def guarded_ui_draft_privacy(parent,actual):
+    d=json.loads((ROOT/"coordination/integration/F3_84_UI_DRAFT_PRIVACY_FOLLOWUP_20261125.json").read_text(encoding="utf8"))
+    assert set(d)=={"schema","parent_sha","path","previous_blob_sha","candidate_blob_sha","tests","canonical_ids","scope","owner_signed_acceptance","target_verified","canonical_activity_accepted","module_gate_accepted"}
+    assert d["schema"]=="foundation.f3.ui_draft_privacy_followup.v1"
+    assert d["parent_sha"]=="9b73484965afb9f174946f5a8c9c293bee9d2002"
+    assert d["path"]==parent["path"]=="apps/web/src/ui/product-chat.tsx"
+    assert d["previous_blob_sha"]==parent["candidate_blob_sha"]=="b1ba457f4a4eca179739b6a010993697c1633aa5"
+    assert d["candidate_blob_sha"]==actual=="f20cdbe10bb7d8c6e4ea537aa96bd47e520ac803"
+    assert d["tests"]=="tests/phase3/integration/ui/history_thread_retry_browser.py"
+    assert d["canonical_ids"]==["P3M14-A09","P3M15-A07"]
+    assert d["scope"]=="L1_FIXTURE_ONLY_NO_OWNER_ACCEPTANCE"
     assert all(d[k] is False for k in ("owner_signed_acceptance","target_verified",
         "canonical_activity_accepted","module_gate_accepted"))
     return d

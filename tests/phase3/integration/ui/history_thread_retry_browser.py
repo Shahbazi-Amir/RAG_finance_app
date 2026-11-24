@@ -24,7 +24,7 @@ def main():
                    created_at=stamp,updated_at=stamp)
         list_page["items"].append(row)
     pending=[]
-    state={"a":"hold","posts":0,"reads":{a:0,b:0}}
+    state={"a":"hold","posts":0,"reads":{a:0,b:0},"list":"valid"}
     def detail(cid):
         body=fixture("valid_history_messages_page")
         body.update(conversation_id=cid,owner_user_id=owner,items=[],answers=[],
@@ -42,7 +42,12 @@ def main():
             route.fulfill(status=503,json={"error":"ENGINE_NOT_AVAILABLE"})
             return
         if path=="/api/history/conversations":
-            route.fulfill(status=200,json=list_page)
+            if state["list"]=="unavailable":
+                route.fulfill(status=503,json={"error":"SIGNED_PRODUCT_API_UNAVAILABLE"})
+            elif state["list"]=="other_owner":
+                route.fulfill(status=200,json={**list_page,"scope_user_id":"usr_other_fixture","items":[]})
+            else:
+                route.fulfill(status=200,json=list_page)
             return
         for cid in (a,b):
             if path=="/api/history/conversations/"+cid+"/messages":
@@ -91,6 +96,50 @@ def main():
             expect(page.get_by_test_id("history-send")).to_be_disabled()
             assert state["reads"][a]>count and state["posts"]==0
             print("F3_L1_THREAD_LOADING_EMPTY_SCOPED_ERROR_RETRY_GET_ONLY_PASS",flush=True)
+
+            # L1 fixture only: allow editing an unsent draft with the existing
+            # synthetic NO_DISPATCH_ONLY capability. No POST or real engine.
+            # APP_ONLY itself was tested with DISABLED above.
+            draft_page=context.new_page()
+            try:
+                draft_page.route("**/api/history/**",intercept)
+                draft_page.route("**/api/product-capabilities",lambda r:r.fulfill(status=200,json={
+                    "kind":"ui_runtime_capabilities","contract_version":"ui.runtime_capabilities.v1",
+                    "send_mode":"NO_DISPATCH_ONLY","engine_available":False,"generation_available":False}))
+                draft_page.goto(BASE,wait_until="domcontentloaded")
+                expect(draft_page.get_by_test_id("history-message-msg_retry_a")).to_be_visible()
+                question=draft_page.get_by_test_id("history-question")
+                expect(question).to_be_enabled()
+                draft="پیش‌نویس خصوصی آزمایشی A"
+                question.fill(draft)
+                expect(question).to_have_value(draft)
+                state["list"]="unavailable"
+                draft_page.get_by_test_id("refresh-history").click()
+                expect(draft_page.get_by_test_id("history-owner-revalidation-required")).to_be_visible()
+                expect(question).to_be_disabled()
+                expect(question).to_have_value("")
+                expect(draft_page.get_by_test_id("history-message-msg_retry_a")).to_have_count(0)
+                expect(draft_page.get_by_test_id("history-send")).to_be_disabled()
+                state["list"]="valid"
+                draft_page.get_by_test_id("refresh-history").click()
+                expect(question).to_be_enabled()
+                expect(question).to_have_value(draft)
+                expect(draft_page.get_by_test_id("history-message-msg_retry_a")).to_be_visible()
+                # A later unavailable -> different owner response must not
+                # restore A's draft (or any other A content).
+                state["list"]="unavailable"
+                draft_page.get_by_test_id("refresh-history").click()
+                expect(draft_page.get_by_test_id("history-owner-revalidation-required")).to_be_visible()
+                expect(question).to_have_value("")
+                state["list"]="other_owner"
+                draft_page.get_by_test_id("refresh-history").click()
+                expect(draft_page.get_by_test_id("history-login-required")).to_be_visible()
+                expect(question).to_have_count(0)
+                expect(draft_page.get_by_test_id("history-message-msg_retry_a")).to_have_count(0)
+                assert state["posts"]==0
+                print("F3_L1_DRAFT_HIDDEN_ON_OUTAGE_SAME_OWNER_ONLY_RESTORE_ZERO_POST_PASS",flush=True)
+            finally:
+                draft_page.close()
         finally:
             context.close()
             browser.close()
