@@ -121,6 +121,31 @@ def verified_candidate_browser31_source():
     return d
 
 
+
+HISTORY_MICRO_DELTA=ROOT/"coordination/integration/F3_84_HISTORY_MICROSECOND_REVIEW_DELTA_20261124.json"
+def guarded_history_microsecond_source():
+    """Exact one-path functional UI patch; one of 16 review decisions stays open."""
+    d=json.loads(HISTORY_MICRO_DELTA.read_text(encoding="utf-8"))
+    assert d["schema"]=="foundation.f3.web_history_microsecond_source_extension.v1"
+    assert d["root_84_sha"]=="0fd1066945ef91a3913e040ab4c350bb645ea502"
+    assert d["last_verified_parent_sha"]=="9cacaede2fd67b5cf13331c7650532b8b408a8dc"
+    assert d["path"]=="apps/web/src/history/client.ts"
+    assert d["historical_58_decision"]=="FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW"
+    assert d["historical_blob_sha"]=="6e057e4d097dd76f36bc41843b17c63dfb96e313"
+    assert d["candidate_blob_sha"]=="f0932d08ff37215111c04fea38f6503d4d3f41f1"
+    assert d["negative_test_file"]=="tests/phase3/ui/history-microsecond-ordering.test.mjs"
+    assert d["scope_signed_ci_only"] is True and d["original_58_manifest_frozen"] is True
+    assert d["source_behavior"]==(
+        "PostgreSQL microsecond-accurate chronological checks on signed History message "
+        "and conversation page results")
+    assert all(d[k] is False for k in (
+        "owner_signed_acceptance","canonical_activity_accepted","module_gate_accepted"))
+    p=subprocess.run(["git","hash-object",d["path"]],
+       cwd=ROOT,capture_output=True,text=True,check=True)
+    assert p.stdout.strip()==d["candidate_blob_sha"]
+    return d
+
+
 class LedgerTest(unittest.TestCase):
     def test_all_393_source_ids_one_to_one(self):
         header,rows=read(LEDGER)
@@ -200,6 +225,7 @@ class LedgerTest(unittest.TestCase):
         records=audit["paths"]
         self.assertEqual(len({row["path"] for row in records}),58)
         ui=reviewed_ui_overrides()
+        micro=guarded_history_microsecond_source()
         # The historical #84 audit remains frozen. A later tested source
         # transfer may change a pending path, but cannot change its original
         # owner decision or turn it into acceptance.
@@ -251,6 +277,14 @@ class LedgerTest(unittest.TestCase):
                 self.assertEqual(blob,item["source_blob_sha"])
                 self.assertEqual(row["integrated_blob_sha"],row["foundation_blob_sha"])
                 self.assertFalse(row["selected_owner_blobs"])
+                continue
+            if row["path"]==micro["path"]:
+                # Real source bugfix, but still among the original 16
+                # owner-retained conflicts. Never modify the 58-row verdict.
+                self.assertEqual(row["decision"],micro["historical_58_decision"])
+                self.assertEqual(row["integrated_blob_sha"],micro["historical_blob_sha"])
+                self.assertEqual(blob,micro["candidate_blob_sha"])
+                self.assertFalse(row["owner_signed_acceptance"])
                 continue
             if row["path"] in ui:
                 item=ui[row["path"]]
