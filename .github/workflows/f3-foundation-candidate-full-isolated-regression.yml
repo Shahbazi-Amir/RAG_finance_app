@@ -334,6 +334,8 @@ jobs:
           if-no-files-found: warn
 
 
+      - name: Prepare bounded same-binary audit output directory
+        run: mkdir -p ci_receipts/foundation/same_binary
       - name: Actual tested API image SPDX SBOM in this same isolated Docker job
         uses: anchore/sbom-action@a930d0ac434e3182448fe678398ba5713717112a
         with:
