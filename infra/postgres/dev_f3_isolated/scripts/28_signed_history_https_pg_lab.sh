@@ -186,9 +186,24 @@ bad_dump="$LAB_WORK/f3_http_ab_truncated.dump"
 [[ ! -e "$bad_dump" ]] || exit 70
 size="$(stat -c %s "$dump")"
 [[ "$size" -gt 4096 ]] || exit 70
-head -c "$((size*3/4))" "$dump" > "$bad_dump"
+# Find the shortest prefix containing a readable archive TOC. The amount
+# of catalog metadata varies with migrations; a fixed percent can truncate
+# the TOC itself. Preserve that TOC and intentionally remove the data tail.
+touch "$bad_dump"
 chmod 0600 "$bad_dump"
-# A valid TOC followed by missing archive data is the desired late-failure case.
+lo=1
+hi="$size"
+while (( lo < hi )); do
+ mid=$(((lo+hi)/2))
+ head -c "$mid" "$dump" > "$bad_dump"
+ if compose exec -T restore-db pg_restore --list < "$bad_dump" > "$LAB_WORK/f3_corrupt_toc.private" 2>&1; then
+  hi="$mid"
+ else
+  lo=$((mid+1))
+ fi
+done
+[[ "$lo" -lt "$size" ]] || { echo STOP_NO_VALID_TRUNCATED_TOC >&2; exit 70; }
+head -c "$lo" "$dump" > "$bad_dump"
 compose exec -T restore-db pg_restore --list < "$bad_dump" > "$LAB_WORK/f3_corrupt_toc.private" 2>&1
 if compose exec -T restore-db pg_restore --single-transaction --exit-on-error -U postgres -d "$fault_db" < "$bad_dump" > "$LAB_WORK/f3_corrupt_restore.private" 2>&1; then
  echo STOP_CORRUPT_ARCHIVE_ACCEPTED >&2; exit 70
