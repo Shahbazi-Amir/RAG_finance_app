@@ -82,7 +82,7 @@ class ComposeRestoredBrowserDemo(AppOnlyBrowserDemo):
 
     def start_compose(self, dsns, network):
         run = self.ci_command
-        sha = os.environ["GITHUB_SHA"]
+        sha = os.environ["F3_EXACT_SHA"]
         assert re.fullmatch(r"[a-f0-9]{40}", sha)
         assert run("git","rev-parse","HEAD").decode().strip() == sha
         web_image = os.environ["F3_COMPOSE_BROWSER_WEB_IMAGE"]
@@ -328,6 +328,7 @@ async def main():
         raise RuntimeError("FOUNDATION_COMPOSE_RESTORE_CI_ONLY")
     demo=ComposeRestoredBrowserDemo()
     try:
+        demo.configure_source_pg_tls()
         demo.start()
         async with async_playwright() as p:
             browser=await p.chromium.launch()
