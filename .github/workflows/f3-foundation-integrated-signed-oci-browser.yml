@@ -315,6 +315,9 @@ jobs:
             --build-arg "BASE=$base" \
             --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "api-f3-browser:$GITHUB_SHA" "$clean"
           echo "API_F3_BROWSER_IMAGE=api-f3-browser:$GITHUB_SHA" >> "$GITHUB_ENV"
+          docker build --platform linux/amd64 --file "$clean/infra/phase3_l1/Dockerfile.web" \
+            --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "f3-compose-browser-web:$GITHUB_SHA" "$clean"
+          echo "F3_COMPOSE_BROWSER_WEB_IMAGE=f3-compose-browser-web:$GITHUB_SHA" >> "$GITHUB_ENV"
       - name: Real Chromium ordinary login and signed app-only History journey
         env:
           API_F3_ISOLATED_PG_CID: ${{ job.services.postgres.id }}
@@ -323,8 +326,8 @@ jobs:
         run: |
           set -euo pipefail
           python -m playwright install --with-deps chromium
-          python -u tests/phase3/integration/api/test_app_only_browser_journey.py
-      - name: Write minimal exact-source journey receipt (not Compose or target acceptance)
+          python -u tests/phase3/integration/foundation/compose_restored_browser.py
+      - name: Write minimal exact-source journey receipt (post-restore Compose subset only)
         run: |
           python - <<'PY'
           import json, os, subprocess
@@ -338,13 +341,19 @@ jobs:
           p.parent.mkdir(exist_ok=True)
           p.write_text(json.dumps({"source_sha":sha,"run_id":os.environ["GITHUB_RUN_ID"],
               "api_image_id":data["Id"],"source":"clean git archive",
-              "api_owner_source_sha":"23db3da6367e6a8279072ee96b56a2bd4b7f0fbc","scope":"CI_RUNNER_BROWSER_HOST_WEB_BOOTSTRAP_REAL_OCI_API_RESTORED_TLS_PG",
+              "api_owner_source_sha":"23db3da6367e6a8279072ee96b56a2bd4b7f0fbc","scope":"CI_RUNNER_SOURCE_HOST_WEB_BOOTSTRAP_POST_RESTORE_SHARED_COMPOSE_SUBSET",
               "full_compose_verified":False,"target_verified":False,"accepted":False},indent=2)+"\n")
+          r=json.loads(Path("ci_receipts/f3_post_restore_shared_compose.json").read_text())
+          assert r["source_sha"]==sha and r["api_image_id"]==data["Id"]
+          assert r["post_restore_ordinary_browser_replay_passed"] is True
+          assert r["full_compose_verified"] is False and r["accepted"] is False
           PY
       - uses: actions/upload-artifact@v4
         with:
           name: foundation-integrated-signed-oci-browser-restore
-          path: ci_receipts/f3_integrated_signed_oci_browser.json
+          path: |
+            ci_receipts/f3_integrated_signed_oci_browser.json
+            ci_receipts/f3_post_restore_shared_compose.json
           if-no-files-found: error
       - name: Show bounded SQL permissions and container status
         if: always()
