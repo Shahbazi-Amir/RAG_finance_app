@@ -338,9 +338,18 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          docker build --platform linux/amd64 --file infra/phase3_l1/Dockerfile.api \
-            --build-arg BASE=docker.io/library/python:3.13.5 \
-            --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "api-f3-browser:$GITHUB_SHA" .
+          # The API/DB bootstrap fixture overlay above is CI-only. Never
+          # bake untracked or overlay source into an image labeled this SHA.
+          clean="$(mktemp -d "$RUNNER_TEMP/api-f3-source.XXXXXXXX")"
+          trap 'rm -rf "$clean"' EXIT
+          git archive "$GITHUB_SHA" | tar -xf - -C "$clean"
+          docker pull --platform linux/amd64 docker.io/library/python:3.13.5
+          base="$(docker image inspect -f '{{index .RepoDigests 0}}' docker.io/library/python:3.13.5)"
+          [[ "$base" =~ @sha256:[a-f0-9]{64}$ ]]
+          echo "API_F3_BROWSER_CI_BASE_DIGEST=$base"
+          docker build --platform linux/amd64 --file "$clean/infra/phase3_l1/Dockerfile.api" \
+            --build-arg "BASE=$base" \
+            --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "api-f3-browser:$GITHUB_SHA" "$clean"
           echo "API_F3_BROWSER_IMAGE=api-f3-browser:$GITHUB_SHA" >> "$GITHUB_ENV"
       - name: Real Chromium ordinary login and signed app-only History journey
         if: github.ref == 'refs/heads/agent/api-f3-pr84-signed-history-20261124'

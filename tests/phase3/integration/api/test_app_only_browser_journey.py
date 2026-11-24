@@ -532,6 +532,70 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
         self.await_url(self.product_origin + "/internal/ready", tls)
         self.restore_mig_dsn = dsns["DB_MIG_DSN"]
 
+    async def verify_browser_privacy(self, browser, a, b, raw_a, raw_b, aid, message):
+        """Scoped privacy/abuse evidence against real Next/BFF, not LLM policy."""
+        same_uri = "/api/history/conversations?limit=2"
+        before = self.counts()
+        for page, own, foreign in ((a, raw_a, raw_b), (b, raw_b, raw_a),
+                                   (a, raw_a, raw_b)):
+            response = await page.evaluate("""async ({uri, foreign}) => {
+                const r=await fetch(uri,{cache:'no-store',headers:{
+                    'If-None-Match':'*',
+                    'If-Modified-Since':'Tue, 01 Jan 2030 00:00:00 GMT',
+                    'X-Owner-Id':foreign,
+                    'X-User-Id':foreign,
+                    'X-Forwarded-Client-Cert':'untrusted-browser-header',
+                    'X-Auth-Ci-Proxy-Proof':'untrusted-browser-header'
+                }});
+                return {status:r.status,cache:r.headers.get('cache-control'),body:await r.json()};
+            }""", {"uri":same_uri, "foreign":foreign["owner_id"]})
+            assert response["status"] == 200
+            assert response["cache"] == "no-store"
+            assert response["body"]["scope_user_id"] == own["owner_id"]
+            assert all(row["owner_user_id"] == own["owner_id"]
+                       for row in response["body"]["items"])
+        # Real foreign-record request with an adversarial owner header; no
+        # identity is injected into the ordinary login/journey above.
+        denied = await b.evaluate("""async ({id,owner}) => {
+            const r=await fetch('/api/history/conversations/'+id+'/messages?limit=2',
+                {cache:'no-store',headers:{'X-Owner-Id':owner,'If-None-Match':'*'}});
+            return {status:r.status,cache:r.headers.get('cache-control'),body:await r.text()};
+        }""", {"id":aid, "owner":raw_a["owner_id"]})
+        assert denied["status"] == 404 and denied["cache"] == "no-store"
+        assert message not in denied["body"] and aid not in denied["body"]
+        for invalid in ("?limit=2&limit=1", "?limit=2&owner_id=" + raw_a["owner_id"],
+                        "?limit=101", "?limit=2&cursor=invalid%20cursor"):
+            rejected = await b.evaluate("""async q => {
+                const r=await fetch('/api/history/conversations'+q,{cache:'no-store'});
+                return {status:r.status,cache:r.headers.get('cache-control')};
+            }""", invalid)
+            assert rejected == {"status":422, "cache":"no-store"}
+        anonymous = await browser.new_context(ignore_https_errors=True)
+        try:
+            response = await anonymous.request.get(ORIGIN + same_uri, headers={
+                "X-Owner-Id":raw_a["owner_id"], "If-None-Match":"*"})
+            assert response.status == 401
+            assert response.headers.get("cache-control") == "no-store"
+            assert message not in await response.text()
+        finally:
+            await anonymous.close()
+        print("API_F3_REAL_BROWSER_PRIVATE_OWNER_HEADER_CACHE_POISON_NEGATIVES_PASS", flush=True)
+        # Invalid CSRF token with the actual session cookie, never call
+        # revoke or create a durable mutation. Legitimate logout later uses
+        # the normal native form with its server-issued token.
+        bad_csrf = await a.evaluate("""async () => {
+            const r=await fetch('/api/auth/logout',{
+                method:'POST',credentials:'same-origin',
+                headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                body:'csrf=invalid-test-token',redirect:'manual'});
+            return {status:r.status,cache:r.headers.get('cache-control')};
+        }""")
+        assert bad_csrf == {"status":403, "cache":"no-store"}
+        assert self.signed_private(raw_a).status_code == 200
+        assert self.signed_private(raw_b).status_code == 200
+        assert self.counts() == before
+        print("API_F3_REAL_BROWSER_BAD_CSRF_NO_REVOKE_NO_HISTORY_MUTATION_PASS", flush=True)
+
     async def journey(self, browser, output):
         contexts = []
         try:
@@ -624,6 +688,7 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
                     self.switch_to_restored(restored, restored_network)
                     assert self.counts() == before
                     self.check_restored_outage(raw_b, restored_id)
+                    await self.verify_browser_privacy(browser, a, b, raw_a, raw_b, aid, message)
                     # Normal login again, through the restored Bootstrap and
                     # unchanged Next login route. Reuse the demo harness with
                     # SQL-derived expected titles for the first page only.
