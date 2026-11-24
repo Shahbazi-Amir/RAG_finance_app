@@ -1,5 +1,5 @@
 """Physical PG17 PITR on exclusively owned network-none disposable CI volumes.
-Exact History 001/002 only; never an approved restore target or RPO/RTO.
+Exact History/Auth 001–010; never an approved restore target or RPO/RTO.
 """
 import hashlib
 import json
@@ -108,15 +108,34 @@ def execute(sha):
         lab.exec(src,"chown","postgres:postgres","/wal","/base",root=True)
         require(lab.sql(src,"SHOW server_version;","postgres").startswith("17.11"),"PG_VERSION")
         lab.sql(src,"CREATE ROLE history_migrator NOLOGIN NOSUPERUSER BYPASSRLS; CREATE ROLE history_app NOLOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT;","postgres")
+        lab.sql(src,"CREATE ROLE auth_migrator NOLOGIN NOSUPERUSER BYPASSRLS;","postgres")
+        auth_roles=("auth_revoker","db55_lab_auditor","auth_mapper","auth_sessions","auth_reauth",
+          "auth_trust_api","auth_replay_cleaner","auth_reset_issuer","auth_reset_executor",
+          "auth_reset_lookup","auth_reset_idp_recorder","auth_login_bootstrap","auth_login_issuer",
+          "auth_login_binder","auth_login_reader","auth_login_cleaner","auth_login_claim_reader")
+        for role in auth_roles:
+            lab.sql(src,"CREATE ROLE "+role+" NOLOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT;","postgres")
         lab.sql(src,"CREATE DATABASE "+DB+";","postgres")
-        lab.sql(src,"REVOKE CONNECT,TEMP ON DATABASE "+DB+" FROM PUBLIC; GRANT CONNECT,CREATE ON DATABASE "+DB+" TO history_migrator; GRANT CONNECT ON DATABASE "+DB+" TO history_app;")
-        files=sorted((ROOT/"infra/postgres/migrations").glob("00[12]_*.up.sql"))
-        require(len(files)==2,"MIGRATION_COUNT")
+        lab.sql(src,"REVOKE CONNECT,TEMP ON DATABASE "+DB+" FROM PUBLIC; GRANT CONNECT,CREATE ON DATABASE "+DB+" TO history_migrator,auth_migrator; GRANT CONNECT ON DATABASE "+DB+" TO history_app;")
+        lab.sql(src,"GRANT CONNECT ON DATABASE "+DB+" TO "+",".join(auth_roles)+";")
+        files=sorted((ROOT/"infra/postgres/migrations").glob("*.up.sql"))
+        require(len(files)==10 and [p.name[:3] for p in files]==[str(i).zfill(3) for i in range(1,11)],"MIGRATION_COUNT")
         hashes={}
         for p in files:
             require(out("git","hash-object",str(p))==out("git","rev-parse",sha+":"+str(p.relative_to(ROOT))),"SQL_DRIFT")
             data=p.read_bytes();hashes[p.name]=hashlib.sha256(data).hexdigest()
-            lab.sql(src,"SET ROLE history_migrator;\n"+data.decode())
+            role="history_migrator" if p.name[:3] in ("001","002") else "auth_migrator"
+            lab.sql(src,"SET ROLE "+role+";\n"+data.decode())
+        # Synthetic Auth SQL only, no IdP/browser/session token material.
+        lab.sql(src,"INSERT INTO auth_l1.owners(owner_id) VALUES ('A'),('B');")
+        digests={o:hashlib.sha256((lab.prefix+o).encode()).hexdigest() for o in ("A","B")}
+        def auth_valid(name,owner):
+            return lab.sql(name,"SET ROLE auth_sessions; SELECT auth_l1.validate_session('"+digests[owner]+"') IS NOT NULL;")=="t"
+        def revoke(name,owner):
+            return lab.sql(name,"SET ROLE auth_sessions; SELECT auth_l1.revoke_one('"+digests[owner]+"',0);")=="t"
+        for owner in ("A","B"):
+            require(lab.sql(src,"SET ROLE auth_sessions; SELECT auth_l1.issue_session('"+owner+"',0,'"+digests[owner]+"',900,1800) IS NOT NULL;")=="t","SESSION_ISSUE")
+            require(auth_valid(src,owner),"SESSION_PRE_BASE_INVALID")
         for owner in ("A","B"):
             lab.sql(src,scoped(owner,"INSERT INTO history_l1.conversations(owner_id,id) VALUES ('"+owner+"','c"+owner+"'); INSERT INTO history_l1.messages(owner_id,id,conversation_id,role,body) VALUES ('"+owner+"','m0"+owner+"','c"+owner+"','user','before_base')"))
         lab.exec(src,"pg_basebackup","-U","postgres","-D","/base","-X","stream","--checkpoint=fast","--manifest-checksums=SHA256",timeout=180)
@@ -129,6 +148,7 @@ def execute(sha):
         lab.exec(src,"pg_verifybackup","/base",timeout=180)
         for owner in ("A","B"):
             lab.sql(src,scoped(owner,"INSERT INTO history_l1.messages(owner_id,id,conversation_id,role,body) VALUES ('"+owner+"','m1"+owner+"','c"+owner+"','user','at_target')"))
+        require(revoke(src,"A") and not auth_valid(src,"A") and auth_valid(src,"B"),"TARGET_REVOCATION_STATE")
         target="f3_safe_target"
         target_lsn=lab.sql(src,"SELECT pg_create_restore_point('"+target+"');")
         require(re.fullmatch("[0-9A-F]+/[0-9A-F]+",target_lsn),"TARGET_LSN")
@@ -136,6 +156,7 @@ def execute(sha):
         require(target_rows=={"A":"m0A:before_base,m1A:at_target","B":"m0B:before_base,m1B:at_target"},"TARGET_ROWS")
         for owner in ("A","B"):
             lab.sql(src,scoped(owner,"INSERT INTO history_l1.messages(owner_id,id,conversation_id,role,body) VALUES ('"+owner+"','m2"+owner+"','c"+owner+"','user','after_target')"))
+        require(revoke(src,"B") and not auth_valid(src,"A") and not auth_valid(src,"B"),"POST_TARGET_REVOCATION_STATE")
         archive_name=lab.sql(src,"SELECT pg_walfile_name(pg_current_wal_insert_lsn());")
         require(re.fullmatch("[0-9A-F]{24}",archive_name),"WAL_NAME")
         lab.sql(src,"SELECT pg_switch_wal();")
@@ -164,7 +185,13 @@ def execute(sha):
         require(lab.sql(restored,"SELECT count(*) FROM history_l1.messages;")=="4","AFTER_TARGET_LEAK")
         require(lab.sql(src,"SELECT count(*) FROM history_l1.messages;")=="6","SOURCE_MUTATED")
         require(lab.sql(restored,"SELECT system_identifier FROM pg_control_system();")==lab.sql(src,"SELECT system_identifier FROM pg_control_system();"),"PHYSICAL_LINEAGE_DRIFT")
-        require(lab.sql(restored,"SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='history_l1' AND c.relkind='r' AND c.relrowsecurity AND c.relforcerowsecurity;")=="6","FORCE_RLS_DRIFT")
+        require(lab.sql(restored,"SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('history_l1','auth_l1') AND c.relkind='r' AND c.relrowsecurity AND c.relforcerowsecurity;")=="14","FORCE_RLS_DRIFT")
+        require(not auth_valid(restored,"A") and auth_valid(restored,"B"),"PITR_SESSION_STATE_DRIFT")
+        require(not auth_valid(src,"A") and not auth_valid(src,"B"),"SOURCE_REVOCATION_DRIFT")
+        # The recovery point legitimately predates B's revoke. This is a
+        # security hazard for a real target, NOT authorization to serve it.
+        # Reconcile only the owned synthetic lab clone before any reuse.
+        require(revoke(restored,"B") and not auth_valid(restored,"B") and not auth_valid(restored,"A"),"RECONCILIATION_DENIED")
         require(lab.sql(restored,"SELECT count(*) FROM pg_roles WHERE rolname='history_app' AND NOT rolsuper AND NOT rolbypassrls;")=="1","ROLE_DRIFT")
         require(lab.sql(restored,scoped("A","SELECT count(*) FROM history_l1.messages WHERE owner_id='B'")).splitlines()[-1]=="0","CROSS_OWNER_LEAK")
         require(lab.sql(restored,scoped("B","SELECT count(*) FROM history_l1.messages WHERE owner_id='A'")).splitlines()[-1]=="0","CROSS_OWNER_LEAK")
@@ -178,10 +205,12 @@ def execute(sha):
           "base_manifest_verified":True,"tampered_base_rejected":True,"wal_archive_verified":True,
           "restore_point_reached":True,"source_rows":6,"restored_target_rows":4,
           "later_rows_excluded":2,"distinct_volume_same_physical_cluster_lineage":True,
-          "force_rls_tables":6,"both_owner_read_denials":True,"foreign_write_denied":True,
+          "force_rls_tables":14,"both_owner_read_denials":True,"foreign_write_denied":True,
+          "pre_target_revocation_preserved":True,"later_revocation_not_present_at_target":True,
+          "synthetic_later_revocation_reconciled_before_any_reuse":True,"target_reconciliation_policy_approved":False,
           "source_unchanged":True,"restore_and_validation_ms":round((time.monotonic()-restore_start)*1000),
           "total_lab_ms":round((time.monotonic()-started)*1000),"rpo_rto_approved":False,
-          "scope":"PG17.11_HISTORY_001_002_CI_PHYSICAL_PITR_ONLY","target_verified":False,
+          "scope":"PG17.11_HISTORY_AUTH_001_010_CI_PHYSICAL_PITR_ONLY","target_verified":False,
           "engine_calls":0,"sql011":False,"accepted":False}
     finally:lab.cleanup()
     receipt["temporary_volumes_removed"]=True
