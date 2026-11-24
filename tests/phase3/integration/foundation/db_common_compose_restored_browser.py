@@ -515,8 +515,17 @@ class BothSidesComposeBrowserDemo(ComposeRestoredBrowserDemo):
                 assert self.signed_private(raw_b).status_code==200
                 assert self.counts()==before
                 self.restricted_db_snapshot("POST_REVOKE_RESTORE",third,sql_before,revoked=True)
-                await a.get_by_test_id("refresh-history").click()
+                # A is already logged out: the disabled refresh control is
+                # correct. Re-test the real ordinary BFF HTTP boundary without
+                # re-injecting the removed cookie or forcing a disabled click.
+                await expect(a.get_by_test_id("refresh-history")).to_be_disabled()
+                denied=await a.evaluate("""async () => {
+                    const r=await fetch('/api/history/conversations?limit=2',{cache:'no-store'});
+                    return {status:r.status,noStore:r.headers.get('cache-control')==='no-store'};
+                }""")
+                assert denied=={"status":401,"noStore":True}
                 await expect(a.get_by_test_id("history-login-required")).to_be_visible()
+                print("DB_COMMON_POST_REVOKE_BROWSER_DISABLED_REFRESH_AND_REAL_BFF_401=PASS",flush=True)
                 assert await a.locator('[data-testid^="conversation-"]').count()==0
                 async with b.expect_response(lambda r:"/api/history/conversations?limit=2" in r.url and "cursor=" not in r.url and r.request.method=="GET") as wait:
                     await b.get_by_test_id("refresh-history").click()
