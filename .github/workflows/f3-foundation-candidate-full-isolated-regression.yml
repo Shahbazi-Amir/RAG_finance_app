@@ -147,7 +147,7 @@ jobs:
 
   build-api-app-only-container:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
@@ -326,6 +326,110 @@ jobs:
         with:
           name: f3-foundation-local-image-source-provenance-not-release
           path: ci_receipts/foundation/app_only_local_source_provenance.json
+          retention-days: 14
+          if-no-files-found: warn
+
+
+      - name: Actual tested API image SPDX SBOM in this same isolated Docker job
+        uses: anchore/sbom-action@a930d0ac434e3182448fe678398ba5713717112a
+        with:
+          image: rag-f3-app-only-api:ci
+          format: spdx-json
+          syft-version: v1.38.0
+          output-file: ci_receipts/foundation/same_binary/api.spdx.json
+          upload-artifact: 'false'
+          upload-release-assets: 'false'
+          dependency-snapshot: 'false'
+      - name: Actual tested Web image SPDX SBOM in this same isolated Docker job
+        uses: anchore/sbom-action@a930d0ac434e3182448fe678398ba5713717112a
+        with:
+          image: rag-f3-app-only-web:ci
+          format: spdx-json
+          syft-version: v1.38.0
+          output-file: ci_receipts/foundation/same_binary/web.spdx.json
+          upload-artifact: 'false'
+          upload-release-assets: 'false'
+          dependency-snapshot: 'false'
+      - name: Grype scan exact API image SPDX after test (no auto security approval)
+        uses: anchore/scan-action@16910ac423301c6d30554b83a7f71ac6ff4a51f3
+        with:
+          sbom: ci_receipts/foundation/same_binary/api.spdx.json
+          grype-version: v0.110.0
+          output-format: json
+          output-file: ci_receipts/foundation/same_binary/api-grype.json
+          fail-build: 'false'
+          cache-db: 'false'
+      - name: Grype scan exact Web image SPDX after test (no auto security approval)
+        uses: anchore/scan-action@16910ac423301c6d30554b83a7f71ac6ff4a51f3
+        with:
+          sbom: ci_receipts/foundation/same_binary/web.spdx.json
+          grype-version: v0.110.0
+          output-format: json
+          output-file: ci_receipts/foundation/same_binary/web-grype.json
+          fail-build: 'false'
+          cache-db: 'false'
+      - name: Match tested OCI ID to scanned SBOMs and retain non-sensitive severity aggregates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          base=Path("ci_receipts/foundation/same_binary")
+          saved=json.loads(Path("ci_receipts/foundation/app_only_local_source_provenance.json").read_text())
+          exact_sha=os.environ["GITHUB_SHA"]
+          assert saved["git_sha"]==exact_sha
+          report={
+            "schema":"foundation.f3.same_ci_tested_local_image_security.v1",
+            "git_sha":exact_sha,"runner":os.environ["GITHUB_RUN_ID"],
+            "same_ci_job_image_tested_and_scanned":True,
+            "readiness_verified_on_target":False,
+            "registry_manifest_digest_verified":False,
+            "scan_result_is_release_approval":False,
+            "source_secret_findings_triaged":False,
+            "approved_security_policy":False,
+            "gate_result":"HOLD_NOT_ACCEPTED",
+            "images":{}
+          }
+          for kind in ("api","web"):
+            image=json.loads(subprocess.check_output(
+              ["docker","image","inspect","rag-f3-app-only-"+kind+":ci"],text=True))[0]
+            local_id=image["Id"]
+            assert local_id==saved["local_images"][kind]["local_content_image_id"],"IMAGE_ID_DIFFERENT_FROM_TESTED_PROVENANCE_"+kind
+            assert image["Config"]["Labels"]["org.opencontainers.image.revision"]==exact_sha
+            source=base/(kind+".spdx.json")
+            sbom=json.loads(source.read_text())
+            assert sbom["spdxVersion"]=="SPDX-2.3" and len(sbom["packages"])>0
+            scan=json.loads((base/(kind+"-grype.json")).read_text())
+            matches=scan.get("matches")
+            assert isinstance(matches,list),"SCAN_INCOMPLETE_"+kind
+            by_severity={}
+            for match in matches:
+              severity=str(match["vulnerability"].get("severity","UNKNOWN")).upper()
+              by_severity[severity]=by_severity.get(severity,0)+1
+            report["images"][kind]={
+              "tested_and_scanned_same_local_image_id":local_id,
+              "spdx_sha256":hashlib.sha256(source.read_bytes()).hexdigest(),
+              "sbom_packages":len(sbom["packages"]),
+              "grype_findings":len(matches),
+              "by_severity":by_severity,
+              "registry_digest":None,
+              "critical_high_zero_assertion":False,
+            }
+          target=Path("ci_receipts/foundation/f3_same_tested_binary_scan_receipt.json")
+          target.write_text(json.dumps(report,sort_keys=True,indent=2)+chr(10))
+          print("F3_SAME_CI_TESTED_LOCAL_BINARY_SBOM_GRYPE_ID_EQUAL_PASS_RELEASE_HOLD")
+          PY
+          # Do not upload raw Grype matches, paths or potentially sensitive data.
+          rm -f ci_receipts/foundation/same_binary/api-grype.json ci_receipts/foundation/same_binary/web-grype.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f3-foundation-tested-binary-local-sbom-grype-hold
+          path: |
+            ci_receipts/foundation/same_binary/api.spdx.json
+            ci_receipts/foundation/same_binary/web.spdx.json
+            ci_receipts/foundation/f3_same_tested_binary_scan_receipt.json
           retention-days: 14
           if-no-files-found: warn
 
