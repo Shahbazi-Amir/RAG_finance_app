@@ -696,7 +696,19 @@ class RealProductSession011(unittest.TestCase):
         from concurrent.futures import ThreadPoolExecutor
         a, b = self.login("A"), self.login("B")
         cid = self.seed(a, "CI_PERSISTENT_RESTART_" + uuid.uuid4().hex)
+        self.seed(a, "CI_RESTART_PAGE2_" + uuid.uuid4().hex)
+        self.seed(a, "CI_RESTART_PAGE3_" + uuid.uuid4().hex)
         self.seed(b, "CI_RESTART_DISTINCT_B_" + uuid.uuid4().hex)
+        before_page = self.list(a, query="?limit=1")
+        self.assertEqual(before_page.status_code, 200, before_page.text)
+        before_first = before_page.json()["items"][0]["conversation_id"]
+        cursor = before_page.json()["page"]["next_cursor"]
+        self.assertIsNotNone(cursor)
+        cursor_query = "?limit=1&cursor=" + cursor
+        before_page2 = self.list(a, query=cursor_query)
+        self.assertEqual(before_page2.status_code, 200, before_page2.text)
+        before_second = before_page2.json()["items"][0]["conversation_id"]
+        self.assertNotEqual(before_first, before_second)
         fresh, claims = self.signed(a, path=LIST)
         first = self.list(a, token=fresh)
         self.assertEqual(first.status_code, 200, first.text)
@@ -764,6 +776,17 @@ class RealProductSession011(unittest.TestCase):
             self.assertIn(cid, [x["conversation_id"]
                                 for x in after.json()["items"]])
             self.assertEqual(after.json()["scope_user_id"], a["owner_id"])
+            page1_after = self.list(a, query="?limit=1")
+            page2_after = self.list(a, query=cursor_query)
+            self.assertEqual(page1_after.status_code, 200, page1_after.text)
+            self.assertEqual(page2_after.status_code, 200, page2_after.text)
+            self.assertEqual(page1_after.json()["items"][0]["conversation_id"],
+                             before_first)
+            self.assertEqual(page2_after.json()["items"][0]["conversation_id"],
+                             before_second)
+            self.assertEqual(page2_after.json()["scope_user_id"], a["owner_id"])
+            # Cursor issued before a real Uvicorn restart remains bound to A.
+            self.assertEqual(self.list(b, query=cursor_query).status_code, 404)
             self.assertEqual(self.list(b).status_code, 200)
             self.assertEqual(counts(), before)
         print("API_F3_REAL_PG_REPLAY_H11_PROCESS_RESTART_AB_STABLE_PASS",
