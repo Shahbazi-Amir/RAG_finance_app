@@ -353,3 +353,23 @@ PARALLEL DEVELOPMENT IMPORTED INTO MAC DOCKER: UNKNOWN
 اسناد rollback گواهی و شناسهٔ ایمیج‌ها محفوظ‌اند. هیچ جایگزینی نیاز به rollback زنده ایجاد نکرد. بررسی ۶۰ هش بکاپ و شاهد قبلی restore منطقی، وضعیت اجزای بازیابی را PARTIAL نگه می‌دارد. آزمون کامل یکپارچه در daemon مستقل این نوبت انجام نشد. آروان HOLD و پذیرش سرپرست در انتظار است. مانع محصول، بودجهٔ تأییدشده و قرارداد locator معتبر برای همین نسخهٔ فریز‌شده است.
 
 [راهنمای رسمی زمان‌بندی ONNX Runtime](https://onnxruntime.ai/docs/performance/tune-performance/threading.html)
+
+## بازبینی پس از راه‌اندازی مجدد مک — ۲۰۲۶-۱۱-۲۴
+
+هر هفت کانتینر تاریخی در حال اجرا بودند و شناسه‌های کانتینر و ایمیج با ممیزی خصوصی قبلی منطبق بودند. پنج healthcheck رسمی سالم بودند. readiness مدیریتی Keycloak پاسخ 200 و HTTPS ورودی IdP پاسخ 302 با TLS verify=0 داد. آزمون اولیه با trust store پیش‌فرض کد 60 داد و با CA عمومی موجود در Bootstrap موفق شد. Docker 28.0.4 چهار CPU و ۶٬۲۱۲٬۰۳۰٬۴۶۴ بایت RAM داشت. نمونهٔ CPU سرویس‌ها حداکثر ۱٫۳۹٪ و فضای آزاد میزبان ۱۲۲ GiB بود.
+
+| سرویس | Container ID | Image ID |
+| --- | --- | --- |
+| auth-bootstrap | `52d6a99676561937a7ebdb0468852ca3934c4f1a83df34ed2890adbc058304f5` | `sha256:8e5d6a79f945ec928d04d94408dbd0ca7e436dc48fbe70174da1af0a8a03de3f` |
+| demo-db | `ceb8cfcc9b1a32eafb0b0458d2ed035e5ee2c6c0b6e6e4de47e34241f827b798` | `sha256:ff87138949ad9a46f32ff23bd6852b52ce024a13dffe9b4087be98292cdd3b4f` |
+| idp-db | `f1ce62cc647655f4582dcd4987b2b43c4920b876936ba895fae06d8957455601` | `sha256:ff87138949ad9a46f32ff23bd6852b52ce024a13dffe9b4087be98292cdd3b4f` |
+| idp-keycloak | `39a6d2d1828a01d49d3d0ff4a1bf77d95c868f8c4a9b76a57c853219413d0b16` | `sha256:338942f0b25eb13a453a9882d004fb2aa7192093156d0f8046de7fbfba2029a1` |
+| product-api | `61ff7a7ce511967208d92c04d3fae713b1df14914731ad7c5b942d5ed3a042df` | `sha256:438ba61c69ea0518ab43f932c70b5e79caa5fdfc7adbbfe954f0aaead5f2b0cb` |
+| web-bff | `aaa462b24e360c943af19e0ae5b7e54df1154e7cff53bf75796564e685661a05` | `sha256:ead7afb7f9ec2dbdb42172471ce3fbbde0a163d391a185326e2989f2fcbfacb1` |
+| web-https | `f5ca6e14ad661f60b37eb6413a1721398dbc4ff5ff8d4ae7772e76b4c5200744` | `sha256:caf4e1e032a20f9c3c5e28fc7f25ffd768ad8677b4975c54193075997b3a97e3` |
+
+مبنای نمونه‌های سورس 5fe21e922b5e6570e319cf528fc481a96a4c8e9e است. منشأ کامل ایمیج‌ها UNKNOWN است. مسیر ثبت‌شدهٔ Worktree اجرایی موقت پس از ری‌استارت در دسترس نبود و Git هنوز 5ee8a25ee9647c3ed1ef29ad4fd240ca9ac95313 را نگه می‌دارد. یکی از overrideهای ثبت‌شدهٔ Compose به همان مسیر اشاره دارد. بررسی قابلیت بازسازی Compose باز است. هویت کانتینرها ثابت بود و این نوبت هیچ Restart، Build، Deploy یا ورود کد اجرایی از GitHub انجام نشد. هش کل Snapshot دوباره بررسی نشد.
+
+شواهد قبلی Qdrant مربوط به کپی مستقل است. تغییر mode کپی، تطبیق ۳۴۸۸ بردار و اجرای ایزولهٔ ۱۹۳٫۰۲ ثانیه‌ای با CONTEXT_READY، ده نتیجه و صفر Generation و Gateway ثبت شد. Warm trial در Stage 6 و آزمون گزینهٔ ONNX در Stage 4 با exit 124 متوقف شدند. اثر گزینهٔ ONNX هنوز نامعلوم است. Benchmark جدید اجرا نشد. آزمون بعدی باید نسخهٔ مشتق را از Git محلی بازیابی کند و با ورودی مستقل به‌صورت ترتیبی زمان مرحله و batch را اندازه بگیرد. سقف مصوب ۱۸۰ ثانیه است.
+
+قرارداد فریز‌شده Locator تأییدشده صادر نمی‌کند. تأیید قرارداد برای همین نسخه تصمیم باز سرپرست است. OIDC، نشست، Signed BFF و HTTP 202 شواهد تاریخی دارند. Attempt جدید، CONTEXT_READY محصول، منابع معتبر UI و Refresh با نشست معتبر این نوبت آزموده نشدند. کنترل‌های قبلی امنیت و ۱۱ پین ورودی این نوبت دوباره اجرا نشدند. ۶۰ تطبیق هش پشتیبان و بازیابی منطقی قبلی معتبرند. بازیابی کامل در daemon مستقل باز و وضعیت PARTIAL است. آروان HOLD و پذیرش سرپرست در انتظار است.

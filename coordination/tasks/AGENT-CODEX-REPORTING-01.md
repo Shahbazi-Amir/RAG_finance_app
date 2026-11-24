@@ -211,3 +211,11 @@ Status is review. Supervisor approval is pending.
 - Tested: matched all seven frozen identities and stable metadata after canonicalizing Docker mount order. Verified exact pin equality and one unchanged FAILED Attempt with one spawn witness. Noninteractive ingress and private mTLS signature negatives passed after fixing the shell variable and Bootstrap method. Warm static files and exact 180-second runner resulted in Stage 6 exit 124. ONNX schedule trial timed out in Stage 4 and did not exercise the candidate option. Sampled cgroups had no reported quota throttling, swap or OOM.
 - Pending: product runtime budget and approved locator contract, valid product Refresh and integrated backup restore. Full prior image provenance UNKNOWN. No parallel code imported during this audit. Arvan HOLD and supervisor acceptance pending.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — Post-reboot identity and readiness
+
+- Status: review. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), operational evidence only. Report starting ref codex 5cd44a5cdaec6ac7fc357b0862b950b82aab5f2e, execution ref 5ee8a25, frozen source sample 5fe21e9 and private after-freeze manifest dated 2026-11-24 UTC.
+- Implemented: report-only updates to MAC_FIRST_START_FA.md, MAC_FIRST_START_FA.html, CURRENT_STATUS.md and this checkpoint. Runtime retained because IDs matched and services were already running.
+- Tested: docker ps -a --no-trunc, docker inspect with selected metadata, docker info, docker stats --no-stream, df -h, GET /health/ready on Keycloak management port (200), curl with the mounted public CA and existing loopback hostname (302, TLS verify=0). Missing Health keys required a narrower inspect template. Default curl trust failed with code 60 and passed with the existing CA.
+- Open: missing temporary execution checkout and Compose overlay, complete provenance, bounded Runner, approved Locator, product and Refresh, isolated integrated restore. Supervisor acceptance pending. No canonical checklist changes.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
