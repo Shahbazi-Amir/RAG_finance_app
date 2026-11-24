@@ -316,3 +316,9 @@ Status is review. Supervisor approval is pending.
 - Implemented in this reporting change: `docs/codex_execution/MAC_FIRST_START_FA.md`, `MAC_FIRST_START_FA.html`, `CURRENT_STATUS.md`, `WORK_LOG.md`, `RECOVERY_PLAN.md` and this ledger. Exact execution paths and their roles are listed in the report. Candidate code and private evidence remain local.
 - Tested and recovered evidence: HTTP OIDC/Session and cross-owner checks, isolated logical restore, bounded Chrome timeouts, ONNX operand and logits controls and Native exact integer witness. Live read-only Docker and host status succeeded after prior sandbox/automatic review HTTP 404. No Gate or canonical checklist changes. Supervisor acceptance pending.
 - Progress 2/20 → 4/20. Next: isolated Docker attention witness, operator diagnosis and Golden proof, Chrome and actual product dispatch once their prerequisites are met. [Detailed evidence and reproduction](../../docs/codex_execution/MAC_FIRST_START_FA.md#docker_3--بازیابی-پس-از-انتقال-حساب)
+
+### Docker_3 / NB23-SESSION-RESUME-10 — full operand witness
+
+- Report baseline 2fa5372, execution af57f26, pinned V4 f49f536f4d82. P3M14-A01 (Module 14, activity 1) remains pending for Chrome; P3M22-A06 (Module 22, activity 6) and P3OP11-R07 (§Launch checklist) retain the isolated restore evidence.
+- Tested: Docker exact-attention exit 0, both logits controls true, right operand and both zero points equal between runtimes. Left operand differs and each runtime exactly reproduces its own expected int32 result. GraphProto inspection traced the input through Softmax and DynamicQuantizeLinear.
+- Implemented locally: Softmax input/output observation in infra/nb23-v4/probe_onnx_intermediates.py and cumulative execution checkpoint. Updated both report formats, current status, work log and this ledger. Private evidence remains local. Progress 4/20 → 4/20; root cause, Golden, Chrome, real dispatch and supervisor acceptance pending.
