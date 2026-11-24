@@ -87,6 +87,46 @@ dst_id="$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc 'SELECT system_identi
 # Source and second cluster use the same ephemeral session value; a fresh
 # signed proof must still pass DB session epoch/generation and durable replay.
 run_probe after
+# The HTTPS listener is a separate nonroot process. Keep it running across a
+# deliberate outage of ONLY this disposable restore-db container, then restore
+# that same lab cluster. This is dependency readiness, NOT full machine DR.
+probe_name="f3-app-only-ready-$short_sha"
+docker run -d --name "$probe_name" --no-healthcheck \
+  --network "$network" --read-only --security-opt no-new-privileges:true \
+  --pids-limit 96 --memory 512m --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --mount "type=bind,src=$probe_dir,dst=/run/f3_http_probe" \
+  -e API_RUNNER_EXECUTION_MODE=APP_ONLY \
+  -e PYTHONPATH=/srv/release \
+  -e F3_ISOLATED_DB_HTTP=YES \
+  "$image" python3 -m apps.api.private_app_only_asgi \
+  --config /run/f3_http_probe/private/server-config.json \
+  > /dev/null
+trap 'docker rm -f "$probe_name" > /dev/null 2>&1 || true' EXIT
+ready=0
+for n in $(seq 1 45); do
+ if docker exec "$probe_name" python3 /srv/release/tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py ready200 > /dev/null 2>&1; then
+  ready=1; break
+ fi
+ sleep 1
+done
+[[ "$ready" == 1 ]] || { echo STOP_API_READY_BEFORE_OUTAGE >&2; exit 70; }
+echo APP_ONLY_RUNNING_MTLS_API_READY_BEFORE_PG_OUTAGE_200=PASS
+compose --profile restore stop restore-db > /dev/null
+docker exec "$probe_name" python3 /srv/release/tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py ready503
+echo APP_ONLY_RUNNING_MTLS_API_READY_AFTER_PG_LOSS_503=PASS
+compose --profile restore up -d --no-deps restore-db > /dev/null
+db_ready=0
+for n in $(seq 1 45); do
+ if [[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc 'SELECT 1' 2>/dev/null || true)" == 1 ]]; then
+  db_ready=1; break
+ fi
+ sleep 1
+done
+[[ "$db_ready" == 1 ]] || { echo STOP_PG_RESTORE_SERVICE_NOT_RESTARTED >&2; exit 70; }
+docker exec "$probe_name" python3 /srv/release/tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py ready200
+echo APP_ONLY_RUNNING_MTLS_API_READY_RECOVERED_PG_200=PASS
+docker rm -f "$probe_name" >/dev/null
+trap - EXIT
 [[ "$(DB_SERVICE=lab-db DB_NAME="$src" dbpsql -Atc "SELECT count(*) FROM history_l1.conversations")" == 8 ]] || exit 70
 [[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM history_l1.conversations")" == 8 ]] || exit 70
 [[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM history_l1.send_receipts")" == 0 ]] || exit 70
@@ -113,6 +153,7 @@ report={
  "two_owner_conversations":[5,3],
  "two_owner_messages":[4,2],
  "authenticated_session_revoke_after_restore":"A_DENIED_B_ALLOWED",
+ "real_mtls_api_dependency_readiness":"200_THEN_503_PG_DOWN_THEN_200_RECOVERED",
  "cross_owner_detail":"404",
  "no_cert_wrong_leaf":"REJECTED",
  "send_without_engine":"503_ZERO_DURABLE_WRITES",
