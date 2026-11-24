@@ -336,6 +336,7 @@ jobs:
       - name: Real Chromium ordinary login and signed app-only History journey
         if: github.ref == 'refs/heads/agent/api-f3-pr84-signed-history-20261124'
         env:
+          API_F3_ISOLATED_PG_CID: ${{ job.services.postgres.id }}
           PHASE3_APP_MODE: APP_ONLY
           API_RUNNER_EXECUTION_MODE: APP_ONLY
         run: |

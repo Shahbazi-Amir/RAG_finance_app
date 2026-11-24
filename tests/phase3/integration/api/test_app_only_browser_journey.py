@@ -7,6 +7,10 @@ witness, not Foundation's Docker/fresh-volume or destination acceptance.
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
+import json
+import re
+import time
 import os
 from pathlib import Path
 import secrets
@@ -19,11 +23,14 @@ from hashlib import sha256
 import httpx
 import psycopg
 from psycopg.rows import dict_row
+from psycopg import sql
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from playwright.async_api import async_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path[:0] = [str(ROOT), str(ROOT / "tests/phase3/integration/ui")]
-from phase3_auth_demo import Demo, ORIGIN, TITLE
+from phase3_auth_demo import Demo, ORIGIN, available_port
+from src.phase3.storage.postgres import auth_session
 from apps.api import history_api
 
 
@@ -49,14 +56,18 @@ class AppOnlyBrowserDemo(Demo):
                 "tests/phase3/integration/api/app_only_signed_pg_ci_h11.py")]
             self.api_process = super().add(self.api_command, self.api_env)
             return self.api_process
+        if any(str(x).endswith("bootstrap_010_worker.py") for x in cmd):
+            self.bootstrap_command = list(cmd)
+            self.bootstrap_process = super().add(cmd, env, cwd)
+            return self.bootstrap_process
         if env is not None and "AUTH_CI_LOGIN_MODE" in env:
             env = {**env, "PHASE3_APP_MODE": "APP_ONLY"}
             env.pop("AUTH_CI_PRODUCT_CHAT_MODE", None)
         return super().add(cmd, env, cwd)
 
     def counts(self):
-        with psycopg.connect(os.environ["DB_MIG_DSN"], autocommit=True,
-                             row_factory=dict_row) as db:
+        with psycopg.connect(getattr(self, "restore_mig_dsn", os.environ["DB_MIG_DSN"]),
+                             autocommit=True, row_factory=dict_row) as db:
             return db.execute(
                 "SELECT (SELECT count(*) FROM history_l1.conversations) AS conv,"
                 "(SELECT count(*) FROM history_l1.messages) AS msg,"
@@ -91,6 +102,189 @@ class AppOnlyBrowserDemo(Demo):
                 "SELECT id,title FROM history_l1.conversations WHERE owner_id=%s "
                 "AND state='active' ORDER BY created_at DESC,id DESC",
                 (self.owners[label],)).fetchall()
+
+    def stop_child(self, child):
+        entry = next((item for item in self.children if item[0] is child), None)
+        if entry is None:
+            raise RuntimeError("CI_CHILD_NOT_OWNED")
+        if child.poll() is None:
+            child.terminate()
+            try:
+                child.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait(timeout=5)
+        entry[1].close()
+        self.children.remove(entry)
+
+    @contextmanager
+    def fresh_volume(self):
+        """Use only the exact CI source service and newly created resources.
+
+        A fresh Postgres data directory, not another database in the old
+        container. Keep dump/role metadata only in process memory; do not
+        export credentials, screenshots, or backups from the disposable lab.
+        """
+        cid = os.environ.get("API_F3_ISOLATED_PG_CID", "")
+        if (os.getenv("CI") != "true" or os.getenv("GITHUB_ACTIONS") != "true"
+                or not re.fullmatch(r"[a-f0-9]{12,64}", cid)
+                or os.getenv("PGHOST") != "127.0.0.1"
+                or os.getenv("PGPORT") != "5432"):
+            raise RuntimeError("FRESH_VOLUME_CI_FENCE_DENIED")
+        source_dsns = {}
+        for key, value in os.environ.items():
+            if not key.endswith("_DSN"):
+                continue
+            options = conninfo_to_dict(value)
+            if options.get("dbname") != "history_ci":
+                continue
+            if (options.get("host") != "127.0.0.1" or options.get("port") != "5432"
+                    or not options.get("user") or not options.get("password")):
+                raise RuntimeError("FRESH_VOLUME_DSN_FENCE_DENIED")
+            source_dsns[key] = options
+        required = {"DB_APP_DSN", "DB_MIG_DSN", "AUTH_MIG_DSN", "AUTH_REVOKER_DSN",
+                    "AUTH_MAP_DSN", "AUTH_SESSION_DSN", "REPLAY_API_DSN",
+                    "LOGIN_BOOTSTRAP_DSN", "LOGIN_CLAIM_DSN", "LOGIN_ISSUER_DSN",
+                    "LOGIN_BINDER_DSN", "LOGIN_READER_DSN"}
+        assert required.issubset(source_dsns)
+        def docker(*args, data=None, timeout=60):
+            result = subprocess.run(["docker", *args], input=data,
+                                    capture_output=True, timeout=timeout)
+            if result.returncode:
+                raise RuntimeError("FRESH_VOLUME_DOCKER_COMMAND_FAILED")
+            return result.stdout
+        source = json.loads(docker("inspect", cid))[0]
+        assert source["Id"].startswith(cid)
+        assert source["Config"]["Image"] == "postgres:17.11" and source["State"]["Running"]
+        image = source["Image"]
+        assert re.fullmatch(r"sha256:[a-f0-9]{64}", image)
+        # No password hashes in the global backup. Restore the exact CI
+        # role names and attributes; provision synthetic passwords only
+        # from the explicit current-job DSNs in the new server.
+        roles = docker("exec", cid, "pg_dumpall", "-U", "postgres", "--roles-only",
+                       "--no-role-passwords")
+        roles = b"\n".join(line for line in roles.splitlines()
+                           if line.strip() != b"CREATE ROLE postgres;") + b"\n"
+        dump = docker("exec", cid, "pg_dump", "-U", "postgres", "-Fc", "history_ci")
+        assert dump.startswith(b"PGDMP")
+        suffix = uuid.uuid4().hex
+        name = "api-browser-pg-" + suffix
+        volume = name + "-data"
+        network = name + "-net"
+        dbname = "history_browser_restore_ci_" + suffix[:16]
+        label = "rag.finance.ci.restore=" + suffix
+        made_volume = made_network = False
+        new_id = None
+        try:
+            assert docker("volume", "create", "--label", label, volume).decode().strip() == volume
+            made_volume = True
+            docker("network", "create", "--label", label, network)
+            made_network = True
+            result = docker("run", "-d", "--pull", "never", "--name", name,
+                            "--label", label, "--network", network,
+                            "-p", "127.0.0.1::5432",
+                            "--mount", "type=volume,source=" + volume +
+                            ",target=/var/lib/postgresql/data",
+                            "-e", "POSTGRES_PASSWORD=" + os.environ["PGPASSWORD"], image)
+            new_id = result.decode().strip()
+            assert re.fullmatch(r"[a-f0-9]{64}", new_id) and new_id != source["Id"]
+            info = json.loads(docker("inspect", new_id))[0]
+            assert info["Config"]["Labels"]["rag.finance.ci.restore"] == suffix
+            assert info["Image"] == image
+            mounts = [m for m in info["Mounts"] if m["Destination"] == "/var/lib/postgresql/data"]
+            assert len(mounts) == 1 and mounts[0]["Name"] == volume
+            assert not any(m.get("Name") == volume for m in source["Mounts"])
+            assert set(info["NetworkSettings"]["Networks"]) == {network}
+            port_map = info["NetworkSettings"]["Ports"]["5432/tcp"]
+            assert len(port_map) == 1 and port_map[0]["HostIp"] == "127.0.0.1"
+            port = int(port_map[0]["HostPort"])
+            assert port != 5432
+            admin_opts = dict(host="127.0.0.1", port=port, dbname="postgres",
+                              user="postgres", password=os.environ["PGPASSWORD"],
+                              connect_timeout=2)
+            for _ in range(60):
+                try:
+                    with psycopg.connect(**admin_opts, autocommit=True):
+                        break
+                except psycopg.OperationalError:
+                    time.sleep(0.5)
+            else:
+                raise RuntimeError("FRESH_VOLUME_PG_NOT_READY")
+            docker("exec", "-i", new_id, "psql", "-X", "-v", "ON_ERROR_STOP=1",
+                   "-U", "postgres", "-d", "postgres", data=roles)
+            with psycopg.connect(**admin_opts, autocommit=True) as admin:
+                for options in source_dsns.values():
+                    admin.execute(sql.SQL("ALTER ROLE {} PASSWORD {}").format(
+                        sql.Identifier(options["user"]), sql.Literal(options["password"])))
+                admin.execute(sql.SQL("CREATE DATABASE {} TEMPLATE template0").format(
+                    sql.Identifier(dbname)))
+            docker("exec", "-i", new_id, "pg_restore", "-U", "postgres", "--exit-on-error",
+                   "-d", dbname, data=dump)
+            del roles, dump
+            clone_dsns = {key: make_conninfo(**{**value, "port": port, "dbname": dbname})
+                          for key, value in source_dsns.items()}
+            print("API_F3_BROWSER_INDEPENDENT_NEW_PG_VOLUME_RESTORE_PASS", flush=True)
+            yield clone_dsns
+        finally:
+            # Exact resources generated in this invocation; no prune or
+            # deletion of an existing CI/service or legacy volume.
+            if new_id is not None:
+                docker("rm", "-f", new_id)
+            if made_volume:
+                docker("volume", "rm", volume)
+            if made_network:
+                docker("network", "rm", network)
+
+    def switch_to_restored(self, dsns):
+        """Retain ordinary Next/BFF origins; restart only isolated private services."""
+        self.stop_child(self.api_process)
+        self.stop_child(self.bootstrap_process)
+        original_worker = Path(self.bootstrap_command[-1])
+        worker = json.loads(original_worker.read_text(encoding="utf-8"))
+        mapping = {"replay": "REPLAY_API_DSN", "bootstrap": "LOGIN_BOOTSTRAP_DSN",
+                   "claim_reader": "LOGIN_CLAIM_DSN", "issuer": "LOGIN_ISSUER_DSN",
+                   "mapper": "AUTH_MAP_DSN", "binder": "LOGIN_BINDER_DSN",
+                   "reader": "LOGIN_READER_DSN"}
+        assert set(worker["db_dsn"]) == set(mapping)
+        worker["db_dsn"] = {name: dsns[key] for name, key in mapping.items()}
+        worker_path = self.root / "restore-bootstrap.json"
+        fd = os.open(worker_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            json.dump(worker, out)
+        self.bootstrap_process = super().add([*self.bootstrap_command[:-1], str(worker_path)])
+        env = {"PATH": os.environ["PATH"], "HOME": str(self.root), "LANG": "C.UTF-8",
+               "PHASE3_APP_MODE": "APP_ONLY", "API_RUNNER_EXECUTION_MODE": "APP_ONLY",
+               "API_CURSOR_KEY": self.api_env["API_CURSOR_KEY"],
+               "API_CURSOR_TTL_SECONDS": self.api_env["API_CURSOR_TTL_SECONDS"]}
+        def protected(src, name):
+            target = self.root / name
+            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as out:
+                out.write(Path(src).read_bytes())
+            return str(target)
+        config = {"contract_version": "api.private_app_only_asgi.v1",
+                  "listen_host": "127.0.0.1",
+                  "listen_port": int(self.api_env["APP_ONLY_CI_API_PORT"]),
+                  "server_tls_cert_file": protected(self.api_env["APP_ONLY_CI_SERVER_CERT"], "restore-server.pem"),
+                  "server_tls_key_file": protected(self.api_env["APP_ONLY_CI_SERVER_KEY"], "restore-server.key"),
+                  "trusted_bff_ca_file": protected(self.ca, "restore-ca.pem"),
+                  "bff_leaf_cert_sha256": sha256(self.client[2]).hexdigest(),
+                  "bff_issuer": self.api_env["API_PRODUCT_PROOF_ISSUER"],
+                  "bff_audience": self.api_env["API_PRODUCT_PROOF_AUDIENCE"],
+                  "bff_kid": self.api_env["API_PRODUCT_PROOF_KID"],
+                  "bff_rs256_public_key_file": protected(self.api_env["API_PRODUCT_PROOF_PUBLIC_KEY_PATH"], "restore-public.pem"),
+                  "history_dsn": dsns["DB_APP_DSN"], "revoke_dsn": dsns["AUTH_REVOKER_DSN"]}
+        cfg = self.root / "restore-api.json"
+        fd = os.open(cfg, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            json.dump(config, out)
+        self.api_process = super().add([sys.executable, "-m",
+                                       "apps.api.private_app_only_asgi", "--config", str(cfg)], env)
+        tls = ssl.create_default_context(cafile=self.ca)
+        tls.load_cert_chain(self.client[0], self.client[1])
+        self.await_url(self.bootstrap_origin + "/__fixture_health", tls)
+        self.await_url(self.product_origin + "/internal/ready", tls)
+        self.restore_mig_dsn = dsns["DB_MIG_DSN"]
 
     async def journey(self, browser, output):
         contexts = []
@@ -176,24 +370,85 @@ class AppOnlyBrowserDemo(Demo):
             assert self.counts() == before
             print("API_F3_BROWSER_DETAIL_REFRESH_SEND_ZERO_SQL_PASS", flush=True)
 
-            # Existing live ordinary browser logout; no cookie injected.
-            logout = await ca.new_page()
-            await logout.goto(ORIGIN + "/login")
-            async with logout.expect_response(
-                lambda r: r.url.endswith("/api/auth/logout") and r.request.method == "POST"
-            ) as wait:
-                await logout.get_by_test_id("logout-submit").click()
-            assert (await wait.value).status == 303
-            await expect(logout.get_by_test_id("logout-success")).to_be_visible()
-            assert self.signed_private(raw_a).status_code == 401
-            assert self.signed_private(raw_b).status_code == 200
-            await a.get_by_test_id("refresh-history").click()
-            await expect(a.get_by_test_id("history-login-required")).to_be_visible()
-            assert await a.locator('[data-testid^="conversation-"]').count() == 0
-            await b.get_by_test_id("refresh-history").click()
-            await expect(b.get_by_test_id("conversation-" + bid)).to_be_visible()
-            assert self.counts() == before
-            print("API_F3_BROWSER_COMMITTED_REVOKE_AB_PASS", flush=True)
+            # Repeat in a truly independent fresh PostgreSQL volume while
+            # keeping real browser contexts and the original BFF signer.
+            with self.fresh_volume() as restored:
+                try:
+                    self.switch_to_restored(restored)
+                    assert self.counts() == before
+                    for label, page in (("A", a), ("B", b)):
+                        async with page.expect_response(
+                            lambda r: "/api/history/conversations?limit=2" in r.url
+                            and "cursor=" not in r.url and r.request.method == "GET"
+                        ) as wait:
+                            await page.get_by_test_id("refresh-history").click()
+                        response = await wait.value
+                        assert response.status == 200
+                        doc = await response.json()
+                        assert doc["scope_user_id"] == self.owners[label]
+                        assert [x["conversation_id"] for x in doc["items"]] == [
+                            x["id"] for x in expected[label][:2]]
+                        async with page.expect_response(
+                            lambda r: "/api/history/conversations?" in r.url and
+                            "cursor=" in r.url and r.request.method == "GET"
+                        ) as wait:
+                            await page.get_by_role("button", name="نمایش گفت‌وگوهای بیشتر").click()
+                        second = await wait.value
+                        assert second.status == 200
+                        assert [x["conversation_id"] for x in (await second.json())["items"]] == [
+                            x["id"] for x in expected[label][2:]]
+                        for row in expected[label]:
+                            await expect(page.get_by_test_id("conversation-" + row["id"])).to_be_visible()
+                    # Selection can survive a refresh; force a real new
+                    # detail request for this conversation after the restart.
+                    other_a = next(row["id"] for row in expected["A"] if row["id"] != aid)
+                    await a.get_by_test_id("conversation-" + other_a).click()
+                    async with a.expect_response(
+                        lambda r: "/api/history/conversations/" + aid + "/messages?" in r.url
+                        and r.request.method == "GET") as wait:
+                        await a.get_by_test_id("conversation-" + aid).click()
+                    assert (await wait.value).status == 200
+                    await expect(a.get_by_test_id("history-message-" + mid)).to_contain_text(message)
+                    denial = await b.evaluate("""async id => {
+                        const r=await fetch('/api/history/conversations/'+id+'/messages?limit=2',
+                            {cache:'no-store'}); return {status:r.status,body:await r.text()};
+                        }""", aid)
+                    assert denial["status"] == 404 and message not in denial["body"]
+                    assert (await a.evaluate("""async () => (await fetch('/api/history/messages',
+                        {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status""")) == 503
+                    await a.reload(wait_until="domcontentloaded")
+                    await expect(a.get_by_test_id("conversation-" + aid)).to_be_visible()
+                    assert self.counts() == before
+                    print("API_F3_BROWSER_RESTORED_VOLUME_PG_HTTP_DOM_AB_PASS", flush=True)
+                    # Existing live ordinary browser logout; no cookie injected.
+                    logout = await ca.new_page()
+                    await logout.goto(ORIGIN + "/login")
+                    async with logout.expect_response(
+                        lambda r: r.url.endswith("/api/auth/logout") and r.request.method == "POST"
+                    ) as wait:
+                        await logout.get_by_test_id("logout-submit").click()
+                    assert (await wait.value).status == 303
+                    await expect(logout.get_by_test_id("logout-success")).to_be_visible()
+                    assert self.signed_private(raw_a).status_code == 401
+                    assert self.signed_private(raw_b).status_code == 200
+                    await a.get_by_test_id("refresh-history").click()
+                    await expect(a.get_by_test_id("history-login-required")).to_be_visible()
+                    assert await a.locator('[data-testid^="conversation-"]').count() == 0
+                    await b.get_by_test_id("refresh-history").click()
+                    await expect(b.get_by_test_id("conversation-" + bid)).to_be_visible()
+                    assert self.counts() == before
+                    print("API_F3_BROWSER_COMMITTED_REVOKE_AB_PASS", flush=True)
+                    # The old source remains active; only clone A was revoked.
+                    with psycopg.connect(os.environ["AUTH_SESSION_DSN"], autocommit=True,
+                                         row_factory=dict_row) as original:
+                        assert auth_session.inspect(original, raw_a["session_ref"]) is not None
+                        assert auth_session.inspect(original, raw_b["session_ref"]) is not None
+                    print("API_F3_BROWSER_RESTORE_SOURCE_SESSIONS_UNCHANGED_PASS", flush=True)
+                finally:
+                    for child in (self.api_process, self.bootstrap_process):
+                        if any(p is child for p, _ in self.children):
+                            self.stop_child(child)
+                    self.__dict__.pop("restore_mig_dsn", None)
         finally:
             for context in contexts:
                 await context.close()
