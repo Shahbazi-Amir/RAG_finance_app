@@ -106,5 +106,38 @@ class ResultSchemaGate(unittest.TestCase):
                         "request_id":self.binding.engine_request_id})
 
 
+    def test_pinned_schema_never_retrieves_external_reference(self):
+        from unittest.mock import patch
+        schema = {"$schema":"https://json-schema.org/draft/2020-12/schema",
+                  "$ref":"https://schema.invalid/never-fetch.json"}
+        profile = ApprovedResultProfile(canonical_schema_digest(schema))
+        raw = json.dumps({"schema":"rag_finance.mvp_engine_result.v1",
+                          "request_id":self.binding.engine_request_id}).encode()
+        with patch("urllib.request.urlopen", side_effect=AssertionError("NETWORK_FORBIDDEN")) as network:
+            with self.assertRaises(PreflightDenied):
+                validate_schema_pinned_result(raw, schema=schema, profile=profile,
+                                              binding=self.binding)
+            network.assert_not_called()
+        # Internal JSON Schema references remain usable.
+        local = {"$schema":schema["$schema"], "$ref":"#/$defs/result",
+                 "$defs":{"result":{"type":"object","required":["schema","request_id"],
+                 "additionalProperties":False, "properties":{
+                   "schema":{"const":"rag_finance.mvp_engine_result.v1"},
+                   "request_id":{"type":"string"}}}}}
+        result = validate_schema_pinned_result(raw, schema=local,
+                    profile=ApprovedResultProfile(canonical_schema_digest(local)),
+                    binding=self.binding)
+        self.assertEqual(result["request_id"], self.binding.engine_request_id)
+
+    def test_deep_malformed_json_refuses_with_public_safe_error(self):
+        raw = b'{"private":' + b'[' * 3000 + b'0' + b']' * 3000 + b'}'
+        with self.assertRaises(PreflightDenied):
+            validate_no_dispatch_context_ready(raw, question=self.question, binding=self.binding)
+        schema = {"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}
+        with self.assertRaises(PreflightDenied):
+            validate_schema_pinned_result(raw, schema=schema,
+                profile=ApprovedResultProfile(canonical_schema_digest(schema)), binding=self.binding)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
