@@ -252,3 +252,11 @@ Status is review. Supervisor approval is pending.
 - Tested: one no-network, no-dispatch run with timeout 300, actual exit 124, outer wall 305 s, ONNX start 199.036 s, 3 completed batches. Checked live budget still 180 and staged dense mode 0755. Cause of variance UNKNOWN; no new validated optimization supports a second readiness run. Initial sh brace-glob cache check was invalid; explicit paths confirmed pycache present. Host top was sandbox-denied; container metrics were collected instead.
 - Pending: product readiness and Attempt, refresh, Locator authorization and review of potential notebook optimization. Supervisor acceptance pending. No canonical checklist or Gate changes. Arvan HOLD.
 - [Persian timings and outcome](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — NB23 V4 isolated worker candidate
+
+- Status: review for isolated worker, blocked for product. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), P3M11-A02 (Module 11, activity 2). Report base f69d9dc, local branch ops/nb23-v4-staging from c90cfa7 at d6b659d, V4 source 91a1a346 and receipt 4fb6a89c, image f49f536f4d82.
+- Implemented: local infra/nb23-v4/worker.py, verify_trial.py, Dockerfile and .dockerignore; private staged bundle and manifest. Reports only in MAC_FIRST_START_FA.md/.html, CURRENT_STATUS.md and this ledger. Historical typo was in notebook reporting; new harness records a separate lifecycle without rewriting originals.
+- Tested: source digests matched, offline Docker build succeeded after starting existing daemon. run-trial.zsh initially failed reading the top-level question before launch; nested evaluation_content question fixed it. One Worker created E5, tokenizer and ONNX once, produced three real contexts with zero generation, and exited cleanly. Verifier exit 1 because ordered Top-10 and Context hashes differed for all three labels. Runtime 41.810 / 37.400 / 44.632 s. Native lifecycle and restart acceptance pending.
+- Open: parity and performance, ownership-bound API integration, actual OIDC/UI and refresh, source release permission, freeze and supervisor acceptance. Prior frozen stack was found stopped and preserved, Arvan HOLD; no canonical checklist or Gate changes.
+- [Persian timing and evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
