@@ -15,3 +15,11 @@ The disposable session database passed a custom dump and restore into a separate
 ### NB23-SESSION-RESUME-11
 
 A tmpfs restart replay exposed stale generated role setup. The three required grants now live in the guarded staging SQL used by the provisioning path. Apply it only to the verified disposable clone after restarting its PostgreSQL. Full frozen-stack recovery remains pending.
+
+### NB23-SESSION-RESUME-12
+
+If isolated API restarts and BFF cannot see its loopback listener, recreate only the disposable BFF and Bootstrap to attach to the current API network namespace, then restart the isolated edge. Verify both HTTPS routes before Chrome. This recovery was observed with status 200 and TLS verification 0.
+
+### NB23-SESSION-RESUME-15
+
+Keep the frozen C018 rollback intact. Stop only the independent nb23-session-product-local project and its dedicated temporary PostgreSQL when ending the local V4 test. Preserve the V4 ledger volume and pinned image. The full isolated start/stop drill remains pending.

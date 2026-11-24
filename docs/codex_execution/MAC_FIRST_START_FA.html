@@ -410,4 +410,68 @@ PostgreSQL روی tmpfs مستقل بازآماده شد و ابزار provision
 ```
 
 فعالیت ۱۰ تکمیل شد، ۵ واحد درصد افزایش. فعالیت ۱۱ تا اثبات مرجع و اصلاح باز است. پس از تشخیص مرز عددی، اصلاح روی کپی مستقل، سپس Golden Q2/Q3/WARM. در مسیر Session، edge مستقل را پس از upstreamها بازخوانی و CA/hostname را بررسی کنید، سپس آزمون Chrome fixture را اجرا کنید. انتشار منبع، dispatch واقعی V4، معیار آمادگی انسانی و پذیرش سرپرست همچنان بازند.</pre></section>
+<section dir="rtl"><pre style="white-space:pre-wrap">## Docker_3 — بازیابی HTTPS و مرز navigation در Chrome
+
+در checkpoint `NB23-SESSION-RESUME-12`، edge به پورت ۸۴۴۳ IdP دسترسی داشت، ولی به BFF روی ۳۰۰۰ در namespace API نمی‌رسید. در loopback خود BFF پورت‌های ۳۰۰۰ و ۸۴۴۴ برقرار و ۸۴۴۳ بسته بود. پس از `docker compose … up -d --no-deps --force-recreate --no-build --pull never bootstrap bff` و `docker compose … restart edge`، هر دو درخواست curl با `--noproxy &#x27;*&#x27; --cacert … --resolve …:443:127.0.0.1` برای /login و discovery پاسخ ۲۰۰ و ssl_verify_result=0 دادند. فقط سرویس‌های محیط مستقل تغییر کردند.
+
+Chrome پس از بررسی موفق about:blank در Page.navigate timeout شد. `infra/nb23-v4/check_session_browser.py` اکنون navigation را با تأخیر ۲۵۰ میلی‌ثانیه از Runtime.evaluate زمان‌بندی می‌کند. بازبینی خودکار اجرای نسخهٔ جدید HTTP 404 داد، بنابراین این آزمون اجرا نشد.
+
+آزمون Docker با `--branches 1 --exact-attention --softmax-reference` خروج ۰ داشت. همهٔ ۵٬۲۹۰٬۷۵۲ عنصر ورودی و خروجی finite بودند. اختلاف بیشینه با normalization پایدار float64 حدود 1.76e-7 و بیشینهٔ خطای جمع سطر حدود 3.34e-7 بود. تمام fingerprintها و دو کنترل logits با شاهد قبلی Docker برابر بودند. axis عملگر در GraphProto برابر −۱ است. شاهد Native float64 در جریان بود. گزینهٔ آزمایشی `--candidate-fp64-softmax` در `probe_onnx_intermediates.py` فقط یک کپی موقت با Cast پیش و پس از Softmax می‌سازد و ورودی/اختلاف logits را با مرجع تاریخی می‌سنجد. نتیجهٔ نامزد هنوز ثبت نشده است.
+
+پیشرفت ۵/۲۰ → ۵/۲۰ (۲۵٪) [#####---------------]، افزایش صفر. برای ادامه، نتیجهٔ Native را بازیابی و نامزد تک‌بچ را در همان ایمیج آفلاین اجرا کنید. در مسیر UI، پس از رفع HTTP 404 بازبینی، `python3 -B -u infra/nb23-v4/check_session_browser.py ../nb23-session-product-local` را از worktree اجرا کنید. Chrome E2E، اصلاح پذیرفته‌شده، Golden و dispatch واقعی بازند.</pre></section>
+<section dir="rtl"><pre style="white-space:pre-wrap">## Docker_3 — شاهد عددی Native و بازگشت خطای بازبینی
+
+در checkpoint `NB23-SESSION-RESUME-13`، Native با `--softmax-reference` خروج ۰ داشت. همهٔ ۵٬۲۹۰٬۷۵۲ عنصر finite بودند. بیشینهٔ خطای مطلق در برابر float64 پایدار 5.72e-8 و بیشینهٔ خطای جمع سطر 2.26e-7 بود. هش ورودی‌ها و عملوندها و هر دو کنترل logits با اجرای Native قبلی برابر بودند. نزدیکی عددی Softmax در هر دو محیط، علت اختلاف بزرگ logits را به‌تنهایی ثابت نمی‌کند.
+
+بازبینی خودکار عملیات اجرای نامزد Docker و commit/push گزارش بعدی HTTP 404 داد. این عملیات در آن تلاش اجرا نشدند. بازبینی نسخهٔ اصلاح‌شدهٔ آزمون Chrome نیز پیش‌تر HTTP 404 داد. اجرای نامزد بومی آغاز شد. درصد قبل و بعد ۵/۲۰ (۲۵٪) [#####---------------] و افزایش صفر است.
+
+فرمان دقیق آزمایش Docker پس از بازیابی بازبینی از ریشهٔ RAG_finance_app اجرا می‌شود. متغیر GOLDEN_REFERENCE به مسیر محلی و فقط‌خواندنی Golden ثبت‌شده در handoff اشاره می‌کند. مسیر PRIVATE_OUTPUT یک فایل جدید در پوشهٔ خصوصی آزمون است.
+
+```sh
+set -eu
+set -C
+umask 077
+b=&quot;$PWD/artifacts/nb23-v4-bundle&quot;
+w=&quot;$PWD/artifacts/nb23-v4-worktree/infra/nb23-v4&quot;
+docker run --rm --network none --pull never --read-only --init --memory 4g \
+  --name nb23-onnx-candidate-fp64 --user 11001:11001 --tmpfs /tmp:mode=1777 \
+  -e HF_HUB_CACHE=/models -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \
+  -e PYTHONPATH=/opt/nb23-v4 -v &quot;$w:/probe:ro&quot; \
+  -v &quot;$GOLDEN_REFERENCE:/trial/golden.jsonl:ro&quot; \
+  -v &quot;$b/contract.json:/trial/contract.json:ro&quot; \
+  -v &quot;$b/first-batch-private.json:/trial/fingerprints.json:ro&quot; \
+  -v &quot;$b/inputs/artifacts:/inputs/artifacts:ro&quot; -v &quot;$b/inputs/repo:/tmp/repo:ro&quot; \
+  -v &quot;$HOME/.cache/huggingface/hub:/models:ro&quot; \
+  --entrypoint /usr/bin/timeout sha256:f49f536f4d8294ff1453665e99b87a85158200d0d16368b57a38f7274d320781 \
+  300 /opt/rag-finance-staging/.venv-onnx-probe/bin/python -B \
+  /probe/probe_onnx_intermediates.py /trial/fingerprints.json \
+  --environment docker --branches 1 --exact-attention --candidate-fp64-softmax &gt; &quot;$PRIVATE_OUTPUT&quot;
+```
+
+پیش از اجرا وضعیت Worker را از مسیر مجاز بررسی کنید. گزینهٔ نامزد فقط کپی موقت را تغییر می‌دهد. نتیجه باید با logits Native فریزشده مقایسه شود. فقط در صورت اصلاح مؤثر بررسی کامل Golden را اجرا کنید. مسیر مستقل Chrome از checkpoint ۱۲ ادامه دارد. هیچ Artifact خصوصی همراه گزارش منتشر نمی‌شود.</pre></section>
+<section dir="rtl"><pre style="white-space:pre-wrap">## Docker_3 — نتیجهٔ نامزد FP64 روی Batch 1
+
+در checkpoint `NB23-SESSION-RESUME-14`، اجرای بومی `--branches 1 --exact-attention --candidate-fp64-softmax` با خروج ۰ تمام شد. ورودی نامزد همان ورودی فریزشده بود. logits اصلی دقیقاً برابر مرجع Native و logits مدل instrumented برابر اجرای اصلی بودند. تبدیل Softmax اول به دقت دوگانه در یک کپی موقت، بیشینهٔ اختلاف مطلق logits را از صفر به ۰٫۳۱۳۶۶۴۹۱۳۱۷۷۴۹۰۲۳ رساند. این تغییر معیار برابری Batch 1 را رد کرد و به محصول منتقل نمی‌شود.
+
+قدم بعدی برای اثبات رابطهٔ علّی، جایگزین کردن خروجی دقیق Softmax بومی فقط در همان نقطهٔ گراف Docker برای Batch 1 و کنترل execution plan است. سپس اثر را روی quantization پایین‌دست و logits نهایی بررسی کنید. شاهد tensor در مک خصوصی می‌ماند. Golden کامل فقط پس از اصلاحی اجرا می‌شود که معیار اصلی را نگه دارد.
+
+تلاش دوم انتشار گزارش تجمعی نیز در بازبینی خودکار HTTP 404 گرفت. آخرین ref مشاهده‌شده روی GitHub `78a608815a79ca7e5c67e1abf8806d64138c10a7` است. پیشرفت ۵/۲۰ → ۵/۲۰ (۲۵٪) [#####---------------]، افزایش صفر. Golden، آزمون Chrome محصول، dispatch V4 و تأیید انسانی و سرپرست بازند.</pre></section>
+<section dir="rtl"><pre style="white-space:pre-wrap">## Docker_3 — شاخهٔ آزمایشی Retrieval برای آزمون خصوصی
+
+checkpoint `NB23-SESSION-RESUME-15`. مالک آزمون خصوصی با موتور موجود و Golden حل‌نشده را مجاز کرد. برچسب `EXPERIMENTAL_LOCAL_V4 — GOLDEN PARITY NOT VERIFIED` برقرار است. بررسی عددی موتور متوقف شد. مبنای اجرا `ops/nb23-v4-staging` در `af57f26` و مبنای گزارش `codex` در `78a6088` هستند. checkpointهای منتشرنشدهٔ ۱۲ تا ۱۴ در همین مجموعه محفوظ‌اند.
+
+نسخهٔ A پشتهٔ فریزشدهٔ C018 است. هفت کانتینر تاریخی در بازبینی خواندنی متوقف بودند. نسخهٔ B پروژهٔ Compose مستقل `nb23-session-product-local` با PostgreSQL مستقل `rag-nb23-session-e2e-pg` و شبکهٔ `nb23-session-e2e` است. فهرست Compose شش سرویس worker، api، bootstrap، bff، idp و edge را تأیید کرد و ایمیج پین‌شدهٔ Worker `sha256:f49f536f4d8294ff1453665e99b87a85158200d0d16368b57a38f7274d320781` محلی بود.
+
+- `infra/nb23-v4/session-compose.yaml` و `session_worker_socket.py` پشتهٔ ایزوله و اتصال فقط از سوکت یونیکس را تعریف می‌کنند. Worker بدون شبکه و با داده‌ها و ایمیج فقط‌خواندنی اجرا می‌شود.
+- `src/phase3/rag_runtime/persistent_v4_pipe.py` readiness، تطابق Attempt، پاسخ معتبر و مدت Worker را روی سوکت بررسی می‌کند.
+- `infra/nb23-v4/session_product_api.py` به‌جای مسیر Session-only از همان Send امضاشده و Attempt ثبت‌شده در PostgreSQL استفاده می‌کند. SQLite عملیاتی با Volume مستقل، خلاصهٔ نتیجهٔ متعلق به مالک را نگه می‌دارد. پذیرش هم‌زمان محدود به یک درخواست فعال است و زمان Worker به‌صورت عددی در لاگ محلی ثبت می‌شود.
+- `infra/nb23-v4/check_session_browser.py --http-v4` یک آزمون واقعی HTTPS در کنار آزمون Chrome فراهم می‌کند. سه fixture موجود موفق بودند. fixture جدید Unix socket ابتدا با خطای مجوز sandbox هنگام bind مواجه شد. این fixture شاهد رفتار موتور واقعی محسوب نمی‌شود.
+
+نتیجهٔ مجاز، شمار شواهد و وضعیت Context است. Source Permission همچنان BLOCKED است؛ متن منبع، Locator یا Citation نمایش داده نمی‌شود. Generation و Gateway غیرفعال‌اند. اتصال آیندهٔ مدل باید پشت Adapter سرور و Gateway مصوب، با قرارداد Context و تنظیم Provider در پیکربندی سرور انجام شود. درخواست خارجی، کلید یا Provider برای این مرحله پیکربندی نشده است.
+
+- رسمی Docker_3 قبل و بعد ۵/۲۰ (۲۵٪) [#####---------------].
+- آمادگی خصوصی در آغاز ۰/۲۰ PASS [--------------------]؛ T01 و T02 در راه‌اندازی، T03 تا T18 در انتظار اجرای واقعی، T19 دارای شواهد موجودی نسخهٔ A، T20 در انتظار URL معتبر و runbook نهایی.
+- پذیرش کیفیت و Freeze رسمی در انتظار مالک و سرپرست. Arvan HOLD.
+
+ادامه از `NB23-SESSION-RESUME-15`: پس از تأیید سلامت پشته، آزمون Chrome را اجرا کنید. اگر پیش از Send متوقف شد، از worktree اجرایی `python3 -B -u infra/nb23-v4/check_session_browser.py ../nb23-session-product-local --http-v4` را برای سنجش واقعی Send تا CONTEXT_READY اجرا کنید. بازگشت نسخهٔ B با توقف پروژهٔ Compose مستقل و بدون حذف Volume ممکن است. برای نسخهٔ A از رویه و manifest بازگشت تاریخی استفاده می‌شود.</pre></section>
 </html>

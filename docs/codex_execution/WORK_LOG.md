@@ -25,3 +25,20 @@
 
 - جفت Softmax خروج ۰، دو کنترل logits برقرار، ورودی برابر و خروجی متفاوت. فعالیت ۱۰ تکمیل شد.
 - بازیابی DB روی tmpfs، تشخیص مجوز EXECUTE و اجرای سه GRANT محافظت‌شده، Chrome CDP روی صفحهٔ خالی خروج ۰. آزمون Browser E2E هنوز آغاز نشده است.
+
+## NB23-SESSION-RESUME-12
+
+- BFF و Bootstrap جداشده بازسازی شدند و هر دو HTTPS با TLS=0 پاسخ ۲۰۰ دادند. Chrome Page.navigate timeout داد. بازبینی آزمون navigation تغییرکرده HTTP 404 داد.
+- Docker Softmax-reference خروج ۰. گزینهٔ نامزد دقت دوگانه برای یک Batch اضافه شد. پیشرفت بدون تغییر.
+
+## NB23-SESSION-RESUME-13
+
+- Native float64 reference خروج ۰، دو کنترل و fingerprintهای قبلی برابر. بازبینی Docker candidate و اولین تلاش انتشار گزارش تکمیلی با HTTP 404 خاتمه یافت. آزمون نامزد Native آغاز شد.
+
+## NB23-SESSION-RESUME-14
+
+- نامزد Native FP64 خروج ۰، کنترل‌ها برقرار، ولی اختلاف جدید logits برابر ۰٫۳۱۳۶۶۴۹۱۳۱۷۷۴۹۰۲۳. نامزد پذیرفته نشد و Golden کامل آغاز نشد. تلاش دوم commit/push در بازبینی خودکار HTTP 404 داد.
+
+## NB23-SESSION-RESUME-15
+
+- بازبینی Docker موفق شد. مسیر Worker آفلاین و API ایزوله پیاده شد. بررسی کد و سه fixture موجود موفق بودند. fixture سوکت sandbox-denied. آماده‌سازی PostgreSQL آغاز شد.

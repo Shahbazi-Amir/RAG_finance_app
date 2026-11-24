@@ -329,3 +329,27 @@ Status is review. Supervisor approval is pending.
 - Implemented locally under infra/nb23-v4: optional float64 witness in probe_onnx_intermediates.py, guarded staging grants in session_staging_rls.sql and simplified generator in prepare_session_product.py, blank-page readiness in check_session_browser.py, cumulative local checkpoint. Report updated in all five requested report files and this ledger.
 - Tested: both Softmax witnesses exit 0 with preserved logits, equal input and different output. Isolated PG provision exit 0, API authority preflight failed at EXECUTE check with stale material, guarded SQL exit 0 and API container restarted. Blank-page Chrome CDP exit 0. First HTTPS poll failed before browser launch. Float64 witness, readiness recheck, Chrome E2E, parity, actual dispatch and acceptance are pending.
 - Progress 4/20 → 5/20. See [detailed evidence and continuation](../../docs/codex_execution/MAC_FIRST_START_FA.md#docker_3--مرز-کنترلشدهٔ-softmax-و-بازیابی-staging).
+
+### Docker_3 / NB23-SESSION-RESUME-12 — recovered HTTPS and bounded Softmax measurement
+
+- Baseline report 78a6088, execution af57f26, pinned V4 f49f536f4d82. P3M14-A01 (Module 14, activity 1), P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist).
+- Tested: isolated BFF/Bootstrap namespace recreation plus edge restart allowed verified 200/0 on both app and IdP. Chrome then timed out in Page.navigate. Automatic approval for rerunning the modified browser harness returned HTTP 404. Docker numerical reference exited 0 and kept historical/edited logits and fingerprints unchanged.
+- Implemented locally: delayed navigation in infra/nb23-v4/check_session_browser.py, temporary candidate Softmax precision option in probe_onnx_intermediates.py, and local checkpoint. Updated all five report files and this ledger. Progress 5/20 → 5/20. Native numerical reference, candidate check, Chrome, Golden, product dispatch and acceptance remain open. [Details](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### Docker_3 / NB23-SESSION-RESUME-13 — native reference and approval errors
+
+- Baseline report 78a6088 with unpublished checkpoint 12 WIP, execution af57f26, pinned V4 f49f536f4d82. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
+- Tested: Native reference exit 0, both logits controls and previous fingerprints reproduced. Both runtime Softmax outputs are close to float64. Docker candidate launch and preliminary report publication attempt were rejected because automatic review returned HTTP 404. No executed candidate result on Docker. Chrome variant remains unrun.
+- Implemented: local ledger plus cumulative sanitized Markdown, HTML, status, log and mission ledger. Added exact reproducible Docker invocation. Progress 5/20 → 5/20. Native candidate first-batch control pending, followed by parity only if remediation evidence supports it. Acceptance pending. [Detailed evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### Docker_3 / NB23-SESSION-RESUME-14 — negative candidate result
+
+- Report baseline 78a6088 with local pending reporting changes, execution af57f26, pinned V4 f49f536f4d82. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
+- Tested: native candidate option exit 0 on frozen Batch 1 with both logits controls and input fingerprints reproduced. Candidate max absolute delta 0.31366491317749023 against unchanged Native logits. Candidate fails required equality. Docker candidate and delayed Chrome action did not run after HTTP 404 review failures.
+- Implemented this checkpoint in the local execution ledger and report documents. No runtime promotion. Second approval review for publication returned HTTP 404, latest verified GitHub report remains 78a6088. Progress 5/20 → 5/20. Next trace the causal impact with exact native Softmax output substitution and plan controls, continue independent browser flow when review is available. Golden, real dispatch and acceptance pending. [Evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### Docker_3 / NB23-SESSION-RESUME-15 — experimental retrieval-only integration
+
+- Git baseline report 78a6088, execution af57f26, pinned V4 f49f536f4d82. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist). Owner changed the private test priority; official Golden and Freeze remain unaccepted.
+- Implemented in the dedicated worktree: session-compose.yaml, session_worker_socket.py, session_product_api.py, check_session_browser.py, persistent_v4_pipe.py and its targeted socket regression. Existing frozen C018 resources, private data, candidate code and numeric traces remain outside the report branch.
+- Tested: approved status inventory, existing three transport fixtures and Compose service list. Socket regression initially blocked by sandbox bind. Runtime startup and integrated test in progress. Formal 5/20, private 0/20 PASS, Freeze pending. [Cumulative evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
