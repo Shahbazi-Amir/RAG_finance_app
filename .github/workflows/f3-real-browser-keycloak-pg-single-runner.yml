@@ -4,7 +4,7 @@ on:
   push:
     branches: [integration/f3-foundation-history-two-users-20261124]
   pull_request:
-    branches: [agent/db-f3-atomic-corrupt-restore-keyset-20261124]
+    branches: [agent/db-f3-physical-owner-graph-20261124]
     paths:
       - 'tests/phase3/integration/foundation/browser_history_restore.py'
       - '.github/workflows/f3-real-browser-keycloak-pg-single-runner.yml'
@@ -22,7 +22,7 @@ jobs:
     if: >-
       github.event_name == 'push'
       || (github.event_name == 'pull_request'
-          && github.event.pull_request.head.ref == 'agent/db-f3-physical-owner-graph-20261124'
+          && github.event.pull_request.head.ref == 'agent/db-f3-data-bearing-migrations-revoked-browser-20261124'
           && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 55
@@ -218,6 +218,16 @@ jobs:
           f3_ledger_init
           export PGUSER=history_migrator PGPASSWORD=synthetic_mig_only
           f3_ledger_apply 001 infra/postgres/migrations/001_history_l1.up.sql
+          # A real committed pre-002 row, not an empty-table-only upgrade.
+          PGUSER=history_app PGPASSWORD=synthetic_app_only psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          SELECT set_config('app.owner_id','synthetic_pre002_upgrade',true);
+          INSERT INTO history_l1.conversations(owner_id,id,title)
+            VALUES('synthetic_pre002_upgrade','synthetic_pre002_conversation','synthetic retained title');
+          INSERT INTO history_l1.messages(owner_id,id,conversation_id,role,body)
+            VALUES('synthetic_pre002_upgrade','synthetic_pre002_message','synthetic_pre002_conversation','user','synthetic retained message');
+          COMMIT;
+          SQL
           f3_ledger_apply 002 infra/postgres/migrations/002_one_attempt.up.sql
           psql -d history_legacy_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
           # Separate synthetic chain seed: 001 first; acceptance test applies 002.
@@ -343,15 +353,16 @@ jobs:
           assert r["db_restricted_sql_read_only"] is True
           assert r["db_restricted_six_tables_exact_parity"] is True
           assert r["db_restricted_cross_owner_unset_context_zero"] is True
-          assert r["db_restricted_sql_checkpoints"]==7
+          assert r["db_restricted_sql_checkpoints"]==8
           assert r["db_real_oidc_same_transaction_matrix"]=="SOURCE_RESTORED_ROLLBACK_REVOKED_A_DENIED_B_ADMITTED"
           assert r["db_real_oidc_replay_rollback_and_forged_binding_denied"] is True
           assert r["db_browser_migration_ledger"]=="ACTUAL_PINNED_001_010_EXECUTION_SOURCE_RESTORE_ROLLBACK_REVOKE_EXACT_PRIVATE"
-          assert r["db_browser_migration_ledger_rows"]==10 and r["db_browser_migration_ledger_checkpoints"]==4
+          assert r["db_browser_migration_ledger_rows"]==10 and r["db_browser_migration_ledger_checkpoints"]==5
+          assert r["db_data_bearing_up_002_010"]==9 and r["db_post_revoke_second_fresh_volume_a401_b200"] is True
           assert r["db_browser_db55_bridge"]=="NOT_RUN_IN_BROWSER_FIXTURE"
           assert r["db_real_browser_logout_pg_lock_edge_then_commit"] is True
           assert r["db_physical_owner_graph"]=="12_REQUIRED_1_CONDITIONAL_1_SERVICE_REAL_OIDC_LINEAGE_AND_SCHEMA_PARITY"
-          assert r["db_physical_owner_graph_checkpoints"]==4 and r["db_cross_schema_select_denials"]==104
+          assert r["db_physical_owner_graph_checkpoints"]==5 and r["db_cross_schema_select_denials"]==130
           assert r["db_owner_id_user_id_policy"]=="REQUIRES_OWNER_APPROVAL"
           assert set(r["db_restricted_owner_counts"])=={"A","B"}
           for counts in r["db_restricted_owner_counts"].values():

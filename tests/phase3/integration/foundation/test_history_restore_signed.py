@@ -52,7 +52,10 @@ def pg17(tool, *parts):
         ca=Path(os.environ["PGSSLROOTCERT"]).resolve()
         assert ca.is_relative_to(Path(temp)) and ca.is_file()
         tls=["-e","PGSSLMODE=verify-full","-e","PGSSLROOTCERT="+str(ca)]
+    # Match the disposable runner UID/GID so private 0700 directories and
+    # 0600 dump files stay runner-owned; never relax their permissions.
     return command(["docker","run","--rm","--network","host",
+                    "--user",f"{os.getuid()}:{os.getgid()}",
                     "--pull","never",
                     "-e","PGPASSWORD="+os.environ["PGPASSWORD"],*tls,
                     "-v",temp+":"+temp,
