@@ -50,3 +50,7 @@
 ## NB23-SESSION-RESUME-17
 
 - Chrome Send و Refresh همان Attempt، یک POST، مهلت SQL معتبر. Worker واقعی CONTEXT_READY و ۹۵٫۵۳۷ ثانیه. ابزار مشاهدهٔ UI به ۹۵ ثانیه رسید؛ سقف هدفمند اصلاح شد. فایل‌های نمایش زمان و image مستقل آمادهٔ build هستند.
+
+## NB23-SESSION-RESUME-18
+
+- بازیابی Chrome نتیجهٔ واقعی ذخیره‌شده بدون POST، دو زمان از PID ثابت، build مشتق UI و آزمون ذخیرهٔ زمان و مالک در SQLite. بررسی UI فعال، سؤال دوم و Logout بازند.

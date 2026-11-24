@@ -95,3 +95,7 @@ HTTPS برنامه و IdP پس از ترمیم namespace تأیید شدند. Ch
 ### NB23-SESSION-RESUME-17
 
 Retrieval واقعی از Chrome روی Attempt ثبت شد، CONTEXT_READY، Top-10=10، Worker ۹۵٫۵۳۷ ثانیه. Refresh همان Attempt را حفظ کرد. نتیجهٔ UI و آزمون دوم بازند. رسمی ۵/۲۰ و خصوصی ۱۱/۲۰.
+
+### NB23-SESSION-RESUME-18
+
+دو اجرای واقعی روی PID ثابت، ۹۵٫۵۳۷ و ۷۳٫۱۱۱ ثانیه. بازیابی Chrome نتیجهٔ واقعی را پس از Reload نشان داد. UI جدید build شد و فعال‌سازی در جریان است. رسمی ۵/۲۰؛ خصوصی ۱۲/۲۰.

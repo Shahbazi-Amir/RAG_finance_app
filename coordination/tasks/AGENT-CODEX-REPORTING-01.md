@@ -365,3 +365,9 @@ Status is review. Supervisor approval is pending.
 - Report baseline c2be263, execution af57f26, V4 f49f536f4d82. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
 - Tested: real Chrome Send and Refresh same Conversation/Attempt, one POST, SQL Send-only renewal. Real Worker CONTEXT_READY with 10 results and 95,537 ms. UI context wait expired at 95 seconds; extended recheck running. Generation/Gateway remain disabled.
 - Implemented locally: V4 duration measurement persistence, conditionally exposed via existing signed API and consumed by BFF UI; staged banner and offline derivative recipe. Exact paths in report. Build and runtime validation pending. Formal 5/20, private 11/20, acceptance and Freeze pending. [Evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### Docker_3 / NB23-SESSION-RESUME-18 — real result browser recovery
+
+- Report baseline 768b9be, execution af57f26, V4 f49f536f4d82, derivative UI 37b5c8ec3c50. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
+- Tested: two real CONTEXT_READY attempts and 95,537/73,111 ms with stable Worker PID. Signed Chrome GET and correlation-restored reload rendered actual result without POST. Offline Next and TypeScript build exited 0 and isolated SQLite fixture preserved duration and owner scoping. Automatic initial DOM wait and same-session distinct second question remain open.
+- Implemented: browser read-only recovery diagnostics, status-control recheck and extended cross-owner test. Cumulative local checkpoint and report updated. Formal 5/20, private 12/20, supervisor acceptance pending. [Evidence and continuation](../../docs/codex_execution/MAC_FIRST_START_FA.md).
