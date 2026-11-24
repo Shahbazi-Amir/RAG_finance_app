@@ -128,6 +128,15 @@ def assert_app_only_environment(environ) -> None:
         raise StagingConfigDenied()
 
 
+def _bodyless_get(scope) -> bool:
+    """Reject ambiguous signed-read GET framing without consuming request body."""
+    lengths = [value for name, value in scope.get("headers", ())
+               if name.lower() == b"content-length"]
+    return (lengths in ([], [b"0"])
+            and not any(name.lower() == b"transfer-encoding"
+                        for name, _ in scope.get("headers", ())))
+
+
 class AppOnlyASGI:
     """mTLS-scope fence plus deny-before-body POST and live PG readiness.
 
@@ -163,7 +172,9 @@ class AppOnlyASGI:
             return await JSONResponse(
                 {"error": "SERVICE_UNAVAILABLE"}, status_code=503,
                 headers={"Cache-Control": "no-store"})(scope, receive, private_send)
-        if (scope.get("raw_path") == b"/v1/messages"
+        # Use the ASGI-decoded route, never raw_path alone: an encoded
+        # /v1/%6dessages must not bypass the no-engine pre-body fence.
+        if (scope.get("path") == "/v1/messages"
                 and scope.get("method") == "POST"):
             # No body parsing, trusted-user mutation, PG T1/T2, runner queue,
             # synthetic Answer, citation, or Gateway network call.
@@ -172,6 +183,18 @@ class AppOnlyASGI:
                 503, "ENGINE_NOT_CONFIGURED", "technical",
                 "Message sending is unavailable until the engine is enabled.",
             )(scope, receive, private_send)
+        # BFF signs zero-byte GET requests. Reject any framing ambiguity
+        # before signed-actor / SQL admission, not after body parsing.
+        if scope.get("method") == "GET" and not _bodyless_get(scope):
+            if scope.get("path") == "/internal/ready":
+                return await JSONResponse(
+                    {"kind": "app_only_readiness", "state": "unavailable",
+                     "retrieval": "unavailable", "generation": "unavailable"},
+                    status_code=503,
+                    headers={"Cache-Control": "no-store"})(scope, receive, private_send)
+            return await JSONResponse(
+                {"error": "AUTH_REQUIRED"}, status_code=401,
+                headers={"Cache-Control": "no-store"})(scope, receive, private_send)
         if (scope.get("raw_path") == b"/internal/ready"
                 and scope.get("method") == "GET"
                 and not scope.get("query_string")):
