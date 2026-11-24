@@ -266,12 +266,20 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
             cert.chmod(0o600)
         config=h.temp/"foundation-restore-app-only.json"
         config.write_text(json.dumps(cfg));config.chmod(0o600)
-        env=dict(os.environ)
-        env.pop("CI",None);env.pop("GITHUB_ACTIONS",None)
-        env["API_RUNNER_EXECUTION_MODE"]="APP_ONLY"
-        for flag in ("OPENAI_API_KEY","API_PROVIDER_KEY","C018_RUNNER_PATH",
-                     "QDRANT_URL","MODEL_GATEWAY_URL","API_ENGINE_ENABLED"):
-            env.pop(flag,None)
+        # This is a separately launched, real app-only process against
+        # the disposable restored DB, never the CI fixture interpreter.
+        # Pass only its explicitly required runtime inputs (no ambient
+        # CI/PG service/provider settings, credentials or engine flags).
+        env={
+            "PATH":os.environ["PATH"], "HOME":str(h.temp),
+            "LANG":"C.UTF-8", "PYTHONUNBUFFERED":"1",
+            "PHASE3_APP_MODE":"APP_ONLY",
+            "API_RUNNER_EXECUTION_MODE":"APP_ONLY",
+            "API_CURSOR_KEY":os.environ["API_CURSOR_KEY"],
+            "API_CURSOR_TTL_SECONDS":os.environ["API_CURSOR_TTL_SECONDS"],
+        }
+        from apps.api.private_app_only_asgi import assert_app_only_environment
+        assert_app_only_environment(env)
         proc=subprocess.Popen(
             [sys.executable,"-m","apps.api.private_app_only_asgi","--config",str(config)],
             cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
@@ -302,10 +310,19 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
         ready=h.request("GET","/internal/ready")
         self.assertEqual(ready.status_code,200)
         self.assertEqual(ready.json()["bootstrap_idp"],"not_probed")
+        def signed_ready(actor):
+            token,_=h.signed(actor,method="GET",path="/health/ready")
+            result=h.request("GET","/health/ready",token)
+            self.assertEqual(result.headers.get("cache-control"),"no-store")
+            return result
+        self.assertEqual(signed_ready(a).status_code,200)
+        self.assertEqual(signed_ready(b).status_code,200)
+        self.assertEqual(h.request("GET","/health/ready").status_code,503)
         # Restart should never mask an unavailable Postgres dependency.
         command(["docker","stop",name])
         down=h.request("GET","/internal/ready")
         self.assertEqual(down.status_code,503)
+        self.assertEqual(signed_ready(a).status_code,503)
         command(["docker","start",name])
         for _ in range(50):
             try:
@@ -314,12 +331,17 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
             except httpx.HTTPError:pass
             time.sleep(.2)
         else:self.fail("RESTORED_DATABASE_UNAVAILABLE_AFTER_RESTART")
+        self.assertEqual(signed_ready(a).status_code,200)
+        self.assertEqual(signed_ready(b).status_code,200)
         operation_id=str(uuid.uuid4())
         raw=json.dumps({"operation_id":operation_id},separators=(",",":")).encode()
         revoke=h.request("POST",REVOKE,h.signed(a,"POST",REVOKE,raw)[0],body=raw)
         self.assertEqual(revoke.status_code,200,revoke.text[:500])
         self.assertEqual(h.list(a).status_code,401)
         self.assertEqual(h.list(b).status_code,200)
+        self.assertEqual(signed_ready(a).status_code,503)
+        self.assertEqual(signed_ready(b).status_code,200)
+        print("F3_FOUNDATION_RESTORED_SIGNED_ACTOR_READINESS_AND_REVOKE_PASS")
 
         output=ROOT/"ci_receipts"/"f3_foundation_restored_signed_history.json"
         output.parent.mkdir(parents=True,exist_ok=True)
@@ -339,6 +361,12 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
             "revoke_A":200,"stale_A":401,"B_after_revoke":200,
             "pg_stop_readiness":503,
             "pg_restart_readiness":200,
+            "signed_readiness_valid_A_B":200,
+            "signed_readiness_missing_proof":503,
+            "signed_readiness_pg_down":503,
+            "signed_readiness_pg_recovered":200,
+            "signed_readiness_revoked_A":503,
+            "signed_readiness_B_after_A_revoke":200,
             "bootstrap_idp_verified":False,
             "real_browser_idp_login":False,
             "mac_target_tested":False,
