@@ -1,0 +1,28 @@
+name: Foundation F3 physical PG17 point in time recovery (CI only)
+on:
+  push:
+    branches: [integration/f3-foundation-send-fence-restore-20261124]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: f3-pitr-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  pitr:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Real base backup manifest, archived WAL and PITR to fresh isolated volume
+        run: |
+          python3 -m py_compile scripts/phase3/f3_pg17_pitr_ci.py
+          python3 scripts/phase3/f3_pg17_pitr_ci.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f3-pg17-physical-pitr-ci
+          path: ci_receipts/f3_pg17_pitr.json
+          if-no-files-found: error
+          retention-days: 14
