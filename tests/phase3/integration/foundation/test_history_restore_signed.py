@@ -54,7 +54,7 @@ def pg17(tool, *parts):
                     "postgres:17.11",tool,*parts])
 
 
-def ssl_server(root:Path):
+def ssl_server(root:Path, *, include_private_dns=False):
     ca_key=root/"restore-ca.key"; ca=root/"restore-ca.crt"
     key=root/"restore-server.key"; crt=root/"restore-server.crt"
     csr=root/"restore-server.csr"
@@ -66,8 +66,9 @@ def ssl_server(root:Path):
     command(["openssl","req","-newkey","rsa:2048","-nodes",
              "-keyout",str(key),"-out",str(csr),
              "-subj","/CN=127.0.0.1"])
-    ext.write_text("subjectAltName=IP:127.0.0.1\n"
-                   "extendedKeyUsage=serverAuth\n")
+    ext.write_text("subjectAltName=IP:127.0.0.1"
+                   +(",DNS:f3-pg" if include_private_dns else "")
+                   +"\nextendedKeyUsage=serverAuth\n")
     command(["openssl","x509","-req","-in",str(csr),"-CA",str(ca),
              "-CAkey",str(ca_key),"-CAcreateserial","-out",str(crt),
              "-days","1","-extfile",str(ext)])

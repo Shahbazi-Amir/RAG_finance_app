@@ -37,10 +37,12 @@ def resource_snapshot(names,connect):
                       "pids_limit":host["PidsLimit"],"oom_killed":raw["State"]["OOMKilled"]}
     # Docker stats returns only numeric percentages/PIDs here; no container id.
     rows=subprocess.check_output(["docker","stats","--no-stream","--format",
-        "{{.CPUPerc}}|{{.MemPerc}}|{{.PIDs}}",*names.values()],text=True,timeout=20).splitlines()
+        "{{.Name}}|{{.CPUPerc}}|{{.MemPerc}}|{{.PIDs}}",*names.values()],text=True,timeout=20).splitlines()
     assert len(rows)==len(names)
-    for kind,row in zip(names,rows):
-        cpu,mem,pids=row.split("|")
+    reverse={name:kind for kind,name in names.items()}
+    for row in rows:
+        name,cpu,mem,pids=row.split("|")
+        kind=reverse[name]
         assert re.fullmatch(r"\d+(\.\d+)?%",cpu) and re.fullmatch(r"\d+(\.\d+)?%",mem)
         assert pids.isdigit()
         result[kind].update(cpu_pct=float(cpu[:-1]),memory_pct=float(mem[:-1]),pids=int(pids))

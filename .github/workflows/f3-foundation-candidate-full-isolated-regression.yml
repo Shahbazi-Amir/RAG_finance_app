@@ -25,6 +25,8 @@ jobs:
           persist-credentials: false
       - name: Nonsecret example and storage reverse dependency guard
         run: python -m unittest discover -s tests/phase3/foundation -p 'test_f3_environment_boundary.py' -v
+      - name: Lab operations observer invariants and safe offline report
+        run: python -m unittest discover -s tests/phase3/foundation -p 'test_f3_operational_probe.py' -v
       - name: Guard OCI immutable digest equivalence after registry mirror ECR429
         run: python -m unittest discover -s tests/phase3/foundation -p 'test_f3_base_image_digest_mirror.py' -v
       - name: Bind one exact source tree and forbid unapproved SQL 011
