@@ -179,12 +179,13 @@ async def signed_pagination(page,known):
     assert set(all_ids)==set(known) and len(all_ids)==len(set(all_ids))
 
 
-async def owner_b_denied(page_b,a_ids):
-    for a_id in sorted(a_ids):
-        resp=await page_b.request.get(
-            ORIGIN+"/api/history/conversations/"+a_id+"/messages?limit=20")
-        assert resp.status==404,("B_READ_A",a_id,resp.status)
+async def foreign_owner_denied(page,foreign_ids):
+    for foreign_id in sorted(foreign_ids):
+        resp=await page.request.get(
+            ORIGIN+"/api/history/conversations/"+foreign_id+"/messages?limit=20")
+        assert resp.status==404,("FOREIGN_OWNER_READ",foreign_id,resp.status)
         assert "F3_REAL_POSTGRES_A" not in await resp.text()
+        assert "F3_REAL_POSTGRES_B" not in await resp.text()
 
 
 async def send_denied(page):
@@ -305,7 +306,8 @@ async def execute():
             await signed_pagination(page_b,ids_b)
             await mobile_320_keyboard_accessibility(page_a)
             await mobile_320_keyboard_accessibility(page_b)
-            await owner_b_denied(page_b,ids_a)
+            await foreign_owner_denied(page_a,ids_b)
+            await foreign_owner_denied(page_b,ids_a)
             await send_denied(page_a)
             assert inventory(demo)[1]==receipt_before
             print("F3_REAL_BROWSER_KEYCLOAK_NEXT_PG17_AB_PAGING_DETAIL_SEND503_PRE_RESTORE_PASS",
@@ -318,7 +320,8 @@ async def execute():
             await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
             await signed_pagination(page_a,ids_a)
             await signed_pagination(page_b,ids_b)
-            await owner_b_denied(page_b,ids_a)
+            await foreign_owner_denied(page_a,ids_b)
+            await foreign_owner_denied(page_b,ids_a)
             await send_denied(page_a)
             after,receipt_after,new_cluster=inventory(demo)
             assert source==after and receipt_before==receipt_after
@@ -339,7 +342,7 @@ async def execute():
             surviving=await page_b.request.get(
                 ORIGIN+"/api/history/conversations?limit=2")
             assert surviving.status==200
-            await owner_b_denied(page_b,ids_a)
+            await foreign_owner_denied(page_b,ids_a)
             result={
                 "schema":"foundation.f3.real_browser_pg_restored_same_context.v1",
                 "sha":os.environ["GITHUB_SHA"],
@@ -349,6 +352,7 @@ async def execute():
                 "browser_pagination_and_detail_sql_equal":True,
                 "browser_detail_message_id_and_body_sql_equal":True,
                 "all_a_conversations_cross_owner_404":True,
+                "all_b_conversations_cross_owner_404":True,
                 "real_authenticated_browser_mobile_320_rtl_keyboard_pre_post_restore":True,
                 "b_direct_a_detail_404":True,
                 "send_bff_503_no_extra_receipts":True,
