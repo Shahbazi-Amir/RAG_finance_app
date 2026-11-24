@@ -6,6 +6,8 @@ Only a disposable CI runner may stop its own PG service on port 5432.
 """
 from __future__ import annotations
 import asyncio
+import hashlib
+import math
 import json
 import os
 from pathlib import Path
@@ -193,6 +195,20 @@ async def browser_history(page,label,expected_ids,expected_owner,expected_messag
         actual=[(item["message_id"],item["text"]) for item in body["items"]]
         assert len(actual)==len(set(actual)) and set(actual)==expected, (
             "BROWSER_SQL_MESSAGE_ID_BODY_PARITY",label,cid,len(actual),len(expected))
+        assert response.headers.get("cache-control")=="no-store"
+        # Open actual conversation; prove rendered user message matches SQL,
+        # not just HTTP JSON. Seeded demo contains user messages only.
+        thread=page.get_by_test_id("conversation-"+cid)
+        await thread.click()
+        await expect(thread).to_have_attribute("aria-current","page")
+        await expect(page.locator('[data-testid^="history-message-"]')).to_have_count(len(expected))
+        for mid,body_text in expected:
+            message=page.get_by_test_id("history-message-"+mid)
+            await expect(message.locator(".history-message-text")).to_have_text(body_text)
+        assert set(await page.locator('[data-testid^="history-message-"]').evaluate_all(
+            "(nodes)=>nodes.map(n=>n.dataset.testid.replace('history-message-',''))"))=={x[0] for x in expected}
+        foreign_marker="F3_REAL_POSTGRES_"+("B" if label=="A" else "A")
+        assert foreign_marker not in await page.locator("main.history-shell").inner_text()
     return ids
 
 
@@ -285,6 +301,7 @@ async def foreign_owner_denied(page,foreign_ids):
         resp=await page.request.get(
             ORIGIN+"/api/history/conversations/"+foreign_id+"/messages?limit=20")
         assert resp.status==404,("FOREIGN_OWNER_READ",foreign_id,resp.status)
+        assert resp.headers.get("cache-control")=="no-store"
         assert "F3_REAL_POSTGRES_A" not in await resp.text()
         assert "F3_REAL_POSTGRES_B" not in await resp.text()
 
@@ -308,10 +325,81 @@ async def send_denied(page):
         assert (await r.json())["error"]=="ENGINE_NOT_AVAILABLE"
 
 
+async def measure_history_requests(page_a,page_b,owner_a,owner_b):
+    # Bounded synthetic observations, not approved workload/SLO.
+    values=[]
+    async def one(page,owner):
+        start=time.monotonic()
+        response=await page.request.get(ORIGIN+"/api/history/conversations?limit=2")
+        elapsed=round(1000*(time.monotonic()-start),3)
+        assert response.status==200
+        assert (await response.json())["scope_user_id"]==owner
+        assert response.headers.get("cache-control")=="no-store"
+        values.append(elapsed)
+    for _ in range(4):
+        await one(page_a,owner_a)
+        await one(page_b,owner_b)
+    sequential=list(values)
+    values.clear()
+    for _ in range(4):
+        await asyncio.gather(one(page_a,owner_a),one(page_b,owner_b))
+    def summary(data):
+        ordered=sorted(data)
+        def percentile(p):return ordered[math.ceil(p*len(ordered))-1]
+        return {"n":len(ordered),"p50_ms":percentile(.5),"p95_ms":percentile(.95),
+                "p99_ms":percentile(.99),"max_ms":max(ordered),"errors":0}
+    return {"serial":summary(sequential),"two_concurrent":summary(values),
+            "engine_metrics":None,"approved_workload":False,"approved_slo":None}
+
+
+def protected_backup_roundtrip(paths,root):
+    # Only synthetic disposable DB data. Ephemeral key stays in memory;
+    # raw backup is needed during pg_dump and pg_restore, mode 0600.
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.exceptions import InvalidTag
+    key=AESGCM.generate_key(bit_length=256)
+    cipher=AESGCM(key)
+    evidence=[]
+    for p in paths:
+        assert p.stat().st_mode&0o777==0o600
+        content=p.read_bytes()
+        nonce=secrets.token_bytes(12)
+        aad=p.name.encode("ascii")
+        encrypted=nonce+cipher.encrypt(nonce,content,aad)
+        target=root/(p.name+".aesgcm")
+        fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+        with os.fdopen(fd,"wb") as f:f.write(encrypted)
+        assert target.stat().st_mode&0o777==0o600
+        p.unlink()
+        assert not p.exists()
+        payload=target.read_bytes()
+        try:
+            AESGCM(AESGCM.generate_key(bit_length=256)).decrypt(payload[:12],payload[12:],aad)
+        except InvalidTag:
+            pass
+        else:raise AssertionError("WRONG_BACKUP_KEY_ACCEPTED")
+        try:
+            cipher.decrypt(payload[:12],payload[12:-1]+bytes([payload[-1]^1]),aad)
+        except InvalidTag:
+            pass
+        else:raise AssertionError("TAMPERED_BACKUP_ACCEPTED")
+        plain=cipher.decrypt(payload[:12],payload[12:],aad)
+        assert hashlib.sha256(plain).digest()==hashlib.sha256(content).digest()
+        fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+        with os.fdopen(fd,"wb") as f:f.write(plain)
+        evidence.append({"name":p.name,"bytes":len(content),"plaintext_sha256":hashlib.sha256(plain).hexdigest(),
+                        "encrypted_sha256":hashlib.sha256(payload).hexdigest(),"mode":"0600",
+                        "wrong_key_and_tamper_denied":True})
+        target.unlink()
+    return evidence
+
+
 def restore_separate_volume(demo,original_records,source_system_id):
-    work=Path(os.environ["RUNNER_TEMP"])
+    work=Path(os.environ["RUNNER_TEMP"])/"f3-browser-protected-backup"
+    work.mkdir(mode=0o700)
     backup=work/"f3-browser-full-history.dump"
     roles=work/"f3-browser-roles.sql"
+    backup.touch(mode=0o600,exist_ok=False)
     command(["docker","pull","postgres:17.11"])
     pg17("pg_dump","-h","127.0.0.1","-p","5432","-U","postgres",
          "-F","c","-f",str(backup),DB_NAME)
@@ -321,6 +409,7 @@ def restore_separate_volume(demo,original_records,source_system_id):
     roles.write_text("\n".join(line for line in globals_sql.splitlines()
       if not re.match(r"^(CREATE ROLE postgres;|ALTER ROLE postgres WITH)",line))+"\n")
     roles.chmod(0o600)
+    demo.backup_evidence=protected_backup_roundtrip((backup,roles),work)
     suffix=os.environ["GITHUB_RUN_ID"]+"-"+os.environ.get("GITHUB_RUN_ATTEMPT","1")
     volume="f3browser-history-restore-"+suffix
     name="f3browser-restore-pg-"+suffix
@@ -359,6 +448,9 @@ def restore_separate_volume(demo,original_records,source_system_id):
         install_pg_tls(name,5433)
     pg17("pg_restore","-h","127.0.0.1","-p","5433","-U","postgres",
          "--exit-on-error","-d",DB_NAME,str(backup))
+    backup.unlink()
+    roles.unlink()
+    work.rmdir()
     with connect(5433) as c:
         actual=c.execute(
             "SELECT owner_id,id,title FROM history_l1.conversations "
@@ -454,8 +546,13 @@ async def execute():
         output=Path(os.environ["RUNNER_TEMP"])/"f3-browser-source-restored"
         async with async_playwright() as pw:
             browser=await pw.chromium.launch(headless=True)
-            ctx_a,page_a,_,_=await demo.browser_login(browser,"A",False,output)
-            ctx_b,page_b,_,_=await demo.browser_login(browser,"B",False,output)
+            ctx_a,page_a,handle_a,_=await demo.browser_login(browser,"A",False,output)
+            ctx_b,page_b,handle_b,_=await demo.browser_login(browser,"B",False,output)
+            async def same_handles():
+                for ctx,handle in ((ctx_a,handle_a),(ctx_b,handle_b)):
+                    cookies=[c for c in await ctx.cookies(ORIGIN) if c["name"]=="__Host-rag-session"]
+                    assert len(cookies)==1 and cookies[0]["value"]==handle
+            await same_handles()
             a_id=create_extra_question(demo,"A")
             b_id=create_extra_question(demo,"B")
             source,receipt_before,source_cluster=inventory(demo)
@@ -477,6 +574,7 @@ async def execute():
             await send_denied(page_b)
             assert inventory(demo)[1]==receipt_before
             assert message_inventory(demo)==messages_before,("NO_ENGINE_SEND_CREATED_MESSAGE",)
+            measurements={"before_restore":await measure_history_requests(page_a,page_b,demo.owners["A"],demo.owners["B"])}
             print("F3_REAL_BROWSER_KEYCLOAK_NEXT_PG17_AB_PAGING_DETAIL_SEND503_PRE_RESTORE_PASS",
                   flush=True)
 
@@ -509,6 +607,8 @@ async def execute():
             assert source==after and receipt_before==receipt_after
             assert message_inventory(demo)==messages_before,("RESTORED_MESSAGES_SQL_DRIFT",)
             assert new_cluster==restored[2] and new_cluster!=source_cluster
+            await same_handles()
+            measurements["after_restore"]=await measure_history_requests(page_a,page_b,demo.owners["A"],demo.owners["B"])
 
             # Exercise a genuine reversal: restored disposable volume -> original
             # *unchanged* GitHub Actions PostgreSQL service. No writes since the
@@ -531,6 +631,8 @@ async def execute():
             assert reverted_cluster==source_cluster,("ROLLBACK_DIFFERENT_PG_CLUSTER",)
             assert reverted==source and reverted_receipts==receipt_before
             assert message_inventory(demo)==messages_before,("ROLLBACK_MESSAGE_DRIFT",)
+            await same_handles()
+            measurements["after_rollback"]=await measure_history_requests(page_a,page_b,demo.owners["A"],demo.owners["B"])
             print("F3_REAL_BROWSER_CI_PG_BACKUP_RESTORE_ROLLBACK_REAL_AB_HISTORY_PASS",
                   flush=True)
 
@@ -570,6 +672,11 @@ async def execute():
                 "browser_default_history_sql_equal":True,
                 "browser_pagination_and_detail_sql_equal":True,
                 "browser_detail_message_id_and_body_sql_equal":True,
+                "browser_clicked_detail_dom_id_and_text_sql_equal_pre_restore_post_rollback":True,
+                "private_get_no_store_and_foreign_404_no_store":True,
+                "literal_cookie_handles_unchanged_after_restore_and_rollback":True,
+                "measured_history_latency_ms":measurements,
+                "synthetic_backup_aes256gcm_roundtrip":demo.backup_evidence,
                 "all_a_conversations_cross_owner_404":True,
                 "all_b_conversations_cross_owner_404":True,
                 "cursor_owner_404_hmac_tamper_422_limit_422_pre_post_restore":True,

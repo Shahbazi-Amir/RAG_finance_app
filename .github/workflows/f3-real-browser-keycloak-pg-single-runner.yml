@@ -331,6 +331,107 @@ jobs:
           set -euo pipefail
           python tests/phase3/integration/foundation/browser_history_restore.py
           echo 'F3_REAL_KEYCLOAK_CHROMIUM_NEXT_PG_RESTORED_TWO_USER_PASS'
+      - name: Bind exact reloaded browser binaries before SBOM
+        if: github.ref == 'refs/heads/integration/f3-foundation-send-fence-restore-20261124'
+        run: |
+          set -euo pipefail
+          mkdir -p ci_receipts/browser_binary
+          python3 - <<'PY'
+          import json,os,subprocess
+          from pathlib import Path
+          r=json.loads(Path("ci_receipts/f3_history_real_browser_restored_lab.json").read_text())
+          assert r["sha"]==os.environ["GITHUB_SHA"] and r["actual_signed_runtime_image"] and r["actual_web_image"]
+          for kind,tag,field in (("api","f3-browser-signed-api:ci","signed_image_archive_replay"),("web","f3-browser-web:ci","web_image_archive_replay")):
+              live=subprocess.check_output(["docker","image","inspect","--format","{{.Id}}",tag],text=True).strip()
+              assert live==r[field]["local_oci_id"] and r[field]["removed_image_id_then_reloaded"]
+          PY
+      - name: SPDX for exact browser-tested restored API image
+        if: github.ref == 'refs/heads/integration/f3-foundation-send-fence-restore-20261124'
+        uses: anchore/sbom-action@a930d0ac434e3182448fe678398ba5713717112a
+        with:
+          image: f3-browser-signed-api:ci
+          format: spdx-json
+          syft-version: v1.38.0
+          output-file: ci_receipts/browser_binary/api.spdx.json
+          upload-artifact: 'false'
+          upload-release-assets: 'false'
+          dependency-snapshot: 'false'
+      - name: SPDX for exact browser-tested restored Web image
+        if: github.ref == 'refs/heads/integration/f3-foundation-send-fence-restore-20261124'
+        uses: anchore/sbom-action@a930d0ac434e3182448fe678398ba5713717112a
+        with:
+          image: f3-browser-web:ci
+          format: spdx-json
+          syft-version: v1.38.0
+          output-file: ci_receipts/browser_binary/web.spdx.json
+          upload-artifact: 'false'
+          upload-release-assets: 'false'
+          dependency-snapshot: 'false'
+      - name: Grype exact browser API SPDX (HOLD; findings never auto-approved)
+        if: github.ref == 'refs/heads/integration/f3-foundation-send-fence-restore-20261124'
+        uses: anchore/scan-action@16910ac423301c6d30554b83a7f71ac6ff4a51f3
+        with:
+          sbom: ci_receipts/browser_binary/api.spdx.json
+          grype-version: v0.110.0
+          output-format: json
+          output-file: ci_receipts/browser_binary/api-grype.json
+          fail-build: 'false'
+          cache-db: 'false'
+      - name: Grype exact browser Web SPDX (HOLD; findings never auto-approved)
+        if: github.ref == 'refs/heads/integration/f3-foundation-send-fence-restore-20261124'
+        uses: anchore/scan-action@16910ac423301c6d30554b83a7f71ac6ff4a51f3
+        with:
+          sbom: ci_receipts/browser_binary/web.spdx.json
+          grype-version: v0.110.0
+          output-format: json
+          output-file: ci_receipts/browser_binary/web-grype.json
+          fail-build: 'false'
+          cache-db: 'false'
+      - name: Verify exact image identities again and export security owner queue
+        if: github.ref == 'refs/heads/integration/f3-foundation-send-fence-restore-20261124'
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess
+          from collections import Counter
+          from pathlib import Path
+          root=Path("ci_receipts/browser_binary")
+          r=json.loads(Path("ci_receipts/f3_history_real_browser_restored_lab.json").read_text())
+          report={"git_sha":os.environ["GITHUB_SHA"],"run_id":os.environ["GITHUB_RUN_ID"],
+                  "scope":"EXACT_LOCAL_BROWSER_RELOADED_IMAGE_IDS_NOT_REGISTRY_RELEASE",
+                  "security_approved":False,"release":"HOLD","images":{}}
+          for kind,tag,field in (("api","f3-browser-signed-api:ci","signed_image_archive_replay"),("web","f3-browser-web:ci","web_image_archive_replay")):
+              local_id=subprocess.check_output(["docker","image","inspect","--format","{{.Id}}",tag],text=True).strip()
+              assert local_id==r[field]["local_oci_id"]
+              spdx=root/(kind+".spdx.json")
+              doc=json.loads(spdx.read_text())
+              assert doc["spdxVersion"]=="SPDX-2.3" and doc["packages"]
+              raw=root/(kind+"-grype.json")
+              matches=json.loads(raw.read_text())["matches"]
+              counts=Counter(str(m["vulnerability"].get("severity","UNKNOWN")).upper() for m in matches)
+              queue=[]
+              for m in matches:
+                  v=m["vulnerability"]
+                  severity=str(v.get("severity","UNKNOWN")).upper()
+                  if severity not in {"CRITICAL","HIGH"}:continue
+                  a=m["artifact"]
+                  queue.append({"vulnerability":v["id"],"severity":severity,"package":a["name"],
+                                "version":a["version"],"type":a["type"],"fix_versions":v.get("fix",{}).get("versions",[]),
+                                "disposition":"OPEN_SECURITY_OWNER_REVIEW"})
+              report["images"][kind]={"local_image_id":local_id,"spdx_sha256":hashlib.sha256(spdx.read_bytes()).hexdigest(),
+                                     "packages":len(doc["packages"]),"findings":len(matches),
+                                     "by_severity":dict(counts),"critical_high_queue":queue}
+              raw.unlink()
+          (root/"exact_browser_binary_security_hold.json").write_text(json.dumps(report,indent=2)+"\n")
+          PY
+      - name: Upload exact browser-tested image SBOM and security owner queue
+        if: github.ref == 'refs/heads/integration/f3-foundation-send-fence-restore-20261124'
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3-exact-browser-reloaded-binaries-sbom-grype-hold
+          path: ci_receipts/browser_binary/
+          retention-days: 14
+          if-no-files-found: error
       - name: Upload real browser-to-restored-PG lab receipt (not Mac)
         if: always()
         uses: actions/upload-artifact@v4
