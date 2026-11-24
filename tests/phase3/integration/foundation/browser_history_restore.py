@@ -927,6 +927,7 @@ async def execute():
             assert inventory(demo)[0]==source and inventory(demo)[1]==receipt_before
             assert message_inventory(demo)==messages_before
             assert (Path(os.environ["RUNNER_TEMP"])/"f3-data-bearing-up-verified.txt").read_text().splitlines()==[f"{n:03d}" for n in range(2,11)]
+            assert (Path(os.environ["RUNNER_TEMP"])/"f3-actual-migration-fault-verified.txt").read_text()=="PASS\n"
             print("DB_REAL_OIDC_POST_REVOKE_SECOND_INDEPENDENT_VOLUME_A401_B200_HISTORY_EXACT=PASS",flush=True)
             result={
                 "schema":"foundation.f3.real_browser_pg_restored_same_context.v1",
@@ -969,6 +970,7 @@ async def execute():
                 "db_browser_migration_ledger_rows":10,
                 "db_browser_migration_ledger_checkpoints":5,
                 "db_data_bearing_up_002_010":9,
+                "db_actual_failed_002_intent_no_autoretry":True,
                 "db_post_revoke_second_fresh_volume_a401_b200":True,
                 "db_browser_db55_bridge":"NOT_RUN_IN_BROWSER_FIXTURE",
                 "db_physical_owner_graph":"12_REQUIRED_1_CONDITIONAL_1_SERVICE_REAL_OIDC_LINEAGE_AND_SCHEMA_PARITY",
