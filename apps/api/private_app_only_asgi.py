@@ -30,12 +30,13 @@ from src.phase3.auth.staging_transport_mtls import (
     TrustedBFFTLSBoundary, VerifiedPeerUnavailable, make_verified_h11_protocol,
 )
 
-APP_ONLY_VERSION = "api.private_app_only_asgi.v1"
+APP_ONLY_VERSION = "api.private_app_only_asgi.v2"
 APP_ONLY_FIELDS = frozenset({
     "contract_version", "listen_host", "listen_port",
     "server_tls_cert_file", "server_tls_key_file", "trusted_bff_ca_file",
     "bff_leaf_cert_sha256", "bff_issuer", "bff_audience",
     "bff_kid", "bff_rs256_public_key_file", "history_dsn", "revoke_dsn",
+    "cursor_key_file", "cursor_ttl_seconds",
 })
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _NO_ENGINE_FLAGS = (
@@ -58,6 +59,8 @@ class AppOnlyConfig:
     public_key_file: Path
     history_dsn: str
     revoke_dsn: str
+    cursor_key_file: Path
+    cursor_ttl_seconds: int
 
     def __repr__(self):
         return "AppOnlyConfig(<private>)"
@@ -76,6 +79,18 @@ def _deny_non_json_constant(_):
     raise StagingConfigDenied()
 
 
+def read_cursor_key(path: Path) -> str:
+    """An owner-only, high-entropy ASCII token; never print or return over HTTP."""
+    _protected_file(path, secret=True)
+    try:
+        key = path.read_text(encoding="ascii").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{43,128}", key):
+            raise StagingConfigDenied()
+        return key
+    except (OSError, UnicodeError):
+        raise StagingConfigDenied() from None
+
+
 def load_app_only_config(path: Path) -> AppOnlyConfig:
     """Strict 0600 server file; reject duplicate keys, non-JSON and engine."""
     _protected_file(path, secret=True)
@@ -90,6 +105,8 @@ def load_app_only_config(path: Path) -> AppOnlyConfig:
                 or data.get("listen_host") not in {"127.0.0.1", "0.0.0.0"}
                 or type(data.get("listen_port")) is not int
                 or not 1 <= data["listen_port"] <= 65535
+                or type(data.get("cursor_ttl_seconds")) is not int
+                or not 1 <= data["cursor_ttl_seconds"] <= 3600
                 or not isinstance(data.get("bff_leaf_cert_sha256"), str)
                 or not _HEX64.fullmatch(data["bff_leaf_cert_sha256"])):
             raise StagingConfigDenied()
@@ -102,12 +119,14 @@ def load_app_only_config(path: Path) -> AppOnlyConfig:
             "key_file": "server_tls_key_file",
             "client_ca": "trusted_bff_ca_file",
             "public_key_file": "bff_rs256_public_key_file",
+            "cursor_key_file": "cursor_key_file",
         }
         paths = {key: Path(data[name]) for key, name in mapping.items()}
         for key, p in paths.items():
             if not p.is_absolute() or ".." in p.parts:
                 raise StagingConfigDenied()
-            _protected_file(p, secret=key == "key_file")
+            _protected_file(p, secret=key in {"key_file", "cursor_key_file"})
+        read_cursor_key(paths["cursor_key_file"])
         return AppOnlyConfig(
             host=data["listen_host"], port=data["listen_port"],
             cert_file=paths["cert_file"],
@@ -116,6 +135,8 @@ def load_app_only_config(path: Path) -> AppOnlyConfig:
             issuer=data["bff_issuer"], audience=data["bff_audience"],
             kid=data["bff_kid"], public_key_file=paths["public_key_file"],
             history_dsn=data["history_dsn"], revoke_dsn=data["revoke_dsn"],
+            cursor_key_file=paths["cursor_key_file"],
+            cursor_ttl_seconds=data["cursor_ttl_seconds"],
         )
     except (TypeError, ValueError, KeyError, OSError, UnicodeError):
         raise StagingConfigDenied() from None
@@ -179,6 +200,11 @@ class AppOnlyASGI:
                     current = hashlib.sha256(self._profile.load_public_key()).hexdigest()
                     if current != self._signing_key_sha256:
                         raise StagingConfigDenied()
+                    from apps.api import history_api
+                    try:
+                        history_api._cursor_config()
+                    except history_api.ApiFailure:
+                        raise StagingConfigDenied() from None
                 await run_in_threadpool(verify_staging_database_authority, self._profile)
             except (StagingConfigDenied, OSError, RuntimeError, ValueError, TypeError):
                 return await JSONResponse(
@@ -245,6 +271,10 @@ def prepare_app_only(cfg: AppOnlyConfig, environ=None):
 
 def run_app_only(config_file: Path) -> None:
     cfg = load_app_only_config(config_file)
+    # The existing canonical History cursor implementation reads these from
+    # this process only. The trusted file wins over inherited env settings.
+    os.environ["API_CURSOR_KEY"] = read_cursor_key(cfg.cursor_key_file)
+    os.environ["API_CURSOR_TTL_SECONDS"] = str(cfg.cursor_ttl_seconds)
     app, boundary = prepare_app_only(cfg)
     import uvicorn
     if uvicorn.__version__ != "0.48.0":

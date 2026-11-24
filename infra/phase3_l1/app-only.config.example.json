@@ -1,5 +1,5 @@
 {
-  "contract_version": "api.private_app_only_asgi.v1",
+  "contract_version": "api.private_app_only_asgi.v2",
   "listen_host": "0.0.0.0",
   "listen_port": 8443,
   "server_tls_cert_file": "/run/secrets/api-server.crt",
@@ -11,5 +11,7 @@
   "bff_kid": "CHANGE_TO_APPROVED_KEY_ID",
   "bff_rs256_public_key_file": "/run/secrets/bff-rs256-public.pem",
   "history_dsn": "host=postgres.internal port=5432 dbname=rag_stage user=history_app sslmode=verify-full sslrootcert=/run/secrets/postgres-ca.crt",
-  "revoke_dsn": "host=postgres.internal port=5432 dbname=rag_stage user=auth_revoker sslmode=verify-full sslrootcert=/run/secrets/postgres-ca.crt"
+  "revoke_dsn": "host=postgres.internal port=5432 dbname=rag_stage user=auth_revoker sslmode=verify-full sslrootcert=/run/secrets/postgres-ca.crt",
+  "cursor_key_file": "/run/secrets/history-cursor.key",
+  "cursor_ttl_seconds": 300
 }

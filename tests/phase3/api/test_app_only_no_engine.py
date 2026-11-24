@@ -35,6 +35,9 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             p = self.root / name
             p.write_text("synthetic-test-only-not-a-certificate")
             p.chmod(0o600)
+        cursor = self.root / "cursor.key"
+        cursor.write_text("a" * 43)
+        cursor.chmod(0o600)
         self.config_file = self.root / "config.json"
         self.doc = {
             "contract_version": APP_ONLY_VERSION,
@@ -49,6 +52,7 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             "bff_rs256_public_key_file": str(self.root / "pub.pem"),
             "history_dsn": "host=127.0.0.1 dbname=stage user=history_app",
             "revoke_dsn": "host=127.0.0.1 dbname=stage user=auth_revoker",
+            "cursor_key_file": str(cursor), "cursor_ttl_seconds": 300,
         }
         self.save()
 
@@ -100,6 +104,27 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         self.assertNotIn("history_app", repr(cfg))
         self.assertNotIn("runner", repr(cfg).lower())
         self.assertFalse("engine_version" in self.doc)
+
+    def test_cursor_config_refuses_missing_short_world_readable_or_invalid_ttl(self):
+        cursor = self.root / "cursor.key"
+        for value in (0, 3601, True, "300"):
+            self.doc["cursor_ttl_seconds"] = value
+            self.save()
+            with self.assertRaises(StagingConfigDenied):
+                load_app_only_config(self.config_file)
+        self.doc["cursor_ttl_seconds"] = 300
+        self.save()
+        cursor.write_text("short")
+        with self.assertRaises(StagingConfigDenied):
+            load_app_only_config(self.config_file)
+        cursor.write_text("a" * 43)
+        cursor.chmod(0o644)
+        with self.assertRaises(StagingConfigDenied):
+            load_app_only_config(self.config_file)
+        cursor.chmod(0o600)
+        cursor.unlink()
+        with self.assertRaises(StagingConfigDenied):
+            load_app_only_config(self.config_file)
 
     def test_refuses_engine_or_fixture_config_fields(self):
         for extra in ("engine_version", "ledger_file",
