@@ -117,8 +117,20 @@ class AppOnlyBrowserDemo(Demo):
             assert conn.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()[0]
             assert not conn.execute("SELECT EXISTS(SELECT 1 FROM pg_auth_members WHERE member=(SELECT oid FROM pg_roles WHERE rolname=current_user))").fetchone()[0]
             assert not conn.execute("SELECT has_database_privilege(current_user,current_database(),'CREATE')").fetchone()[0]
-            for schema in ("history_l1","auth_l1","db55_audit"):
-                assert not conn.execute("SELECT has_schema_privilege(current_user,%s,'USAGE')",(schema,)).fetchone()[0]
+            for schema in ("history_l1","auth_l1"):
+                assert conn.execute("SELECT has_schema_privilege(current_user,%s,'USAGE')",(schema,)).fetchone()[0]
+                assert not conn.execute("SELECT has_schema_privilege(current_user,%s,'CREATE')",(schema,)).fetchone()[0]
+            assert not conn.execute("SELECT has_schema_privilege(current_user,'db55_audit','USAGE')").fetchone()[0]
+            assert conn.execute("""SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                 WHERE n.nspname IN ('auth_l1','history_l1') AND c.relkind IN ('r','p')
+                 AND has_table_privilege(current_user,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')""").fetchone()[0]==0
+            for table in ("history_l1.messages","auth_l1.sessions","db55_audit.migration_runs"):
+                try:
+                    conn.execute("SELECT count(*) FROM "+table)
+                except psycopg.errors.InsufficientPrivilege:
+                    pass
+                else:
+                    raise AssertionError("DB55_AUDITOR_DIRECT_ROW_READ_ALLOWED")
         env=dict(os.environ,PGHOST=options["host"],PGPORT=options["port"],PGDATABASE=options["dbname"],PGUSER=options["user"],PGPASSWORD=options["password"],PGSSLMODE="verify-full",PGSSLROOTCERT=options["sslrootcert"],PGGSSENCMODE="disable",PGOPTIONS="-c default_transaction_read_only=on")
         result=subprocess.run(["psql","-X","-v","ON_ERROR_STOP=1","-v","db55_phase=private_no_dispatch","-f",str(verifier)],env=env,capture_output=True,timeout=20)
         assert result.returncode==0 and b"DB55_private_no_dispatch_DB_ROLE_SCHEMA_AND_FUNCTION_GATE_PASS" in result.stderr, "DB55_PINNED_CATALOG_GATE_FAILED"

@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   api-session-011:
-    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/db-f3-common-oci-rehydrate-real-read-lock-20261124' && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/db-f3-common-db55-interrupted-migration-20261124' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     services:
@@ -241,6 +241,8 @@ jobs:
           f3_ledger_apply 008 infra/postgres/migrations/008_durable_idp_attempt_outcome.up.sql -1
           f3_ledger_apply 009 infra/postgres/migrations/009_initial_login_attempt_binding.up.sql
           f3_ledger_apply 010 infra/postgres/migrations/010_initial_login_claim_material.up.sql
+          # Match existing 04_bridge_and_db55.sh catalog-only auditor scope.
+          PGUSER=postgres PGPASSWORD="$F3_LEDGER_ADMIN_PASSWORD" psql -X -d history_ci -v ON_ERROR_STOP=1 -c 'GRANT USAGE ON SCHEMA auth_l1,history_l1 TO f3_db55_ci_auditor'
           f3_ledger_complete
           # Separate synthetic protected SQL table: CI ONLY, INSERT role, no History grants.
           psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
