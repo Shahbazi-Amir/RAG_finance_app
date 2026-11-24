@@ -28,6 +28,68 @@ def read(path: Path):
         return reader.fieldnames,rows
 
 
+
+UI_TRANSFER=ROOT/"coordination/integration/F3_84_REVIEWED_UI_SOURCE_TRANSFER_20261124.json"
+
+def reviewed_ui_overrides():
+    """Exact, independently CI-tested source delta; NOT an acceptance override.
+
+    Historical #84 42-blob/58-path manifests remain byte-for-byte frozen.
+    Any unlisted path, arbitrary hash, changed owner decision or forged
+    ACCEPTED bit must fail rather than silently fall through.
+    """
+    d=json.loads(UI_TRANSFER.read_text(encoding="utf-8"))
+    assert d["schema"]=="foundation.f3.reviewed_ui_source_transfer.v1"
+    assert d["root_candidate_sha"]=="0fd1066945ef91a3913e040ab4c350bb645ea502"
+    assert d["foundation_parent_sha"]=="9f708c73439ab790a1b402e2c8dc78e45df3d717"
+    assert d["tested_source_sha"]=="ed28a6840d5e8714ff7d943ad6215534992e6a7b"
+    assert d["source_ci_runs"]==[45396172643,45396172648]
+    assert d["scope"]=="EXACT_TESTED_UI_SOURCE_TRANSFER_NOT_OWNER_ACCEPTANCE"
+    assert (d["p0_1_accepted"],d["owner_signed_acceptance"],d["target_verified"])==(False,False,False)
+    rows=d["rows"]
+    assert isinstance(rows,list) and len(rows)==9
+    expected={
+        "apps/web/src/mock/transport.ts",
+        "apps/web/src/ui/answer-visibility.ts",
+        "apps/web/src/ui/owner-fence.ts",
+        "apps/web/src/ui/product-chat.tsx",
+        "apps/web/src/ui/source-locator.ts",
+        "tests/phase3/ui/live-answer-provenance-gate.test.mjs",
+        "tests/phase3/ui/owner-fence.test.mjs",
+        "tests/phase3/ui/product-chat-client.test.mjs",
+        "tests/phase3/ui/source-display.test.mjs",
+    }
+    assert {r["path"] for r in rows}==expected
+    assert {r["path"] for r in rows if r["historical_42_path"]}=={
+        "apps/web/src/ui/answer-visibility.ts",
+        "apps/web/src/ui/product-chat.tsx",
+        "apps/web/src/ui/source-locator.ts"}
+    assert {r["path"] for r in rows if r["historical_58_path"]}=={
+        "apps/web/src/ui/answer-visibility.ts",
+        "apps/web/src/ui/product-chat.tsx",
+        "apps/web/src/ui/source-locator.ts",
+        "tests/phase3/ui/product-chat-client.test.mjs"}
+    for row in rows:
+        assert row["owner_signed_acceptance"] is False
+        assert row["source_blob_sha"]==row["candidate_blob_sha"]
+        assert re.fullmatch(r"[0-9a-f]{40}",row["source_blob_sha"])
+        if row["previous_blob_sha"] is not None:
+            assert re.fullmatch(r"[0-9a-f]{40}",row["previous_blob_sha"])
+        else:
+            assert row["path"]=="tests/phase3/ui/live-answer-provenance-gate.test.mjs"
+        if row["historical_58_path"]:
+            assert row["historical_58_decision"] in {
+                "FOUNDATION_SECURITY_COMPAT",
+                "EXACT_SOURCE_SELECTED",
+                "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW"}
+        else:
+            assert row["historical_58_decision"] is None
+        actual=subprocess.run(["git","hash-object",row["path"]],
+            cwd=ROOT,capture_output=True,text=True,check=True).stdout.strip()
+        assert actual==row["source_blob_sha"],row["path"]
+    return {r["path"]:r for r in rows}
+
+
 class LedgerTest(unittest.TestCase):
     def test_all_393_source_ids_one_to_one(self):
         header,rows=read(LEDGER)
@@ -70,13 +132,20 @@ class LedgerTest(unittest.TestCase):
                             manifest["generated_from_commit_sha"])
         expected=set(manifest["source_resolutions"])
         self.assertEqual(len(expected),6)
+        ui=reviewed_ui_overrides()
         preserved=0
         for file in manifest["candidate_tree_selected_changes"]:
             self.assertTrue(re.fullmatch(r"[0-9a-f]{40}",file["source_blob_sha"]))
             self.assertTrue(re.fullmatch(r"[0-9a-f]{40}",file["integrated_blob_sha"]))
             result=subprocess.run(["git","hash-object",file["path"]],
                                   cwd=ROOT,capture_output=True,text=True,check=True)
-            self.assertEqual(result.stdout.strip(),file["integrated_blob_sha"],file["path"])
+            if file["path"] in ui:
+                item=ui[file["path"]]
+                self.assertTrue(item["historical_42_path"])
+                self.assertEqual(item["previous_blob_sha"],file["integrated_blob_sha"])
+                self.assertEqual(result.stdout.strip(),item["source_blob_sha"],file["path"])
+            else:
+                self.assertEqual(result.stdout.strip(),file["integrated_blob_sha"],file["path"])
             if file["path"] in expected:
                 self.assertEqual(file["resolution"],"FOUNDATION_SECURITY_COMPAT")
                 preserved+=1
@@ -99,6 +168,7 @@ class LedgerTest(unittest.TestCase):
         self.assertEqual(summary["custom"],0)
         records=audit["paths"]
         self.assertEqual(len({row["path"] for row in records}),58)
+        ui=reviewed_ui_overrides()
         # The historical #84 audit remains frozen. A later tested source
         # transfer may change a pending path, but cannot change its original
         # owner decision or turn it into acceptance.
@@ -141,6 +211,16 @@ class LedgerTest(unittest.TestCase):
                 self.assertEqual(blob,item["source_blob_sha"])
                 self.assertEqual(row["integrated_blob_sha"],row["foundation_blob_sha"])
                 self.assertFalse(row["selected_owner_blobs"])
+                continue
+            if row["path"] in ui:
+                item=ui[row["path"]]
+                self.assertTrue(item["historical_58_path"])
+                self.assertEqual(item["previous_blob_sha"],row["integrated_blob_sha"])
+                self.assertEqual(item["historical_58_decision"],row["decision"])
+                self.assertEqual(blob,item["source_blob_sha"])
+                # In particular, one formerly retained UI test remains
+                # owner-pending; moving its code never provides owner signoff.
+                self.assertFalse(item["owner_signed_acceptance"])
                 continue
             self.assertEqual(blob,row["integrated_blob_sha"],row["path"])
             if row["decision"]=="EXACT_SOURCE_SELECTED":
