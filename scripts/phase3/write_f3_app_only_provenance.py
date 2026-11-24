@@ -92,8 +92,8 @@ def manifest() -> dict:
         "registry_digest_verified":False,
         "sbom_scanner_gate_accepted":False,
         "mac_target_touched":False,
-        "engine_lock_or_runner_imported":False,
-        "postgres_migration_011_applied":False,
+        "engine_lock_or_runner_imported":"NOT_VERIFIED_BY_THIS_SOURCE_MANIFEST",
+        "postgres_migration_011_applied":"NOT_VERIFIED_BY_THIS_SOURCE_MANIFEST",
         "human_signed_release":False,
     }
 
