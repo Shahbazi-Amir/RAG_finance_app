@@ -3,6 +3,8 @@ name: F3 UI source-boundaries authentic Keycloak A/B History and PG Restore
 on:
   push:
     branches: [agent/ui-f3-source-boundaries-20261124]
+  pull_request:
+    branches: [agent/ui-f3-next-verified-20261124]
   workflow_dispatch:
 
 permissions:
