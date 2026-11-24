@@ -268,3 +268,11 @@ Status is review. Supervisor approval is pending.
 - Tested: exact DEMO07 reference lineage, probe-login.py product to Keycloak 303 and password form 200 with TLS, seven services running and UI/CSS 200. Probe corrections: closing wrapper for HTTPConnection and matching same-origin fetch header. Offline run-trace.zsh Q2 Hybrid matched, Context differed, Q3 full trace exit 124. Hybrid-only and raw timing evidence under ignored artifacts/nb23-v4-bundle.
 - Open: exact divergence within post-Hybrid path, score reference evidence, restart supervision and native lifecycle, V4 Product API/OIDC/Refresh, source authorization, Candidate Freeze and supervisor acceptance. No Gate or canonical checklist progress. Arvan HOLD.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — Session candidate smoke and shared-score V4 comparison
+
+- Status: review for BFF, blocked for real product. P3M22-A06 (Module 22, activity 6), P3M14-A01 (Module 14, activity 1), P3OP11-R07 (§Launch checklist). Starting report a8c4554 and execution 78c350b. Trace comparison 2682060, BFF 0ee86f3333ec, V4 91a1a346 and image f49f536f4d82.
+- Implemented: existing local BFF patch retained; patched the ignored smoke fixture environment only and added infra/nb23-v4/compare_tail.py. Updated MAC_FIRST_START_FA.md/.html, CURRENT_STATUS.md and this ledger. No live changes.
+- Tested: actual Docker BFF 200 homepage, 401 missing alias, 503 corrupt alias using an isolated fixture; 30 unit tests from the preceding checkpoint. Offline V4 shared actual Q2 scores with SHA-verified DEMO08 tail: `{"hybrid_parity": true, "shared_score_count": 100, "local_onnx_order_equal": true, "local_top10_equal": true, "local_context_equal": true, "demo08_tail_matches_historical": false, "v4_matches_historical": false, "generation_calls": 0}`. Read-only PR observations in report. No canonical checklist edits.
+- Open: signed trusted activity policy, real authentication and refresh, exact historical ONNX score divergence, authorized V4 integration, native lifecycle, Locator rights and acceptance.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
