@@ -1,7 +1,7 @@
 name: FOUNDATION F3 integrated real signed OCI browser and independent PG restore (CI only)
 
 on:
-  push:
+  pull_request:
     branches: [integration/f3-foundation-history-two-users-20261124]
   workflow_dispatch:
 permissions:
@@ -9,6 +9,7 @@ permissions:
 
 jobs:
   api-session-011:
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/db-f3-oci-browser-restricted-parity-20261124' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     services:
@@ -25,6 +26,7 @@ jobs:
           --health-retries 10
     env:
       CI: 'true'
+      F3_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       PGPASSWORD: synthetic_ci_only_not_a_secret
       PGHOST: 127.0.0.1
       PGPORT: '5432'
@@ -56,6 +58,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Stage exact tested #48 API workers/harness (CI filesystem only)
         run: |
           set -euo pipefail
@@ -198,9 +201,22 @@ jobs:
       - name: Apply versioned History base, and 003 on data-bearing product DB
         run: |
           set -euo pipefail
+          bash -n scripts/phase3/f3_browser_pinned_migration_ledger.sh
+          source scripts/phase3/f3_browser_pinned_migration_ledger.sh
+          f3_ledger_init
           export PGUSER=history_migrator PGPASSWORD=synthetic_mig_only
-          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
-          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          f3_ledger_apply 001 infra/postgres/migrations/001_history_l1.up.sql
+          PGUSER=history_app PGPASSWORD=synthetic_app_only psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          SELECT set_config('app.owner_id','synthetic_pre002_upgrade',true);
+          INSERT INTO history_l1.conversations(owner_id,id,title)
+            VALUES('synthetic_pre002_upgrade','synthetic_pre002_conversation','synthetic retained title');
+          INSERT INTO history_l1.messages(owner_id,id,conversation_id,role,body)
+            VALUES('synthetic_pre002_upgrade','synthetic_pre002_message','synthetic_pre002_conversation','user','synthetic retained message');
+          COMMIT;
+          SQL
+          f3_prove_failed_migration_intent
+          f3_ledger_apply 002 infra/postgres/migrations/002_one_attempt.up.sql
           psql -d history_legacy_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
           # Separate synthetic chain seed: 001 first; acceptance test applies 002.
           psql -d history_seeded_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
@@ -215,7 +231,7 @@ jobs:
           COMMIT;
           SQL
           export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
-          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          f3_ledger_apply 003 infra/postgres/migrations/003_auth_session.up.sql
           psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
           psql -d auth_empty_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
           # Data-bearing product DB before 004: synthetic session chain, never a real user.
@@ -230,13 +246,14 @@ jobs:
               clock_timestamp()+interval '15 minutes',
               clock_timestamp()+interval '1 hour',900);
           SQL
-          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
-          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.up.sql
-          psql -d history_ci -1 -v ON_ERROR_STOP=1 -f infra/postgres/migrations/006_atomic_reset_c1.up.sql
-          psql -d history_ci -1 -v ON_ERROR_STOP=1 -f infra/postgres/migrations/007_scoped_reset_identity_lookup.up.sql
-          psql -d history_ci -1 -v ON_ERROR_STOP=1 -f infra/postgres/migrations/008_durable_idp_attempt_outcome.up.sql
-          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/009_initial_login_attempt_binding.up.sql
-          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/010_initial_login_claim_material.up.sql
+          f3_ledger_apply 004 infra/postgres/migrations/004_session_aware_fence.up.sql
+          f3_ledger_apply 005 infra/postgres/migrations/005_service_assertion_replay.up.sql
+          f3_ledger_apply 006 infra/postgres/migrations/006_atomic_reset_c1.up.sql -1
+          f3_ledger_apply 007 infra/postgres/migrations/007_scoped_reset_identity_lookup.up.sql -1
+          f3_ledger_apply 008 infra/postgres/migrations/008_durable_idp_attempt_outcome.up.sql -1
+          f3_ledger_apply 009 infra/postgres/migrations/009_initial_login_attempt_binding.up.sql
+          f3_ledger_apply 010 infra/postgres/migrations/010_initial_login_claim_material.up.sql
+          f3_ledger_complete
           # Separate synthetic protected SQL table: CI ONLY, INSERT role, no History grants.
           psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
           CREATE SCHEMA service_replay_ci;
@@ -301,20 +318,20 @@ jobs:
       - name: Build exact-SHA non-root API image for restored-browser journey
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$F3_EXACT_SHA"
           # The API/DB bootstrap fixture overlay above is CI-only. Never
           # bake untracked or overlay source into an image labeled this SHA.
           clean="$(mktemp -d "$RUNNER_TEMP/api-f3-source.XXXXXXXX")"
           trap 'rm -rf "$clean"' EXIT
-          git archive "$GITHUB_SHA" | tar -xf - -C "$clean"
+          git archive "$F3_EXACT_SHA" | tar -xf - -C "$clean"
           docker pull --platform linux/amd64 docker.io/library/python:3.13.5
           base="$(docker image inspect -f '{{index .RepoDigests 0}}' docker.io/library/python:3.13.5)"
           [[ "$base" =~ @sha256:[a-f0-9]{64}$ ]]
           echo "API_F3_BROWSER_CI_BASE_DIGEST=$base"
           docker build --platform linux/amd64 --file "$clean/infra/phase3_l1/Dockerfile.api.signed_history" \
             --build-arg "BASE=$base" \
-            --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "api-f3-browser:$GITHUB_SHA" "$clean"
-          echo "API_F3_BROWSER_IMAGE=api-f3-browser:$GITHUB_SHA" >> "$GITHUB_ENV"
+            --build-arg "SOURCE_SHA=$F3_EXACT_SHA" -t "api-f3-browser:$F3_EXACT_SHA" "$clean"
+          echo "API_F3_BROWSER_IMAGE=api-f3-browser:$F3_EXACT_SHA" >> "$GITHUB_ENV"
       - name: Real Chromium ordinary login and signed app-only History journey
         env:
           API_F3_ISOLATED_PG_CID: ${{ job.services.postgres.id }}
@@ -329,13 +346,19 @@ jobs:
           python - <<'PY'
           import json, os, subprocess
           from pathlib import Path
-          sha=os.environ["GITHUB_SHA"]
+          sha=os.environ["F3_EXACT_SHA"]
           assert subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()==sha
           image="api-f3-browser:"+sha
           data=json.loads(subprocess.check_output(["docker","image","inspect",image]))[0]
           assert data["Config"]["Labels"]["org.opencontainers.image.revision"]==sha
           p=Path("ci_receipts/f3_integrated_signed_oci_browser.json")
           p.parent.mkdir(exist_ok=True)
+          db=json.loads(Path("ci_receipts/db_oci_browser_restricted_parity.json").read_text())
+          assert db["source_sha"]==sha and db["api_image_id"]==data["Id"]
+          assert db["checkpoints"]==6 and db["exact_row_parity"] is True and db["accepted"] is False
+          assert db["migration_ledger_rows"]==10 and db["force_rls_tables"]==14 and db["data_bearing_up"]==9
+          assert db["actual_failed_002_no_autoretry"] is True
+          print("DB_OCI_BROWSER_EXACT_SHA_IMAGE_AND_SQL_RECEIPT=PASS")
           p.write_text(json.dumps({"source_sha":sha,"run_id":os.environ["GITHUB_RUN_ID"],
               "api_image_id":data["Id"],"source":"clean git archive",
               "api_owner_source_sha":"23db3da6367e6a8279072ee96b56a2bd4b7f0fbc","scope":"CI_RUNNER_BROWSER_HOST_WEB_BOOTSTRAP_REAL_OCI_API_RESTORED_TLS_PG",
@@ -344,7 +367,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: foundation-integrated-signed-oci-browser-restore
-          path: ci_receipts/f3_integrated_signed_oci_browser.json
+          path: |
+            ci_receipts/f3_integrated_signed_oci_browser.json
+            ci_receipts/db_oci_browser_restricted_parity.json
           if-no-files-found: error
       - name: Show bounded SQL permissions and container status
         if: always()
