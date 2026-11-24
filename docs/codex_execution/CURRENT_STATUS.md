@@ -59,3 +59,7 @@ Runner با خروج 124 و زمان بیرونی 305 ثانیه پایان یا
 ## Staging مستقل احراز هویت
 
 PostgreSQL مستقل با Migrationهای پین‌شده و Keycloak مستقل برقرارند. HTTPS discovery و ورود و PKCE در namespace داخلی PASS شد. Session محصول و Browser Refresh بازند. [گزارش فارسی](MAC_FIRST_START_FA.md)
+
+## وضعیت جاری Docker_3
+
+۴/۲۰ (۲۰٪) [####----------------]، مبنای پس از انتقال ۲/۲۰ (۱۰٪). DB/IdP و مسیر امضاشدهٔ Session در HTTP آزموده شدند. سرویس‌های مستقل و فریزشده در آخرین مشاهده متوقف بودند. Chrome E2E و UI انسانی آماده نیستند. ONNX در خروجی MatMulInteger شاخهٔ index 1 اختلاف دارد؛ شاهد Native با ضرب دقیق برابر است و بررسی Docker و Golden باقی است. [گزارش کامل و دستور ادامه](MAC_FIRST_START_FA.md#docker_3--بازیابی-پس-از-انتقال-حساب)

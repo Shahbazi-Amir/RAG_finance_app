@@ -544,3 +544,50 @@ Adapter خصوصی `persistent_v4_pipe.py` با Worker ساختگی سه آزم�
 شبکهٔ nb23-session-e2e از نوع internal است. PostgreSQL و Keycloak مستقل روی tmpfs فعال‌اند. Keycloak از ایمیج محلی 7e66a96e4739 و PostgreSQL از ff87138949ad با --pull never استفاده کردند. Docker اتصال 19443 روی میزبان را در شبکهٔ internal منتشر نکرد. آزمون در namespace Keycloak با ایمیج API موجود انجام شد. پس از timeout درخواست نخست در گرم‌شدن JVM، آزمون بعدی با خروج ۰، HTTPS discovery، فرم ورود واقعی و تبادل Authorization Code با PKCE را ثبت کرد. هیچ Cookie، Token، حساب واقعی یا گذرواژه در گزارش نیست.
 
 BFF، Bootstrap و API هنوز به Realm و PostgreSQL تازه متصل نشده‌اند. پروفایل برنامه به origin ثابت https://ragfinance.ir و callback متناظر، mTLS تازه و نقش‌های Login جداگانه نیاز دارد. Browser Refresh، History و Logout محصول اجرا نشدند. پشتهٔ آزمایشی در این مرحله URL محصول برای مالک ندارد. مقادیر Idle/Absolute روی ۱۲۰/۵۰۰ باقی‌اند. Volumeهای تاریخی، فاز دوم، مدل و Golden محفوظ‌اند. Generation/Gateway غیرفعال و Arvan HOLD است. پذیرش سرپرست ثبت نشده است.
+
+## Docker_3 — بازیابی پس از انتقال حساب
+
+مبنای اجرا `ops/nb23-v4-staging` در `af57f26eaac0b20b32a53f0b934f0a5f3d1c814c` است. تغییرات اجرایی پس از انتقال به‌صورت محلی و بدون commit در همان worktree هستند. مبنای گزارش `origin/codex` در `7806683` است. نامزد NB23 V4 و ایمیج `sha256:f49f536f4d8294ff1453665e99b87a85158200d0d16368b57a38f7274d320781` ثابت‌اند.
+
+### تغییرات محلی و نتیجهٔ Session
+
+همهٔ مسیرهای اجرایی زیر در `infra/nb23-v4/` هستند.
+
+| فایل | کار انجام‌شده |
+| --- | --- |
+| `prepare_session_product.py` | تولید پیکربندی جداگانهٔ TLS/mTLS و نقش‌های Login برای محیط آزمون |
+| `provision_session_postgres.py` و `session_staging_rls.sql` | آماده‌سازی DB مستقل روی schema پین‌شده، TLS با verify-full، مجوزهای replay، fence و revoke و سیاست محدود برای نقش تابع definer |
+| `session-compose.yaml`، `session_nginx.conf` و `session_install.sh` | پنج سرویس مستقل، HTTPS روی loopback و اتصال خصوصی edge به BFF |
+| `session_product_api.py` و `check_session_service.py` | پیش‌بررسی TLS و اختیار SQL و اجرای Send امضاشده با رزرو Attempt؛ dispatch موتور در آزمون غیرفعال |
+| `check_session_browser.py` | آزمون HTTP مسیر OIDC و Session و harness مرورگر Chrome |
+| `check_session_restore.py` | dump منطقی مستقل و مقایسهٔ داده و RLS پس از بازیابی |
+| `probe_onnx_options.py` و `probe_onnx_intermediates.py` | آماده‌سازی Batch ثابت و ثبت هش خروجی‌های میانی روی کپی موقت مدل با کنترل logits |
+| `docker_3_resume.md` | checkpoint محلی بازیابی نتیجهٔ Native و تشخیص وضعیت دسترسی |
+
+Keycloak به دلیل نبود setpriv به‌صورت مستقیم با UID 1000 روی fixture فقط‌خواندنی راه‌اندازی شد. شکست libpq ناشی از جست‌وجوی پیش‌فرض گواهی کاربر زیر /root بود. مسیر اختصاصی گواهی و verify-full به کار رفت. سه GRANT محدود روی DB کلون اجرا شدند. خطای 409 درخواست امضاشده از RLS جدول service_assertion_replays بود و با سیاست محدود guarded برای نقش NOLOGIN تابع رفع شد. برای خطای 502، BFF فقط در namespace خصوصی به آدرس قابل دسترس nginx bind شد. بررسی curl با CA و hostname، HTTP 200 و TLS verify=0 داد. پیش از حذف اثر proxy میزبان، درخواست discovery timeout شده بود.
+
+- `python3 -u -B infra/nb23-v4/check_session_browser.py ../nb23-session-product-local --http-callback` با خروج ۰. OIDC واقعی با S256، Callback و History امضاشده، یک Attempt پس از Send، تمدید Idle در SQL، ثابت‌ماندن سقف مطلق، GET بدون تمدید یا dispatch، replay بدون Attempt دوم و Logout با HTTP 401 برای نشست باطل‌شده ثبت شد. حدود ۱۲۰ و ۵۰۰ ثانیه در پیکربندی و مسیر SQL حفظ شدند. انقضای طبیعی در Chrome هنوز باز است.
+- همان دستور با `--cross-owner` خروج ۰ داشت. History مالک دوم گفت‌وگوی اول را نشان نداد و خواندن مستقیم 404 داد. این 404 رفتار صحیح کنترل دسترسی است.
+- `python3 -B infra/nb23-v4/check_session_restore.py ../nb23-session-product-local` خروج ۰ داشت. dump منطقی در DB جدید بازیابی شد. شمار مکالمه‌ها، پیام‌ها، Attemptها، وضعیت نشست‌ها، جدول‌های FORCE RLS و سیاست‌های نقش آزمون تطبیق داشتند. بازگشت کل پشته و بازیابی فیزیکی همچنان بازند.
+- Chrome Stable در ارتباط WebSocket و سپس در Page.navigate و Runtime.evaluate با pipe timeout شد. Canary در Runtime.evaluate نیز timeout شد. نتیجهٔ HTTP از نتیجهٔ مرورگر مستقل است. بررسی RTL، viewport، صفحه‌کلید، Refresh مرورگری، 503 و انقضای طبیعی باز هستند.
+
+### ONNX و وضعیت جاری
+
+در Q2 هر ۲۵ ورودی tensor قبلاً برابر بودند. نخستین اختلاف logits در Batch 1 و بیشینهٔ اختلاف کل ۰٫۷۷۴۵۰۷۵۲۶ بود. مشاهده‌پذیر کردن شاخهٔ صفر در Native و Docker، پنج هش یکسان و logits بدون تغییر داد. در اسکن بعدی ۱۰۲ مشاهده مقایسه شدند. نخستین اختلاف در شاخه‌های نمونه‌برداری‌شده در index 1 بود. ورودی float و خروجی quantization شامل activation، scale و zero point برابر بودند. خروجی int32 عملگر MatMulInteger و Cast بعدی متفاوت بودند. شاخه‌های ۰، ۲ و ۳ برابر بودند و اختلاف در شاخهٔ ۴ پیش از quantization دیده شد. هر دو کنترل logits تاریخی و مدل instrumented برقرار بودند.
+
+در شاهد Native با ORT 1.16.3، CPUExecutionProvider و ENABLE_ALL، هر شش اندازه‌گیری مشترک با اسکن برابر بود. حاصل ضرب دقیق int32 پس از کسر zero point با ORT دقیقاً برابر بود و شمار عناصر متفاوت صفر شد. یک خروجی آزمایشی دیگر صفر بایت بود و شاهد نتیجه محسوب نشد. اسکن شاخه‌ها هر دو ورودی کامل ضرب را ثبت نکرده بود. تشخیص ریشهٔ اختلاف نیازمند مقایسهٔ Docker در همان Batch و کنترل هر دو operand و zero point است. هنوز Golden parity کامل نیست و V4 به API متصل نشده است.
+
+در بررسی اولیه، sandbox دسترسی به سوکت Docker و فهرست فرایندها را رد کرد و بازبینی خودکار هر دو عمل فقط‌خواندنی HTTP 404 داد. در بررسی بعدی همان دسترسی محدود تأیید شد. `docker ps -a --format '{{.Names}} {{.Status}}'` نشان داد پنج سرویس Product مستقل، PostgreSQL و پشتهٔ فریزشده همگی متوقف‌اند. اسکن Docker پیشین exit 0 داشت. در فهرست فیلترشدهٔ فرایندهای میزبان Worker NB23 مشاهده نشد. tmpfs قبل از راه‌اندازی مجدد پشته باید مستقل بازآماده شود.
+
+### پیشرفت و ادامه
+
+پس از انتقال حساب، خط مبنای ۲/۲۰ (۱۰٪) به ۴/۲۰ (۲۰٪) رسید، ۱۰ واحد درصد افزایش. فعالیت‌های ۰۲ و ۰۳ از شواهد قبلی معتبرند. فعالیت‌های ۰۴ و ۰۵ با DB/IdP و حمل HTTPS امضاشده تکمیل شدند. فعالیت ۱۰ مرز عملگر مشاهده‌شده دارد و مقایسهٔ کامل عملوند و علت باز است. فعالیت ۱۷ شاهد restore منطقی دارد و drill بازگشت باز است.
+
+```text
+قبل [##------------------] 2/20 10%
+بعد [####----------------] 4/20 20%
+```
+
+مانده‌ها شامل موجودی نهایی و Freeze (۰۱)، Chrome OIDC و History/Refresh (۰۶)، اثبات Send و عدم dispatch مجدد در مرورگر (۰۷)، Revoke/expiry/خطا/مالک دوم (۰۸)، RTL و دسترس‌پذیری (۰۹)، تعیین مرز و اصلاح ONNX (۱۰–۱۱)، Golden Q2/Q3/WARM و اندازه‌گیری نامزد اصلاح‌شده (۱۲–۱۳)، چرخه و idempotency/recovery Worker (۱۴–۱۵)، dispatch واقعی و Context در Chrome (۱۶)، drill کامل بازگشت (۱۷)، manifest و دستور تست انسانی (۱۸)، و پذیرش و Freeze (۱۹–۲۰) هستند.
+
+از checkpoint محلی `NB23-SESSION-RESUME-09` روی همان worktree ادامه دهید. پس از مشاهدهٔ نبود Worker فعال، فقط دوقلوی مفقود را با `probe_onnx_intermediates.py /trial/fingerprints.json --environment docker --branches 1 --exact-attention`، ایمیج پین‌شده، `--pull never --network none --read-only` و mountهای فقط‌خواندنی اجرا و خروجی را خصوصی نگه دارید. هر دو عملوند، هر دو zero point، نتیجهٔ صحیح int32 و دو کنترل logits را با شاهد Native مقایسه کنید. فقط پس از اصلاح هدفمند، ۲۵ Batch Q2 و سپس Hybrid100، Top-10 مرتب و Context کامل Q2/Q3/WARM را بسنجید. مستقل از موتور، DB و IdP آزمایشی را بازآماده کنید و Chrome را از مرز شکست DevTools ادامه دهید. Worker واقعی تنها پس از احراز Parity و قرارداد lifecycle متصل می‌شود. پذیرش انسانی و سرپرست در انتظار است. Source Permission مسدود، Generation/Gateway غیرفعال و Arvan HOLD است.
