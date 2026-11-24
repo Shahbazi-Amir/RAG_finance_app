@@ -30,7 +30,7 @@ COLUMNS = (
     "id", "kind", "owner", "canonical_criterion", "dependency", "app_only_slice",
     "implementation_status", "tested_scope", "acceptance_status", "git_sha",
     "run_or_env", "artifact_link", "blocker", "next_action", "source_line",
-    "source_acceptance_field", "generated_from_git_sha", "counts_as_activity"
+    "source_acceptance_field", "source_tested_field", "generated_from_git_sha", "counts_as_activity"
 )
 
 
@@ -54,7 +54,7 @@ def make(id: str, kind: str, number: int, sha: str, **kwargs: str) -> dict:
         "git_sha":"", "run_or_env":"NO_PER_ID_LIVE_RUN_CLAIM",
         "artifact_link":"", "blocker":"PER_ID_ACCEPTANCE_UNVERIFIED",
         "next_action":"REVIEW_CANONICAL_CRITERION_WITH_OWNER",
-        "source_line":str(number), "source_acceptance_field":"",
+        "source_line":str(number), "source_acceptance_field":"", "source_tested_field":"",
         "generated_from_git_sha":sha, "counts_as_activity":"false",
     }
     row.update(kwargs)
@@ -90,6 +90,7 @@ def build(lines: list[str], sha: str) -> list[dict]:
                 canonical_criterion=criterion.strip(),
                 dependency=dependency.strip() if separator else "NOT_STATED_IN_SOURCE",
                 implementation_status=impl, tested_scope=tested,
+                source_tested_field=tested,
                 source_acceptance_field=accepted,
                 artifact_link=evidence.strip(),
                 blocker="CANONICAL_STATUS_"+state.upper(),
@@ -150,6 +151,55 @@ def build(lines: list[str], sha: str) -> list[dict]:
     return rows
 
 
+def attach_bounded_ci_evidence(rows: list[dict]) -> None:
+    """Add the 20 explicitly verified historical CI subsets; never accept a row.
+
+    Checks exact source criterion fragments and prevents accidental promotion
+    from a signed laboratory run to a full canonical activity or target Gate.
+    """
+    path=ROOT/"coordination/integration/F3_VERIFIED_CI_LAB_SLICES_20261124.json"
+    if not path.is_file():
+        raise ValueError("BOUNDED_CI_LAB_WITNESSES_FILE_MISSING")
+    evidence=json.loads(path.read_text(encoding="utf-8"))
+    if (evidence.get("schema")!="foundation.f3.bounded_ci_lab_slices.v1"
+            or evidence.get("owner_approved") is not False
+            or evidence.get("mac_target_tested") is not False
+            or evidence.get("gates_accepted")!=0):
+        raise ValueError("UNAPPROVED_BOUNDED_EVIDENCE_STATUS")
+    evidence_sha=evidence["evidence_sha"]
+    if not re.fullmatch(r"[a-f0-9]{40}",evidence_sha):
+        raise ValueError("INVALID_EVIDENCE_SHA")
+    by_id={row["id"]:row for row in rows}
+    seen=set()
+    for witness in evidence["rows"]:
+        id=witness["id"]
+        if id in seen or id not in by_id or by_id[id]["kind"]!="primary_activity":
+            raise ValueError("DUPLICATE_OR_NON_ACTIVITY_CI_WITNESS "+id)
+        seen.add(id)
+        row=by_id[id]
+        if (witness["criterion_fragment"] not in row["canonical_criterion"]
+                or witness.get("owner_accepted") is not False
+                or witness.get("target_verified") is not False
+                or witness.get("full_criterion_satisfied") is not False):
+            raise ValueError("CI_WITNESS_CRITERION_OR_ACCEPTANCE_MISMATCH "+id)
+        run=witness["run_id"]
+        url=witness["url"]
+        expected_url="https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/"+str(run)
+        if type(run) is not int or url!=expected_url:
+            raise ValueError("CI_WITNESS_LINK_NOT_EXACT "+id)
+        row["app_only_slice"]="BOUNDED_CI_LAB_ONLY_NOT_APPROVED_DENOMINATOR"
+        row["tested_scope"]=(
+            row["source_tested_field"]+" ; BOUNDED_CI_EVIDENCE:"+witness["subset"])
+        row["git_sha"]=evidence_sha
+        row["run_or_env"]="GitHub Actions "+str(run)+" ; DISPOSABLE_CI_LAB_ONLY"
+        row["artifact_link"]=row["artifact_link"]+" ; "+url
+        # Explicitly preserve the source acceptance and our NO-ACCEPTANCE result.
+        if row["acceptance_status"]!="NOT_ACCEPTED_NO_INDEPENDENT_SIGNED_RECEIPT":
+            raise ValueError("CI_WITNESS_PROMOTION_PROHIBITED "+id)
+    if len(seen)!=20:
+        raise ValueError("INCOMPLETE_20_BOUNDED_CI_EVIDENCE_ROWS")
+
+
 def write(rows: list[dict], output: Path, sha: str) -> None:
     output.mkdir(parents=True, exist_ok=True)
     with (output/"f3_393_evidence_ledger.csv").open(
@@ -179,8 +229,9 @@ def main() -> None:
     args=parser.parse_args()
     if not args.source.is_file():
         raise SystemExit("CANONICAL_REGISTER_MISSING")
-    write(build(args.source.read_text(encoding="utf-8").splitlines(),args.sha),
-          args.out,args.sha)
+    rows=build(args.source.read_text(encoding="utf-8").splitlines(),args.sha)
+    attach_bounded_ci_evidence(rows)
+    write(rows,args.out,args.sha)
 
 
 if __name__=="__main__":
