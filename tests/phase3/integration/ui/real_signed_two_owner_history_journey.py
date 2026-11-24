@@ -414,8 +414,9 @@ async def journey(browser, receipt, idp, credentials, width):
         ) as unaffected_b:
             await pb.get_by_test_id("refresh-history").click()
         assert (await unaffected_b.value).status == 200
-        for cid in receipt["users"]["B"]["conversation_ids"]:
-            await expect(pb.get_by_test_id("conversation-" + cid)).to_be_attached()
+        # Refresh shows only the first two records; paginate again before
+        # comparing EVERY B ID. Otherwise a valid B with >=3 PG rows fails.
+        await verify_list_and_thread(pb, receipt["users"]["B"], width)
         for cid in receipt["users"]["A"]["conversation_ids"]:
             assert await pb.get_by_test_id("conversation-" + cid).count() == 0
         print("UI_REAL_REVOKE_A_401_PURGE_B_200_PASS",flush=True)
