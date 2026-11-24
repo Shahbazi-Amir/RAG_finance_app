@@ -103,3 +103,11 @@ Retrieval واقعی از Chrome روی Attempt ثبت شد، CONTEXT_READY، To
 ### NB23-SESSION-RESUME-19
 
 یک اجرای واقعی UNKNOWN شد و Attempt حفظ شد. آزمون مالک دوم PASS. مشتق بازیابی همان مالک و cleanup Worker آمادهٔ آزمون است. رسمی ۵/۲۰؛ خصوصی ۱۲/۲۰.
+
+### NB23-SESSION-RESUME-20
+
+Worker cold ۱۱۱٫۹۴۵ ثانیه. Chrome expiry در CDP timeout شد. ایراد تمدید Idle روی replay کشف و کد اصلاح شد، recheck واقعی در جریان است. رسمی ۵/۲۰؛ خصوصی ۱۲/۲۰.
+
+### NB23-SESSION-RESUME-21
+
+علت 503 History پس از چند گفت‌وگو CURSOR_CONFIGURATION بود. اصلاح کلید محافظت‌شده و مسیر بازآزمون آماده است. رسمی ۵/۲۰؛ خصوصی ۱۲/۲۰.

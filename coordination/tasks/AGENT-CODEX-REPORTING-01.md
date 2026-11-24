@@ -377,3 +377,15 @@ Status is review. Supervisor approval is pending.
 - Report baseline fea70af, execution af57f26, V4 f49f536f4d82, owner recovery UI 8b72e5b40a65. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
 - Tested: another Chrome-origin Attempt persisted as UNKNOWN, with no completed runtime receipt. Second fixture account denied the other account's conversation, Attempt and retrieval result. Offline derivative build and TypeScript succeeded. Live recovery across natural expiry pending.
 - Implemented locally: attempt checkpoint owner binding, product chat expiry handling, staged build recipe, socket-peer cleanup and startup/error metrics, Chrome expiry and HTTP busy harnesses and local operator guide. See exact paths and methods in [report](../../docs/codex_execution/MAC_FIRST_START_FA.md). Formal 5/20, private 12/20, quality acceptance and Freeze pending.
+
+### Docker_3 / NB23-SESSION-RESUME-20 — replay-only Idle regression
+
+- Report baseline 11f5bc0, execution af57f26, V4 f49f536f4d82, recovery UI 8b72e5b40a65. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
+- Tested: cold readiness 111,945 ms and verified HTTPS; two Chrome expiry runs blocked by CDP evaluation timeout. Owner-scope fixture 5/5. HTTP contention persisted a FAILED Attempt. Its replay check failed on the unfixed version. Host ASGI fixture prerequisite LibreSSL -addext unavailable.
+- Implemented locally: renew only after fresh T1/T2 inside the existing signed transaction in apps/api/product_session_api.py, and replay-only existing receipt probe in infra/nb23-v4/check_session_browser.py. Integration recheck pending. Formal 5/20, private 12/20, acceptance and Freeze pending. [Details](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### Docker_3 / NB23-SESSION-RESUME-21 — cursor provisioning on isolated History
+
+- Report baseline 11f5bc0 with checkpoint 20 local, execution af57f26, V4 f49f536f4d82. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
+- Tested: actual Worker TimeoutError and persistent UNKNOWN, API restart and private TCP readiness, 149,423 ms Worker startup. OIDC callback succeeded while History returned structured 503 CURSOR_CONFIGURATION. Cursor key creation/mode/reuse smoke passed locally. Private-ASGI fixture remains blocked on host LibreSSL; no-dispatch tests reported 15 pass, one skip.
+- Implemented locally: session_product_api.py isolated protected cursor configuration and check_session_browser.py sanitized History diagnostics. Latest rollout/replay and fresh send pending. First report publish attempt and one read-only escalation returned HTTP 404. Formal 5/20, private 12/20, acceptance pending. [Evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).

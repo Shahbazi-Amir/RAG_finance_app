@@ -58,3 +58,11 @@
 ## NB23-SESSION-RESUME-19
 
 - تثبیت شاهد UNKNOWN، آزمون موفق مالک دوم در endpointهای Status، build مشتق بازیابی مالک و آماده‌سازی آزمون انقضای طبیعی. علت داخلی UNKNOWN تأیید نشده است.
+
+## NB23-SESSION-RESUME-20
+
+- cold readiness واقعی، HTTPS موفق، دو CDP timeout و حالت FAILED واقعی در ازدحام. تشخیص تمدید غیرمجاز replay و انتقال تمدید به Send تازه. fixture هم‌بستگی ۵/۵ PASS.
+
+## NB23-SESSION-RESUME-21
+
+- TimeoutError واقعی و حفظ UNKNOWN/FAILED، تشخیص 503 صفحه‌بندی، کلید محلی 0600 و آزمون نگهداشت آن. بازبینی Push قبلی HTTP 404؛ انتشار تجمعی دوباره از مسیر مجاز پیگیری می‌شود.

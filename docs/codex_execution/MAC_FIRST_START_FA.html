@@ -547,4 +547,18 @@ checkpoint `NB23-SESSION-RESUME-19`. پس از فعال‌سازی نخستین 
 - پذیرش و Freeze رسمی بازند. Generation غیرفعال و Golden حل‌نشده است.
 
 برای ادامه، تصویر `rag-finance-f3/web:experimental-local-v4-owner-recovery` را با metrics فعال در Compose مستقل استفاده کنید. پس از تأیید HTTPS و Worker readiness، `python3 -B -u infra/nb23-v4/check_session_browser.py ../nb23-session-product-local --chrome-expiry-v4` روی Attempt UNKNOWN ذخیره‌شده اجرا می‌شود. پس از آن دو سؤال متمایز و کنترل‌های مرورگر با `--chrome-v4` بررسی می‌شوند.</pre></section>
+<section dir="rtl"><pre style="white-space:pre-wrap">## Docker_3 — جلوگیری از تمدید Idle در replay
+
+checkpoint `NB23-SESSION-RESUME-20`. مشتق بازیابی نشست بالا آمد و HTTPS برنامه و discovery احراز هویت هر دو ۲۰۰ با TLS=0 شدند. startup مدل و Cache روی Worker واقعی **۱۱۱٫۹۴۵ ثانیه** بود. آزمون طبیعی expiry در Chrome، هم headless و هم headed، با `CHROME_TIMEOUT_Runtime.evaluate` پیش از ثبت نتیجه متوقف شد. آزمون Node هم‌بستگی و تعویض مالک ۵/۵ pass شد. آزمون ASGI محلی به دلیل پشتیبانی‌نکردن LibreSSL میزبان از `-addext` در setup متوقف شد؛ شاهد مرحلهٔ محلی محسوب نمی‌شود.
+
+در آزمون امضاشدهٔ واقعی `--http-v4-busy`، نخستین Attempt به RUNNING رسید و دومین Attempt با وضعیت FAILED حفظ شد. replay آزمون با `V4_BUSY_REPLAY_CHANGED_ATTEMPT_OR_SESSION` رد شد. بررسی کد نشان داد تمدید Idle پیش از تفکیک receipt تکراری در T1 انجام می‌شد. در `apps/api/product_session_api.py` تمدید به بعد از T1/T2 تازه و داخل همان تراکنش امضاشده منتقل شد. درخواست replay از شاخهٔ بدون تمدید عبور می‌کند. مهلت‌ها ۱۲۰ و ۵۰۰ ثانیه‌اند. `check_session_browser.py --http-v4-replay` برای تکرار فقط همان receipt FAILED و اطمینان از عدم افزایش زمان نشست، عدم Attempt جدید و عدم dispatch اضافه شد. پس از پایان عملیات فعال، API و سرویس‌های هم‌namespace ایزوله به‌روز می‌شوند.
+
+پیشرفت رسمی ۵/۲۰ → ۵/۲۰ (۲۵٪) [#####---------------]. آزمون خصوصی ۱۲/۲۰ → ۱۲/۲۰ (۶۰٪) [############--------]. T17 شاهد واقعی FAILED و UNKNOWN دارد و recheck replay باز است. Freeze و پذیرش رسمی در انتظارند. مسیر جدید مشتق UI و راه‌اندازی و توقف در `infra/nb23-v4/STAGING_RETRIEVAL.md` ثبت است.</pre></section>
+<section dir="rtl"><pre style="white-space:pre-wrap">## Docker_3 — رفع تنظیم صفحه‌بندی History در staging
+
+checkpoint `NB23-SESSION-RESUME-21`. اجرای فعال آزمون ازدحام با `TimeoutError` به UNKNOWN رسید؛ درخواست جداگانهٔ مسدودشده FAILED باقی ماند. پس از بازسازی namespace، Worker در ۱۴۹٫۴۲۳ ثانیه Ready شد و TCP پورت‌های ۳۰۰۰، ۸۴۴۳ و ۸۴۴۴ برقرار بودند. OIDC callback موفق بود و History امضاشده ۵۰۳ داشت. خواندن محدود کد خطا `CURSOR_CONFIGURATION` را نشان داد. با رسیدن فهرست به بیش از دو گفتگو، API باید cursor را امضا کند و پشتهٔ مستقل کلید آن را نداشت.
+
+`infra/nb23-v4/session_product_api.py` کلید cursor را در Volume محافظت‌شدهٔ همان API به‌صورت فایل مالک با mode 0600 ایجاد و در startup بعدی بازیابی می‌کند. TTL cursor ۳۰۰ ثانیه است و مهلت‌های Session تغییر نکردند. smoke محلی mode و استفادهٔ مجدد از کلید را تأیید کرد. مقدار کلید در خروجی یا گزارش نیست. `check_session_browser.py` فقط کد ساختاریافتهٔ خطای History را برای تشخیص ثبت می‌کند. فعال‌سازی آخرین اصلاح، بازآزمون replay موجود و سپس یک Send تازه در جریان است.
+
+تلاش انتشار checkpoint ۲۰ و یک بررسی فقط‌خواندنی جداگانه در بازبینی خودکار HTTP 404 گرفتند. بررسی‌های بعدی از مسیر مجاز Workspace انجام شدند. رسمی ۵/۲۰ (۲۵٪) → ۵/۲۰ [#####---------------]. خصوصی ۱۲/۲۰ (۶۰٪) → ۱۲/۲۰ [############--------]. پذیرش رسمی و Freeze در انتظار. Generation غیرفعال و Golden حل‌نشده است.</pre></section>
 </html>
