@@ -27,6 +27,8 @@ import jwt
 import psycopg
 from psycopg.rows import dict_row
 from cryptography import x509
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
@@ -206,6 +208,112 @@ def sql_snapshot(phase: str):
     else:
         assert baseline.read_text() == digest, "SQL_HISTORY_SNAPSHOT_DRIFT"
     print("BFF_SQL_" + phase.upper() + "_A5_B3_M4_M2_ZERO_SEND_EXACT_PARITY=PASS", flush=True)
+
+
+def authenticated_backup():
+    """Lab-only AEAD, bounded memory, independent wrong-key/tamper tests.
+    No persistent production key custody, rotation, retention or KMS claim.
+    """
+    source = PRIVATE / "aead_input.dump"
+    assert source.is_file() and not source.is_symlink()
+    assert (source.stat().st_mode & 0o077) == 0
+    assert 0 < source.stat().st_size <= 16 * 1024 * 1024
+    payload = source.read_bytes()
+    aad = b"f3-db-lab-pg17.11-history-001-010-v1"
+    key = AESGCM.generate_key(bit_length=256)
+    nonce = secrets.token_bytes(12)
+    cipher = AESGCM(key)
+    encrypted = cipher.encrypt(nonce, payload, aad)
+    out = PRIVATE / "aead_backup.bin"
+    write_secret(out, nonce + encrypted)
+    envelope = out.read_bytes()
+    assert envelope != payload and len(envelope) == len(payload) + 28
+    def reject(k, n, data, context):
+        try:
+            AESGCM(k).decrypt(n, data, context)
+        except InvalidTag:
+            return
+        raise AssertionError("UNAUTHENTICATED_BACKUP_ACCEPTED")
+    reject(AESGCM.generate_key(bit_length=256), nonce, encrypted, aad)
+    print("DB_BACKUP_AEAD_WRONG_KEY_REJECTED=PASS", flush=True)
+    reject(key, nonce, bytes([encrypted[0] ^ 1]) + encrypted[1:], aad)
+    print("DB_BACKUP_AEAD_TAMPER_REJECTED=PASS", flush=True)
+    reject(key, nonce, encrypted[:-1], aad)
+    print("DB_BACKUP_AEAD_TRUNCATION_REJECTED=PASS", flush=True)
+    reject(key, nonce, encrypted, aad + b"-wrong")
+    print("DB_BACKUP_AEAD_WRONG_CONTEXT_REJECTED=PASS", flush=True)
+    restored = cipher.decrypt(envelope[:12], envelope[12:], aad)
+    assert sha256(restored).digest() == sha256(payload).digest()
+    write_secret(PRIVATE / "aead_verified_restore.dump", restored)
+    assert all((p.stat().st_mode & 0o777)==0o600 for p in (
+        source,out,PRIVATE/"aead_verified_restore.dump"))
+    source.unlink()
+    print("DB_BACKUP_AES256_GCM_ROUNDTRIP_MODE0600=PASS", flush=True)
+
+
+def catalog_snapshot(phase):
+    """Versioned metadata evidence, no user data exported, no schema changes."""
+    host, db = (("demo-db", "rag_finance_f3_http_ab_source") if phase=="catalog_source"
+                else ("restore-db","rag_finance_f3_http_ab_restored"))
+    expected = {"conversations","messages","create_receipts","send_receipts",
+                "execution_attempts","answers"}
+    state = json.loads((PRIVATE/"session_state.json").read_text())
+    with conn("history_app",host,db) as c:
+        with c.transaction():
+            c.execute("SET TRANSACTION READ ONLY")
+            c.execute("SELECT set_config('app.owner_id',%s,true)",(state["a"]["owner"],))
+            columns=c.execute("""SELECT table_name,column_name,data_type,is_nullable,ordinal_position
+                FROM information_schema.columns WHERE table_schema='history_l1'
+                ORDER BY table_name,ordinal_position""").fetchall()
+            assert {x["table_name"] for x in columns}==expected
+            assert {x["table_name"] for x in columns if x["column_name"]=="owner_id"
+                    and x["is_nullable"]=="NO" and x["data_type"]=="text"}==expected
+            constraints=c.execute("""SELECT r.relname AS tbl,co.conname,co.contype,
+                  pg_get_constraintdef(co.oid) AS def,co.convalidated
+                  FROM pg_constraint co JOIN pg_class r ON r.oid=co.conrelid
+                  JOIN pg_namespace n ON n.oid=r.relnamespace
+                  WHERE n.nspname='history_l1' ORDER BY r.relname,co.conname""").fetchall()
+            assert {x["tbl"] for x in constraints if x["contype"]=="p"}==expected
+            assert all(x["convalidated"] for x in constraints)
+            assert all("owner_id" in x["def"] for x in constraints if x["contype"] in ("p","f","u"))
+            indexes=c.execute("""SELECT tablename,indexname,indexdef FROM pg_indexes
+                WHERE schemaname='history_l1' ORDER BY tablename,indexname""").fetchall()
+            assert {"conversation_order_idx","message_order_idx"}.issubset(
+                {x["indexname"] for x in indexes})
+            policies=c.execute("""SELECT tablename,policyname,roles::text,cmd,qual,with_check
+                FROM pg_policies WHERE schemaname='history_l1' ORDER BY tablename,policyname""").fetchall()
+            assert {x["tablename"] for x in policies if x["policyname"]=="owner_only"}==expected
+            assert len(policies)==6 and all(x["roles"]=="{history_app}" for x in policies)
+            for table in expected:
+                assert c.execute("SELECT row_security_active(%s::regclass) AS active",
+                    ("history_l1."+table,)).fetchone()["active"]
+            # Tiny fixtures naturally prefer sequential scans. Force the planner
+            # only to prove access-path eligibility, NOT latency or production tuning.
+            c.execute("SET LOCAL enable_seqscan=off")
+            queries=[
+              ("SELECT id FROM history_l1.conversations WHERE owner_id=%s AND state='active' "
+               "ORDER BY created_at DESC,id DESC LIMIT 2",(state["a"]["owner"],),"conversation_order_idx"),
+              ("SELECT id FROM history_l1.messages WHERE owner_id=%s AND conversation_id=%s "
+               "ORDER BY created_at,id LIMIT 2",(state["a"]["owner"],"f3-net-a-1"),"message_order_idx")]
+            def index_names(node):
+                names={node["Index Name"]} if "Index Name" in node else set()
+                for child in node.get("Plans",[]): names.update(index_names(child))
+                return names
+            for query,params,expected_index in queries:
+                plan=c.execute("EXPLAIN (FORMAT JSON, COSTS OFF) "+query,params).fetchone()["QUERY PLAN"]
+                assert expected_index in index_names(plan[0]["Plan"]),"EXPECTED_INDEX_ACCESS_PATH_MISSING"
+    metadata={"columns":columns,"constraints":constraints,"indexes":indexes,"policies":policies}
+    digest=sha256(json.dumps(metadata,sort_keys=True,default=str).encode()).hexdigest()
+    baseline=PRIVATE/"catalog_baseline.sha256"
+    if phase=="catalog_source":
+        write_secret(baseline,digest.encode())
+        # Sanitized catalog metadata only; no row bodies, IDs, credentials or DSNs.
+        write_secret(PRIVATE/"catalog_counts.json",json.dumps(
+            {"tables":len(expected),"columns":len(columns),"constraints":len(constraints),
+             "indexes":len(indexes),"policies":len(policies)},sort_keys=True).encode())
+    else:
+        assert baseline.read_text()==digest,"RESTORE_CATALOG_METADATA_DRIFT"
+    print("DB_"+phase.upper()+"_OWNER_KEYS_RLS_METADATA_INDEX_PATHS=PASS",flush=True)
 
 
 M10_DB = "rag_finance_f3_m10_process_crash"
@@ -520,10 +628,16 @@ def revoke_and_check():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("phase", choices=("seed", "before", "after", "revoke", "snapshot_source", "snapshot_restore", "ready200", "ready503", "m10_process", "m10_child"))
+    parser.add_argument("phase", choices=("seed", "before", "after", "revoke", "snapshot_source", "snapshot_restore", "ready200", "ready503", "m10_process", "m10_child", "authenticated_backup", "catalog_source", "catalog_restore"))
     parser.add_argument("--crash", choices=("t1_before", "t1_after", "t2_before", "t2_after"))
     args = parser.parse_args()
     require_lab()
+    if args.phase == "authenticated_backup":
+        authenticated_backup()
+        return
+    if args.phase in ("catalog_source", "catalog_restore"):
+        catalog_snapshot(args.phase)
+        return
     if args.phase == "m10_process":
         m10_process()
         return
