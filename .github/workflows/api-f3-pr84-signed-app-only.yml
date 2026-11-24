@@ -27,6 +27,10 @@ jobs:
         run: python -m unittest discover -s tests/phase3/api -p 'test_app_only_asgi.py' -v
       - name: New bounded app-only config/readiness/send security
         run: python -m unittest discover -s tests/phase3/api -p 'test_app_only_no_engine.py' -v
+      - name: Original signed envelope and private response cache regressions
+        run: |
+          python -m unittest discover -s tests/phase3/api -p 'test_service_proof.py' -v
+          python -m unittest discover -s tests/phase3/api -p 'test_private_http_no_store.py' -v
       - name: Real local OpenSSL Uvicorn H11 mTLS no-Engine network
         run: python -m unittest discover -s tests/phase3/integration/api -p 'test_app_only_mtls_network.py' -v
       - name: Validate the original real TLS boundary regressions

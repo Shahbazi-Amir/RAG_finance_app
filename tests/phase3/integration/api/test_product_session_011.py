@@ -1373,6 +1373,86 @@ try {
             signer_path.unlink(missing_ok=True)
         print("API_F3_ACTUAL_WEB_BFF_SIGNER_PG_AB_PAGINATION_REVOKE_PASS", flush=True)
 
+    def test_API011_20_ambiguous_signed_json_never_consumes_pg_replay(self):
+        """Real mTLS/PG with cryptographically signed ambiguous envelopes."""
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import padding
+        a, b = self.login("A"), self.login("B")
+        cid = self.seed(a, "CI_AMBIGUOUS_JWT_" + uuid.uuid4().hex)
+        token, claims = self.signed(a, query=b"limit=1")
+        header = json.dumps({"alg": "RS256", "kid": KID, "typ": "JWT"})
+        payload = json.dumps(claims)
+        def encode(raw):
+            return base64.urlsafe_b64encode(raw).rstrip(b"=")
+        def sign(h, p):
+            data = encode(h.encode()) + b"." + encode(p.encode())
+            sig = self.fixture.signer.sign(data, padding.PKCS1v15(), hashes.SHA256())
+            return (data + b"." + encode(sig)).decode("ascii")
+        key = sha256((claims["iss"] + "\x00" + claims["jti"]).encode()).hexdigest()
+        with psycopg.connect(os.environ["AUTH_MIG_DSN"], autocommit=True,
+                             row_factory=dict_row) as admin:
+            def count():
+                return admin.execute(
+                    "SELECT count(*) AS n FROM auth_l1.service_assertion_replays "
+                    "WHERE issuer_jti_sha256=%s", (key,)).fetchone()["n"]
+            for h, p in (
+                ('{"kid":"wrong",' + header[1:], payload),
+                (header, '{"owner_id":' + json.dumps(b["owner_id"]) + ',' + payload[1:]),
+                (header, '{"epoch":99,' + payload[1:]),
+                (header, '{"jti":"duplicateJTI01234567890",' + payload[1:]),
+            ):
+                self.assertEqual(count(), 0)
+                denied = self.request("GET", LIST, sign(h, p), query="?limit=1")
+                self.assertEqual(denied.status_code, 401, denied.text)
+                self.assertEqual(denied.headers.get("cache-control"), "no-store")
+                self.assertNotIn(cid, denied.text)
+                self.assertEqual(count(), 0)
+            valid = self.list(a, token=token, query="?limit=1")
+            self.assertEqual(valid.status_code, 200, valid.text)
+            self.assertEqual(valid.json()["items"][0]["conversation_id"], cid)
+            self.assertEqual(count(), 1)
+        print("API_F3_REAL_AMBIGUOUS_JWT_ZERO_REPLAY_PASS", flush=True)
+
+    def test_API011_21_private_history_never_cacheable_across_owners(self):
+        """Direct real HTTPS response policy and same-URI A/B isolation.
+
+        No claim of CDN/proxy configuration or approved cache performance.
+        """
+        a, b = self.login("A"), self.login("B")
+        aid = self.seed(a, "CI_PRIVATE_A_" + uuid.uuid4().hex)
+        bid = self.seed(b, "CI_PRIVATE_B_" + uuid.uuid4().hex)
+        query = "?limit=1"
+        def private(response, status):
+            self.assertEqual(response.status_code, status, response.text)
+            self.assertEqual(response.headers.get_list("cache-control"), ["no-store"])
+            self.assertEqual(response.headers.get("x-content-type-options"), "nosniff")
+            self.assertNotIn("etag", response.headers)
+            self.assertNotIn("last-modified", response.headers)
+        # Same resource and query; conditional headers must not yield a
+        # cache-driven 304 or disclose the preceding owner's History.
+        for owner, own, other in ((a, aid, bid), (b, bid, aid), (a, aid, bid)):
+            token, _ = self.signed(owner, query=b"limit=1")
+            response = self.request("GET", LIST, token, query=query, headers={
+                "If-None-Match": "*", "If-Modified-Since": "Tue, 01 Jan 2030 00:00:00 GMT",
+                "Cache-Control": "max-age=3600",
+            })
+            private(response, 200)
+            self.assertEqual(response.json()["scope_user_id"], owner["owner_id"])
+            self.assertEqual(response.json()["items"][0]["conversation_id"], own)
+            self.assertNotIn(other, response.text)
+        path = "/v1/conversations/" + aid + "/messages"
+        owner_token = self.signed(a, path=path, query=b"limit=1")[0]
+        private(self.request("GET", path, owner_token, query=query), 200)
+        foreign_token = self.signed(b, path=path, query=b"limit=1")[0]
+        denial = self.request("GET", path, foreign_token, query=query,
+                              headers={"If-None-Match": "*"})
+        private(denial, 404)
+        self.assertNotIn(aid, denial.text)
+        private(self.request("GET", LIST), 401)
+        private(self.request("POST", "/v1/messages", body=b"{}"), 503)
+        private(self.request("GET", "/v1/unknown-private-route"), 404)
+        print("API_F3_REAL_PRIVATE_HISTORY_AB_CONDITIONAL_NOSTORE_PASS", flush=True)
+
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
         """Actual verified HTTPS callback, same pinned redirect for Code exchange."""
         from cryptography.hazmat.primitives import serialization
