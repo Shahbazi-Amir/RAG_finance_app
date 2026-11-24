@@ -1,0 +1,30 @@
+{
+  "kind": "f3_app_only_post_integration_reviewed_source_delta",
+  "contract_version": "integration.f3.reviewed_source_delta.v1",
+  "status": "SOURCE_REVIEWED_CI_LAB_ONLY_NOT_OWNER_ACCEPTED",
+  "baseline_sha": "3c6b49e138485f55ea49c7f61949f074837b7397",
+  "source_manifest": "coordination/integration/FOUR_PR_APP_ONLY_PINNED_SOURCE_MANIFEST_20261124.json",
+  "three_way_audit": "coordination/integration/FOUR_PR_58_PATH_THREE_WAY_AUDIT_20261124.json",
+  "owner_signed_acceptance": false,
+  "policy": "Only exact reviewed additive UI source changes may differ from the historical four-PR snapshot; never silently rewrite the old source or change acceptance.",
+  "files": [
+    {
+      "path": "apps/web/src/ui/product-chat.tsx",
+      "original_integrated_blob_sha": "ec4771ca73820453681ed9ce7342949ed58c02f1",
+      "reviewed_blob_sha": "42fa8b1dded5bfbf5e031f1c2b67b8041b2bc0fa",
+      "source_owner": "ui",
+      "source_pr": 90,
+      "source_ref_commit_sha": "3927feac78197d04f8661bf61abea11015c3ed6f",
+      "source_status": "REVIEWED_UI_SOURCE_TRANSFER_PENDING_INTEGRATION_OWNER_ACCEPTANCE",
+      "exact_change_scope": [
+        "conversation_more DOM stable selector",
+        "message_more DOM stable selector",
+        "APP_ONLY UI truthful History requires authenticated signed backend"
+      ],
+      "owner_signed_acceptance": false,
+      "target_mac_accepted": false,
+      "integrated_ci_accepted": false
+    }
+  ],
+  "rebased_onto_foundation_sha": "dd16eff2d36eb7940c94d0891d9c36c35597206d"
+}
