@@ -190,6 +190,45 @@ jobs:
           docker compose -f "$file" exec -T web node -e "fetch('http://app-only-api:8080/health/live').then(r=>r.json()).then(j=>process.exit(j.process_alive&&!j.application_ready?0:1)).catch(()=>process.exit(1))"
           docker compose -f "$file" exec -T web node -e "fetch('http://127.0.0.1:3000/api/product-capabilities').then(r=>r.json()).then(j=>process.exit(j.send_mode==='DISABLED'&&!j.generation_available?0:1)).catch(()=>process.exit(1))"
           echo F3_APP_ONLY_REAL_COMPOSE_PRIVATE_WEB_API_NO_ENGINE_PASS
+      - name: Emit exact-source LOCAL OCI image identity and hardening receipt
+        if: success()
+        run: |
+          set -euo pipefail
+          mkdir -p ci_receipts/foundation
+          python3 - <<'PY'
+          import json,os,subprocess
+          sha=os.environ["GITHUB_SHA"]
+          result={"schema":"foundation.f3.local_oci_image_identity.v1",
+                  "git_sha":sha,"scope":"CI_ONLY_LOCAL_IMAGE_IDS_NOT_REGISTRY_MANIFEST_DIGEST",
+                  "mac_target":"NOT_RUN","approved_sbom":"NOT_RUN",
+                  "vulnerability_scan":"NOT_RUN","released":"NO",
+                  "images":{}}
+          for service,uid in (("api","11001:11001"),("web","11003:11003")):
+              image="rag-f3-app-only-"+service+":ci"
+              doc=json.loads(subprocess.check_output(
+                  ["docker","image","inspect",image],text=True))[0]
+              cfg=doc["Config"]
+              assert doc["Id"].startswith("sha256:") and len(doc["Id"])==71
+              assert doc["Os"]=="linux" and doc["Architecture"]=="amd64"
+              assert cfg["Labels"].get("org.opencontainers.image.revision")==sha
+              assert cfg["User"]==uid
+              assert cfg.get("Healthcheck",{}).get("Test")
+              result["images"][service]={
+                  "local_image_id":doc["Id"],"source_revision":sha,
+                  "os_arch":"linux/amd64","uid_gid":uid,
+                  "has_healthcheck":True,"registry_manifest_digest":None}
+          with open("ci_receipts/foundation/local_image_identity.json","w") as out:
+              json.dump(result,out,indent=2,sort_keys=True)
+              out.write("\\n")
+          print("F3_FOUNDATION_LOCAL_IMAGE_IDS_SHA_NONROOT_HEALTH_PASS_NOT_RELEASE_DIGEST")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f3-foundation-local-oci-identity-not-release
+          path: ci_receipts/foundation/local_image_identity.json
+          retention-days: 14
+          if-no-files-found: warn
 
   integrated-isolated-pg17:
     name: Integrated PG17.11 pinned 001-010, TLS RLS DB55 backup restore
