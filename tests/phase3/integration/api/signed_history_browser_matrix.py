@@ -10,6 +10,7 @@ import os
 import time
 import httpx
 import sys
+from urllib.parse import urljoin
 from playwright.async_api import async_playwright, expect
 from test_app_only_browser_journey import AppOnlyBrowserDemo
 
@@ -74,6 +75,39 @@ class OrderedSignedBrowserDemo(AppOnlyBrowserDemo):
         assert self.counts()==before
         print("F3_SIGNED_REAL_PG_OUTAGE_UI_HIDDEN_RETRY_RECOVERY_NO_STALE_ALERT_PASS",flush=True)
 
+    async def verify_signed_account(self,page,owner):
+        # Ordinary authenticated browser context, actual Next account route.
+        # No artificial policy grants or writes. The account page remains
+        # read-only until Product/Legal approve the relevant contracts.
+        href=await page.get_by_role("link",name="حساب، حریم خصوصی و وضعیت قابلیت‌ها").get_attribute("href")
+        assert href=="/account"
+        before=self.counts()
+        account=await page.context.new_page()
+        mutations=[]
+        account.on("request",lambda r: mutations.append(r.method)
+                   if r.method in ("POST","PUT","PATCH","DELETE") and "/api/" in r.url else None)
+        try:
+            response=await account.goto(urljoin(page.url,href),wait_until="domcontentloaded")
+            assert response.status==200
+            await expect(account.get_by_role("heading",name="حساب و حریم خصوصی")).to_be_visible()
+            await expect(account.get_by_text("وضعیت ثبت رضایت: نامعلوم؛ پذیرش خودکار انجام نمی‌شود.")).to_be_visible()
+            await expect(account.get_by_text("امکان درخواست حذف از این رابط هنوز فعال نیست.")).to_be_visible()
+            await expect(account.get_by_text("Export و Feedback در این نسخه فعال نیستند.")).to_be_visible()
+            await expect(account.locator("main.history-shell")).to_have_attribute("dir","rtl")
+            assert await account.locator("form,button,input,textarea,select").count()==0
+            async with account.expect_response(
+                lambda r: "/api/history/conversations?limit=2" in r.url
+                and "cursor=" not in r.url and r.request.method=="GET",timeout=30000) as wait:
+                await account.get_by_role("link",name="بازگشت به گفت‌وگو").click()
+            result=await wait.value
+            assert result.status==200
+            assert (await result.json())["scope_user_id"]==owner
+            await expect(account.get_by_test_id("history-send")).to_be_disabled()
+            assert not mutations and self.counts()==before
+            print("F3_SIGNED_ACCOUNT_READONLY_RETURN_OWNER_NO_MUTATION_PASS",flush=True)
+        finally:
+            await account.close()
+
     async def verify_signed_keyboard(self,page):
         await page.set_viewport_size({"width":320,"height":720})
         menu=page.get_by_role("button",name="بازکردن فهرست گفت‌وگوها")
@@ -108,6 +142,7 @@ class OrderedSignedBrowserDemo(AppOnlyBrowserDemo):
         if self.exact_order_witnesses==2:
             await self.real_browser_outage_recovery(page,conversation_id,rows,expected_owner)
             await self.verify_signed_keyboard(page)
+            await self.verify_signed_account(page,expected_owner)
 
 async def run(engine):
     if os.getenv("CI")!="true" or os.getenv("GITHUB_ACTIONS")!="true":
