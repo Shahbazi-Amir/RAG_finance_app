@@ -353,3 +353,9 @@ Status is review. Supervisor approval is pending.
 - Git baseline report 78a6088, execution af57f26, pinned V4 f49f536f4d82. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist). Owner changed the private test priority; official Golden and Freeze remain unaccepted.
 - Implemented in the dedicated worktree: session-compose.yaml, session_worker_socket.py, session_product_api.py, check_session_browser.py, persistent_v4_pipe.py and its targeted socket regression. Existing frozen C018 resources, private data, candidate code and numeric traces remain outside the report branch.
 - Tested: approved status inventory, existing three transport fixtures and Compose service list. Socket regression initially blocked by sandbox bind. Runtime startup and integrated test in progress. Formal 5/20, private 0/20 PASS, Freeze pending. [Cumulative evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### Docker_3 / NB23-SESSION-RESUME-16 — stack ready and Chrome sign-in
+
+- Report baseline 2ddff18, execution af57f26, V4 f49f536f4d82. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
+- Tested: 4/4 fixture transport tests; PostgreSQL provisioning and Compose up exit 0; Worker-backed API startup, verified HTTPS status and Keycloak; real Chrome callback and signed History. Chrome stopped before POST because Send stayed disabled.
+- Implemented locally: wait for UI History readiness and two-question/Refresh assertions in check_session_browser.py; cumulative ledger and private T01–T20 matrix. Formal 5/20, private 5/20 PASS, official acceptance pending. [Evidence and next command](../../docs/codex_execution/MAC_FIRST_START_FA.md).

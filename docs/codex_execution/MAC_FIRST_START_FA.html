@@ -474,4 +474,38 @@ checkpoint `NB23-SESSION-RESUME-15`. مالک آزمون خصوصی با موت�
 - پذیرش کیفیت و Freeze رسمی در انتظار مالک و سرپرست. Arvan HOLD.
 
 ادامه از `NB23-SESSION-RESUME-15`: پس از تأیید سلامت پشته، آزمون Chrome را اجرا کنید. اگر پیش از Send متوقف شد، از worktree اجرایی `python3 -B -u infra/nb23-v4/check_session_browser.py ../nb23-session-product-local --http-v4` را برای سنجش واقعی Send تا CONTEXT_READY اجرا کنید. بازگشت نسخهٔ B با توقف پروژهٔ Compose مستقل و بدون حذف Volume ممکن است. برای نسخهٔ A از رویه و manifest بازگشت تاریخی استفاده می‌شود.</pre></section>
+<section dir="rtl"><pre style="white-space:pre-wrap">## Docker_3 — نتیجهٔ راه‌اندازی و ورود واقعی Chrome
+
+checkpoint `NB23-SESSION-RESUME-16`. نسخهٔ مستقل NB23 V4 از ایمیج پین‌شده، شش سرویس Compose و PostgreSQL مجزا با خروج ۰ شروع شد. PostgreSQL روی tmpfs مجوزها و TLS را بازیابی کرد. Product API فقط پس از handshake با Worker آماده شد. Keycloak ابتدا 502 داد، چون JVM در حال راه‌اندازی و پورت ۸۴۴۳ بسته بود. سپس discovery و /login هر دو HTTP 200 با اعتبار TLS=0 دادند. مبدأ Chrome فقط با نگاشت محلی و گواهی fixture برای محیط میزبان معتبر است.
+
+آزمون Chrome تأیید کرد که ورود واقعی، Callback و History امضاشده موفق شدند. آزمون در `SEND_BUTTON_NOT_ENABLED` قبل از POST متوقف شد. `infra/nb23-v4/check_session_browser.py` اکنون منتظر پایان loading خود UI می‌ماند و با `--chrome-v4` حفظ Attempt هنگام Refresh و سپس CONTEXT_READY برای دو پرسش را می‌سنجد. این آزمون جدید در جریان است. پس از اجرای مجاز `PYTHONPATH=. python3 -B -m unittest discover -s tests/phase3/api -p test_persistent_v4_pipe.py` هر چهار fixture از جمله سوکت و زمان انتقال موفق شدند.
+
+- پیشرفت رسمی ۵/۲۰ → ۵/۲۰ (۲۵٪) [#####---------------].
+- آزمون خصوصی ۰/۲۰ → ۵/۲۰ (۲۵٪) [#####---------------]، پنج PASS و ۱۵ نتیجهٔ ناتمام.
+- Freeze و پذیرش رسمی در انتظارند. Generation غیرفعال و اختلاف Golden حل‌نشده است.
+
+| آزمون | وضعیت | شاهد یا مانع |
+| --- | --- | --- |
+| T01 | PASS | Compose مستقل و PostgreSQL با خروج ۰ آغاز شدند |
+| T02 | PASS | API به Worker آماده متصل شد و HTTPS و discovery معتبر شدند |
+| T03 | PASS | صفحهٔ Staging در Chrome رسید |
+| T04 | PASS | ورود Keycloak، Callback و History امضاشده |
+| T05 | NOT RUN | ایجاد Conversation پس از Send |
+| T06 | BLOCKED | Send در اجرای اول فعال نشد |
+| T07 | NOT RUN | وضعیت اجرای موتور در UI |
+| T08 | NOT RUN | CONTEXT_READY در UI |
+| T09 | NOT RUN | زمان واقعی درخواست محصول |
+| T10 | NOT RUN | Refresh مرورگری پس از Send |
+| T11 | NOT RUN | حفظ Conversation و Attempt |
+| T12 | NOT RUN | عدم dispatch دوباره |
+| T13 | NOT RUN | خلاصهٔ مجاز پس از Refresh |
+| T14 | NOT RUN | سؤال دوم و Worker گرم |
+| T15 | PARTIAL | History خوانده شد؛ انتخاب گفت‌وگو باز است |
+| T16 | FAIL | Send در اجرای اول فعال نشد؛ recheck در جریان |
+| T17 | NOT RUN | شکست کنترل‌شده Worker در محصول |
+| T18 | NOT RUN | Logout مرورگری |
+| T19 | PASS | هفت کانتینر فریزشده C018 حفظ شدند؛ پشته مستقل بالا آمد |
+| T20 | PARTIAL | رویهٔ کنترل‌شده توقف پروژه ثبت شد؛ تحویل انسانی باز است |
+
+فرمان ادامه از worktree اجرایی `python3 -B -u infra/nb23-v4/check_session_browser.py ../nb23-session-product-local --chrome-v4` است. نتایج HTTP جایگزین مسیر Chrome نیستند. اگر آزمون قبل از POST متوقف شد، `--http-v4` آزمون واقعی API و Worker را مستقل انجام می‌دهد. فایل‌های گزارش ۱۲ تا ۱۵ در `2ddff18` روی GitHub تأیید شدند.</pre></section>
 </html>

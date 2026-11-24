@@ -42,3 +42,7 @@
 ## NB23-SESSION-RESUME-15
 
 - بازبینی Docker موفق شد. مسیر Worker آفلاین و API ایزوله پیاده شد. بررسی کد و سه fixture موجود موفق بودند. fixture سوکت sandbox-denied. آماده‌سازی PostgreSQL آغاز شد.
+
+## NB23-SESSION-RESUME-16
+
+- شروع پشته مستقل و HTTPS معتبر پس از گرم‌شدن Keycloak. چهار fixture موفق. Chrome Callback و History موفق؛ SEND_BUTTON_NOT_ENABLED قبل از POST. Harness با readiness و مسیر دو پرسش به‌روز شد.

@@ -87,3 +87,7 @@ HTTPS برنامه و IdP پس از ترمیم namespace تأیید شدند. Ch
 ### NB23-SESSION-RESUME-15
 
 اتصال آزمایشی V4 در worktree اجرا پیاده شد. بررسی واقعی در جریان است. رسمی ۵/۲۰؛ خصوصی ۰/۲۰ PASS؛ پذیرش و Freeze در انتظار.
+
+### NB23-SESSION-RESUME-16
+
+پشتهٔ مستقل و Worker Ready شدند. ورود واقعی Chrome و History موفق بود. Send قبل از POST فعال نشد. رسمی ۵/۲۰؛ خصوصی ۵/۲۰ PASS؛ Freeze در انتظار.
