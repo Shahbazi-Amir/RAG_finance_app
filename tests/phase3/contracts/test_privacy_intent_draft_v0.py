@@ -46,7 +46,7 @@ class PrivacyIntentDraftTests(unittest.TestCase):
   Draft202012Validator.check_schema(DOC)
   self.assertEqual(DOC["$schema"],"https://json-schema.org/draft/2020-12/schema")
  def test_four_policy_pending_intent_kinds_only(self):
-  self.assertEqual(set(DOC["$defs"]),set(BASE))
+  self.assertEqual(set(DOC["$defs"]),{"consent_intent","withdrawal_intent","export_intent","policy_pending"})
   self.assertEqual(len(DOC["oneOf"]),4)
   self.assertIn("DRAFT ONLY",DOC["$comment"])
  def test_all_four_valid_syntax_examples(self):
