@@ -924,6 +924,67 @@ class RealProductSession011(unittest.TestCase):
         print("API_F3_ACTUAL_PG_CONTAINER_STOP_READY_503_RESTART_200_PASS",
               flush=True)
 
+    def test_API011_12_parallel_same_assertion_one_durable_pg_replay(self):
+        """Race six distinct mTLS HTTP sockets with one *identical* RS256 JTI.
+
+        Only one may obtain a signed History result. The PostgreSQL replay
+        primary key must contain exactly one digest, with no T1/T2/T3 write.
+        This tests durable admission race, NOT client Send idempotency.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        a = self.login("A")
+        cid = self.seed(a, "CI_REPLAY_RACE_" + uuid.uuid4().hex)
+        token, claims = self.signed(a)
+        key = sha256((claims["iss"] + "\\x00" + claims["jti"]).encode(
+            "utf-8")).hexdigest()
+        with psycopg.connect(os.environ["AUTH_MIG_DSN"], autocommit=True,
+                             row_factory=dict_row) as auth_admin:
+            self.assertEqual(auth_admin.execute(
+                "SELECT count(*) AS n FROM auth_l1.service_assertion_replays "
+                "WHERE issuer_jti_sha256=%s", (key,)).fetchone()["n"], 0)
+            with psycopg.connect(os.environ["DB_MIG_DSN"], autocommit=True,
+                                 row_factory=dict_row) as db_admin:
+                def counts():
+                    return db_admin.execute(
+                        "SELECT "
+                        "(SELECT count(*) FROM history_l1.send_receipts "
+                        " WHERE owner_id=%s) AS t1,"
+                        "(SELECT count(*) FROM history_l1.execution_attempts "
+                        " WHERE owner_id=%s) AS t2,"
+                        "(SELECT count(*) FROM history_l1.answers "
+                        " WHERE owner_id=%s) AS t3",
+                        (a["owner_id"], a["owner_id"], a["owner_id"])
+                    ).fetchone()
+                before = counts()
+                with ThreadPoolExecutor(max_workers=6) as pool:
+                    result = list(pool.map(
+                        lambda _: self.list(a, token=token), range(6)))
+                successes = [r for r in result if r.status_code == 200]
+                rejected = [r for r in result if r.status_code != 200]
+                self.assertEqual(len(successes), 1,
+                                 [(r.status_code, r.text[:180]) for r in result])
+                self.assertEqual(len(rejected), 5)
+                self.assertTrue(all(r.status_code in (401, 503)
+                                    for r in rejected))
+                for denied in rejected:
+                    self.assertEqual(denied.headers.get("cache-control"),
+                                     "no-store")
+                    self.assertNotIn(cid, denied.text)
+                    self.assertNotIn(claims["jti"], denied.text)
+                got = successes[0].json()
+                self.assertEqual(got["scope_user_id"], a["owner_id"])
+                self.assertIn(cid, [x["conversation_id"]
+                                    for x in got["items"]])
+                self.assertEqual(auth_admin.execute(
+                    "SELECT count(*) AS n FROM auth_l1.service_assertion_replays "
+                    "WHERE issuer_jti_sha256=%s", (key,)
+                ).fetchone()["n"], 1)
+                self.assertEqual(counts(), before)
+                self.assertEqual(self.list(a, token=token).status_code, 401)
+                self.assertEqual(self.list(a).status_code, 200)
+        print("API_F3_REAL_SIGNED_PG_PARALLEL_REPLAY_ONLY_ONE_ADMISSION_PASS",
+              flush=True)
+
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
         """Actual verified HTTPS callback, same pinned redirect for Code exchange."""
         from cryptography.hazmat.primitives import serialization
