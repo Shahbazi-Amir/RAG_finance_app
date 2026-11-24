@@ -809,6 +809,79 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
         assert self.counts() == before
         print("API_F3_REAL_BROWSER_BAD_CSRF_NO_REVOKE_NO_HISTORY_MUTATION_PASS", flush=True)
 
+    async def actual_oci_read_blocks_real_logout(self, a, logout, raw_a, conversation_id, rows, restored, pg_id):
+        """Actual History request blocked AFTER real session admission.
+        The held table lock only forces a deterministic scheduling window;
+        the blocking history_app PID belongs to the real OCI HTTP handler.
+        No direct protected_transaction substitute or cookie injection.
+        """
+        assert os.getenv("CI")=="true" and os.getenv("GITHUB_ACTIONS")=="true"
+        info=json.loads(self.ci_command("docker","inspect",pg_id))[0]
+        assert info["Id"]==pg_id and info["State"]["Running"]
+        assert pg_id!=self.source_pg_id
+        assert re.fullmatch(r"[a-f0-9]{32}",info["Config"]["Labels"]["rag.finance.ci.restore"])
+        cfg=conninfo_to_dict(restored["DB_APP_DSN"])
+        assert cfg["dbname"].startswith("history_browser_restore_ci_")
+        assert cfg["sslmode"]=="verify-full"
+        assert cfg["port"]==str(self.restore_pg_port)
+        admin=dict(cfg,user="postgres",password=os.environ["PGPASSWORD"])
+        async def request_read():
+            return await a.evaluate("""async id => {
+                const r=await fetch('/api/history/conversations/'+id+'/messages?limit=30',
+                                    {cache:'no-store'});
+                return {status:r.status,body:await r.json()};
+            }""",conversation_id)
+        async def request_logout():
+            async with logout.expect_response(
+                lambda r:r.url.endswith("/api/auth/logout") and r.request.method=="POST"
+            ) as wait:
+                await logout.get_by_test_id("logout-submit").click()
+            return (await wait.value).status
+        tasks=[]
+        try:
+            with psycopg.connect(**admin,autocommit=True) as lock:
+                with lock.transaction():
+                    lock.execute("SET LOCAL lock_timeout='1000ms'")
+                    lock.execute("LOCK TABLE history_l1.messages IN ACCESS EXCLUSIVE MODE")
+                    blocker=lock.execute("SELECT pg_backend_pid()").fetchone()[0]
+                    async def blocked(role, blocking_pid):
+                        deadline=time.monotonic()+3.0
+                        while time.monotonic()<deadline:
+                            lock.execute("SELECT pg_stat_clear_snapshot()")
+                            hits=lock.execute("""SELECT a.pid FROM pg_stat_activity a
+                              JOIN pg_stat_ssl s USING(pid)
+                              WHERE a.datname=current_database() AND a.usename=%s
+                              AND s.ssl AND a.wait_event_type='Lock'
+                              AND %s=ANY(pg_blocking_pids(a.pid))""",
+                              (role,blocking_pid)).fetchall()
+                            if len(hits)==1:return hits[0][0]
+                            assert len(hits)==0,"AMBIGUOUS_BLOCKED_ROLE"
+                            await asyncio.sleep(.04)
+                        raise AssertionError("EXPECTED_ACTUAL_OCI_DB_LOCK_EDGE_MISSING_"+role)
+                    read_task=asyncio.create_task(request_read())
+                    tasks.append(read_task)
+                    history_pid=await blocked("history_app",blocker)
+                    assert not read_task.done()
+                    print("DB_COMMON_REAL_OCI_HISTORY_ROLE_BLOCKED_AFTER_ADMISSION=PASS",flush=True)
+                    logout_task=asyncio.create_task(request_logout())
+                    tasks.append(logout_task)
+                    revoke_pid=await blocked("auth_revoker",history_pid)
+                    assert len({blocker,history_pid,revoke_pid})==3
+                    assert not read_task.done() and not logout_task.done()
+                    print("DB_COMMON_REAL_OCI_LOGOUT_PG_BLOCKING_PID_CHAIN=PASS",flush=True)
+                # Release ONLY the disposable table lock. Actual HTTP History
+                # must finish and commit before the revoke can commit.
+            read_result,logout_status=await asyncio.wait_for(asyncio.gather(*tasks),timeout=12)
+            assert read_result["status"]==200
+            assert read_result["body"]["owner_user_id"]==raw_a["owner_id"]
+            assert [x["message_id"] for x in read_result["body"]["items"]]==[x["id"] for x in rows[:30]]
+            assert logout_status==303
+            print("DB_COMMON_REAL_OCI_READ_THEN_LOGOUT_COMMITTED_EXACT_30_ROWS=PASS",flush=True)
+        finally:
+            # The lock transaction has already exited on every exception.
+            if tasks:
+                await asyncio.gather(*tasks,return_exceptions=True)
+
     async def journey(self, browser, output):
         contexts = []
         try:
@@ -1010,11 +1083,7 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
                     # Existing live ordinary browser logout; no cookie injected.
                     logout = await ca.new_page()
                     await logout.goto(ORIGIN + "/login")
-                    async with logout.expect_response(
-                        lambda r: r.url.endswith("/api/auth/logout") and r.request.method == "POST"
-                    ) as wait:
-                        await logout.get_by_test_id("logout-submit").click()
-                    assert (await wait.value).status == 303
+                    await self.actual_oci_read_blocks_real_logout(a,logout,raw_a,aid,message_rows,restored,restored_id)
                     await expect(logout.get_by_test_id("logout-success")).to_be_visible()
                     assert self.signed_private(raw_a).status_code == 401
                     assert self.signed_private(raw_b).status_code == 200
@@ -1034,7 +1103,7 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
                     print("API_F3_BROWSER_RESTORE_SOURCE_SESSIONS_UNCHANGED_PASS", flush=True)
                     receipt=ROOT/"ci_receipts/db_oci_browser_restricted_parity.json"
                     receipt.parent.mkdir(exist_ok=True)
-                    receipt.write_text(json.dumps({"source_sha":os.environ["F3_EXACT_SHA"],"api_image_id":self.api_image_id,"checkpoints":6,"history_tables":6,"real_31_message_page2_before_after":True,"signed_mobile_320_focus":True,"real_oidc_owners":2,"exact_row_parity":True,"migration_ledger_rows":10,"data_bearing_up":9,"actual_failed_002_no_autoretry":True,"force_rls_tables":14,"source_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","restored_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","migration_install_origin":"ACTIONS_PG_BEFORE_FIRST_CLONE","two_journey_clusters_distinct_from_installer":True,"engine_calls":0,"sql_011":False,"target_verified":False,"accepted":False},indent=2)+"\n")
+                    receipt.write_text(json.dumps({"source_sha":os.environ["F3_EXACT_SHA"],"api_image_id":self.api_image_id,"checkpoints":6,"history_tables":6,"real_31_message_page2_before_after":True,"signed_mobile_320_focus":True,"actual_oci_read_revoke_blocking_pid_chain":True,"real_oidc_owners":2,"exact_row_parity":True,"migration_ledger_rows":10,"data_bearing_up":9,"actual_failed_002_no_autoretry":True,"force_rls_tables":14,"source_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","restored_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","migration_install_origin":"ACTIONS_PG_BEFORE_FIRST_CLONE","two_journey_clusters_distinct_from_installer":True,"engine_calls":0,"sql_011":False,"target_verified":False,"accepted":False},indent=2)+"\n")
                 finally:
                     self.stop_container_api()
                     for child in (self.api_process, self.bootstrap_process):

@@ -1,7 +1,7 @@
 name: F3 DB physical WAL timestamp PITR (disposable only)
 on:
   pull_request:
-    branches: [agent/foundation-f3-84-31-message-restore-20261124]
+    branches: [agent/db-f3-118-compose-31-pitr-common-20261124]
     paths:
       - 'infra/postgres/dev_f3_isolated/scripts/29_physical_pitr_ci.sh'
       - '.github/workflows/f3-db-physical-pitr-ci.yml'
@@ -10,7 +10,7 @@ permissions:
   contents: read
 jobs:
   real-pg17-pitr:
-    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/db-f3-118-compose-31-pitr-common-20261124' && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/db-f3-common-oci-rehydrate-real-read-lock-20261124' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:

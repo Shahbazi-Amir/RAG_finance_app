@@ -2,14 +2,14 @@ name: F3 DB common exact-tree both-side Compose 31 messages and restricted SQL
 
 on:
   pull_request:
-    branches: [agent/foundation-f3-84-31-message-restore-20261124]
+    branches: [agent/db-f3-118-compose-31-pitr-common-20261124]
   workflow_dispatch:
 permissions:
   contents: read
 
 jobs:
   api-session-011:
-    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/db-f3-118-compose-31-pitr-common-20261124' && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/db-f3-common-oci-rehydrate-real-read-lock-20261124' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     services:
@@ -326,6 +326,48 @@ jobs:
           docker build --platform linux/amd64 --file "$clean/infra/phase3_l1/Dockerfile.web" \
             --build-arg "SOURCE_SHA=$F3_EXACT_SHA" -t "f3-compose-browser-web:$F3_EXACT_SHA" "$clean"
           echo "F3_COMPOSE_BROWSER_WEB_IMAGE=f3-compose-browser-web:$F3_EXACT_SHA" >> "$GITHUB_ENV"
+      - name: Save remove and reload the exact two images used by the real journey
+        run: |
+          set -euo pipefail
+          test "$CI" = true && test "$GITHUB_ACTIONS" = true
+          test "$(git rev-parse HEAD)" = "$F3_EXACT_SHA"
+          api="api-f3-browser:$F3_EXACT_SHA"
+          web="f3-compose-browser-web:$F3_EXACT_SHA"
+          ai="$(docker image inspect -f '{{.Id}}' "$api")"
+          wi="$(docker image inspect -f '{{.Id}}' "$web")"
+          [[ "$ai" =~ ^sha256:[a-f0-9]{64}$ && "$wi" =~ ^sha256:[a-f0-9]{64}$ && "$ai" != "$wi" ]]
+          for tag in "$api" "$web"; do
+            test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$tag")" = "$F3_EXACT_SHA"
+            test "$(docker image inspect -f '{{.Os}}/{{.Architecture}}' "$tag")" = linux/amd64
+          done
+          tmp="$(mktemp -d "$RUNNER_TEMP/f3-common-image-rehydrate.XXXXXXXX")"
+          trap 'rm -rf "$tmp"' EXIT
+          docker image save -o "$tmp/images.tar" "$api" "$web"
+          digest="$(sha256sum "$tmp/images.tar" | awk '{print $1}')"
+          bytes="$(stat -c %s "$tmp/images.tar")"
+          docker image rm "$api" "$web"
+          if docker image inspect "$api" "$web" >/dev/null 2>&1; then exit 70; fi
+          for id in "$ai" "$wi"; do
+            if docker image inspect "$id" >/dev/null 2>&1; then
+              echo DB_COMMON_OCI_IMAGE_NOT_REMOVED >&2; exit 70
+            fi
+          done
+          test "$(sha256sum "$tmp/images.tar" | awk '{print $1}')" = "$digest"
+          docker image load -i "$tmp/images.tar"
+          test "$(docker image inspect -f '{{.Id}}' "$api")" = "$ai"
+          test "$(docker image inspect -f '{{.Id}}' "$web")" = "$wi"
+          export F3_ARCHIVE_SHA="$digest" F3_ARCHIVE_BYTES="$bytes" F3_API_ID="$ai" F3_WEB_ID="$wi"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path("ci_receipts/db_common_image_archive.json")
+          p.parent.mkdir(exist_ok=True)
+          p.write_text(json.dumps({"source_sha":os.environ["F3_EXACT_SHA"],"api_image_id":os.environ["F3_API_ID"],
+              "web_image_id":os.environ["F3_WEB_ID"],"archive_sha256":os.environ["F3_ARCHIVE_SHA"],
+              "archive_bytes":int(os.environ["F3_ARCHIVE_BYTES"]),"both_images_removed_then_loaded":True,
+              "archive_exported":False,"registry_release_verified":False,"accepted":False},indent=2)+"\n")
+          PY
+          echo DB_COMMON_EXACT_JOURNEY_TWO_IMAGES_SAVE_REMOVE_LOAD=PASS
       - name: Real Chromium ordinary login and signed app-only History journey
         env:
           API_F3_ISOLATED_PG_CID: ${{ job.services.postgres.id }}
@@ -364,11 +406,16 @@ jobs:
           assert db["source_sha"]==sha and db["api_image_id"]==data["Id"]
           assert db["checkpoints"]==6 and db["exact_row_parity"] is True and db["accepted"] is False
           assert db["real_31_message_page2_before_after"] is True and db["signed_mobile_320_focus"] is True
+          assert db["actual_oci_read_revoke_blocking_pid_chain"] is True
           assert db["migration_ledger_rows"]==10 and db["force_rls_tables"]==14 and db["data_bearing_up"]==9
           assert db["actual_failed_002_no_autoretry"] is True
           assert db["source_tls"]==db["restored_tls"]=="VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN"
           web=json.loads(subprocess.check_output(["docker","image","inspect","f3-compose-browser-web:"+sha]))[0]
           assert web["Id"]==r["web_image_id"] and web["Config"]["Labels"]["org.opencontainers.image.revision"]==sha
+          archive=json.loads(Path("ci_receipts/db_common_image_archive.json").read_text())
+          assert archive["source_sha"]==sha and archive["api_image_id"]==data["Id"] and archive["web_image_id"]==web["Id"]
+          assert archive["both_images_removed_then_loaded"] is True and archive["accepted"] is False
+          print("DB_COMMON_ACTUAL_REHYDRATED_IMAGE_IDS_MATCH_BOTH_SIDE_BROWSER_RECEIPT=PASS")
           print("DB_COMPOSE_EXACT_SHA_TWO_IMAGE_IDS_SQL_TLS_RECEIPT=PASS")
           assert db["migration_install_origin"]=="ACTIONS_PG_BEFORE_FIRST_CLONE"
           assert db["two_journey_clusters_distinct_from_installer"] is True
@@ -380,6 +427,7 @@ jobs:
             ci_receipts/f3_integrated_signed_oci_browser.json
             ci_receipts/f3_post_restore_shared_compose.json
             ci_receipts/db_oci_browser_restricted_parity.json
+            ci_receipts/db_common_image_archive.json
           if-no-files-found: error
       - name: Show bounded SQL permissions and container status
         if: always()
