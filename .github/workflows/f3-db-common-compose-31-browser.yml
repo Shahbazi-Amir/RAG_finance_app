@@ -204,6 +204,8 @@ jobs:
           SQL
           f3_prove_failed_migration_intent
           PGPASSWORD="$F3_LEDGER_ADMIN_PASSWORD" python tests/phase3/integration/api/db_actual_migration_interrupt_ci.py
+          PGPASSWORD="$F3_LEDGER_ADMIN_PASSWORD" python tests/phase3/integration/api/db_post_commit_ledger_interrupt_ci.py
+          test "$(cat "$RUNNER_TEMP/f3-postcommit-migration-interrupt-verified.txt")" = PASS
           f3_ledger_apply 002 infra/postgres/migrations/002_one_attempt.up.sql
           psql -d history_legacy_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
           # Separate synthetic chain seed: 001 first; acceptance test applies 002.
@@ -423,6 +425,11 @@ jobs:
           assert db["real_31_message_page2_before_after"] is True and db["signed_mobile_320_focus"] is True
           assert db["actual_oci_read_revoke_blocking_pid_chain"] is True
           assert db["migration_ledger_rows"]==10 and db["force_rls_tables"]==14 and db["data_bearing_up"]==9
+          postcommit=json.loads(Path("ci_receipts/db_postcommit_migration.json").read_text())
+          assert postcommit["source_sha"]==sha and postcommit["run_id"]==os.environ["GITHUB_RUN_ID"]
+          assert postcommit["accepted"] is False and postcommit["target_verified"] is False
+          for k in ("actual_committed_index_observed","actual_applied_updater_terminated","started_retained","auto_retry_refused","history_rows_exact","ambiguous_clone_discarded","fresh_clone_distinct_database_oid","fresh_clone_002_applied","source_unchanged"):
+              assert postcommit[k] is True,k
           assert db["actual_failed_002_no_autoretry"] is True
           assert db["actual_interrupted_002_no_autoretry"] is True and db["db55_pinned_readonly_auditor_checkpoints"]==8
           assert db["source_tls"]==db["restored_tls"]=="VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN"
@@ -444,6 +451,7 @@ jobs:
             ci_receipts/f3_post_restore_shared_compose.json
             ci_receipts/db_oci_browser_restricted_parity.json
             ci_receipts/db_common_image_archive.json
+            ci_receipts/db_postcommit_migration.json
           if-no-files-found: error
       - name: Show bounded SQL permissions and container status
         if: always()
