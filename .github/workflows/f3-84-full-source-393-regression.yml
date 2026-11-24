@@ -4,7 +4,7 @@ on:
   push:
     branches: [agent/foundation-f3-84-31-message-restore-20261124]
   pull_request:
-    branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124]
+    branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124, agent/foundation-f3-84-31-message-restore-20261124]
   workflow_dispatch:
 
 permissions:

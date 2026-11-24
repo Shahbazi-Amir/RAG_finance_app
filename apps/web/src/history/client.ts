@@ -63,6 +63,16 @@ function timestampMicros(value:string):number{
   // fractional seconds to milliseconds, which silently destroys the actual
   // SQL (created_at,id) sort order for rapid consecutive History messages.
   // This is critical for cursor pages of 31+ messages and real owner reads.
+  // Date.parse normalizes impossible calendar dates (e.g. February 30)
+  // and 24:00 rather than rejecting them. Validate the wall-clock fields
+  // before comparing UTC instants, including for offset-bearing values.
+  const fields=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.exec(value);
+  if(!fields)invalid();
+  const [year,month,day,hour,minute,second]=fields.slice(1).map(Number);
+  const leap=year%4===0&&(year%100!==0||year%400===0);
+  const monthDays=[31,leap?29:28,31,30,31,30,31,31,30,31,30,31];
+  if(month<1||month>12||day<1||day>monthDays[month-1]||
+     hour>23||minute>59||second>59)invalid();
   const millis=Date.parse(value);
   const fractional=/\.(\d+)(?:Z|[+-]\d\d:\d\d)$/i.exec(value)?.[1]??'';
   if(!Number.isFinite(millis)||
@@ -72,11 +82,16 @@ function timestampMicros(value:string):number{
   if(!Number.isSafeInteger(micros))invalid();
   return micros;
 }
-function pagination(o:Wire,requestedLimit:number,numberOfItems:number):{next:string|null;more:boolean}{
+function pagination(o:Wire,requestedLimit:number,numberOfItems:number,requestedCursor:string|null):{next:string|null;more:boolean}{
   const p=object(o.page);
   if(p.limit!==requestedLimit||numberOfItems>requestedLimit)invalid();
   // The actual shared JSON Schema enforces both directions of cursor/has_more.
-  return {next:maybeText(p.next_cursor),more:p.has_more as boolean};
+  const next=maybeText(p.next_cursor),more=p.has_more as boolean;
+  // An empty nonterminal page or a cursor that points back to itself
+  // cannot advance this signed History read. Fail closed instead of
+  // letting the UI repeatedly fetch the same cursor.
+  if(more&&(numberOfItems===0||next===requestedCursor))invalid();
+  return {next,more};
 }
 function ensureAnswerRelations(answer:Answer):void{
   const claims=new Map(answer.claims.map(c=>[c.claim_id,c]));
@@ -153,7 +168,7 @@ export async function conversations(limit=2,cursor:string|null=null):Promise<His
   for(let i=1;i<order.length;i++)
     if(order[i-1][0]<order[i][0]||
        (order[i-1][0]===order[i][0]&&order[i-1][1]<order[i][1]))invalid();
-  return {...pagination(o,limit,items.length),items,owner};
+  return {...pagination(o,limit,items.length,cursor),items,owner};
 }
 export async function messages(conversationId:string,limit=2,cursor:string|null=null):Promise<MessagePage>{
   const o=doc(await api('conversations/'+encodeURIComponent(conversationId)+'/messages?'+
@@ -185,7 +200,7 @@ export async function messages(conversationId:string,limit=2,cursor:string|null=
   unique(answers.map(x=>x.id));
   // Exact page coverage: no missing, orphaned, duplicate or unrelated Answer.
   if(answers.length!==assistants.length)invalid();
-  return {...pagination(o,limit,items.length),items,answers,conversationId,owner};
+  return {...pagination(o,limit,items.length,cursor),items,answers,conversationId,owner};
 }
 export async function createConversation(original:CreateOperation):Promise<string>{
   const o=doc(await api('conversations','POST',original),'create_conversation_receipt');

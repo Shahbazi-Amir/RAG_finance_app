@@ -122,6 +122,26 @@ def verified_candidate_browser31_source():
 
 
 
+
+HISTORY_PAGE_FOLLOWUP=ROOT/"coordination/integration/F3_84_HISTORY_PAGE_CONTRACT_FOLLOWUP_20261124.json"
+def guarded_history_page_followup(parent,actual):
+    """One explicit child of #118; never rewrite frozen owner/source records."""
+    d=json.loads(HISTORY_PAGE_FOLLOWUP.read_text(encoding="utf8"))
+    assert set(d)=={"schema","parent_sha","path","previous_blob_sha","candidate_blob_sha","tests","canonical_ids","scope","owner_signed_acceptance","target_verified","canonical_activity_accepted","module_gate_accepted","original_58_manifest_frozen"}
+    assert d["schema"]=="foundation.f3.history_page_contract_followup.v1"
+    assert d["parent_sha"]=="4e326e4efe477fc4c0e30eecab077ae668656555"
+    assert d["path"]==parent["path"]=="apps/web/src/history/client.ts"
+    assert d["previous_blob_sha"]==parent["candidate_blob_sha"]=="f0932d08ff37215111c04fea38f6503d4d3f41f1"
+    assert d["candidate_blob_sha"]==actual=="b9ebe6659c334e02ae24a46a0b07f3a65ffa02a0"
+    assert d["tests"]=="tests/phase3/ui/history-page-contract-guard.test.mjs"
+    assert d["canonical_ids"]==["P3M13-A04","P3M15-A03","P3M14-A09","P3M13-A02"]
+    assert d["scope"]=="LOCAL_CODE_CHANGE_CI_PENDING_NO_OWNER_ACCEPTANCE"
+    assert d["original_58_manifest_frozen"] is True
+    assert all(d[k] is False for k in ("owner_signed_acceptance","target_verified",
+        "canonical_activity_accepted","module_gate_accepted"))
+    return d
+
+
 HISTORY_MICRO_DELTA=ROOT/"coordination/integration/F3_84_HISTORY_MICROSECOND_REVIEW_DELTA_20261124.json"
 def guarded_history_microsecond_source():
     """Exact one-path functional UI patch; one of 16 review decisions stays open."""
@@ -142,7 +162,7 @@ def guarded_history_microsecond_source():
         "owner_signed_acceptance","canonical_activity_accepted","module_gate_accepted"))
     p=subprocess.run(["git","hash-object",d["path"]],
        cwd=ROOT,capture_output=True,text=True,check=True)
-    assert p.stdout.strip()==d["candidate_blob_sha"]
+    guarded_history_page_followup(d,p.stdout.strip())
     return d
 
 
@@ -283,7 +303,8 @@ class LedgerTest(unittest.TestCase):
                 # owner-retained conflicts. Never modify the 58-row verdict.
                 self.assertEqual(row["decision"],micro["historical_58_decision"])
                 self.assertEqual(row["integrated_blob_sha"],micro["historical_blob_sha"])
-                self.assertEqual(blob,micro["candidate_blob_sha"])
+                followup=guarded_history_page_followup(micro,blob)
+                self.assertEqual(blob,followup["candidate_blob_sha"])
                 self.assertFalse(row["owner_signed_acceptance"])
                 continue
             if row["path"] in ui:
