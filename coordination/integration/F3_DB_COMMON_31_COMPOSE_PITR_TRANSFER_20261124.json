@@ -1,0 +1,57 @@
+{
+  "schema": "f3.db.common_ci_transfer.v1",
+  "base_sha": "4e326e4efe477fc4c0e30eecab077ae668656555",
+  "source_transfers": [
+    {
+      "path": "tests/phase3/integration/api/test_app_only_browser_journey.py",
+      "sha": "4e326e4efe477fc4c0e30eecab077ae668656555",
+      "blob": "a12c64c75361577b94a8d42bf24714dcc16864e5"
+    },
+    {
+      "path": "tests/phase3/integration/api/test_app_only_browser_journey.py",
+      "sha": "c179587a33293e610454a4848ec138b6a909615f",
+      "blob": "2dc6a86718e6cd8b3c1eb32920fbc80088f767cc"
+    },
+    {
+      "path": "tests/phase3/integration/foundation/compose_restored_browser.py",
+      "sha": "c179587a33293e610454a4848ec138b6a909615f",
+      "blob": "6b59170a05068c9b99e6472a0ac7687fe2bcc948"
+    },
+    {
+      "path": ".github/workflows/f3-foundation-integrated-signed-oci-browser.yml",
+      "sha": "c179587a33293e610454a4848ec138b6a909615f",
+      "blob": "5b758b15e502a27fccdb1597fdcab00ad04c62f0"
+    },
+    {
+      "path": ".github/workflows/f3-84-one-sha-signed-oci-browser-restored.yml",
+      "sha": "4e326e4efe477fc4c0e30eecab077ae668656555",
+      "blob": "24be2522b15616cd8537843e2426d007d8b491d3"
+    },
+    {
+      "path": "scripts/phase3/f3_browser_pinned_migration_ledger.sh",
+      "sha": "c179587a33293e610454a4848ec138b6a909615f",
+      "blob": "564553d36db748ff122acaeee50bb4f0add95cfd"
+    },
+    {
+      "path": "infra/postgres/dev_f3_isolated/scripts/29_physical_pitr_ci.sh",
+      "sha": "478b6c2b2af3d98b5c38f445faa5796affa78220",
+      "blob": "538b38c43d0fd6ca4df616a45c82bb12d4f282bc"
+    },
+    {
+      "path": ".github/workflows/f3-db-physical-pitr-ci.yml",
+      "sha": "478b6c2b2af3d98b5c38f445faa5796affa78220",
+      "blob": "dc240da8b1552145760d5f1cb995cd505c67445a"
+    },
+    {
+      "path": "tests/phase3/integration/foundation/ci_loopback_relay.mjs",
+      "sha": "c179587a33293e610454a4848ec138b6a909615f",
+      "blob": "865e9351e2fa8beba64ae4b29f6d62f71d12d214"
+    }
+  ],
+  "scope": "CI_ONLY_BOTH_SIDE_COMPOSE_31_MESSAGES_RESTRICTED_ROLE_SQL_AND_SEPARATE_PHYSICAL_PITR",
+  "accepted": false,
+  "target_verified": false,
+  "engine_enabled": false,
+  "sql_011": false,
+  "prior_frozen_manifests_unchanged": true
+}
