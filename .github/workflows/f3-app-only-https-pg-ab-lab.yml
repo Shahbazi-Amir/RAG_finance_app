@@ -6,6 +6,7 @@ on:
       - 'infra/postgres/dev_f3_isolated/scripts/28_signed_history_https_pg_lab.sh'
       - 'tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py'
       - '.github/workflows/f3-app-only-https-pg-ab-lab.yml'
+      - 'apps/api/private_app_only_asgi.py'
   workflow_dispatch:
 permissions:
   contents: read
