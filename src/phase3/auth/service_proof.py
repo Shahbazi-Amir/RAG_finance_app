@@ -7,6 +7,8 @@ Raw server-side session verifier in signed assertion is SENSITIVE.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import base64
+import json
 from hashlib import sha256
 import re
 import time
@@ -57,6 +59,35 @@ class VerifiedServiceProof:
         return "VerifiedServiceProof(<redacted>)"
 
 
+def _unique_json_object(segment: str) -> dict:
+    """Reject ambiguous JSON members before any token is used for admission.
+
+    PyJWT normally accepts the last occurrence of duplicate JSON members.
+    A signed envelope must have one meaning across producers and consumers.
+    Parsing here does not trust any unsigned value or replace RSA verification.
+    """
+    def pairs(items):
+        result = {}
+        for name, value in items:
+            if name in result:
+                raise TrustRejected()
+            result[name] = value
+        return result
+
+    def reject_constant(_):
+        raise TrustRejected()
+
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", segment):
+        raise TrustRejected()
+    raw = base64.b64decode(segment + "=" * (-len(segment) % 4),
+                           altchars=b"-_", validate=True)
+    value = json.loads(raw.decode("utf-8"), object_pairs_hook=pairs,
+                       parse_constant=reject_constant)
+    if not isinstance(value, dict):
+        raise TrustRejected()
+    return value
+
+
 class BFFServiceVerifier:
     """RSA public keys provisioned out-of-band; fail closed on absent/malformed config.
 
@@ -99,7 +130,12 @@ class BFFServiceVerifier:
                 or len(raw_body) > _MAX_BODY_BYTES):
             raise TrustRejected() from None
         try:
-            header = jwt.get_unverified_header(compact_jwt)
+            header_segment, payload_segment, _ = compact_jwt.split(".")
+            header = _unique_json_object(header_segment)
+            # Reject duplicate/ambiguous payload members without relying on
+            # them for any security decision. PyJWT still verifies the RSA
+            # signature, issuer, audience, and required temporal claims.
+            _unique_json_object(payload_segment)
             if (set(header) != _ACCEPTED_HEADERS or header.get("typ") != "JWT"
                     or header.get("alg") != "RS256"
                     or not isinstance(header.get("kid"), str)
@@ -149,7 +185,7 @@ class BFFServiceVerifier:
                 payload["exp"], payload["session_ref"], payload["owner_id"],
                 payload["epoch"], payload["generation"],
             )
-        except (jwt.PyJWTError, ValueError, TypeError, KeyError, TrustRejected):
+        except (jwt.PyJWTError, ValueError, TypeError, KeyError, RecursionError, TrustRejected):
             raise TrustRejected() from None
 
 

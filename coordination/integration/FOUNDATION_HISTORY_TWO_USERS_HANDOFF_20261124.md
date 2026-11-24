@@ -47,3 +47,20 @@ Ground truth: `coordination/integration/FOUR_PR_58_PATH_THREE_WAY_AUDIT_20261124
 - Reproducible signed-after-independent-volume-restore test and single-job Actions: `865a9b79f73c4c7390051804798ee420325b9ff8` (subsequent exact SHA corrections visible in PR #88).
 - Original signed API BFF→PG Keycloak-style CI flow is **test harness**; it is not the user's requested **standard, independently configured Keycloak service with two full browser OIDC sessions**. Even a green recovered SQL receipt is only P0-3 and API subset evidence; never mark browser P0-2/4 or complete P0-5/restore E2E accepted.
 - Non-acceptance: 0/26 signed Phase-3 Gates; 0/5 complete **user journey steps** until same-SHA actual browser→SQL and post-restore browser are witnessed. No Mac/engine/destination mutations.
+
+## Foundation transfer from tested API checkpoint
+
+Base of this working branch: #84 `0fd1066945ef91a3913e040ab4c350bb645ea502`; previous Foundation SHA `71c5e13366bec9b3101188f49b0dcf4fff197537`. Selected tested API source #87 `23db3da6367e6a8279072ee96b56a2bd4b7f0fbc` (runs 45392028003 and 45392028018). No owner approval or release. Exact imported blobs:
+
+- `apps/api/app_only_socket_probe.py` — `bbc803942b0d59a674f116a78c6b9a5786ab14d6`
+- `apps/api/private_app_only_asgi.py` — `5a4807dbb725e9474676b21be221aed4b7a52d38`
+- `apps/api/private_staging_asgi.py` — `0f87572041cf179db6de004a41cc266a16994b67`
+- `apps/api/product_session_api.py` — `32d6148e1eb9f014ee62a4e607516547e510c7ec`
+- `src/phase3/auth/service_proof.py` — `63f85aa2f15a435faa44e9f41d25df8e7f2e43be`
+- `src/phase3/auth/staging_service_profile.py` — `bfc45cfcc1989c4fbe1bef9df975eb3c13733c97`
+- `tests/phase3/api/test_app_only_no_engine.py` — `9514d9ac21b3f45542a3bcdeaf689168f1096912`
+- `tests/phase3/api/test_service_proof.py` — `cc6368349602ce1e358a0e8efd4152a219fd7b85`
+- `tests/phase3/integration/api/app_only_signed_pg_ci_h11.py` — `50131268814dd39e9de2b0e2d7744ed9dd4189a6`
+- `tests/phase3/integration/api/test_app_only_browser_journey.py` — `52e0f1632cb8573a80911e0b1c8dfba8ff2055e4`
+
+Existing #88 deny-only image and four regression workflows retained. Dedicated same-runner browser/real signed OCI API/restored TLS PG workflow uses the existing separate signed Dockerfile, now with explicit PHASE3_APP_MODE. Web and Bootstrap remain host CI processes; full private Compose topology and owner decisions remain open. No 011, provider, target or main change. Do not count pending CI as acceptance.

@@ -18,6 +18,7 @@ from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.responses import JSONResponse
 from jsonschema import ValidationError
 from starlette.concurrency import run_in_threadpool
+from starlette.requests import ClientDisconnect
 from psycopg import IsolationLevel
 from psycopg.rows import dict_row
 
@@ -49,7 +50,7 @@ from src.phase3.rag_runtime.staging_service_bootstrap import (
     PrivateStagingEngineConfig, build_private_no_dispatch_handler,
 )
 from src.phase3.auth.staging_service_profile import (
-    PrivateStagingProfile, StagingConfigDenied, db_attributes_approved,
+    PrivateStagingProfile, StagingConfigDenied, private_db_connection_options,
 )
 from src.phase3.auth.service_proof import (
     BFFServiceVerifier, TrustRejected, assertion_from_asgi_headers, wire_request,
@@ -115,16 +116,20 @@ def _conn(operation: str):
     key = "DB_APP_DSN" if operation == "history" else "AUTH_REVOKER_DSN"
     dsn = (_PRIVATE_STAGING_PROFILE.dsn(operation)
            if _PRIVATE_STAGING_PROFILE is not None else os.getenv(key, ""))
-    opts = psycopg.conninfo.conninfo_to_dict(dsn)
+    connection_options = {}
     if _PRIVATE_STAGING_PROFILE is not None:
-        if not db_attributes_approved(opts, operation):
-            raise RuntimeError("PRIVATE_STAGING_DB_DENIED")
-    elif (opts.get("host") != "127.0.0.1" or opts.get("port") != "5432"
-            or opts.get("dbname") != "history_ci"
-            or opts.get("user") != _SESSION_ROLES[operation]):
-        raise RuntimeError("CI_DSN_NOT_ALLOWED")
+        try:
+            connection_options = private_db_connection_options(dsn, operation)
+        except StagingConfigDenied:
+            raise RuntimeError("PRIVATE_STAGING_DB_DENIED") from None
+    else:
+        opts = psycopg.conninfo.conninfo_to_dict(dsn)
+        if (opts.get("host") != "127.0.0.1" or opts.get("port") != "5432"
+                or opts.get("dbname") != "history_ci"
+                or opts.get("user") != _SESSION_ROLES[operation]):
+            raise RuntimeError("CI_DSN_NOT_ALLOWED")
     conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row,
-                           connect_timeout=5)
+                           connect_timeout=5, **connection_options)
     try:
         role = conn.execute(
             "SELECT rolname,rolsuper,rolbypassrls FROM pg_roles "
@@ -243,10 +248,7 @@ def install_private_staging_auth(profile: PrivateStagingProfile) -> None:
             or os.getenv("GITHUB_ACTIONS") == "true"):
         raise StagingConfigDenied()
     for operation in ("history", "revoke"):
-        if not db_attributes_approved(
-                psycopg.conninfo.conninfo_to_dict(profile.dsn(operation)),
-                operation):
-            raise StagingConfigDenied()
+        private_db_connection_options(profile.dsn(operation), operation)
     verifier = BFFServiceVerifier(
         issuer=profile.issuer, audience=profile.audience,
         public_keys={profile.kid: profile.load_public_key()})
@@ -777,6 +779,30 @@ async def session_send_message(request: Request, background_tasks: BackgroundTas
     return response
 
 
+def _revoke_committed(scope, raw, operation_id):
+    """One synchronous authenticated revocation; success follows COMMIT."""
+    token = assertion_from_asgi_headers(scope)
+    method, path, query, body = wire_request(scope, raw)
+    verifier = _config()
+    verified = verifier.verify(token, method=method, raw_path=path,
+                               raw_query=query, raw_body=body)
+    with _conn("revoke") as conn:
+        with protected_transaction(
+            conn, verifier=verifier, replay_store=_REPLAY,
+            compact_assertion=token, method=method,
+            raw_path=path, raw_query=query, body=body,
+        ) as owner:
+            if owner != verified.owner_id:
+                raise TrustRejected()
+            # 003 holds Owner->Session locks until COMMIT acknowledgment.
+            if auth_session.revoke_one(
+                conn, verified.session_ref, verified.epoch) is not True:
+                raise TrustRejected()
+    return JSONResponse(status_code=200,
+        content={"state": "REVOKED_COMMITTED", "operation_id": operation_id},
+        headers={"Cache-Control": "no-store"})
+
+
 @app.post("/internal/auth/session/v1/revoke-one")
 async def session_revoke_one(request: Request):
     """Same-session signed, replay fenced, real restricted-role 003 revoke.
@@ -792,11 +818,27 @@ async def session_revoke_one(request: Request):
         if (_PRIVATE_STAGING_PROFILE is not None
                 and not _PRIVATE_STAGING_PROFILE.allowed_peer(request.scope)):
             raise TrustRejected()
+        # Reject ambiguous HTTP metadata before reading the request or
+        # entering the signed one-time session transaction. The BFF sends
+        # exactly one Content-Type and a single Content-Length. Preserve
+        # bounded chunked input without an advisory length for compatibility.
+        content_types = request.headers.getlist("content-type")
+        lengths = request.headers.getlist("content-length")
+        encodings = request.headers.getlist("transfer-encoding")
         if (request.scope.get("raw_path") != _REVOKE_PATH
                 or request.scope.get("query_string") != b""
-                or request.headers.get("content-type", "").split(";")[0] != "application/json"
-                or len(request.headers.getlist("content-length")) > 1):
+                or len(content_types) != 1
+                or content_types[0].split(";")[0] != "application/json"
+                or len(lengths) > 1
+                or (encodings and (lengths or len(encodings) != 1
+                    or encodings[0].strip().lower() != "chunked"))):
             return _err(422, "INVALID_REQUEST")
+        declared = request.headers.get("content-length")
+        if declared is not None:
+            if not declared.isdecimal():
+                return _err(422, "INVALID_REQUEST")
+            if int(declared) > 512:
+                return _err(413, "REQUEST_TOO_LARGE")
         chunks = []
         total = 0
         async for part in request.stream():
@@ -805,10 +847,8 @@ async def session_revoke_one(request: Request):
                 return _err(413, "REQUEST_TOO_LARGE")
             chunks.append(part)
         raw = b"".join(chunks)
-        if request.headers.get("content-length") is not None:
-            value = request.headers["content-length"]
-            if not value.isdecimal() or int(value) != len(raw):
-                return _err(422, "INVALID_REQUEST")
+        if declared is not None and int(declared) != len(raw):
+            return _err(422, "INVALID_REQUEST")
         def no_duplicates(pairs):
             x = {}
             for key, value in pairs:
@@ -821,35 +861,16 @@ async def session_revoke_one(request: Request):
                 or not isinstance(payload["operation_id"], str)
                 or not _UUID.fullmatch(payload["operation_id"])):
             return _err(422, "INVALID_REQUEST")
-        token = assertion_from_asgi_headers(request.scope)
-        method, path, query, body = wire_request(request.scope, raw)
-        verifier = _config()
-        verified = verifier.verify(token, method=method, raw_path=path,
-                                   raw_query=query, raw_body=body)
-        with _conn("revoke") as conn:
-            with protected_transaction(
-                conn, verifier=verifier, replay_store=_REPLAY,
-                compact_assertion=token, method=method, raw_path=path,
-                raw_query=query, body=body,
-            ) as owner:
-                if owner != verified.owner_id:
-                    raise TrustRejected()
-                # 003 runs Owner->Session locks, with the outer transaction
-                # remaining live until COMMIT acknowledgment; no separate
-                # pre-check detached from this exact signed session.
-                if auth_session.revoke_one(
-                    conn, verified.session_ref, verified.epoch) is not True:
-                    raise TrustRejected()
-            return JSONResponse(status_code=200,
-                content={"state": "REVOKED_COMMITTED",
-                         "operation_id": payload["operation_id"]},
-                headers={"Cache-Control": "no-store"})
+        # Keep signature/SQL/COMMIT off the ASGI event loop, without
+        # splitting owner admission and revocation into separate transactions.
+        return await run_in_threadpool(
+            _revoke_committed, request.scope, raw, payload["operation_id"])
     except TrustRejected:
         return _err(401, "AUTH_DENIED")
     except AdmissionSerializationUnavailable:
         # No committed revoke is proven by a failed/unknown DB transaction.
         return _err(503, "REVOKE_OUTCOME_UNKNOWN")
-    except (json.JSONDecodeError, UnicodeError, ValueError, KeyError):
+    except (ClientDisconnect, json.JSONDecodeError, UnicodeError, ValueError, KeyError):
         return _err(422, "INVALID_REQUEST")
     except (psycopg.Error, RuntimeError, OSError, TypeError):
         return _err(503, "REVOKE_OUTCOME_UNKNOWN")
