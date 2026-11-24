@@ -437,7 +437,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: f3-real-browser-keycloak-pg17-independent-restore
-          path: ci_receipts/f3_history_real_browser_restored_lab.json
+          path: |
+            ci_receipts/f3_history_real_browser_restored_lab.json
+            ci_receipts/f3_ci_operational_health.html
           retention-days: 14
           if-no-files-found: warn
       - name: Show bounded SQL permissions and container status

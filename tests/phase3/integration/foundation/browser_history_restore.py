@@ -30,6 +30,7 @@ sys.path[:0]=[
  str(ROOT),
 ]
 from phase3_auth_demo import Demo,ORIGIN
+from f3_operational_probe import observe,outage_browser,phase4_negative,write_dashboard
 from test_history_restore_signed import command,pg17,connect as pg_connect,ssl_server
 from apps.api import history_api
 
@@ -469,7 +470,7 @@ def protected_backup_roundtrip(paths,root):
     return evidence
 
 
-def restore_separate_volume(demo,original_records,source_system_id):
+async def restore_separate_volume(demo,original_records,source_system_id,page_a,page_b):
     work=Path(os.environ["RUNNER_TEMP"])/"f3-browser-protected-backup"
     work.mkdir(mode=0o700)
     backup=work/"f3-browser-full-history.dump"
@@ -552,6 +553,8 @@ def restore_separate_volume(demo,original_records,source_system_id):
     command(["docker","stop",service[0]])
     if demo.private_product:
         demo.assert_private_readiness(503)
+        if demo.image_lab and demo.web_lab:
+            demo.lab_outage=await outage_browser(page_a,page_b,ORIGIN)
     command(["docker","rm","-f",name])
     new_name="f3browser-replayed-pg-"+suffix
     command(["docker","run","-d","--name",new_name,"--restart","no",
@@ -655,7 +658,25 @@ async def execute():
             print("F3_REAL_BROWSER_KEYCLOAK_NEXT_PG17_AB_PAGING_DETAIL_SEND503_PRE_RESTORE_PASS",
                   flush=True)
 
-            restored=restore_separate_volume(demo,source,source_cluster)
+            ops=await observe(demo,page_a,page_b,ORIGIN,ids_a,ids_b,connect) if demo.image_lab and demo.web_lab else None
+            if ops:
+                # Protect an actual disposable config and exact app source
+                # pointer, without publishing config contents or a knowledge release.
+                config=demo.root/"private-app-only.json"
+                work=Path(os.environ["RUNNER_TEMP"])/"f3-config-backup"
+                work.mkdir(mode=0o700)
+                pointer=work/"app-release-pointer.json"
+                copy=work/"private-app-only.json"
+                for target,data in ((copy,config.read_bytes()),(pointer,json.dumps({
+                    "source_sha":os.environ["GITHUB_SHA"],"api_image_id":demo.image_lab.image_id,
+                    "web_image_id":demo.web_lab.image_id,"knowledge_release":None}).encode())):
+                    fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+                    with os.fdopen(fd,"wb") as dest:dest.write(data)
+                ops["config_and_app_pointer_backup"]=protected_backup_roundtrip((copy,pointer),work)
+                assert copy.read_bytes()==config.read_bytes()
+                assert json.loads(pointer.read_text())["source_sha"]==os.environ["GITHUB_SHA"]
+                copy.unlink();pointer.unlink();work.rmdir()
+            restored=await restore_separate_volume(demo,source,source_cluster,page_a,page_b)
             if private:
                 demo.assert_private_readiness(200)
             if demo.image_lab:
@@ -688,6 +709,11 @@ async def execute():
             await negative_identity_and_private_cache(page_a,page_b,demo.owners["A"],demo.owners["B"],ids_a,ids_b)
             assert env_receipt==await environment_observation(page_a)
             measurements["after_restore"]=await measure_history_requests(page_a,page_b,demo.owners["A"],demo.owners["B"])
+            if ops:
+                assert ops["phase4"]==phase4_negative(connect)
+                ops["dependency_outage"]=demo.lab_outage
+                ops["dependency_recovered"]={"history_A":200,"history_B":200,"readiness":200}
+                ops["phase4_absent_after_restore"]=True
 
             # Exercise a genuine reversal: restored disposable volume -> original
             # *unchanged* GitHub Actions PostgreSQL service. No writes since the
@@ -760,6 +786,7 @@ async def execute():
                 "forged_owner_headers_query_and_no_session_denied_pre_post_rollback":True,
                 "locale_encoding_lab":env_receipt,
                 "private_log_negative":log_receipt,
+                "operational_probe":ops,
                 "bounded_chromium_network_changed_navigation_retries":BROWSER_NETWORK_CHANGED_RETRIES,
                 "synthetic_backup_aes256gcm_roundtrip":demo.backup_evidence,
                 "all_a_conversations_cross_owner_404":True,
@@ -791,6 +818,9 @@ async def execute():
             out=ROOT/"ci_receipts"/"f3_history_real_browser_restored_lab.json"
             out.parent.mkdir(parents=True,exist_ok=True)
             out.write_text(json.dumps(result,indent=2)+"\n",encoding="utf-8")
+            if ops:
+                write_dashboard(result,out.parent/"f3_ci_operational_health.html")
+                print("F3_OPERATIONAL_RAMP_RESOURCE_DEPENDENCY_ALERT_CONFIG_BACKUP_PASS",flush=True)
             print("F3_REAL_KEYCLOAK_CHROMIUM_BFF_API_PG_RESTORED_SAME_SESSION_NO_ENGINE_PASS",
                   flush=True)
     finally:
