@@ -195,5 +195,42 @@ class ClaimCitationGraphTests(unittest.TestCase):
         finalize.assert_not_called()
 
 
+    def test_provisional_safe_outcome_shapes_without_live_authority(self):
+        # Structural evidence only: no policy selection or model evaluation.
+        for outcome, text in (("no_answer", None),
+                              ("clarification", "بازه زمانی را مشخص کنید."),
+                              ("refusal", "این درخواست در نمونه قابل انجام نیست.")):
+            with self.subTest(outcome=outcome):
+                doc = copy.deepcopy(self.valid)
+                doc.update(outcome=outcome, state="completed", answer_text=text,
+                           claims=[], citations=[], error=None)
+                receipt = inspect_answer_citation_graph(doc)
+                self.assertEqual((receipt.claim_count, receipt.citation_count), (0, 0))
+                self.assertFalse(receipt.live_verified)
+                self.assertFalse(receipt.authorizes_product_t3)
+                for bad in (dict(doc, state="unknown"),
+                            dict(doc, claims=self.valid["claims"]),
+                            dict(doc, citations=self.valid["citations"])):
+                    self.deny(bad)
+
+    def test_farsi_red_team_draft_has_unique_synthetic_cases_and_no_approved_policy(self):
+        corpus = json.loads((Path(__file__).parent /
+                            "fixtures/fa_safety_review_draft.v1.json").read_text(encoding="utf-8"))
+        self.assertEqual(corpus["version"], "fa.safety-review-draft.v1")
+        self.assertEqual(corpus["origin"], "SYNTHETIC")
+        self.assertEqual(corpus["policy_status"], "UNAPPROVED")
+        self.assertEqual(corpus["language"], "fa")
+        cases = corpus["cases"]
+        self.assertEqual(len(cases), 32)
+        self.assertEqual(len({c["id"] for c in cases}), 32)
+        self.assertEqual(len({c["question"] for c in cases}), 32)
+        self.assertEqual(len({c["category"] for c in cases}), 8)
+        for case in cases:
+            self.assertIsNone(case["model_outcome"])
+            self.assertEqual(case["review_status"], "PENDING_POLICY_OWNER")
+            self.assertEqual(case["app_only_expected"], "ENGINE_NOT_CONFIGURED")
+            self.assertTrue(any("\u0600" <= ch <= "\u06ff" for ch in case["question"]))
+
+
 if __name__ == "__main__":
     unittest.main()

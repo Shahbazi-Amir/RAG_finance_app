@@ -1,0 +1,82 @@
+name: API F3 PR84 signed History app-only exact-SHA candidate
+on:
+  push:
+    branches: [agent/api-f3-pr84-signed-history-20261124]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  app-only-private-listener:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - name: Install locked API wheel dependencies without Engine
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes --only-binary=:all: -r locks/requirements-api.lock
+          python -m pip check
+      - name: Exact #84 and #80 app-only source import
+        run: |
+          python -m compileall -q apps/api src/phase3/auth tests/phase3/api/test_app_only_no_engine.py tests/phase3/integration/api/app_only_signed_pg_ci_h11.py
+          python -c "from apps.api.private_app_only_asgi import AppOnlyASGI,prepare_app_only; from apps.api.product_session_api import app; print('REAL_SIGNED_HISTORY_ASGI_COMPOSE_IMPORT_PASS')"
+      - name: Preserve original #84 deny-only baseline compatibility
+        run: python -m unittest discover -s tests/phase3/api -p 'test_app_only_asgi.py' -v
+      - name: New bounded app-only config/readiness/send security
+        run: python -m unittest discover -s tests/phase3/api -p 'test_app_only_no_engine.py' -v
+      - name: Original signed envelope and private response cache regressions
+        run: |
+          python -m unittest discover -s tests/phase3/api -p 'test_service_proof.py' -v
+          python -m unittest discover -s tests/phase3/api -p 'test_private_http_no_store.py' -v
+      - name: Real local OpenSSL Uvicorn H11 mTLS no-Engine network
+        run: python -m unittest discover -s tests/phase3/integration/api -p 'test_app_only_mtls_network.py' -v
+      - name: Validate the original real TLS boundary regressions
+        run: python -m unittest discover -s tests/phase3/api -p 'test_staging_private_asgi.py' -v
+      - name: Real non-root API image defaults to signed listener, fail-closed without Ops config
+        run: |
+          set -euo pipefail
+          docker build --platform linux/amd64 --file infra/phase3_l1/Dockerfile.api \
+            --build-arg BASE=docker.io/library/python:3.13.5 \
+            --build-arg "SOURCE_SHA=$GITHUB_SHA" \
+            -t "api-f3-84-signed:$GITHUB_SHA" .
+          test "$(docker image inspect -f '{{.Config.User}}' "api-f3-84-signed:$GITHUB_SHA")" = '11001:11001'
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "api-f3-84-signed:$GITHUB_SHA")" = "$GITHUB_SHA"
+          docker run --rm --network none "api-f3-84-signed:$GITHUB_SHA" \
+            python3 -c "from apps.api.private_app_only_asgi import AppOnlyASGI; print('SIGNED_APP_ONLY_IMAGE_IMPORT_PASS')"
+          set +e
+          docker run --rm --network none "api-f3-84-signed:$GITHUB_SHA" > "$RUNNER_TEMP/api.out" 2> "$RUNNER_TEMP/api.err"
+          status=$?
+          set -e
+          test "$status" = 78
+          grep -Fx 'APP_ONLY_STARTUP_DENIED' "$RUNNER_TEMP/api.err"
+          ! grep -E 'password=|token=|BEGIN PRIVATE|API_KEY' "$RUNNER_TEMP/api.err"
+          echo 'APP_ONLY_REAL_IMAGE_NO_CONFIG_NO_HTTP_LISTENER_PASS'
+      - name: Offline product stream, schema, citation and claim contract boundaries
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --read-only --cap-drop ALL \
+            -e PYTHONDONTWRITEBYTECODE=1 "api-f3-84-signed:$GITHUB_SHA" \
+            python3 -m unittest discover -s tests/phase3/api -p 'test_stream_event_integrity.py' -v
+          docker run --rm --network none --read-only --cap-drop ALL \
+            -e PYTHONDONTWRITEBYTECODE=1 "api-f3-84-signed:$GITHUB_SHA" \
+            python3 -m unittest discover -s tests/phase3/api -p 'test_staging_result_gate.py' -v
+          docker run --rm --network none --read-only --cap-drop ALL \
+            -e PYTHONDONTWRITEBYTECODE=1 "api-f3-84-signed:$GITHUB_SHA" \
+            python3 -m unittest discover -s tests/phase3/api -p 'test_claim_citation_graph.py' -v
+          docker run --rm --network none --read-only --cap-drop ALL \
+            -e PYTHONDONTWRITEBYTECODE=1 "api-f3-84-signed:$GITHUB_SHA" \
+            python3 -m unittest discover -s tests/phase3/api -p 'test_staging_claim_bridge.py' -v
+          docker run --rm --network none --read-only --cap-drop ALL \
+            -e PYTHONDONTWRITEBYTECODE=1 "api-f3-84-signed:$GITHUB_SHA" \
+            python3 -m unittest discover -s tests/phase3/api -p 'test_offline_resource_contract.py' -v
+          echo 'API_F3_OFFLINE_RESOURCE_DRAFT_NO_PRODUCT_AUTHORITY_PASS'
+          echo 'API_F3_OFFLINE_CONTRACT_BOUNDARIES_NO_NETWORK_NO_ENGINE_PASS'
+      - name: Explicit no-target/no-engine evidence
+        if: always()
+        run: |
+          echo "API_F3_PR84_EXACT_SHA=$GITHUB_SHA"
+          echo "NO_MAC_NO_ARVAN_NO_REAL_PROD_DB_NO_MODEL_NO_RUNNER_NO_QDRANT"
+          echo "REQUIRE_PG17_KEYCLOAK_WORKFLOW_AND_FOUNDATION_INTEGRATED_WEB_BFF_PROOF"

@@ -2,17 +2,23 @@ name: API-SESSION-011 — pinned Login to real fenced History and private revoke
 
 on:
   push:
-    branches: [agent/api-product-session-history-revoke-011, agent/api-f3-pg-history-binding-20261123]
+    branches: [agent/api-product-session-history-revoke-011, agent/api-f3-pg-history-binding-20261123, agent/api-f3-pr84-signed-history-20261124]
     paths:
       - 'src/phase3/auth/**'
       - 'apps/api/product_session_api.py'
       - 'tests/phase3/integration/api/test_product_session_011.py'
+      - 'tests/phase3/integration/api/test_app_only_browser_journey.py'
+      - 'tests/phase3/integration/api/app_only_signed_pg_ci_h11.py'
+      - 'apps/api/private_app_only_asgi.py'
+      - 'infra/phase3_l1/Dockerfile.api'
       - 'tests/phase3/api/test_full_binding_fence.py'
       - 'src/phase3/rag_runtime/no_dispatch_handler.py'
       - 'coordination/tasks/AGENT-API-AUTH-BOUNDARY-01.md'
       - 'coordination/handoffs/API_F3_PR76_SIGNED_HISTORY_REAL_PROGRESS_20261123.md'
       - 'coordination/handoffs/API_F3_CURRENT_ROADMAP_AND_ACCEPTANCE_20261123.md'
       - 'coordination/handoffs/API_F3_91_ROW_L1_SOURCE_MATRIX_20261123.csv'
+      - 'coordination/integration/API_F3_PR87_SIGNED_HISTORY_P0_20261124.md'
+      - 'tests/phase3/api/test_app_only_no_engine.py'
       - '.github/workflows/api-session-011.yml'
   pull_request:
     types: [opened, synchronize, reopened]
@@ -21,12 +27,18 @@ on:
       - 'src/phase3/auth/**'
       - 'apps/api/product_session_api.py'
       - 'tests/phase3/integration/api/test_product_session_011.py'
+      - 'tests/phase3/integration/api/test_app_only_browser_journey.py'
+      - 'tests/phase3/integration/api/app_only_signed_pg_ci_h11.py'
+      - 'apps/api/private_app_only_asgi.py'
+      - 'infra/phase3_l1/Dockerfile.api'
       - 'tests/phase3/api/test_full_binding_fence.py'
       - 'src/phase3/rag_runtime/no_dispatch_handler.py'
       - 'coordination/tasks/AGENT-API-AUTH-BOUNDARY-01.md'
       - 'coordination/handoffs/API_F3_PR76_SIGNED_HISTORY_REAL_PROGRESS_20261123.md'
       - 'coordination/handoffs/API_F3_CURRENT_ROADMAP_AND_ACCEPTANCE_20261123.md'
       - 'coordination/handoffs/API_F3_91_ROW_L1_SOURCE_MATRIX_20261123.csv'
+      - 'coordination/integration/API_F3_PR87_SIGNED_HISTORY_P0_20261124.md'
+      - 'tests/phase3/api/test_app_only_no_engine.py'
       - '.github/workflows/api-session-011.yml'
 permissions:
   contents: read
@@ -120,8 +132,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Node for the actual Web BFF signer (no npm or engine)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
       - name: Install pinned CI-only Python adapters
-        run: python -m pip install --no-cache-dir --index-url https://pypi.org/simple -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.34.3'
+        run: python -m pip install --no-cache-dir --index-url https://pypi.org/simple -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.48.0'
       - name: Verify only temporary loopback database and versions
         run: |
           set -euo pipefail
@@ -284,6 +300,14 @@ jobs:
           # Verify History persistence using its OWN migrator; auth_migrator has zero History grants.
           PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -d history_ci -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'"
           test "$(PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -d history_ci -Aqt -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'")" = "1"
+      - name: Fail fast on restored PostgreSQL TLS and restart lifecycle
+        if: github.ref == 'refs/heads/agent/api-f3-pr84-signed-history-20261124'
+        env:
+          API_F3_ISOLATED_PG_CID: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          python -m pip install --no-cache-dir --index-url https://pypi.org/simple 'playwright==1.64.1'
+          python -u tests/phase3/integration/api/test_app_only_browser_journey.py --pg-preflight
       - name: Compile and real Keycloak mTLS two-process 009+010 Claim material tests
         run: |
           set -euo pipefail
@@ -298,6 +322,9 @@ jobs:
           print("API_F3_PRODUCT_ASGI_IMPORT_READY", flush=True)
           PY
       - name: Real HTTPS Callback plus Product-session API 005 004 History/revoke tests
+        env:
+          # Exact Actions service identity: never discover/stop arbitrary PG.
+          API_F3_ISOLATED_PG_CID: ${{ job.services.postgres.id }}
         run: |
           set -euo pipefail
           python -m compileall -q apps/api/product_session_api.py src/phase3/auth tests/phase3/integration/api/test_product_session_011.py
@@ -305,6 +332,43 @@ jobs:
       - name: Verify full identity T2 ledger positive and negative (offline subset)
         run: |
           python -m unittest discover -s tests/phase3/api -p 'test_full_binding_fence.py' -v
+      - name: Real Next build for ordinary browser app-only journey
+        if: github.ref == 'refs/heads/agent/api-f3-pr84-signed-history-20261124'
+        working-directory: apps/web
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run build
+      - name: Build exact-SHA non-root API image for restored-browser journey
+        if: github.ref == 'refs/heads/agent/api-f3-pr84-signed-history-20261124'
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          # The API/DB bootstrap fixture overlay above is CI-only. Never
+          # bake untracked or overlay source into an image labeled this SHA.
+          clean="$(mktemp -d "$RUNNER_TEMP/api-f3-source.XXXXXXXX")"
+          trap 'rm -rf "$clean"' EXIT
+          git archive "$GITHUB_SHA" | tar -xf - -C "$clean"
+          docker pull --platform linux/amd64 docker.io/library/python:3.13.5
+          base="$(docker image inspect -f '{{index .RepoDigests 0}}' docker.io/library/python:3.13.5)"
+          [[ "$base" =~ @sha256:[a-f0-9]{64}$ ]]
+          echo "API_F3_BROWSER_CI_BASE_DIGEST=$base"
+          docker build --platform linux/amd64 --file "$clean/infra/phase3_l1/Dockerfile.api" \
+            --build-arg "BASE=$base" \
+            --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "api-f3-browser:$GITHUB_SHA" "$clean"
+          echo "API_F3_BROWSER_IMAGE=api-f3-browser:$GITHUB_SHA" >> "$GITHUB_ENV"
+      - name: Real Chromium ordinary login and signed app-only History journey
+        if: github.ref == 'refs/heads/agent/api-f3-pr84-signed-history-20261124'
+        env:
+          API_F3_ISOLATED_PG_CID: ${{ job.services.postgres.id }}
+          PHASE3_APP_MODE: APP_ONLY
+          API_RUNNER_EXECUTION_MODE: APP_ONLY
+        run: |
+          set -euo pipefail
+          python -m playwright install --with-deps chromium
+          python -u tests/phase3/integration/api/test_app_only_browser_journey.py
       - name: Show bounded SQL permissions and container status
         if: always()
         run: |
