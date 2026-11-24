@@ -99,6 +99,31 @@ class LedgerTest(unittest.TestCase):
         self.assertEqual(summary["custom"],0)
         records=audit["paths"]
         self.assertEqual(len({row["path"] for row in records}),58)
+        # The historical #84 audit remains frozen. A later tested source
+        # transfer may change a pending path, but cannot change its original
+        # owner decision or turn it into acceptance.
+        transfer_path=ROOT/"coordination/integration/F3_SIGNED_API_SOURCE_TRANSFER_20261124.json"
+        overrides={}
+        if transfer_path.is_file():
+            transfer=json.loads(transfer_path.read_text(encoding="utf-8"))
+            self.assertEqual(transfer["schema"],"foundation.f3.explicit_signed_api_transfer.v1")
+            self.assertEqual(transfer["root_candidate_sha"],"0fd1066945ef91a3913e040ab4c350bb645ea502")
+            self.assertEqual(transfer["source_sha"],"23db3da6367e6a8279072ee96b56a2bd4b7f0fbc")
+            self.assertFalse(transfer["p0_1_accepted"])
+            self.assertEqual(len(transfer["rows"]),10)
+            self.assertEqual(len({r["path"] for r in transfer["rows"]}),10)
+            for item in transfer["rows"]:
+                self.assertFalse(item["owner_signed_acceptance"])
+                self.assertTrue(re.fullmatch(r"[0-9a-f]{40}",item["source_blob_sha"]))
+                self.assertEqual(item["candidate_blob_sha"],item["source_blob_sha"])
+                actual=subprocess.run(["git","hash-object",item["path"]],cwd=ROOT,
+                    capture_output=True,text=True,check=True).stdout.strip()
+                self.assertEqual(actual,item["source_blob_sha"],item["path"])
+                self.assertEqual(item["historical_58_path"],
+                                 item["path"] in {r["path"] for r in records})
+                if item["historical_58_path"]:
+                    overrides[item["path"]]=item
+            self.assertEqual(set(overrides),{"apps/api/product_session_api.py"})
         for row in records:
             self.assertFalse(row["owner_signed_acceptance"])
             self.assertTrue(row["source_options"])
@@ -107,6 +132,16 @@ class LedgerTest(unittest.TestCase):
                                 for x in row["source_options"]))
             blob=subprocess.run(["git","hash-object",row["path"]],
                                 cwd=ROOT,text=True,capture_output=True,check=True).stdout.strip()
+            if row["path"] in overrides:
+                # Preserve the original 16 open decisions; explicitly pin
+                # the replacement blob to a tested API-owner source.
+                item=overrides[row["path"]]
+                self.assertEqual(row["decision"],"FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW")
+                self.assertEqual(item["previous_blob_sha"],row["integrated_blob_sha"])
+                self.assertEqual(blob,item["source_blob_sha"])
+                self.assertEqual(row["integrated_blob_sha"],row["foundation_blob_sha"])
+                self.assertFalse(row["selected_owner_blobs"])
+                continue
             self.assertEqual(blob,row["integrated_blob_sha"],row["path"])
             if row["decision"]=="EXACT_SOURCE_SELECTED":
                 self.assertTrue(row["selected_owner_blobs"])
