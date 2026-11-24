@@ -306,6 +306,21 @@ def verify_history(phase: str):
     state = json.loads((PRIVATE / "session_state.json").read_text())
     with tls_client() as client:
         assert client.get(BASE + "/v1/conversations").status_code == 401
+        # The real PG 005 replay ledger makes a signed JWT single-use.
+        bound = signature("a", "GET", "/v1/conversations", "limit=2")
+        bound_headers = {"Authorization": "BFF-Assertion " + bound}
+        assert client.get(BASE + "/v1/conversations?limit=2",
+                          headers=bound_headers).status_code == 200
+        assert client.get(BASE + "/v1/conversations?limit=2",
+                          headers=bound_headers).status_code == 401
+        mismatch = signature("a", "GET", "/v1/conversations", "limit=2")
+        assert client.get(BASE + "/v1/conversations?limit=3",
+                          headers={"Authorization": "BFF-Assertion " + mismatch}).status_code == 401
+        poisoned = signature("a", "GET", "/v1/conversations")
+        assert client.get(BASE + "/v1/conversations", headers={
+            "Authorization": "BFF-Assertion " + poisoned,
+            "X-Owner-Id": state["b"]["owner"]
+        }).status_code == 401
         for label, count in (("a", 5), ("b", 3)):
             seen = []
             cursor = None
@@ -320,6 +335,13 @@ def verify_history(phase: str):
                 cursor = page["page"]["next_cursor"]
                 assert cursor
             assert seen == [f"f3-net-{label}-{i}" for i in range(count, 0, -1)]
+        owner_a_first = request(client, "a", "/v1/conversations", "limit=2").json()
+        owner_a_cursor = owner_a_first["page"]["next_cursor"]
+        assert owner_a_cursor and owner_a_first["page"]["has_more"]
+        # B has a valid signed request; the A-owned HMAC cursor remains forbidden.
+        assert request(client, "b", "/v1/conversations",
+                       urlencode({"limit": "2", "cursor": owner_a_cursor}),
+                       expect=404).status_code == 404
         a = request(client, "a", "/v1/conversations/f3-net-a-1/messages", "limit=2").json()
         b = request(client, "b", "/v1/conversations/f3-net-b-1/messages", "limit=2").json()
         assert a["kind"] == b["kind"] == "conversation_messages_page"
@@ -351,6 +373,7 @@ def verify_history(phase: str):
             except httpx.HTTPError:
                 pass
     print(f"HTTPS_APP_ONLY_{phase.upper()}_A_B_OWNER_PAGES_DETAILS_404_SEND503_MTLS_NEGATIVE=PASS", flush=True)
+    print(f"HTTPS_APP_ONLY_{phase.upper()}_005_JTI_REPLAY_QUERY_BINDING_CROSS_OWNER_CURSOR_NEGATIVE=PASS", flush=True)
 
 
 def revoke_and_check():
