@@ -2,7 +2,7 @@
 name: ${LAB_PROJECT:?set LAB_PROJECT}
 services:
   lab-db:
-    image: public.ecr.aws/docker/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a
+    image: docker.io/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a
     platform: linux/amd64
     hostname: demo-db
     entrypoint: ["/bin/bash", "/usr/local/bin/f3-lab-entrypoint.sh"]
@@ -29,7 +29,7 @@ services:
       retries: 30
   restore-db:
     profiles: ["restore"]
-    image: public.ecr.aws/docker/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a
+    image: docker.io/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a
     platform: linux/amd64
     hostname: restore-db
     entrypoint: ["/bin/bash", "/usr/local/bin/f3-lab-entrypoint.sh"]

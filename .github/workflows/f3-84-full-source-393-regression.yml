@@ -2,7 +2,7 @@ name: F3 #84 one-SHA full source 393 and app-only 42 bounded CI witness regressi
 
 on:
   push:
-    branches: [agent/foundation-f3-84-31-message-restore-20261124]
+    branches: [agent/foundation-f3-84-31-message-restore-20261124, agent/ui-f3-122-signed-three-engine-20261124]
   pull_request:
     branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124, agent/foundation-f3-84-31-message-restore-20261124]
   workflow_dispatch:
@@ -166,7 +166,7 @@ jobs:
           test "$(curl -s --max-time 3 -o /dev/null -w '%{http_code}' -H 'x-owner-user-id: forgedA' http://127.0.0.1:8118/v1/conversations)" = 503
           echo F3_APP_ONLY_REAL_ASGI_LIVE_READY503_SEND503_OWNER503_NO_ENGINE_PASS
       - name: Install pinned browser for synthetic History and real Next APP_ONLY
-        run: python -m playwright install --with-deps chromium
+        run: bash scripts/phase3/install_ci_playwright_browser.sh chromium
       - name: Existing React desktop/mobile A-B 401/503 regression (synthetic intercepted History only)
         run: |
           set -euo pipefail

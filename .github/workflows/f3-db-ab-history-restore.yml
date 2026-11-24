@@ -1,7 +1,7 @@
 name: F3 DB A-B real History SQL independent restore
 on:
   push:
-    branches: [agent/foundation-f3-84-31-message-restore-20261124]
+    branches: [agent/foundation-f3-84-31-message-restore-20261124, agent/ui-f3-122-signed-three-engine-20261124]
   pull_request:
     branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124, agent/foundation-f3-84-31-message-restore-20261124]
   workflow_dispatch:
@@ -35,6 +35,11 @@ jobs:
           cd infra/postgres/dev_f3_isolated
           export SOURCE_REPO="$GITHUB_WORKSPACE"
           export LAB_ROOT="$RUNNER_TEMP/f3-db-ab-history-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          # The original ECR mirror failed twice at pull. Keep the exact
+          # immutable platform digest; never fall back to a mutable tag.
+          pinned="docker.io/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a"
+          docker pull --platform linux/amd64 "$pinned"
+          docker image inspect "$pinned" --format '{{json .RepoDigests}}' | grep -F 'postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a'
           bash scripts/00_prepare_source.sh
           bash scripts/01_create_isolated_lab.sh
           bash scripts/02_provision_roles.sh

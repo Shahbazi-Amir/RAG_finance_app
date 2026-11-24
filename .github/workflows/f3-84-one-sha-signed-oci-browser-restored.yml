@@ -1,8 +1,8 @@
-name: F3 #84 Chromium 31 SQL History messages before/after restore, real OIDC, 320 focus
+name: F3 signed three-engine 31 SQL History before/after restore, real OIDC and 320 focus
 
 on:
   push:
-    branches: [agent/foundation-f3-84-31-message-restore-20261124]
+    branches: [agent/foundation-f3-84-31-message-restore-20261124, agent/ui-f3-122-signed-three-engine-20261124]
   pull_request:
     branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124, agent/foundation-f3-84-31-message-restore-20261124]
   workflow_dispatch:
@@ -12,7 +12,11 @@ permissions:
 jobs:
   api-session-011:
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, firefox, webkit]
     services:
       postgres:
         image: postgres:17.11
@@ -301,15 +305,15 @@ jobs:
             --build-arg "BASE=$base" \
             --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "api-f3-browser:$GITHUB_SHA" "$clean"
           echo "API_F3_BROWSER_IMAGE=api-f3-browser:$GITHUB_SHA" >> "$GITHUB_ENV"
-      - name: Real Chromium ordinary login and signed app-only History journey
+      - name: Real signed ${{ matrix.engine }} ordinary login and app-only History journey
         env:
           API_F3_ISOLATED_PG_CID: ${{ job.services.postgres.id }}
           PHASE3_APP_MODE: APP_ONLY
           API_RUNNER_EXECUTION_MODE: APP_ONLY
         run: |
           set -euo pipefail
-          python -m playwright install --with-deps chromium
-          python -u tests/phase3/integration/api/test_app_only_browser_journey.py \
+          bash scripts/phase3/install_ci_playwright_browser.sh "${{ matrix.engine }}"
+          python -u tests/phase3/integration/api/signed_history_browser_matrix.py "${{ matrix.engine }}" \
             | tee "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log"
           for receipt in \
             API_F3_BROWSER_REAL_OIDC_COOKIE_AB_PASS \
@@ -324,8 +328,12 @@ jobs:
             API_F3_REAL_NEXT_BROWSER_NONROOT_OCI_API_TLS_PG_JOURNEY_PASS; do
             grep -Fx "$receipt" "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log"
           done
+          test "$(grep -Fxc F3_SIGNED_31_DOM_EXACT_ORDER_RTL_TERMINAL_PASS "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log")" = 2
+          grep -Fx "F3_SIGNED_ENGINE_COMPLETE=${{ matrix.engine }}" "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log"
           echo F3_84_ACTUAL_BROWSER_SQL_BEFORE_AFTER_RESTORE_SAME_SHA_PASS
       - name: Write minimal exact-source journey receipt (not Compose or target acceptance)
+        env:
+          SIGNED_BROWSER_ENGINE: ${{ matrix.engine }}
         run: |
           python - <<'PY'
           import json, os, subprocess
@@ -339,12 +347,13 @@ jobs:
           p.parent.mkdir(exist_ok=True)
           p.write_text(json.dumps({"source_sha":sha,"run_id":os.environ["GITHUB_RUN_ID"],
               "api_image_id":data["Id"],"source":"clean git archive",
+              "browser_engine":os.environ["SIGNED_BROWSER_ENGINE"],"exact_dom_order_checks":2,
               "api_owner_source_sha":"23db3da6367e6a8279072ee96b56a2bd4b7f0fbc","scope":"CI_RUNNER_BROWSER_HOST_WEB_BOOTSTRAP_REAL_OCI_API_RESTORED_TLS_PG",
               "full_compose_verified":False,"target_verified":False,"accepted":False},indent=2)+"\n")
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: foundation-integrated-signed-oci-browser-restore
+          name: foundation-integrated-signed-oci-browser-restore-${{ matrix.engine }}
           path: ci_receipts/f3_integrated_signed_oci_browser.json
           if-no-files-found: error
       - name: Show bounded SQL permissions and container status

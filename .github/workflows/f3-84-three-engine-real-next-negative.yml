@@ -2,7 +2,7 @@ name: F3 #84 three real browser engines, signed no-engine Next negative
 
 on:
   push:
-    branches: [agent/foundation-f3-84-31-message-restore-20261124]
+    branches: [agent/foundation-f3-84-31-message-restore-20261124, agent/ui-f3-122-signed-three-engine-20261124]
   pull_request:
     branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124, agent/foundation-f3-84-31-message-restore-20261124]
   workflow_dispatch:
@@ -61,7 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --disable-pip-version-check 'playwright==1.64.1'
-          python -m playwright install --with-deps "${{ matrix.engine }}"
+          bash scripts/phase3/install_ci_playwright_browser.sh "${{ matrix.engine }}"
       - name: Compile isolated, no-engine browser baseline; do not assume signed IdP approval
         env:
           PHASE3_APP_MODE: APP_ONLY
