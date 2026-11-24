@@ -1,10 +1,10 @@
-name: F3 #84 single-tree authentic browser-to-SQL before/after fresh PG restore (CI only)
+name: F3 #84 Chromium 31 SQL History messages before/after restore, real OIDC, 320 focus
 
 on:
   push:
-    branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124]
+    branches: [agent/foundation-f3-84-31-message-restore-20261124]
   pull_request:
-    branches: [integration/f3-app-only-four-pr-candidate-20261124]
+    branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124]
   workflow_dispatch:
 permissions:
   contents: read
@@ -316,6 +316,9 @@ jobs:
             API_F3_BROWSER_PG_HTTP_DOM_PAGE2_AB_PASS \
             API_F3_BROWSER_DETAIL_REFRESH_SEND_ZERO_SQL_PASS \
             API_F3_RESTORED_PG_REAL_TLS_VERIFY_FULL_PASS \
+            API_F3_BROWSER_REAL_31_MESSAGE_PAGE2_PRE_RESTORE_PASS \
+            API_F3_BROWSER_REAL_31_MESSAGE_PAGE2_POST_RESTORE_PASS \
+            API_F3_REAL_SIGNED_320PX_DRAWER_ESCAPE_FOCUS_SEND_DISABLED_PASS \
             API_F3_BROWSER_RESTORED_VOLUME_PG_HTTP_DOM_AB_PASS \
             API_F3_BROWSER_COMMITTED_REVOKE_AB_PASS \
             API_F3_REAL_NEXT_BROWSER_NONROOT_OCI_API_TLS_PG_JOURNEY_PASS; do
