@@ -31,7 +31,7 @@ w=Path(os.environ['LAB_WORK'])
 p=Path(os.environ['F3_HTTP_PROBE'])/'role_passwords.json'
 roles=('history_app','auth_mapper','auth_sessions','auth_revoker')
 secrets={role:(w/(role+'.password')).read_text().strip() for role in roles}
-assert all(len(s)==64 and set(s)<set('0123456789abcdef') for s in secrets.values())
+assert all(len(s)==64 and set(s).issubset(set('0123456789abcdef')) for s in secrets.values())
 fd=os.open(str(p),os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
 with os.fdopen(fd,'w') as out:json.dump(secrets,out)
 PY
