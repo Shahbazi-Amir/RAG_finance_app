@@ -486,5 +486,103 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         asyncio.run(scenario())
 
 
+    def test_signed_get_rejects_ambiguous_body_before_history_or_pg(self):
+        """ASGI framing fence is independent of the signed session/DB."""
+        calls = []
+        async def downstream(scope, receive, send):
+            calls.append(scope["path"])
+            raise AssertionError("BODY_BEARING_GET_MUST_NOT_REACH_PRODUCT")
+        wrapper = AppOnlyASGI(downstream, FakeProfile())
+
+        async def scenario():
+            for path, expected in (
+                ("/v1/conversations", 401),
+                ("/v1/conversations/example/messages", 401),
+                ("/v1/message-requests/status", 401),
+                ("/health/ready", 503),
+                ("/internal/ready", 503),
+            ):
+                for headers in (
+                    [(b"content-length", b"1")],
+                    [(b"content-length", b"0"), (b"content-length", b"0")],
+                    [(b"content-length", b"00")],
+                    [(b"transfer-encoding", b"chunked")],
+                    [(b"content-length", b"0"), (b"transfer-encoding", b"chunked")],
+                ):
+                    with self.subTest(path=path, headers=headers):
+                        events = []
+                        async def receive():
+                            raise AssertionError("REJECT_BEFORE_READING_BODY")
+                        async def send(event):
+                            events.append(event)
+                        await wrapper({
+                            "type": "http", "scheme": "https",
+                            "trusted_transport_test": True, "path": path,
+                            "raw_path": path.encode(), "method": "GET",
+                            "query_string": b"", "headers": headers,
+                            "http_version": "1.1",
+                        }, receive, send)
+                        start = next(e for e in events
+                                     if e["type"] == "http.response.start")
+                        self.assertEqual(start["status"], expected)
+                        self.assertEqual(dict(start["headers"])[b"cache-control"],
+                                         b"no-store")
+            self.assertEqual(calls, [])
+
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}):
+            asyncio.run(scenario())
+
+    def test_slow_revoke_does_not_block_prebody_send(self):
+        """Mock SQL worker delay only; exercise the actual revoke route."""
+        from threading import Event
+        from starlette.responses import JSONResponse
+        from apps.api import product_session_api
+        started, release = Event(), Event()
+        wrapper = AppOnlyASGI(product_session_api.app, FakeProfile())
+        op = "f88ef6e2-12c0-41ca-9117-2ad283ec71e2"
+
+        async def trusted(scope, receive, send):
+            scope["scheme"] = "https"
+            scope["trusted_transport_test"] = True
+            return await wrapper(scope, receive, send)
+
+        def delayed_commit(scope, raw, operation_id):
+            started.set()
+            if not release.wait(timeout=5):
+                raise RuntimeError("TEST_REVOKE_COMMIT_TIMED_OUT")
+            return JSONResponse({"state": "REVOKED_COMMITTED",
+                                 "operation_id": operation_id})
+
+        async def scenario():
+            with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}):
+                with patch.object(product_session_api, "_PRIVATE_STAGING_PROFILE", None):
+                    with patch.object(product_session_api, "_revoke_committed",
+                                      side_effect=delayed_commit) as commit:
+                        async with AsyncClient(
+                            transport=ASGITransport(app=trusted),
+                            base_url="https://test.invalid",
+                        ) as client:
+                            pending = asyncio.create_task(client.post(
+                                "/internal/auth/session/v1/revoke-one",
+                                json={"operation_id": op}))
+                            try:
+                                self.assertTrue(await asyncio.wait_for(
+                                    asyncio.to_thread(started.wait, 2), timeout=3))
+                                denied = await asyncio.wait_for(
+                                    client.post("/v1/messages", content=b"invalid"),
+                                    timeout=1.5)
+                                self.assertEqual(denied.status_code, 503)
+                                self.assertIn("ENGINE_NOT_CONFIGURED", denied.text)
+                                self.assertFalse(pending.done())
+                            finally:
+                                release.set()
+                            revoked = await asyncio.wait_for(pending, timeout=3)
+                            self.assertEqual(revoked.status_code, 200)
+                            self.assertEqual(revoked.json()["operation_id"], op)
+                            self.assertEqual(commit.call_count, 1)
+
+        asyncio.run(scenario())
+
+
 if __name__ == "__main__":
     unittest.main()

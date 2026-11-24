@@ -777,6 +777,30 @@ async def session_send_message(request: Request, background_tasks: BackgroundTas
     return response
 
 
+def _revoke_committed(scope, raw, operation_id):
+    """One synchronous authenticated revocation; success follows COMMIT."""
+    token = assertion_from_asgi_headers(scope)
+    method, path, query, body = wire_request(scope, raw)
+    verifier = _config()
+    verified = verifier.verify(token, method=method, raw_path=path,
+                               raw_query=query, raw_body=body)
+    with _conn("revoke") as conn:
+        with protected_transaction(
+            conn, verifier=verifier, replay_store=_REPLAY,
+            compact_assertion=token, method=method,
+            raw_path=path, raw_query=query, body=body,
+        ) as owner:
+            if owner != verified.owner_id:
+                raise TrustRejected()
+            # 003 holds Owner->Session locks until COMMIT acknowledgment.
+            if auth_session.revoke_one(
+                conn, verified.session_ref, verified.epoch) is not True:
+                raise TrustRejected()
+    return JSONResponse(status_code=200,
+        content={"state": "REVOKED_COMMITTED", "operation_id": operation_id},
+        headers={"Cache-Control": "no-store"})
+
+
 @app.post("/internal/auth/session/v1/revoke-one")
 async def session_revoke_one(request: Request):
     """Same-session signed, replay fenced, real restricted-role 003 revoke.
@@ -821,29 +845,10 @@ async def session_revoke_one(request: Request):
                 or not isinstance(payload["operation_id"], str)
                 or not _UUID.fullmatch(payload["operation_id"])):
             return _err(422, "INVALID_REQUEST")
-        token = assertion_from_asgi_headers(request.scope)
-        method, path, query, body = wire_request(request.scope, raw)
-        verifier = _config()
-        verified = verifier.verify(token, method=method, raw_path=path,
-                                   raw_query=query, raw_body=body)
-        with _conn("revoke") as conn:
-            with protected_transaction(
-                conn, verifier=verifier, replay_store=_REPLAY,
-                compact_assertion=token, method=method, raw_path=path,
-                raw_query=query, body=body,
-            ) as owner:
-                if owner != verified.owner_id:
-                    raise TrustRejected()
-                # 003 runs Owner->Session locks, with the outer transaction
-                # remaining live until COMMIT acknowledgment; no separate
-                # pre-check detached from this exact signed session.
-                if auth_session.revoke_one(
-                    conn, verified.session_ref, verified.epoch) is not True:
-                    raise TrustRejected()
-            return JSONResponse(status_code=200,
-                content={"state": "REVOKED_COMMITTED",
-                         "operation_id": payload["operation_id"]},
-                headers={"Cache-Control": "no-store"})
+        # Keep signature/SQL/COMMIT off the ASGI event loop, without
+        # splitting owner admission and revocation into separate transactions.
+        return await run_in_threadpool(
+            _revoke_committed, request.scope, raw, payload["operation_id"])
     except TrustRejected:
         return _err(401, "AUTH_DENIED")
     except AdmissionSerializationUnavailable:

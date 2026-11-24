@@ -1052,6 +1052,38 @@ class RealProductSession011(unittest.TestCase):
         print("API_F3_REAL_HTTPS_INVALID_BFF_PROOF_DENIED_BEFORE_PG_REPLAY_PASS",
               flush=True)
 
+    def test_API011_14_body_bearing_get_denied_before_durable_signed_replay(self):
+        """Real mTLS/PG: an empty-body signature cannot authorize a nonempty GET."""
+        a = self.login("A")
+        cid = self.seed(a, "CI_GET_BODY_BINDING_" + uuid.uuid4().hex)
+        with psycopg.connect(os.environ["AUTH_MIG_DSN"], autocommit=True,
+                             row_factory=dict_row) as admin:
+            for path, denied_status in (
+                (LIST, 401),
+                ("/v1/conversations/" + cid + "/messages", 401),
+                ("/health/ready", 503),
+            ):
+                with self.subTest(path=path):
+                    token, claims = self.signed(a, path=path)
+                    key = sha256((claims["iss"] + "\x00" + claims["jti"]).encode(
+                        "utf-8")).hexdigest()
+                    def count():
+                        return admin.execute(
+                            "SELECT count(*) AS n FROM auth_l1.service_assertion_replays "
+                            "WHERE issuer_jti_sha256=%s", (key,)).fetchone()["n"]
+                    self.assertEqual(count(), 0)
+                    denied = self.request("GET", path, token, body=b"{}")
+                    self.assertEqual(denied.status_code, denied_status, denied.text)
+                    self.assertEqual(denied.headers.get("cache-control"), "no-store")
+                    self.assertNotIn(cid, denied.text)
+                    self.assertEqual(count(), 0)
+                    good = self.request("GET", path, token)
+                    self.assertEqual(good.status_code, 200, good.text)
+                    self.assertEqual(count(), 1)
+            self.assertEqual(self.request(
+                "GET", "/internal/ready", body=b"{}").status_code, 503)
+        print("API_F3_REAL_SIGNED_GET_BODY_FENCE_BEFORE_PG_REPLAY_PASS", flush=True)
+
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
         """Actual verified HTTPS callback, same pinned redirect for Code exchange."""
         from cryptography.hazmat.primitives import serialization
