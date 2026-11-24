@@ -97,145 +97,15 @@ for n in $(seq 1 45); do
  sleep 1
 done
 if [[ "$api_bff_ready" != 1 ]]; then
- # Only emit safe status classes; NEVER dump config, passwords or raw logs.
- state="$(docker inspect "$api_bff_name" --format '{{.State.Status}}' 2>/dev/null || true)"
- exit_code="$(docker inspect "$api_bff_name" --format '{{.State.ExitCode}}' 2>/dev/null || true)"
- denied="$(docker logs "$api_bff_name" 2>&1 | grep -c '^APP_ONLY_STARTUP_DENIED
-node_image='public.ecr.aws/docker/library/node@sha256:47725aca53d3295ec2d3be8f62726599b3033cc262edc2c7e429909b3ac599fc'
-docker pull --quiet "$node_image" > /dev/null
-docker run --rm --network "container:$api_bff_name" --user 11003:11003 \
-  --read-only --security-opt no-new-privileges:true --pids-limit 96 --memory 384m \
-  --mount "type=bind,src=$SOURCE_REPO,dst=/repo,readonly" \
-  --mount "type=bind,src=$bff_dir,dst=/tmp,readonly" \
-  -e CI=true -e AUTH_CI_DEMO_MODE=true -e PHASE3_APP_MODE=APP_ONLY \
-  -e AUTH_CI_PRODUCT_ORIGIN=https://127.0.0.1:18443 \
-  -e AUTH_CI_PRODUCT_SIGN_KEY=/tmp/signer.key \
-  -e AUTH_CI_BOOTSTRAP_CA=/tmp/ca.pem \
-  -e AUTH_CI_BOOTSTRAP_CERT=/tmp/bff.pem \
-  -e AUTH_CI_BOOTSTRAP_KEY=/tmp/bff.key \
-  -e AUTH_CI_PRODUCT_ISSUER=urn:rag-finance:synthetic-bff \
-  -e AUTH_CI_PRODUCT_AUDIENCE=urn:rag-finance:api:internal-ci \
-  -e AUTH_CI_PRODUCT_KID=ci-rsa-1 \
-  "$node_image" node --experimental-strip-types \
-  /repo/tests/phase3/integration/ui/f3_app_only_bff_product_request_pg.mjs
-docker rm -f "$api_bff_name" >/dev/null
-trap - EXIT
-echo APP_ONLY_REAL_NEXT_BFF_SOURCE_TO_ACTUAL_MTLS_SIGNED_PG_HISTORY=PASS
-dump="$LAB_WORK/f3_http_ab.dump"
-compose exec -T lab-db pg_dump -U postgres -d "$src" -Fc > "$dump"
-[[ -s "$dump" ]] || { echo STOP_EMPTY_SOURCE_AB_DUMP >&2; exit 70; }
-shasum -a 256 "$dump" > "$dump.sha256"
-chmod 0600 "$dump" "$dump.sha256"
-shasum -a 256 -c "$dump.sha256" > /dev/null
-admin restore-db -c "CREATE DATABASE $dst OWNER postgres" >/dev/null
-admin restore-db -c "REVOKE CONNECT,TEMP ON DATABASE $dst FROM PUBLIC" >/dev/null
-admin restore-db -c "GRANT CONNECT ON DATABASE $dst TO history_app,auth_mapper,auth_sessions,auth_revoker" >/dev/null
-compose exec -T restore-db pg_restore -U postgres -d "$dst" < "$dump" > "$LAB_WORK/f3_http_ab_restore.log" 2>&1 || {
- echo STOP_AB_HTTP_RESTORE_FAILED >&2; exit 70;
-}
-[[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM db55_audit.migration_runs WHERE status='APPLIED'")" == 10 ]] || exit 70
-[[ "$(DB_SERVICE=lab-db DB_NAME="$src" dbpsql -Atc "SELECT count(*) FROM history_l1.conversations")" == 8 ]] || exit 70
-[[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM history_l1.conversations")" == 8 ]] || exit 70
-src_id="$(DB_SERVICE=lab-db DB_NAME="$src" dbpsql -Atc 'SELECT system_identifier FROM pg_control_system()')"
-dst_id="$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc 'SELECT system_identifier FROM pg_control_system()')"
-[[ -n "$src_id" && -n "$dst_id" && "$src_id" != "$dst_id" ]] || exit 70
-# Source and second cluster use the same ephemeral session value; a fresh
-# signed proof must still pass DB session epoch/generation and durable replay.
-run_probe after
-# The HTTPS listener is a separate nonroot process. Keep it running across a
-# deliberate outage of ONLY this disposable restore-db container, then restore
-# that same lab cluster. This is dependency readiness, NOT full machine DR.
-probe_name="f3-app-only-ready-$short_sha"
-docker run -d --name "$probe_name" --no-healthcheck \
-  --network "$network" --read-only --security-opt no-new-privileges:true \
-  --pids-limit 96 --memory 512m --tmpfs /tmp:rw,noexec,nosuid,size=16m \
-  --mount "type=bind,src=$probe_dir,dst=/run/f3_http_probe" \
-  -e API_RUNNER_EXECUTION_MODE=APP_ONLY \
-  -e PYTHONPATH=/srv/release \
-  -e F3_ISOLATED_DB_HTTP=YES \
-  "$image" python3 -m apps.api.private_app_only_asgi \
-  --config /run/f3_http_probe/private/server-config.json \
-  > /dev/null
-trap 'docker rm -f "$probe_name" > /dev/null 2>&1 || true' EXIT
-ready=0
-for n in $(seq 1 45); do
- if docker exec "$probe_name" python3 /srv/release/tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py ready200 > /dev/null 2>&1; then
-  ready=1; break
- fi
- sleep 1
-done
-[[ "$ready" == 1 ]] || { echo STOP_API_READY_BEFORE_OUTAGE >&2; exit 70; }
-echo APP_ONLY_RUNNING_MTLS_API_READY_BEFORE_PG_OUTAGE_200=PASS
-compose --profile restore stop restore-db > /dev/null
-docker exec "$probe_name" python3 /srv/release/tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py ready503
-echo APP_ONLY_RUNNING_MTLS_API_READY_AFTER_PG_LOSS_503=PASS
-compose --profile restore up -d --no-deps restore-db > /dev/null
-db_ready=0
-for n in $(seq 1 45); do
- if [[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc 'SELECT 1' 2>/dev/null || true)" == 1 ]]; then
-  db_ready=1; break
- fi
- sleep 1
-done
-[[ "$db_ready" == 1 ]] || { echo STOP_PG_RESTORE_SERVICE_NOT_RESTARTED >&2; exit 70; }
-docker exec "$probe_name" python3 /srv/release/tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py ready200
-echo APP_ONLY_RUNNING_MTLS_API_READY_RECOVERED_PG_200=PASS
-docker rm -f "$probe_name" >/dev/null
-trap - EXIT
-[[ "$(DB_SERVICE=lab-db DB_NAME="$src" dbpsql -Atc "SELECT count(*) FROM history_l1.conversations")" == 8 ]] || exit 70
-[[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM history_l1.conversations")" == 8 ]] || exit 70
-[[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM history_l1.send_receipts")" == 0 ]] || exit 70
-[[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM history_l1.answers")" == 0 ]] || exit 70
-# Sanitized receipt only; never publish keys, role passwords, opaque session
-# tokens, service config, internal logs, or the raw pg_dump.
-export F3_HTTP_DUMP_SHA="$(awk '{print $1}' "$dump.sha256")"
-export F3_HTTP_GIT_SHA="$sha"
-python3 - <<'PY'
-import json,os
-from pathlib import Path
-p=Path(os.environ["GITHUB_WORKSPACE"])/"ci_receipts"/"app_only_https_pg_ab_restore.json"
-p.parent.mkdir(exist_ok=True)
-report={
- "contract_version":"f3.app_only.real_mtls_signed_history_pg_ab_lab.v1",
- "source_git_sha":os.environ["F3_HTTP_GIT_SHA"],
- "environment":"real_isolated_pg17.11_api_container_mtls_loopback",
- "idp":"NOT_RUN_SYNTHETIC_DB_MAPPED_SUBJECTS",
- "browser":"NOT_RUN",
- "bff":"SYNTHETIC_RS256_SIGNER_AND_REAL_X509_CLIENT_CERT",
- "private_api_listener":"REAL_UVICORN_H11_MTLS",
- "postgres_service":"history_app_TLS_VERIFY_FULL_CA_SAN",
- "real_signed_http_history":"SOURCE_AND_INDEPENDENT_RESTORE",
- "real_web_product_request_bff":"ACTUAL_NEXT_SOURCE_NODE22_SIGNED_MTLS_TWO_OWNERS",
- "two_owner_conversations":[5,3],
- "two_owner_messages":[4,2],
- "authenticated_session_revoke_after_restore":"A_DENIED_B_ALLOWED",
- "real_mtls_api_dependency_readiness":"200_THEN_503_PG_DOWN_THEN_200_RECOVERED",
- "cross_owner_detail":"404",
- "no_cert_wrong_leaf":"REJECTED",
- "send_without_engine":"503_ZERO_DURABLE_WRITES",
- "source_restore_distinct_pg_clusters":True,
- "source_and_restored_history_equal":True,
- "backup_sha256":os.environ["F3_HTTP_DUMP_SHA"],
- "migrations":"001-010",
- "engine_calls":0,"migration_011":"NOT_RUN",
- "identity_same_tx_bound_to_real_oidc":"NOT_PROVEN",
- "target_mac_or_arvan":"NOT_RUN",
- "module_gates":"NOT_ACCEPTED"
-}
-p.write_text(json.dumps(report,sort_keys=True,indent=2)+"\n")
-PY
-chmod 0600 "$GITHUB_WORKSPACE/ci_receipts/app_only_https_pg_ab_restore.json"
-admin lab-db -c "DROP DATABASE $src WITH (FORCE)" >/dev/null
-admin restore-db -c "DROP DATABASE $dst WITH (FORCE)" >/dev/null
-[[ "$(admin lab-db -c "SELECT count(*) FROM pg_database WHERE datname='$src'")" == 0 ]] || exit 70
-[[ "$(admin restore-db -c "SELECT count(*) FROM pg_database WHERE datname='$dst'")" == 0 ]] || exit 70
-echo F3_APP_ONLY_REAL_SIGNED_HTTPS_API_PG_AB_RESTORE_LAB=PASS
-echo F3_APP_ONLY_NO_REAL_IDP_NO_BROWSER_NO_ENGINE_NO_011
- || true)"
- listening="$(docker logs "$api_bff_name" 2>&1 | grep -c 'Uvicorn running on ' || true)"
- echo "BFF_API_READY_DIAG_STATE=$state EXIT=$exit_code STARTUP_DENIED_COUNT=$denied BOUND_COUNT=$listening" >&2
- docker inspect "$api_bff_name" --format '{{.State.OOMKilled}}' | sed 's/^/BFF_API_READY_DIAG_OOM=/' >&2
- echo STOP_BFF_SOURCE_API_NOT_READY >&2;exit 70
+  # Report only allowlisted categories, never raw private logs, tokens or DSNs.
+  state="$(docker inspect "$api_bff_name" --format '{{.State.Status}}' 2>/dev/null || true)"
+  exit_code="$(docker inspect "$api_bff_name" --format '{{.State.ExitCode}}' 2>/dev/null || true)"
+  denied="$(docker logs "$api_bff_name" 2>&1 | grep -c 'APP_ONLY_STARTUP_DENIED' || true)"
+  bound="$(docker logs "$api_bff_name" 2>&1 | grep -c 'Uvicorn running on' || true)"
+  oom="$(docker inspect "$api_bff_name" --format '{{.State.OOMKilled}}' 2>/dev/null || true)"
+  echo "BFF_API_DIAG_STATE=$state EXIT=$exit_code DENIED_COUNT=$denied LISTEN_COUNT=$bound OOM=$oom" >&2
+  echo STOP_BFF_SOURCE_API_NOT_READY >&2
+  exit 70
 fi
 node_image='public.ecr.aws/docker/library/node@sha256:47725aca53d3295ec2d3be8f62726599b3033cc262edc2c7e429909b3ac599fc'
 docker pull --quiet "$node_image" > /dev/null
