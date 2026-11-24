@@ -389,9 +389,16 @@ def revoke_and_check():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("phase", choices=("seed", "before", "after"))
+    parser.add_argument("phase", choices=("seed", "before", "after", "ready200", "ready503"))
     args = parser.parse_args()
     require_lab()
+    if args.phase in ("ready200", "ready503"):
+        expected = 200 if args.phase == "ready200" else 503
+        with tls_client() as c:
+            res = c.get(BASE + "/internal/ready", timeout=12.0)
+        assert res.status_code == expected, "PG_DEPENDENCY_READINESS_STATUS_MISMATCH"
+        print("HTTPS_APP_ONLY_PG_DEPENDENCY_READY_" + str(expected) + "=PASS", flush=True)
+        return
     if args.phase == "seed":
         create_fixture()
         return
