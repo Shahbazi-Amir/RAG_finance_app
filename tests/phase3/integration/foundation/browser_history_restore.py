@@ -325,6 +325,64 @@ async def send_denied(page):
         assert (await r.json())["error"]=="ENGINE_NOT_AVAILABLE"
 
 
+async def negative_identity_and_private_cache(page_a,page_b,owner_a,owner_b,ids_a,ids_b):
+    # Direct HTTP to real BFF with valid A/B sessions; never fake a cookie.
+    for page,own,foreign,foreign_ids in ((page_a,owner_a,owner_b,ids_b),(page_b,owner_b,owner_a,ids_a)):
+        r=await page.request.get(ORIGIN+"/api/history/conversations?limit=2",
+            headers={"x-owner-id":foreign,"x-user-id":foreign,"x-forwarded-user":foreign})
+        assert r.status==200 and (await r.json())["scope_user_id"]==own
+        assert r.headers.get("cache-control")=="no-store"
+        r=await page.request.get(ORIGIN+"/api/history/conversations?limit=2&owner_id="+foreign)
+        assert r.status==422 and r.headers.get("cache-control")=="no-store"
+        for cid in sorted(foreign_ids):
+            r=await page.request.get(ORIGIN+"/api/history/conversations/"+cid+"/messages?limit=20",
+                headers={"x-owner-id":foreign,"x-user-id":foreign})
+            assert r.status==404 and r.headers.get("cache-control")=="no-store"
+            assert "F3_REAL_POSTGRES_" not in await r.text()
+    # Neither a forged direct owner header nor absence of a session admits read.
+    response=await page_a.request.get(ORIGIN+"/api/history/conversations?limit=2",
+        headers={"Cookie":"","x-owner-id":owner_a})
+    assert response.status==401 and response.headers.get("cache-control")=="no-store"
+
+
+async def environment_observation(page):
+    with connect() as c:
+        settings={k:c.execute("SHOW "+k).fetchone()[0] for k in ("TimeZone","server_encoding","client_encoding")}
+    assert settings["server_encoding"]=="UTF8" and settings["client_encoding"]=="UTF8"
+    lang=await page.locator("html").get_attribute("lang")
+    assert lang=="fa"
+    direction=await page.locator("html").get_attribute("dir")
+    assert direction=="rtl"
+    return {"postgres":settings,"html_lang":lang,"html_dir":direction,
+            "persian_sql_dom_roundtrip":True,"target_locale_approved":False}
+
+
+def private_log_negative(demo):
+    # Only scoped actual process/container logs. No payload, secrets or log
+    # text is printed, persisted in receipt, or uploaded by this test.
+    logs=[]
+    for path in demo.root.glob("process-*.log"):
+        logs.append(path.read_bytes())
+    for lab in (demo.image_lab,demo.web_lab):
+        if lab:
+            cp=subprocess.run(["docker","logs",lab.name],stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT,check=True,timeout=20)
+            logs.append(cp.stdout)
+    canaries=[os.environ["API_CURSOR_KEY"].encode(),b"F3_REAL_POSTGRES_A",b"F3_REAL_POSTGRES_B"]
+    for f in (demo.root/"bootstrap-sign.key",demo.root/"product-sign.key"):
+        for line in f.read_bytes().splitlines():
+            if len(line)>40 and not line.startswith(b"-----"):canaries.append(line)
+    for name in ("A","B"):
+        for k in ("email","password"):
+            value=demo.kc.accounts[name][k].encode()
+            if len(value)>=8:canaries.append(value)
+    for c in canaries:
+        assert not any(c in log for log in logs),"PRIVATE_LOG_CANARY_EXPOSED"
+    return {"scoped_logs_checked":len(logs),"canaries_checked":len(canaries),
+            "known_synthetic_sensitive_values_not_found":True,"raw_logs_uploaded":False,
+            "full_production_log_policy_approved":False}
+
+
 async def measure_history_requests(page_a,page_b,owner_a,owner_b):
     # Bounded synthetic observations, not approved workload/SLO.
     values=[]
@@ -574,6 +632,8 @@ async def execute():
             await send_denied(page_b)
             assert inventory(demo)[1]==receipt_before
             assert message_inventory(demo)==messages_before,("NO_ENGINE_SEND_CREATED_MESSAGE",)
+            await negative_identity_and_private_cache(page_a,page_b,demo.owners["A"],demo.owners["B"],ids_a,ids_b)
+            env_receipt=await environment_observation(page_a)
             measurements={"before_restore":await measure_history_requests(page_a,page_b,demo.owners["A"],demo.owners["B"])}
             print("F3_REAL_BROWSER_KEYCLOAK_NEXT_PG17_AB_PAGING_DETAIL_SEND503_PRE_RESTORE_PASS",
                   flush=True)
@@ -608,6 +668,8 @@ async def execute():
             assert message_inventory(demo)==messages_before,("RESTORED_MESSAGES_SQL_DRIFT",)
             assert new_cluster==restored[2] and new_cluster!=source_cluster
             await same_handles()
+            await negative_identity_and_private_cache(page_a,page_b,demo.owners["A"],demo.owners["B"],ids_a,ids_b)
+            assert env_receipt==await environment_observation(page_a)
             measurements["after_restore"]=await measure_history_requests(page_a,page_b,demo.owners["A"],demo.owners["B"])
 
             # Exercise a genuine reversal: restored disposable volume -> original
@@ -632,6 +694,7 @@ async def execute():
             assert reverted==source and reverted_receipts==receipt_before
             assert message_inventory(demo)==messages_before,("ROLLBACK_MESSAGE_DRIFT",)
             await same_handles()
+            await negative_identity_and_private_cache(page_a,page_b,demo.owners["A"],demo.owners["B"],ids_a,ids_b)
             measurements["after_rollback"]=await measure_history_requests(page_a,page_b,demo.owners["A"],demo.owners["B"])
             print("F3_REAL_BROWSER_CI_PG_BACKUP_RESTORE_ROLLBACK_REAL_AB_HISTORY_PASS",
                   flush=True)
@@ -651,6 +714,7 @@ async def execute():
                 ORIGIN+"/api/history/conversations?limit=2")
             assert surviving.status==200
             await foreign_owner_denied(page_b,ids_a)
+            log_receipt=private_log_negative(demo)
             result={
                 "schema":"foundation.f3.real_browser_pg_restored_same_context.v1",
                 "sha":os.environ["GITHUB_SHA"],
@@ -676,6 +740,9 @@ async def execute():
                 "private_get_no_store_and_foreign_404_no_store":True,
                 "literal_cookie_handles_unchanged_after_restore_and_rollback":True,
                 "measured_history_latency_ms":measurements,
+                "forged_owner_headers_query_and_no_session_denied_pre_post_rollback":True,
+                "locale_encoding_lab":env_receipt,
+                "private_log_negative":log_receipt,
                 "synthetic_backup_aes256gcm_roundtrip":demo.backup_evidence,
                 "all_a_conversations_cross_owner_404":True,
                 "all_b_conversations_cross_owner_404":True,
