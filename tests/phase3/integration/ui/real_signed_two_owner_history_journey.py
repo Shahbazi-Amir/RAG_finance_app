@@ -16,6 +16,8 @@ import hashlib
 import json
 import os
 import re
+import socket
+import ssl
 import subprocess
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -55,6 +57,14 @@ def configured():
     receipt = json.loads(Path(path).read_text(encoding="utf-8"))
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT,
                                      text=True).strip()
+    action_sha = os.environ.get("GITHUB_SHA", "")
+    if not HEX40.fullmatch(action_sha) or commit != action_sha:
+        raise RuntimeError("CHECKOUT_HEAD_NOT_GITHUB_ACTION_SHA")
+    modified = subprocess.check_output(
+        ["git", "status", "--porcelain", "--untracked-files=no"],
+        cwd=ROOT, text=True)
+    if modified.strip():
+        raise RuntimeError("TESTED_SOURCE_IS_NOT_CLEAN_CHECKOUT")
     if (not HEX40.fullmatch(commit) or
             receipt.get("kind") != "ui_f3_actual_pg_two_owner_seed" or
             receipt.get("contract_version") != "ui.pg_two_owner_seed.v1" or
@@ -82,6 +92,12 @@ def configured():
                     or not all(isinstance(mid, str) and SAFE_ID.fullmatch(mid) for mid in ids)
                     or len(ids) != len(set(ids))):
                 raise RuntimeError("PG_SEED_MESSAGE_CROSS_REFERENCE_INVALID")
+    all_message_ids = []
+    for row in users.values():
+        for mids in row["message_ids"].values():
+            all_message_ids.extend(mids)
+    if len(all_message_ids) != len(set(all_message_ids)):
+        raise RuntimeError("PG_SEED_CROSS_THREAD_MESSAGE_ID_COLLISION")
     if (users["A"]["owner_id"] == users["B"]["owner_id"]
             or set(users["A"]["conversation_ids"]) & set(users["B"]["conversation_ids"])):
         raise RuntimeError("PG_SEED_OWNER_COLLISION")
@@ -99,7 +115,25 @@ def configured():
         if not name or not password:
             raise RuntimeError("DISPOSABLE_IDP_LOGIN_NOT_PROVISIONED")
         credentials[alias] = (name, password)
+    if credentials["A"][0] == credentials["B"][0]:
+        raise RuntimeError("OIDC_TWO_DISTINCT_LOGIN_SUBJECTS_REQUIRED")
     return receipt, idp, credentials, commit
+
+
+def verify_ingress_ca_and_san():
+    """Verify the loopback HTTPS ingress against real OS CA trust and IP SAN.
+
+    This is additive to Chromium's strict TLS verification; it never installs
+    a CA, disables hostname checking, or trusts an arbitrary leaf certificate.
+    """
+    try:
+        with socket.create_connection(("127.0.0.1", 3443), timeout=5) as tcp:
+            with ssl.create_default_context().wrap_socket(
+                    tcp, server_hostname="127.0.0.1") as tls:
+                if tls.version() not in ("TLSv1.2", "TLSv1.3"):
+                    raise RuntimeError("HTTPS_INGRESS_TLS_VERSION_INVALID")
+    except (OSError, ssl.SSLError) as exc:
+        raise RuntimeError("HTTPS_INGRESS_CA_OR_IP_SAN_NOT_TRUSTED") from None
 
 
 def id_for_test(tag: str) -> str:
@@ -110,7 +144,7 @@ async def login(browser, alias, idp, creds, owner, width):
     # Separate fresh browser contexts; no cookie injection or auth shortcuts.
     ctx = await browser.new_context(
         viewport={"width": width, "height": 844 if width <= 390 else 800},
-        is_mobile=width <= 390, ignore_https_errors=True)
+        is_mobile=width <= 390, ignore_https_errors=False)
     page = await ctx.new_page()
     try:
         login_resp = await page.goto(BASE + "/login", wait_until="domcontentloaded")
@@ -170,6 +204,26 @@ async def login(browser, alias, idp, creds, owner, width):
         raise
 
 
+async def verify_rtl_and_mobile_focus(page, width):
+    await expect(page.locator("main.history-shell")).to_have_attribute("dir", "rtl")
+    geometry = await page.evaluate("""() => ({
+      dir: getComputedStyle(document.querySelector('main.history-shell')).direction,
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: window.innerWidth
+    })""")
+    assert geometry["dir"] == "rtl", "RTL_STYLE_NOT_APPLIED"
+    assert geometry["documentWidth"] <= geometry["viewportWidth"] + 1, (
+        "HORIZONTAL_OVERFLOW_ON_REAL_HISTORY", width)
+    if width <= 390:
+        trigger = page.get_by_role("button", name="بازکردن فهرست گفت‌وگوها")
+        await expect(trigger).to_be_visible()
+        await trigger.click()
+        await expect(trigger).to_have_attribute("aria-expanded", "true")
+        await page.keyboard.press("Escape")
+        await expect(trigger).to_have_attribute("aria-expanded", "false")
+        await expect(trigger).to_be_focused()
+
+
 async def open_mobile_drawer(page, width):
     if width <= 390:
         trigger = page.get_by_role("button", name="بازکردن فهرست گفت‌وگوها")
@@ -179,6 +233,10 @@ async def open_mobile_drawer(page, width):
 
 async def exhaust_thread_message_pages(page, target, wanted):
     # Demand exact IDs from actual PG in order, both BEFORE and AFTER reload.
+    if not wanted:
+        # An empty real PG thread must remain empty after fresh list and detail.
+        await expect(page.locator('[data-testid^="history-message-"]')).to_have_count(0)
+        return
     await expect(page.get_by_test_id("history-message-" + wanted[0])).to_be_visible(
         timeout=15000)
     for _ in range(len(wanted)//30 + 3):
@@ -258,7 +316,7 @@ async def verify_list_and_thread(page, owner, width):
     data = await reply.json()
     assert data["owner_user_id"] == owner["owner_id"]
     assert data["conversation_id"] == target
-    wanted = owner["message_ids"][target]
+    wanted = owner["message_ids"].get(target, [])
     await exhaust_thread_message_pages(page, target, wanted)
     await page.reload(wait_until="domcontentloaded")
     await open_mobile_drawer(page, width)
@@ -290,10 +348,15 @@ async def journey(browser, receipt, idp, credentials, width):
                             receipt["users"]["A"], width)
         b, pb = await login(browser, "B", idp, credentials["B"],
                             receipt["users"]["B"], width)
+        await verify_rtl_and_mobile_focus(pa, width)
+        await verify_rtl_and_mobile_focus(pb, width)
         ca = await verify_list_and_thread(pa, receipt["users"]["A"], width)
-        await open_mobile_drawer(pb,width)
+        cb = await verify_list_and_thread(pb, receipt["users"]["B"], width)
+        assert ca != cb, "CROSS_OWNER_CONVERSATION_ID_COLLISION"
         visible_b = await pb.locator('[data-testid^="conversation-"]').evaluate_all(
             "(nodes) => nodes.map(n => n.getAttribute('data-testid').slice(13))")
+        assert visible_b == receipt["users"]["B"]["conversation_ids"], (
+            "B_HISTORY_PG_ID_ORDER_MISMATCH", width)
         assert not set(visible_b) & set(receipt["users"]["A"]["conversation_ids"])
         # Direct foreign URL from B's real context; the BFF signs B's identity.
         foreign = await browser_fetch(pb,
@@ -341,15 +404,33 @@ async def journey(browser, receipt, idp, credentials, width):
         still_b = await browser_fetch(pb, "/api/history/conversations?limit=2")
         assert still_b["status"] == 200
         assert json.loads(still_b["text"])["scope_user_id"] == receipt["users"]["B"]["owner_id"]
+        # Revalidate B in the real product DOM after A's revoke. A 200 alone
+        # cannot prove that another account's UI was not accidentally wiped.
+        await open_mobile_drawer(pb, width)
+        async with pb.expect_response(
+            lambda response: response.request.method == "GET"
+            and "/api/history/conversations?limit=2" in response.url,
+            timeout=20000
+        ) as unaffected_b:
+            await pb.get_by_test_id("refresh-history").click()
+        assert (await unaffected_b.value).status == 200
+        # Refresh shows only the first two records; paginate again before
+        # comparing EVERY B ID. Otherwise a valid B with >=3 PG rows fails.
+        await verify_list_and_thread(pb, receipt["users"]["B"], width)
+        for cid in receipt["users"]["A"]["conversation_ids"]:
+            assert await pb.get_by_test_id("conversation-" + cid).count() == 0
         print("UI_REAL_REVOKE_A_401_PURGE_B_200_PASS",flush=True)
         return {
             "viewport":width,
             "oidc_auth_two_users":True,
             "owner_scoped_pg_history":True,
+            "owner_b_own_list_detail_refresh":True,
             "pagination_and_refresh":True,
             "cross_owner_404":True,
             "revoke_401_b_still_200":True,
             "app_only_send_503":True,
+            "rtl_and_mobile_keyboard":True,
+            "strict_tls_ca_and_ip_san":True,
             "conversation_id_sha256":digest(ca),
         }
     finally:
@@ -361,6 +442,7 @@ async def journey(browser, receipt, idp, credentials, width):
 
 async def main():
     receipt, idp, credentials, sha = configured()
+    verify_ingress_ca_and_san()
     result = {"kind":"ui_f3_real_signed_two_owner_journey",
               "contract_version":"ui.real_history_browser.v1",
               "source_sha":sha, "environment":"EPHEMERAL_CI_REAL_IDP_MTLS_PG",
@@ -369,7 +451,7 @@ async def main():
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
         try:
-            for width in (1280,390):
+            for width in (1280,390,320):
                 result["steps"].append(await journey(
                     browser,receipt,idp,credentials,width))
         finally:

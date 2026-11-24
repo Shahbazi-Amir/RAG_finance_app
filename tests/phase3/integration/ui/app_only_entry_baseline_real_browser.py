@@ -45,6 +45,23 @@ async def baseline(browser, width, height):
         assert await page.locator('[data-testid^="history-message-"]').count() == 0
         assert await page.locator('[data-testid^="conversation-"]').count() == 0
         assert not any(method == "POST" for method, _ in events)
+        await expect(page.locator("main.history-shell")).to_have_attribute("dir", "rtl")
+        geometry = await page.evaluate("""() => ({
+          direction: getComputedStyle(document.querySelector('main.history-shell')).direction,
+          content: document.documentElement.scrollWidth,
+          viewport: window.innerWidth
+        })""")
+        assert geometry["direction"] == "rtl", "BASELINE_RTL_STYLE_NOT_APPLIED"
+        assert geometry["content"] <= geometry["viewport"] + 1, (
+            "BASELINE_HORIZONTAL_OVERFLOW", width)
+        if width <= 390:
+            trigger = page.get_by_role("button", name="بازکردن فهرست گفت‌وگوها")
+            await expect(trigger).to_be_visible()
+            await trigger.click()
+            await expect(trigger).to_have_attribute("aria-expanded", "true")
+            await page.keyboard.press("Escape")
+            await expect(trigger).to_have_attribute("aria-expanded", "false")
+            await expect(trigger).to_be_focused()
 
         # Browser sends *one explicit adversarial POST* through the actual BFF,
         # with no synthetic session or actor. This must not allocate T1/T2.
@@ -84,6 +101,7 @@ async def main():
         try:
             await baseline(browser, 1280, 800)
             await baseline(browser, 390, 844)
+            await baseline(browser, 320, 700)
         finally:
             await browser.close()
 
