@@ -64,7 +64,7 @@ f3_ledger_apply() {
   role=auth_migrator
   [[ "$ver" == 001 || "$ver" == 002 ]] && role=history_migrator
   [[ "${PGUSER:-}" == "$role" ]] || return 70
-  existing="$(f3_ledger_admin -Atq -c \"SELECT schemaname||'.'||tablename FROM pg_tables WHERE schemaname IN ('history_l1','auth_l1') ORDER BY 1\")"
+  existing="$(f3_ledger_admin -Atq -c "SELECT schemaname||'.'||tablename FROM pg_tables WHERE schemaname IN ('history_l1','auth_l1') ORDER BY 1")"
   if [[ "$ver" != 001 ]]; then
     [[ -n "$existing" ]] || return 70
     [[ "$(f3_ledger_admin -Atq -c 'SELECT count(*) FROM history_l1.conversations')" -gt 0 ]] || return 70
