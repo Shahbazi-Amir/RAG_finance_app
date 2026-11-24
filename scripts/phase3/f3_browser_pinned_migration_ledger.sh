@@ -48,7 +48,7 @@ SQL
 # Only a synthetic disposable DB; no row value or raw SQL output is exported.
 f3_preserved_table_digest() {
   local table="$1"
-  [[ "$table" =~ ^(history_l1|auth_l1)\.[a-z_]+$ ]] || return 70
+  [[ "$table" =~ ^(history_l1|auth_l1)\.[a-z_][a-z0-9_]*$ ]] || { echo STOP_UNEXPECTED_ACTIVE_TABLE_IDENTIFIER >&2; return 70; }
   f3_ledger_admin -Atq -c "SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb)::text FROM $table t" | sha256sum | awk '{print $1}'
 }
 f3_ledger_apply() {
