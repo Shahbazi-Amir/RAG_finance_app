@@ -1,0 +1,21 @@
+{
+  "schema": "foundation.f3.browser_31_page2_before_after_pg_restore.v1",
+  "parent_verified_sha": "9cacaede2fd67b5cf13331c7650532b8b408a8dc",
+  "root_84_sha": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+  "path": "tests/phase3/integration/api/test_app_only_browser_journey.py",
+  "historical_signed_api_owner_blob_sha": "52e0f1632cb8573a80911e0b1c8dfba8ff2055e4",
+  "candidate_blob_sha": "a12c64c75361577b94a8d42bf24714dcc16864e5",
+  "bounded_new_scope": [
+    "31 PostgreSQL fixture messages owned by verified Keycloak owner A",
+    "React DOM first 30 + cursor last message; exact IDs/texts before restore",
+    "fresh-volume PostgreSQL TLS restored full 31 parity and same React DOM cursor page",
+    "320px real signed browser drawer focus/Escape and Send disabled"
+  ],
+  "not_new_source_witness_rows": true,
+  "not_a_phase3_activity_acceptance": true,
+  "owner_signed_acceptance": false,
+  "target_verified": false,
+  "engine_enabled": false,
+  "migration_011_applied": false,
+  "uses_only_disposable_ci_pg": true
+}
