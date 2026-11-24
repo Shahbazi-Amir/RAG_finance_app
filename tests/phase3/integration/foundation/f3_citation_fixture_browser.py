@@ -91,7 +91,7 @@ def main():
                     expect(panel.get_by_role("link",name="بازکردن پیوند معتبر منبع")).to_have_attribute("href","https://example.org/fixture-only")
                     expect(panel.get_by_test_id("verified-source-locator")).to_have_count(2)
                     expect(panel.get_by_text("دلیل انتخاب این منبع در قرارداد فعلی ارائه نشده است.")).to_have_count(2)
-                elif mode in ("unverified","unsafe"):
+                elif mode=="unverified":
                     expect(page.get_by_text("پاسخ نمونه یا تأییدنشده از API دریافت شده و عمداً نمایش داده نمی‌شود.")).to_be_visible()
                     assert page.locator(".product-answer").count()==0
                 else:

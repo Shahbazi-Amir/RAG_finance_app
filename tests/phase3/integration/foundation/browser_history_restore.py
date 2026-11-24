@@ -31,6 +31,7 @@ sys.path[:0]=[
 ]
 from phase3_auth_demo import Demo,ORIGIN
 from f3_operational_probe import observe,outage_browser,phase4_negative,write_dashboard
+from f3_app_only_redteam import observe_redteam
 from test_history_restore_signed import command,pg17,connect as pg_connect,ssl_server
 from apps.api import history_api
 
@@ -375,7 +376,7 @@ async def environment_observation(page):
             "persian_sql_dom_roundtrip":True,"target_locale_approved":False}
 
 
-def private_log_negative(demo):
+def private_log_negative(demo, extra_canaries=()):
     # Only scoped actual process/container logs. No payload, secrets or log
     # text is printed, persisted in receipt, or uploaded by this test.
     logs=[]
@@ -394,6 +395,7 @@ def private_log_negative(demo):
         for k in ("email","password"):
             value=demo.kc.accounts[name][k].encode()
             if len(value)>=8:canaries.append(value)
+    canaries.extend(v.encode() for v in extra_canaries)
     for c in canaries:
         assert not any(c in log for log in logs),"PRIVATE_LOG_CANARY_EXPOSED"
     return {"scoped_logs_checked":len(logs),"canaries_checked":len(canaries),
@@ -653,6 +655,12 @@ async def execute():
             assert inventory(demo)[1]==receipt_before
             assert message_inventory(demo)==messages_before,("NO_ENGINE_SEND_CREATED_MESSAGE",)
             await negative_identity_and_private_cache(page_a,page_b,demo.owners["A"],demo.owners["B"],ids_a,ids_b)
+            redteam=[]
+            redteam_canaries=[]
+            if demo.image_lab and demo.web_lab:
+                report,canary=await observe_redteam(page_a,page_b,ORIGIN,demo.owners,ids_a,ids_b,"source")
+                redteam.append(report);redteam_canaries.append(canary)
+                assert inventory(demo)[1]==receipt_before and message_inventory(demo)==messages_before
             env_receipt=await environment_observation(page_a)
             measurements={"before_restore":await measure_history_requests(page_a,page_b,demo.owners["A"],demo.owners["B"])}
             print("F3_REAL_BROWSER_KEYCLOAK_NEXT_PG17_AB_PAGING_DETAIL_SEND503_PRE_RESTORE_PASS",
@@ -709,6 +717,10 @@ async def execute():
             await negative_identity_and_private_cache(page_a,page_b,demo.owners["A"],demo.owners["B"],ids_a,ids_b)
             assert env_receipt==await environment_observation(page_a)
             measurements["after_restore"]=await measure_history_requests(page_a,page_b,demo.owners["A"],demo.owners["B"])
+            if redteam:
+                report,canary=await observe_redteam(page_a,page_b,ORIGIN,demo.owners,ids_a,ids_b,"restored")
+                redteam.append(report);redteam_canaries.append(canary)
+                assert inventory(demo)[1]==receipt_before and message_inventory(demo)==messages_before
             if ops:
                 assert ops["phase4"]==phase4_negative(connect)
                 ops["dependency_outage"]=demo.lab_outage
@@ -757,7 +769,7 @@ async def execute():
                 ORIGIN+"/api/history/conversations?limit=2")
             assert surviving.status==200
             await foreign_owner_denied(page_b,ids_a)
-            log_receipt=private_log_negative(demo)
+            log_receipt=private_log_negative(demo,redteam_canaries)
             result={
                 "schema":"foundation.f3.real_browser_pg_restored_same_context.v1",
                 "sha":os.environ["GITHUB_SHA"],
@@ -786,6 +798,9 @@ async def execute():
                 "forged_owner_headers_query_and_no_session_denied_pre_post_rollback":True,
                 "locale_encoding_lab":env_receipt,
                 "private_log_negative":log_receipt,
+                "app_only_farsi_redteam":redteam,
+                "redteam_zero_durable_side_effect":bool(redteam),
+                "redteam_engine_safety_evaluated":False,
                 "operational_probe":ops,
                 "bounded_chromium_network_changed_navigation_retries":BROWSER_NETWORK_CHANGED_RETRIES,
                 "synthetic_backup_aes256gcm_roundtrip":demo.backup_evidence,
