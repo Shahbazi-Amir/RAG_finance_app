@@ -1,0 +1,147 @@
+name: F3 disposable local OCI archive reload and same-image scan — NON-RELEASE
+on:
+  push:
+    branches: [integration/f3-oci-airgap-offline-roundtrip-20261124]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: foundation-f3-oci-airgap-isolated
+  cancel-in-progress: true
+jobs:
+  archive-reimport-api-web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Draft-only consent, withdrawal and export syntax — no approved policy or API side effects
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --no-cache-dir 'jsonschema==4.26.0'
+          python3 -m unittest discover -s tests/phase3/contracts -p 'test_privacy_intent_draft_v0.py' -v
+      - name: Twelve fail-closed tests for local-only receipt integrity
+        run: python3 -m unittest discover -s tests/phase3/foundation -p 'test_f3_oci_airgap_receipt.py' -v
+      - name: Validate SHA/source and Bash syntax before any Docker action
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test ! -e infra/postgres/migrations/011_product_answer_claims.up.sql
+          bash -n scripts/phase3/verify_f3_oci_airgap_rehydrate_ci.sh
+      - name: Build source-pinned app-only API image without Runner/Engine startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull=false --platform linux/amd64 -f infra/phase3_l1/Dockerfile.api --build-arg SOURCE_SHA="$GITHUB_SHA" -t rag-f3-app-only-api:ci .
+      - name: Build pinned Next app-only Web with production-only dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull=false --platform linux/amd64 -f infra/phase3_l1/Dockerfile.web --build-arg SOURCE_SHA="$GITHUB_SHA" -t rag-f3-app-only-web:ci .
+      - name: Docker save then delete local tags then load and restart both real HTTP services
+        shell: bash
+        run: bash scripts/phase3/verify_f3_oci_airgap_rehydrate_ci.sh
+      - name: Reject forged SHA, registry digest, Mac or owner acceptance in receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/phase3/check_f3_oci_airgap_receipt.py \
+            --receipt ci_receipts/foundation/oci_airgap_restore_ci.json \
+            --sha "$GITHUB_SHA" --run "$GITHUB_RUN_ID" \
+            --out ci_receipts/foundation/oci_airgap_receipt_checked.json
+          mkdir -p ci_receipts/private_scan
+      - name: SPDX SBOM of the actual reloaded API image
+        uses: anchore/sbom-action@a930d0ac434e3182448fe678398ba5713717112a
+        with:
+          image: rag-f3-app-only-api:ci
+          format: spdx-json
+          syft-version: v1.38.0
+          output-file: ci_receipts/foundation/airgap_api.spdx.json
+          upload-artifact: 'false'
+          dependency-snapshot: 'false'
+          upload-release-assets: 'false'
+      - name: SPDX SBOM of the actual reloaded Web image
+        uses: anchore/sbom-action@a930d0ac434e3182448fe678398ba5713717112a
+        with:
+          image: rag-f3-app-only-web:ci
+          format: spdx-json
+          syft-version: v1.38.0
+          output-file: ci_receipts/foundation/airgap_web.spdx.json
+          upload-artifact: 'false'
+          dependency-snapshot: 'false'
+          upload-release-assets: 'false'
+      - name: Grype vulnerabilities for the reloaded API SBOM (HOLD)
+        uses: anchore/scan-action@16910ac423301c6d30554b83a7f71ac6ff4a51f3
+        with:
+          sbom: ci_receipts/foundation/airgap_api.spdx.json
+          grype-version: v0.110.0
+          output-format: json
+          output-file: ci_receipts/private_scan/api-grype.json
+          fail-build: 'false'
+          cache-db: 'false'
+      - name: Grype vulnerabilities for the reloaded Web SBOM (HOLD)
+        uses: anchore/scan-action@16910ac423301c6d30554b83a7f71ac6ff4a51f3
+        with:
+          sbom: ci_receipts/foundation/airgap_web.spdx.json
+          grype-version: v0.110.0
+          output-format: json
+          output-file: ci_receipts/private_scan/web-grype.json
+          fail-build: 'false'
+          cache-db: 'false'
+      - name: Same SHA+OCI ID for reloaded image and scanned SBOM; sanitize CVE counts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          base=Path('ci_receipts/foundation')
+          old=json.loads((base/'oci_airgap_restore_ci.json').read_text())
+          assert old['git_sha']==os.environ['GITHUB_SHA']
+          report={'schema':'foundation.f3.reloaded_same_image_spdx_grype.v1',
+                  'git_sha':os.environ['GITHUB_SHA'],
+                  'scope':'CI_ONLY_NOT_REGISTRY_OR_TARGET',
+                  'owner_approved':False,'registry_digest':None,
+                  'mac_tested':False,'release':'HOLD','images':{}}
+          for kind in ('api','web'):
+              img=json.loads(subprocess.check_output(
+                  ['docker','image','inspect','rag-f3-app-only-'+kind+':ci'],text=True))[0]
+              assert img['Id']==old['image_ids'][kind]
+              assert img['Config']['Labels']['org.opencontainers.image.revision']==os.environ['GITHUB_SHA']
+              spdx=base/('airgap_'+kind+'.spdx.json')
+              doc=json.loads(spdx.read_text())
+              assert doc['spdxVersion']=='SPDX-2.3' and len(doc['packages'])>0
+              vulnerabilities=json.loads((Path('ci_receipts/private_scan')/(kind+'-grype.json')).read_text())
+              matches=vulnerabilities.get('matches')
+              assert isinstance(matches,list)
+              severity={}
+              for match in matches:
+                  level=str(match['vulnerability'].get('severity','UNKNOWN')).upper()
+                  severity[level]=severity.get(level,0)+1
+              report['images'][kind]={
+                  'restored_local_image_id':img['Id'],
+                  'spdx_sha256':hashlib.sha256(spdx.read_bytes()).hexdigest(),
+                  'package_count':len(doc['packages']),
+                  'vulnerability_matches':len(matches),'by_severity':severity}
+          (base/'airgap_spdx_grype_receipt.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
+          print('F3_RELOADED_REAL_DOCKER_IMAGE_SPXD_GRYPE_SAME_SHA_PASS_RELEASE_HOLD')
+          PY
+          rm -rf ci_receipts/private_scan
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f3-real-app-only-local-docker-airgap-http-and-spdx-hold
+          path: |
+            ci_receipts/foundation/oci_airgap_restore_ci.json
+            ci_receipts/foundation/oci_airgap_receipt_checked.json
+            ci_receipts/foundation/airgap_spdx_grype_receipt.json
+            ci_receipts/foundation/airgap_api.spdx.json
+            ci_receipts/foundation/airgap_web.spdx.json
+          retention-days: 14
+          if-no-files-found: warn
