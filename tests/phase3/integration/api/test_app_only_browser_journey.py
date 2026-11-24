@@ -20,6 +20,8 @@ import sys
 import uuid
 from hashlib import sha256
 
+import jwt
+
 import httpx
 import psycopg
 from psycopg.rows import dict_row
@@ -29,7 +31,7 @@ from playwright.async_api import async_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path[:0] = [str(ROOT), str(ROOT / "tests/phase3/integration/ui")]
-from phase3_auth_demo import Demo, ORIGIN, available_port
+from phase3_auth_demo import Demo, ORIGIN, TITLE, SIGN_ISS, SIGN_AUD, SIGN_KID
 from src.phase3.storage.postgres import auth_session
 from apps.api import history_api
 
@@ -224,7 +226,7 @@ class AppOnlyBrowserDemo(Demo):
             clone_dsns = {key: make_conninfo(**{**value, "port": port, "dbname": dbname})
                           for key, value in source_dsns.items()}
             print("API_F3_BROWSER_INDEPENDENT_NEW_PG_VOLUME_RESTORE_PASS", flush=True)
-            yield clone_dsns
+            yield clone_dsns, new_id
         finally:
             # Exact resources generated in this invocation; no prune or
             # deletion of an existing CI/service or legacy volume.
@@ -234,6 +236,88 @@ class AppOnlyBrowserDemo(Demo):
                 docker("volume", "rm", volume)
             if made_network:
                 docker("network", "rm", network)
+
+    def spawn_restored(self, command, env=None):
+        # Demo.add names log files by the size of its current child list.
+        # After stopping children that can overwrite a still-open Next log.
+        # Each restarted service gets a new private file instead.
+        log = (self.root / ("restore-process-" + uuid.uuid4().hex + ".log")).open("wb")
+        try:
+            child = subprocess.Popen(command, cwd=ROOT, env=env,
+                                     stdout=log, stderr=log)
+        except BaseException:
+            log.close()
+            raise
+        self.children.append((child, log))
+        return child
+
+    def readiness(self, actor, *, wrong_audience=False, cert=True):
+        # Actual synthetic session from ordinary browser login. Proof built
+        # only for this CI API health endpoint; no browser-supplied owner.
+        now = int(time.time())
+        claims = {
+            "iss": SIGN_ISS, "aud": "urn:ci:wrong-audience" if wrong_audience else SIGN_AUD,
+            "iat": now, "nbf": now, "exp": now + 25,
+            "jti": secrets.token_urlsafe(24), "method": "GET",
+            "raw_path_sha256": sha256(b"/health/ready").hexdigest(),
+            "raw_query_sha256": sha256(b"").hexdigest(),
+            "body_sha256": sha256(b"").hexdigest(), "body_len": 0,
+            **actor,
+        }
+        token = jwt.encode(claims, self.product_signer, algorithm="RS256",
+                           headers={"typ":"JWT", "kid":SIGN_KID})
+        tls = ssl.create_default_context(cafile=self.ca)
+        if cert:
+            tls.load_cert_chain(self.client[0], self.client[1])
+        try:
+            with httpx.Client(verify=tls, trust_env=False, timeout=10) as client:
+                return client.get(self.product_origin + "/health/ready",
+                                  headers={"Authorization": "BFF-Assertion " + token})
+        except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError):
+            if not cert:
+                return None
+            raise
+
+    def check_restored_outage(self, actor, new_id):
+        assert re.fullmatch(r"[a-f0-9]{64}", new_id)
+        assert not new_id.startswith(os.environ["API_F3_ISOLATED_PG_CID"])
+        def command(*args):
+            result = subprocess.run(["docker", *args], capture_output=True,
+                                    timeout=30, check=False)
+            assert result.returncode == 0, "RESTORED_PG_CONTROL_FAILED"
+            return result.stdout
+        info = json.loads(command("inspect", new_id))[0]
+        assert info["Id"] == new_id and info["State"]["Running"]
+        assert re.fullmatch(r"[a-f0-9]{32}",
+                            info["Config"]["Labels"]["rag.finance.ci.restore"])
+        assert self.readiness(actor).status_code == 200
+        invalid = self.readiness(actor, wrong_audience=True)
+        assert invalid.status_code == 503
+        assert invalid.headers.get("cache-control") == "no-store"
+        without = self.readiness(actor, cert=False)
+        assert without is None or without.status_code == 401
+        stopped = False
+        try:
+            command("stop", "--time", "2", new_id)
+            stopped = True
+            denial = self.readiness(actor)
+            assert denial.status_code == 503
+            assert denial.json()["state"] == "unavailable"
+            assert denial.headers.get("cache-control") == "no-store"
+            assert "password" not in denial.text.lower()
+        finally:
+            if stopped:
+                command("start", new_id)
+        for _ in range(60):
+            try:
+                if self.readiness(actor).status_code == 200:
+                    break
+            except httpx.HTTPError:
+                pass
+            time.sleep(0.5)
+        else:
+            raise RuntimeError("RESTORED_PG_READINESS_NOT_RECOVERED")
+        print("API_F3_BROWSER_RESTORED_VOLUME_WRONG_SIGNER_PEER_OUTAGE_RECOVERY_PASS", flush=True)
 
     def switch_to_restored(self, dsns):
         """Retain ordinary Next/BFF origins; restart only isolated private services."""
@@ -251,7 +335,7 @@ class AppOnlyBrowserDemo(Demo):
         fd = os.open(worker_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as out:
             json.dump(worker, out)
-        self.bootstrap_process = super().add([*self.bootstrap_command[:-1], str(worker_path)])
+        self.bootstrap_process = self.spawn_restored([*self.bootstrap_command[:-1], str(worker_path)])
         env = {"PATH": os.environ["PATH"], "HOME": str(self.root), "LANG": "C.UTF-8",
                "PHASE3_APP_MODE": "APP_ONLY", "API_RUNNER_EXECUTION_MODE": "APP_ONLY",
                "API_CURSOR_KEY": self.api_env["API_CURSOR_KEY"],
@@ -278,7 +362,7 @@ class AppOnlyBrowserDemo(Demo):
         fd = os.open(cfg, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as out:
             json.dump(config, out)
-        self.api_process = super().add([sys.executable, "-m",
+        self.api_process = self.spawn_restored([sys.executable, "-m",
                                        "apps.api.private_app_only_asgi", "--config", str(cfg)], env)
         tls = ssl.create_default_context(cafile=self.ca)
         tls.load_cert_chain(self.client[0], self.client[1])
@@ -372,10 +456,32 @@ class AppOnlyBrowserDemo(Demo):
 
             # Repeat in a truly independent fresh PostgreSQL volume while
             # keeping real browser contexts and the original BFF signer.
-            with self.fresh_volume() as restored:
+            with self.fresh_volume() as (restored, restored_id):
                 try:
                     self.switch_to_restored(restored)
                     assert self.counts() == before
+                    self.check_restored_outage(raw_b, restored_id)
+                    # Normal login again, through the restored Bootstrap and
+                    # unchanged Next login route. Reuse the demo harness with
+                    # SQL-derived expected titles for the first page only.
+                    original_titles = TITLE["B"]
+                    TITLE["B"] = [row["title"] for row in expected["B"][:2]]
+                    try:
+                        fresh_ctx, fresh_b, _, fresh_raw = await self.browser_login(
+                            browser, "B", False, output)
+                        contexts.append(fresh_ctx)
+                        assert fresh_raw["owner_id"] == self.owners["B"]
+                        assert fresh_raw["session_ref"] != raw_b["session_ref"]
+                        with psycopg.connect(restored["AUTH_SESSION_DSN"], autocommit=True,
+                                             row_factory=dict_row) as restored_auth:
+                            assert auth_session.inspect(restored_auth, fresh_raw["session_ref"]) is not None
+                        with psycopg.connect(os.environ["AUTH_SESSION_DSN"], autocommit=True,
+                                             row_factory=dict_row) as original:
+                            assert auth_session.inspect(original, fresh_raw["session_ref"]) is None
+                        await expect(fresh_b.get_by_test_id("conversation-" + bid)).to_be_visible()
+                    finally:
+                        TITLE["B"] = original_titles
+                    print("API_F3_BROWSER_NEW_OIDC_LOGIN_AFTER_FRESH_VOLUME_RESTORE_PASS", flush=True)
                     for label, page in (("A", a), ("B", b)):
                         async with page.expect_response(
                             lambda r: "/api/history/conversations?limit=2" in r.url
