@@ -1668,6 +1668,61 @@ try {
                             sql.Identifier(dbname)))
         print("API_F3_REAL_BFF_PRIVATE_CLI_FRESH_DB_RESTORE_AB_CURSOR_REVOKE_PASS", flush=True)
 
+    def test_API011_23_farsi_draft_corpus_transport_denied_without_pg_effect(self):
+        """32 synthetic prompts, not a model/Policy test.
+
+        Real signed requests with both owners, valid product.v1 Send bodies.
+        No dispatch, user data, provider answer, or policy outcome is claimed.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        corpus = json.loads((ROOT / "tests/phase3/api/fixtures/"
+                             "fa_safety_review_draft.v1.json").read_text(encoding="utf-8"))
+        self.assertEqual(corpus["policy_status"], "UNAPPROVED")
+        a, b = self.login("A"), self.login("B")
+        jobs, replay_keys = [], []
+        for i, case in enumerate(corpus["cases"]):
+            self.assertIsNone(case["model_outcome"])
+            actor = (a, b)[i % 2]
+            payload = {"kind":"send_message_request", "contract_version":"product.v1",
+                       "requested_conversation_id":None,
+                       "client_message_id":uuid.uuid4().hex,
+                       "idempotency_key":"ci_fa_" + uuid.uuid4().hex,
+                       "question":case["question"]}
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            token, proof = self.signed(actor, "POST", "/v1/messages", body)
+            replay_keys.append(sha256((proof["iss"] + "\x00" + proof["jti"]).encode()).hexdigest())
+            jobs.append((token, body, case["question"]))
+        self.assertEqual(len(set(replay_keys)), 32)
+        with psycopg.connect(os.environ["DB_MIG_DSN"], autocommit=True,
+                             row_factory=dict_row) as db, psycopg.connect(
+                os.environ["AUTH_MIG_DSN"], autocommit=True, row_factory=dict_row) as auth:
+            def counts():
+                return db.execute("SELECT "
+                    "(SELECT count(*) FROM history_l1.conversations) AS conversations,"
+                    "(SELECT count(*) FROM history_l1.messages) AS messages,"
+                    "(SELECT count(*) FROM history_l1.send_receipts) AS t1,"
+                    "(SELECT count(*) FROM history_l1.execution_attempts) AS t2,"
+                    "(SELECT count(*) FROM history_l1.answers) AS t3").fetchone()
+            def replays():
+                return auth.execute("SELECT count(*) AS n FROM auth_l1.service_assertion_replays "
+                     "WHERE issuer_jti_sha256=ANY(%s)", (replay_keys,)).fetchone()["n"]
+            before = counts()
+            self.assertEqual(replays(), 0)
+            def check(job):
+                token, body, question = job
+                response = self.request("POST", "/v1/messages", token, body=body)
+                self.assertEqual(response.status_code, 503)
+                self.assertIn("ENGINE_NOT_CONFIGURED", response.text)
+                self.assertEqual(response.headers.get("cache-control"), "no-store")
+                self.assertNotIn(question, response.text)
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                list(pool.map(check, jobs))
+            self.assertEqual(counts(), before)
+            self.assertEqual(replays(), 0)
+        self.assertEqual(self.list(a).status_code, 200)
+        self.assertEqual(self.list(b).status_code, 200)
+        print("API_F3_FA_DRAFT_32_SIGNED_SEND_ZERO_SQL_REPLAY_PASS", flush=True)
+
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
         """Actual verified HTTPS callback, same pinned redirect for Code exchange."""
         from cryptography.hazmat.primitives import serialization
