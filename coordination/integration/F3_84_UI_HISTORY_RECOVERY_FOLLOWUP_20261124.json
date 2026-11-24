@@ -1,0 +1,19 @@
+{
+  "schema": "foundation.f3.ui_history_recovery_followup.v1",
+  "parent_sha": "e55f9ae8406f52fe0437bd442ac8cd4d946ef1bd",
+  "path": "apps/web/src/ui/product-chat.tsx",
+  "previous_blob_sha": "5f120827d93cbbf11e534c227cda82f55fbd83ec",
+  "candidate_blob_sha": "b1ba457f4a4eca179739b6a010993697c1633aa5",
+  "canonical_ids": [
+    "P3M14-A02",
+    "P3M14-A03",
+    "P3M14-A09",
+    "P3M14-A10",
+    "P3M15-A03"
+  ],
+  "scope": "CI_CANDIDATE_NOT_OWNER_ACCEPTANCE",
+  "owner_signed_acceptance": false,
+  "target_verified": false,
+  "canonical_activity_accepted": false,
+  "module_gate_accepted": false
+}

@@ -1,7 +1,7 @@
 name: F3 disposable local OCI archive reload and same-image scan — NON-RELEASE
 on:
   push:
-    branches: [agent/foundation-f3-84-31-message-restore-20261124, agent/ui-f3-122-signed-three-engine-20261124]
+    branches: [agent/foundation-f3-84-31-message-restore-20261124, agent/ui-f3-122-signed-three-engine-20261124, agent/ui-f3-124-real-outage-recovery-20261124]
   pull_request:
     branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124, agent/foundation-f3-84-31-message-restore-20261124]
   workflow_dispatch:
