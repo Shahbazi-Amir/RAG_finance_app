@@ -13,10 +13,11 @@ import sys
 from urllib.parse import urljoin
 from playwright.async_api import async_playwright, expect
 from test_app_only_browser_journey import AppOnlyBrowserDemo
+from signed_history_content_guard import SignedContentGuardMixin, assert_content_dom, TITLE, BODY
 
 ENGINES=("chromium","firefox","webkit")
 
-class OrderedSignedBrowserDemo(AppOnlyBrowserDemo):
+class OrderedSignedBrowserDemo(SignedContentGuardMixin, AppOnlyBrowserDemo):
     def check_restored_outage(self, actor, new_id):
         super().check_restored_outage(actor,new_id)
         self.browser_restore_pg_id=new_id
@@ -74,6 +75,42 @@ class OrderedSignedBrowserDemo(AppOnlyBrowserDemo):
         await expect(page.get_by_test_id("history-send")).to_be_disabled()
         assert self.counts()==before
         print("F3_SIGNED_REAL_PG_OUTAGE_UI_HIDDEN_RETRY_RECOVERY_NO_STALE_ALERT_PASS",flush=True)
+
+    async def verify_signed_reload(self,page,conversation_id,rows,owner):
+        # Actual full document reload, not an intercepted API or in-memory state.
+        # Reopen the same persisted conversation through ordinary UI and prove
+        # 30+1 IDs and exact bodies against the independent SQL expectation.
+        before=self.counts()
+        mutations=[]
+        def record(request):
+            if "/api/" in request.url and request.method in ("POST","PUT","PATCH","DELETE"):
+                mutations.append(request.method)
+        page.on("request",record)
+        try:
+            async with page.expect_response(
+                lambda r: "/api/history/conversations?limit=2" in r.url
+                and "cursor=" not in r.url and r.request.method=="GET",timeout=30000) as wait:
+                response=await page.reload(wait_until="domcontentloaded")
+            assert response.status==200
+            result=await wait.value
+            assert result.status==200
+            doc=await result.json()
+            assert doc["scope_user_id"]==owner
+            assert any(x["conversation_id"]==conversation_id and x["title"]==TITLE
+                       for x in doc["items"])
+            await expect(page.get_by_test_id("conversation-"+conversation_id)).to_be_visible()
+            await page.get_by_test_id("conversation-"+conversation_id).click()
+            await AppOnlyBrowserDemo.verify_31_message_page2(self,page,conversation_id,rows,owner)
+            nodes=page.locator('[data-testid^="history-message-"]')
+            actual=await nodes.evaluate_all("(nodes) => nodes.map(n => n.getAttribute('data-testid'))")
+            assert actual==["history-message-"+row["id"] for row in rows]
+            await assert_content_dom(page,conversation_id,self.guard_mid,TITLE,BODY,self.guard_foreign_body)
+            await expect(page.get_by_test_id("more-messages")).to_have_count(0)
+            await expect(page.get_by_test_id("history-send")).to_be_disabled()
+            assert not mutations and self.counts()==before
+            print("F3_SIGNED_FULL_RELOAD_31_LITERAL_IDS_ZERO_MUTATION_PASS",flush=True)
+        finally:
+            page.remove_listener("request",record)
 
     async def verify_signed_account(self,page,owner):
         # Ordinary authenticated browser context, actual Next account route.
@@ -141,6 +178,7 @@ class OrderedSignedBrowserDemo(AppOnlyBrowserDemo):
         print("F3_SIGNED_31_DOM_EXACT_ORDER_RTL_TERMINAL_PASS",flush=True)
         if self.exact_order_witnesses==2:
             await self.real_browser_outage_recovery(page,conversation_id,rows,expected_owner)
+            await self.verify_signed_reload(page,conversation_id,rows,expected_owner)
             await self.verify_signed_keyboard(page)
             await self.verify_signed_account(page,expected_owner)
 
@@ -161,6 +199,7 @@ async def run(engine):
             finally:
                 await browser.close()
         assert demo.exact_order_witnesses==2
+        assert demo.content_guard_witnesses==3, 'SIGNED_CONTENT_GUARD_CHECKPOINT_COUNT'
         print("API_F3_REAL_NEXT_BROWSER_NONROOT_OCI_API_TLS_PG_JOURNEY_PASS",flush=True)
         print("F3_SIGNED_ENGINE_COMPLETE="+engine,flush=True)
     finally:

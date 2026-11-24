@@ -2,7 +2,7 @@ name: F3 #84 one-SHA full source 393 and app-only 42 bounded CI witness regressi
 
 on:
   push:
-    branches: [agent/foundation-f3-84-31-message-restore-20261124, agent/ui-f3-122-signed-three-engine-20261124, agent/ui-f3-124-real-outage-recovery-20261124, agent/ui-f3-128-thread-retry-account-20261124]
+    branches: [agent/foundation-f3-84-31-message-restore-20261124, agent/ui-f3-122-signed-three-engine-20261124, agent/ui-f3-124-real-outage-recovery-20261124, agent/ui-f3-128-thread-retry-account-20261124, agent/ui-f3-129-content-guard-refresh-20261125]
   pull_request:
     branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124, agent/foundation-f3-84-31-message-restore-20261124]
   workflow_dispatch:
