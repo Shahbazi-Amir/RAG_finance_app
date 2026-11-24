@@ -138,6 +138,13 @@ class AppOnlyActualNetwork(unittest.TestCase):
                     self.assertIn(b"HTTP/1.1 503", send)
                     self.assertIn(b"ENGINE_NOT_CONFIGURED", send)
                     self.assertNotIn(b"FORBIDDEN", send)
+                    for alias in ("/v1/%6dessages", "/v1%2Fmessages",
+                                  "/v1/messages/", "/v1/messages%2f"):
+                        with self.subTest(alias=alias):
+                            denied = await call("POST", alias, "bff", b"not JSON")
+                            self.assertIn(b"HTTP/1.1 503", denied)
+                            self.assertIn(b"ENGINE_NOT_CONFIGURED", denied)
+                            self.assertNotIn(b"FORBIDDEN", denied)
                     self.assertIn(b"no-store", send.lower())
                     no_cert = await call("POST", "/v1/messages", None, b"data")
                     wrong = await call("GET", "/internal/ready", "other")

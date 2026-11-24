@@ -2,7 +2,7 @@ name: FOUNDATION F3 exact-branch full isolated app-only source images and PG17.1
 
 on:
   push:
-    branches: [integration/f3-foundation-history-two-users-20261124]
+    branches: [integration/f3-foundation-history-two-users-20261124, integration/f3-foundation-send-fence-restore-20261124]
   workflow_dispatch:
 
 permissions:

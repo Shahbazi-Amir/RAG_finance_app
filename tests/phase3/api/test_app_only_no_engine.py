@@ -174,7 +174,7 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             return {"kind": "fixture_history"}
         wrapper = AppOnlyASGI(app, FakeProfile())
 
-        async def invoke(path, method, trusted, mode="APP_ONLY"):
+        async def invoke(path, method, trusted, mode="APP_ONLY", raw_path=None):
             receive_reads = []
             emitted = []
             async def recv():
@@ -185,7 +185,7 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             scope = {
                 "type": "http", "scheme": "https" if trusted else "http",
                 "trusted_transport_test": trusted,
-                "path": path, "raw_path": path.encode(),
+                "path": path, "raw_path": path.encode() if raw_path is None else raw_path,
                 "method": method, "query_string": b"", "headers": [],
                 "http_version": "1.1",
             }
@@ -208,6 +208,20 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             self.assertEqual({k.lower(): v for k, v in headers.items()}[b"cache-control"], b"no-store")
             self.assertFalse(reads)
             self.assertNotIn(b"unsafe", body)
+        for decoded, raw in (
+            ("/v1/messages", b"/v1/%6dessages"),
+            ("/v1/messages", b"/%76%31/messages"),
+            ("/v1/messages", b"/v1%2Fmessages"),
+            ("/v1/messages/", b"/v1/messages/"),
+            ("/v1/messages/", b"/v1/messages%2f"),
+        ):
+            with self.subTest(raw=raw):
+                status, headers, body, reads = asyncio.run(
+                    invoke(decoded, "POST", True, raw_path=raw))
+                self.assertEqual(status, 503)
+                self.assertIn(b"ENGINE_NOT_CONFIGURED", body)
+                self.assertEqual(headers[b"cache-control"], b"no-store")
+                self.assertFalse(reads)
         self.assertEqual(calls["app"], 0)
 
     def test_bff_only_history_is_routed_but_not_created_here(self):

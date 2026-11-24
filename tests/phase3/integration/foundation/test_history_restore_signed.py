@@ -293,9 +293,26 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
         denied=h.request("GET",foreign_path,
                          h.signed(b,method="GET",path=foreign_path)[0])
         self.assertEqual(denied.status_code,404,denied.text[:500])
-        direct=h.request("POST","/v1/messages",body=b'{"question":"NO_DISPATCH"}')
-        self.assertEqual(direct.status_code,503)
-        self.assertIn("ENGINE_NOT_CONFIGURED",direct.text)
+        # Test both ownership directions on the actual restored private API.
+        for caller, foreign_ids in ((a, new_b), (b, new_a)):
+            for foreign in foreign_ids:
+                path="/v1/conversations/"+foreign+"/messages"
+                response=h.request("GET",path,h.signed(caller,"GET",path)[0])
+                self.assertEqual(response.status_code,404)
+        # A valid one-use assertion must not be accepted twice after restore.
+        for actor in (a,b):
+            proof=h.signed(actor)[0]
+            self.assertEqual(h.list(actor,token=proof).status_code,200)
+            self.assertEqual(h.list(actor,token=proof).status_code,401)
+        # Encoded / slash aliases must be denied before even invalid JSON is
+        # parsed; run twice to cover retries on the real signed runtime.
+        for _ in range(2):
+            for path in ("/v1/messages","/v1/%6dessages","/v1%2Fmessages",
+                         "/v1/messages/","/v1/messages%2f"):
+                direct=h.request("POST",path,body=b"not valid JSON")
+                self.assertEqual(direct.status_code,503)
+                self.assertIn("ENGINE_NOT_CONFIGURED",direct.text)
+                self.assertEqual(direct.headers.get("cache-control"),"no-store")
         with connect(5433,db="history_restore_f3_ci",extra=trusted) as c:
             after_send=c.execute("SELECT count(*) FROM history_l1.send_receipts").fetchone()[0]
             self.assertEqual(receipts_before,after_send)
@@ -336,6 +353,9 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
             "owner_B_direct_A_detail":404,
             "send":503,
             "send_durable_receipts_unchanged":True,
+            "all_restored_cross_owner_ids_bidirectional_404":True,
+            "restored_signed_assertion_replay_both_owners_401":True,
+            "send_aliases_repeated_invalid_json_503":True,
             "revoke_A":200,"stale_A":401,"B_after_revoke":200,
             "pg_stop_readiness":503,
             "pg_restart_readiness":200,
