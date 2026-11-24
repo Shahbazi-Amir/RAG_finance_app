@@ -1,7 +1,7 @@
 name: F3 DB physical WAL timestamp PITR (disposable only)
 on:
   pull_request:
-    branches: [agent/db-f3-118-compose-31-pitr-common-20261124]
+    branches: [agent/db-f3-common-oci-rehydrate-real-read-lock-20261124]
     paths:
       - 'infra/postgres/dev_f3_isolated/scripts/29_physical_pitr_ci.sh'
       - '.github/workflows/f3-db-physical-pitr-ci.yml'

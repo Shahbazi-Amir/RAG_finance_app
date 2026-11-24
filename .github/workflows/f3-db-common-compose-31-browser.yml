@@ -2,7 +2,7 @@ name: F3 DB common exact-tree both-side Compose 31 messages and restricted SQL
 
 on:
   pull_request:
-    branches: [agent/db-f3-118-compose-31-pitr-common-20261124]
+    branches: [agent/db-f3-common-oci-rehydrate-real-read-lock-20261124]
   workflow_dispatch:
 permissions:
   contents: read
@@ -48,6 +48,7 @@ jobs:
       REPLAY_API_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_trust_api password=synthetic_replay_api_only connect_timeout=5
       REPLAY_CLEANER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_replay_cleaner password=synthetic_replay_clean_only connect_timeout=5
       DB_APP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB55_CI_AUDITOR_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=f3_db55_ci_auditor password=synthetic_db55_auditor_only connect_timeout=5
       DB_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
       DB_SEEDED_APP_DSN: host=127.0.0.1 port=5432 dbname=history_seeded_ci user=history_app password=synthetic_app_only connect_timeout=5
       DB_SEEDED_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_seeded_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
@@ -99,6 +100,7 @@ jobs:
           psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE history_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_mig_only';
           CREATE ROLE history_app LOGIN PASSWORD 'synthetic_app_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE f3_db55_ci_auditor LOGIN PASSWORD 'synthetic_db55_auditor_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
           CREATE ROLE auth_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_auth_migrator_only' NOSUPERUSER;
           GRANT pg_read_all_stats TO auth_migrator;
           CREATE ROLE auth_mapper LOGIN PASSWORD 'synthetic_mapper_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
@@ -144,7 +146,7 @@ jobs:
           GRANT CONNECT,CREATE ON DATABASE history_legacy_ci TO history_migrator;
           GRANT CONNECT,CREATE ON DATABASE history_seeded_ci TO history_migrator;
           GRANT CONNECT,CREATE ON DATABASE history_rollback_ci TO history_migrator;
-          GRANT CONNECT ON DATABASE history_ci TO history_app;
+          GRANT CONNECT ON DATABASE history_ci TO history_app,f3_db55_ci_auditor;
           GRANT CONNECT ON DATABASE history_legacy_ci TO history_app;
           GRANT CONNECT ON DATABASE history_seeded_ci TO history_app;
           GRANT CONNECT ON DATABASE history_rollback_ci TO history_app;
@@ -201,6 +203,7 @@ jobs:
           COMMIT;
           SQL
           f3_prove_failed_migration_intent
+          PGPASSWORD="$F3_LEDGER_ADMIN_PASSWORD" python tests/phase3/integration/api/db_actual_migration_interrupt_ci.py
           f3_ledger_apply 002 infra/postgres/migrations/002_one_attempt.up.sql
           psql -d history_legacy_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
           # Separate synthetic chain seed: 001 first; acceptance test applies 002.
@@ -409,6 +412,7 @@ jobs:
           assert db["actual_oci_read_revoke_blocking_pid_chain"] is True
           assert db["migration_ledger_rows"]==10 and db["force_rls_tables"]==14 and db["data_bearing_up"]==9
           assert db["actual_failed_002_no_autoretry"] is True
+          assert db["actual_interrupted_002_no_autoretry"] is True and db["db55_pinned_readonly_auditor_checkpoints"]==6
           assert db["source_tls"]==db["restored_tls"]=="VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN"
           web=json.loads(subprocess.check_output(["docker","image","inspect","f3-compose-browser-web:"+sha]))[0]
           assert web["Id"]==r["web_image_id"] and web["Config"]["Labels"]["org.opencontainers.image.revision"]==sha
