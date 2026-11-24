@@ -18,6 +18,7 @@ from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.responses import JSONResponse
 from jsonschema import ValidationError
 from starlette.concurrency import run_in_threadpool
+from starlette.requests import ClientDisconnect
 from psycopg import IsolationLevel
 from psycopg.rows import dict_row
 
@@ -821,6 +822,12 @@ async def session_revoke_one(request: Request):
                 or request.headers.get("content-type", "").split(";")[0] != "application/json"
                 or len(request.headers.getlist("content-length")) > 1):
             return _err(422, "INVALID_REQUEST")
+        declared = request.headers.get("content-length")
+        if declared is not None:
+            if not declared.isdecimal():
+                return _err(422, "INVALID_REQUEST")
+            if int(declared) > 512:
+                return _err(413, "REQUEST_TOO_LARGE")
         chunks = []
         total = 0
         async for part in request.stream():
@@ -829,10 +836,8 @@ async def session_revoke_one(request: Request):
                 return _err(413, "REQUEST_TOO_LARGE")
             chunks.append(part)
         raw = b"".join(chunks)
-        if request.headers.get("content-length") is not None:
-            value = request.headers["content-length"]
-            if not value.isdecimal() or int(value) != len(raw):
-                return _err(422, "INVALID_REQUEST")
+        if declared is not None and int(declared) != len(raw):
+            return _err(422, "INVALID_REQUEST")
         def no_duplicates(pairs):
             x = {}
             for key, value in pairs:
@@ -854,7 +859,7 @@ async def session_revoke_one(request: Request):
     except AdmissionSerializationUnavailable:
         # No committed revoke is proven by a failed/unknown DB transaction.
         return _err(503, "REVOKE_OUTCOME_UNKNOWN")
-    except (json.JSONDecodeError, UnicodeError, ValueError, KeyError):
+    except (ClientDisconnect, json.JSONDecodeError, UnicodeError, ValueError, KeyError):
         return _err(422, "INVALID_REQUEST")
     except (psycopg.Error, RuntimeError, OSError, TypeError):
         return _err(503, "REVOKE_OUTCOME_UNKNOWN")

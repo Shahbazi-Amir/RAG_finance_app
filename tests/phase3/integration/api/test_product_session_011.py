@@ -1124,6 +1124,64 @@ class RealProductSession011(unittest.TestCase):
         self.assertIn(cid, [row["conversation_id"] for row in history.json()["items"]])
         print("API_F3_REAL_SIGNED_READY_HISTORY_GRANT_DOWN_503_RECOVERY_PASS", flush=True)
 
+    def test_API011_16_real_pg_revocation_lock_does_not_stall_other_owner_or_send(self):
+        """Real PG row lock + HTTPS: A waits for revoke; B still reads History."""
+        from concurrent.futures import ThreadPoolExecutor
+        a, b = self.login("A"), self.login("B")
+        self.assertNotEqual(a["owner_id"], b["owner_id"])
+        bid = self.seed(b, "CI_UNBLOCKED_HISTORY_" + uuid.uuid4().hex)
+        body = json.dumps({"operation_id": str(uuid.uuid4())}).encode()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            with psycopg.connect(os.environ["AUTH_MIG_DSN"], autocommit=True,
+                                 row_factory=dict_row) as holder:
+                with psycopg.connect(os.environ["AUTH_MIG_DSN"], autocommit=True,
+                                     row_factory=dict_row) as observer:
+                    with holder.transaction():
+                        locked = holder.execute(
+                            "SELECT owner_id FROM auth_l1.owners "
+                            "WHERE owner_id=%s FOR UPDATE", (a["owner_id"],)
+                        ).fetchone()
+                        self.assertEqual(locked["owner_id"], a["owner_id"])
+                        blocker = holder.info.backend_pid
+                        token = self.signed(a, "POST", REVOKE, body)[0]
+                        pending = pool.submit(self.request, "POST", REVOKE,
+                                              token, body=body)
+                        deadline = time.monotonic() + 4
+                        observed_lock = False
+                        while time.monotonic() < deadline:
+                            self.assertFalse(pending.done(), "Revoke did not wait")
+                            observed_lock = observer.execute(
+                                "SELECT EXISTS (SELECT 1 FROM pg_stat_activity "
+                                "WHERE usename='auth_revoker' AND wait_event_type='Lock' "
+                                "AND %s=ANY(pg_blocking_pids(pid))) AS blocked",
+                                (blocker,)
+                            ).fetchone()["blocked"]
+                            if observed_lock:
+                                break
+                            time.sleep(0.05)
+                        self.assertTrue(observed_lock, "No actual PG lock observed")
+                        # Independent B must succeed before A's lock is released.
+                        other = pool.submit(self.list, b).result(timeout=4)
+                        self.assertEqual(other.status_code, 200, other.text)
+                        self.assertIn(bid, [row["conversation_id"]
+                                            for row in other.json()["items"]])
+                        send_body = b"invalid-app-only-body"
+                        signed_send = self.signed(
+                            b, "POST", "/v1/messages", send_body)[0]
+                        denied = pool.submit(
+                            self.request, "POST", "/v1/messages", signed_send,
+                            body=send_body).result(timeout=3)
+                        self.assertEqual(denied.status_code, 503, denied.text)
+                        self.assertIn("ENGINE_NOT_CONFIGURED", denied.text)
+                        self.assertFalse(pending.done())
+                    # The temporary blocker COMMITs here even on exceptions.
+                    revoked = pending.result(timeout=10)
+                    self.assertEqual(revoked.status_code, 200, revoked.text)
+                    self.assertEqual(revoked.json()["state"], "REVOKED_COMMITTED")
+        self.assertEqual(self.list(a).status_code, 401)
+        self.assertEqual(self.list(b).status_code, 200)
+        print("API_F3_REAL_PG_REVOKE_LOCK_OTHER_OWNER_HISTORY_AND_SEND_PASS", flush=True)
+
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
         """Actual verified HTTPS callback, same pinned redirect for Code exchange."""
         from cryptography.hazmat.primitives import serialization

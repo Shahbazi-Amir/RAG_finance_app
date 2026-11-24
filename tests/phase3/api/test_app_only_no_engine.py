@@ -629,5 +629,55 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         asyncio.run(scenario())
 
 
+    def test_revoke_declared_size_and_disconnect_never_reach_commit(self):
+        """Reject oversized/ambiguous headers early and truncated bodies safely."""
+        from apps.api import product_session_api
+        wrapper = AppOnlyASGI(product_session_api.app, FakeProfile())
+        path = "/internal/auth/session/v1/revoke-one"
+
+        async def invoke(headers, input_events, status):
+            received, events = [], []
+            async def receive():
+                received.append(True)
+                if not input_events:
+                    raise AssertionError("HEADER_DENIAL_MUST_NOT_READ")
+                return input_events.pop(0)
+            async def send(event):
+                events.append(event)
+            scope = {
+                "type": "http", "scheme": "https", "trusted_transport_test": True,
+                "path": path, "raw_path": path.encode(), "root_path": "",
+                "method": "POST", "query_string": b"", "http_version": "1.1",
+                "headers": [(b"content-type", b"application/json"), *headers],
+                "client": ("127.0.0.1", 12345), "server": ("test.invalid", 443),
+            }
+            await wrapper(scope, receive, send)
+            start = next(e for e in events if e["type"] == "http.response.start")
+            self.assertEqual(start["status"], status)
+            self.assertEqual(dict(start["headers"])[b"cache-control"], b"no-store")
+            return received
+
+        async def scenario():
+            self.assertEqual(await invoke([(b"content-length", b"513")], [], 413), [])
+            self.assertEqual(await invoke([(b"content-length", b"invalid")], [], 422), [])
+            self.assertEqual(await invoke(
+                [(b"content-length", b"1"), (b"content-length", b"1")],
+                [], 422), [])
+            self.assertEqual(len(await invoke([(b"content-length", b"42")], [
+                {"type": "http.request", "body": b"{", "more_body": True},
+                {"type": "http.disconnect"},
+            ], 422)), 2)
+            self.assertEqual(len(await invoke([(b"content-length", b"42")], [
+                {"type": "http.request", "body": b"{}", "more_body": False},
+            ], 422)), 1)
+
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}):
+            with patch.object(product_session_api, "_PRIVATE_STAGING_PROFILE", None):
+                with patch.object(product_session_api, "_revoke_committed",
+                                  side_effect=AssertionError("NO_DB_ADMISSION")) as commit:
+                    asyncio.run(scenario())
+                    commit.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
