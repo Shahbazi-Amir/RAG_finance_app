@@ -98,6 +98,57 @@ class AppOnlyBrowserDemo(Demo):
                        (owner, mid, cid, message))
         return cid, mid, message
 
+    def seed_31_source_messages(self, label, conversation_id):
+        """31 genuine PostgreSQL History rows; NEVER Send/Engine/Answer fixture.
+
+        These belong only to this disposable integration lab and are written
+        by its isolated DB migrator. The user-facing API and React DOM still
+        read them through actual signed History requests from Keycloak owners.
+        """
+        owner = self.owners[label]
+        with psycopg.connect(os.environ["DB_MIG_DSN"], autocommit=True,
+                             row_factory=dict_row) as db:
+            existing = db.execute(
+                "SELECT id FROM history_l1.messages WHERE owner_id=%s "
+                "AND conversation_id=%s ORDER BY created_at,id",
+                (owner, conversation_id)).fetchall()
+            assert len(existing) == 1, "LAB_REQUIRES_EXACT_ONE_INITIAL_MESSAGE"
+            for sequence in range(2, 32):
+                db.execute(
+                    "INSERT INTO history_l1.messages "
+                    "(owner_id,id,conversation_id,role,body) "
+                    "VALUES (%s,%s,%s,'user',%s)",
+                    (owner, history_api.uid(), conversation_id,
+                     "پیام آزمایشی پایدار " + label + " " + str(sequence)))
+            rows = db.execute(
+                "SELECT id,body FROM history_l1.messages WHERE owner_id=%s "
+                "AND conversation_id=%s ORDER BY created_at,id",
+                (owner, conversation_id)).fetchall()
+        assert len(rows) == 31 and len({row["id"] for row in rows}) == 31
+        assert rows[0]["id"] == existing[0]["id"]
+        return rows
+
+    async def verify_31_message_page2(self, page, conversation_id, rows, expected_owner):
+        """Real Chromium React DOM consumes two signed BFF/API SQL pages."""
+        assert len(rows) == 31
+        await expect(page.locator('[data-testid^="history-message-"]')).to_have_count(30)
+        await expect(page.get_by_test_id("more-messages")).to_be_visible()
+        async with page.expect_response(
+            lambda r: "/api/history/conversations/" + conversation_id + "/messages?" in r.url
+            and "cursor=" in r.url and r.request.method == "GET"
+        ) as wait:
+            await page.get_by_test_id("more-messages").click()
+        response = await wait.value
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["owner_user_id"] == expected_owner
+        assert payload["conversation_id"] == conversation_id
+        assert payload["page"]["has_more"] is False
+        assert [m["message_id"] for m in payload["items"]] == [rows[30]["id"]]
+        await expect(page.locator('[data-testid^="history-message-"]')).to_have_count(31)
+        for row in rows:
+            await expect(page.get_by_test_id("history-message-" + row["id"])).to_contain_text(row["body"])
+
     def sql_history(self, label):
         with psycopg.connect(os.environ["DB_MIG_DSN"], autocommit=True,
                              row_factory=dict_row) as db:
@@ -651,6 +702,7 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
             assert raw_a["owner_id"] != raw_b["owner_id"]
             print("API_F3_BROWSER_REAL_OIDC_COOKIE_AB_PASS", flush=True)
             aid, mid, message = self.seed_extra("A")
+            message_rows = self.seed_31_source_messages("A", aid)
             bid, _, _ = self.seed_extra("B")
             expected = {label: self.sql_history(label) for label in ("A", "B")}
             assert all(len(rows) == 3 for rows in expected.values())
@@ -697,8 +749,13 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
             assert detail.status == 200
             doc = await detail.json()
             assert doc["owner_user_id"] == self.owners["A"]
+            assert len(doc["items"]) == 30 and doc["page"]["has_more"] is True
+            assert [x["message_id"] for x in doc["items"]] == [
+                row["id"] for row in message_rows[:30]]
             assert any(x["message_id"] == mid and x["text"] == message for x in doc["items"])
-            await expect(a.get_by_test_id("history-message-" + mid)).to_contain_text(message)
+            await self.verify_31_message_page2(
+                a, aid, message_rows, self.owners["A"])
+            print("API_F3_BROWSER_REAL_31_MESSAGE_PAGE2_PRE_RESTORE_PASS", flush=True)
             denial = await b.evaluate("""async id => {
                 const r=await fetch('/api/history/conversations/'+id+'/messages?limit=2',
                     {cache:'no-store'}); return {status:r.status,body:await r.text()};
@@ -786,8 +843,15 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
                         lambda r: "/api/history/conversations/" + aid + "/messages?" in r.url
                         and r.request.method == "GET") as wait:
                         await a.get_by_test_id("conversation-" + aid).click()
-                    assert (await wait.value).status == 200
-                    await expect(a.get_by_test_id("history-message-" + mid)).to_contain_text(message)
+                    restored_response = await wait.value
+                    assert restored_response.status == 200
+                    restored_doc = await restored_response.json()
+                    assert len(restored_doc["items"]) == 30 and restored_doc["page"]["has_more"] is True
+                    assert [x["message_id"] for x in restored_doc["items"]] == [
+                        row["id"] for row in message_rows[:30]]
+                    await self.verify_31_message_page2(
+                        a, aid, message_rows, self.owners["A"])
+                    print("API_F3_BROWSER_REAL_31_MESSAGE_PAGE2_POST_RESTORE_PASS", flush=True)
                     denial = await b.evaluate("""async id => {
                         const r=await fetch('/api/history/conversations/'+id+'/messages?limit=2',
                             {cache:'no-store'}); return {status:r.status,body:await r.text()};
@@ -799,6 +863,21 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
                     await expect(a.get_by_test_id("conversation-" + aid)).to_be_visible()
                     assert self.counts() == before
                     print("API_F3_BROWSER_RESTORED_VOLUME_PG_HTTP_DOM_AB_PASS", flush=True)
+                    # The SAME real signed two-owner React page is tested at
+                    # 320px: keyboard modal drawer, Escape focus return and
+                    # disabled Send. This is Chromium CI, NOT Safari/VoiceOver.
+                    await a.set_viewport_size({"width": 320, "height": 720})
+                    menu = a.get_by_role("button", name="بازکردن فهرست گفت‌وگوها")
+                    await menu.click()
+                    await expect(a.get_by_role("button", name="بستن فهرست")).to_be_focused()
+                    await a.keyboard.press("Escape")
+                    await expect(menu).to_be_focused()
+                    await expect(a.get_by_test_id("history-send")).to_be_disabled()
+                    assert await a.evaluate(
+                        "() => document.documentElement.scrollWidth <= window.innerWidth + 1"), (
+                            "SIGNED_HISTORY_HORIZONTAL_OVERFLOW_320")
+                    await a.set_viewport_size({"width": 1280, "height": 800})
+                    print("API_F3_REAL_SIGNED_320PX_DRAWER_ESCAPE_FOCUS_SEND_DISABLED_PASS", flush=True)
                     # Existing live ordinary browser logout; no cookie injected.
                     logout = await ca.new_page()
                     await logout.goto(ORIGIN + "/login")
