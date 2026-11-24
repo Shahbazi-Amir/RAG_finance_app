@@ -142,6 +142,7 @@ echo "APP_ONLY_REAL_NEXT_BFF_${phase^^}_TO_ACTUAL_MTLS_SIGNED_PG_HISTORY=PASS"
 }
 run_bff before
 run_probe snapshot_source
+run_probe catalog_source
 echo APP_ONLY_REAL_NEXT_BFF_SOURCE_TO_ACTUAL_MTLS_SIGNED_PG_HISTORY=PASS
 dump="$LAB_WORK/f3_http_ab.dump"
 compose exec -T lab-db pg_dump -U postgres -d "$src" -Fc > "$dump"
@@ -149,12 +150,16 @@ compose exec -T lab-db pg_dump -U postgres -d "$src" -Fc > "$dump"
 shasum -a 256 "$dump" > "$dump.sha256"
 chmod 0600 "$dump" "$dump.sha256"
 shasum -a 256 -c "$dump.sha256" > /dev/null
+sudo install -o 11001 -g 11001 -m 0600 "$dump" "$probe_dir/private/aead_input.dump"
+run_probe authenticated_backup
 admin restore-db -c "CREATE DATABASE $dst OWNER postgres" >/dev/null
 admin restore-db -c "REVOKE CONNECT,TEMP ON DATABASE $dst FROM PUBLIC" >/dev/null
 admin restore-db -c "GRANT CONNECT ON DATABASE $dst TO history_app,auth_mapper,auth_sessions,auth_revoker" >/dev/null
-compose exec -T restore-db pg_restore -U postgres -d "$dst" < "$dump" > "$LAB_WORK/f3_http_ab_restore.log" 2>&1 || {
+sudo cat "$probe_dir/private/aead_verified_restore.dump" | compose exec -T restore-db pg_restore -U postgres -d "$dst" > "$LAB_WORK/f3_http_ab_restore.log" 2>&1 || {
  echo STOP_AB_HTTP_RESTORE_FAILED >&2; exit 70;
 }
+sudo rm "$probe_dir/private/aead_verified_restore.dump"
+echo DB_AUTHENTICATED_BACKUP_ACTUAL_PG_RESTORE=PASS
 [[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM db55_audit.migration_runs WHERE status='APPLIED'")" == 10 ]] || exit 70
 [[ "$(DB_SERVICE=lab-db DB_NAME="$src" dbpsql -Atc "SELECT count(*) FROM history_l1.conversations")" == 8 ]] || exit 70
 [[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM history_l1.conversations")" == 8 ]] || exit 70
@@ -163,6 +168,7 @@ dst_id="$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc 'SELECT system_identi
 [[ -n "$src_id" && -n "$dst_id" && "$src_id" != "$dst_id" ]] || exit 70
 # Source and second cluster use the same ephemeral session value; a fresh
 # signed proof must still pass DB session epoch/generation and durable replay.
+run_probe catalog_restore
 run_probe snapshot_restore
 run_probe after
 run_bff after
@@ -238,6 +244,10 @@ report={
  "sql_independent_history_snapshot":"EXACT_PARITY_SOURCE_RESTORE_A5_B3_M4_M2_ZERO_SEND",
  "m10_process_crash":"REAL_SIGKILL_T1_T2_PRE_POST_COMMIT_REPLAY_IDS_STABLE",
  "m10_process_crash_scope":"TRUSTED_REPOSITORY_FIXTURE_NOT_HTTP_SEND_NO_DISPATCH",
+ "backup_aead":"AES256_GCM_ACTUAL_PG_RESTORE_WRONG_KEY_TAMPER_TRUNCATION_AAD_DENIED",
+ "backup_key_custody":"EPHEMERAL_MEMORY_ONLY_NOT_PRODUCTION_KMS_OR_RETENTION",
+ "catalog_parity":"SIX_TABLES_COLUMNS_CONSTRAINTS_INDEXES_RLS_EXACT_SOURCE_RESTORE",
+ "keyset_index_paths":"FORCED_PLANNER_ELIGIBILITY_NOT_LATENCY_BENCHMARK",
  "two_owner_conversations":[5,3],
  "two_owner_messages":[4,2],
  "authenticated_session_revoke_after_restore":"A_DENIED_B_ALLOWED",
