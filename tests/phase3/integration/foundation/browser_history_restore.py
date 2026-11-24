@@ -440,9 +440,23 @@ async def execute():
             stale=await page_a.request.get(
                 ORIGIN+"/api/history/conversations?limit=2")
             assert stale.status==401,("REVOKED_A_STILL_READS",stale.status)
+            # Actual old React tab must purge all A DOM state after it reads
+            # the revoked server session. A raw 401 alone is insufficient.
+            async with page_a.expect_response(
+                lambda r: r.request.method=="GET"
+                and "/api/history/conversations?limit=2" in r.url,
+                timeout=20000) as revoked_ui:
+                await page_a.get_by_test_id("refresh-history").click()
+            assert (await revoked_ui.value).status==401
+            await expect(page_a.get_by_test_id("history-login-required")
+                         ).to_be_visible(timeout=12000)
+            await expect(page_a.locator('[data-testid^="conversation-"]')).to_have_count(0)
+            await expect(page_a.locator('[data-testid^="history-message-"]')).to_have_count(0)
             surviving=await page_b.request.get(
                 ORIGIN+"/api/history/conversations?limit=2")
             assert surviving.status==200
+            # A's revoke MUST NOT erase unrelated B's visible history.
+            await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
             await foreign_owner_denied(page_b,ids_a)
             result={
                 "schema":"foundation.f3.real_browser_pg_restored_same_context.v1",
@@ -465,6 +479,7 @@ async def execute():
                 "signed_history_a_after_restore":200,
                 "signed_history_b_after_restore":200,
                 "old_a_after_revoke":401,
+                "react_old_a_dom_cleared_and_b_own_history_intact":True,
                 "b_alive_after_a_revoke":200,
                 "engine_calls":0,
                 "sql_011":False,
