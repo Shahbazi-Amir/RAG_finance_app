@@ -31,9 +31,16 @@ sys.path[:0]=[
  str(ROOT/"tests/phase3/integration/foundation"),
  str(ROOT),
 ]
-from phase3_auth_demo import Demo,ORIGIN
+from phase3_auth_demo import Demo,ORIGIN,SIGN_ISS,SIGN_AUD,SIGN_KID
 from test_history_restore_signed import command,pg17,connect,ssl_server
 from apps.api import history_api
+from src.phase3.auth.service_proof import BFFServiceVerifier,TrustRejected
+from src.phase3.auth.transactional_admission import protected_transaction
+from src.phase3.storage.postgres.service_replay import PostgresDurableReplayStore
+from psycopg.pq import TransactionStatus
+from cryptography.hazmat.primitives import serialization
+import jwt
+import repository
 
 
 def verify_isolation():
@@ -163,6 +170,91 @@ def configure_source_pg_tls():
             os.environ[name]=psycopg.conninfo.make_conninfo(**cfg)
     verify_pg_tls(5432,"SOURCE")
     return key,crt
+
+
+def oidc_same_transaction_matrix(demo,raw_a,raw_b,phase,ids_a,ids_b,revoked=False):
+    """Real server-only aliases recovered from actual OIDC browser login.
+    Supplemental direct invocation of real admission and repository; no new
+    public endpoint, no engine, no alternative login or raw alias export.
+    """
+    verifier=BFFServiceVerifier(issuer=SIGN_ISS,audience=SIGN_AUD,public_keys={
+        SIGN_KID:demo.product_signer.public_key().public_bytes(
+            serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo)})
+    path=b"/v1/conversations"
+    query=b"limit=2"
+    def sign(raw,**changes):
+        now=int(time.time())
+        payload=dict(iss=SIGN_ISS,aud=SIGN_AUD,iat=now,nbf=now,exp=now+25,
+            jti=secrets.token_urlsafe(24),method="GET",
+            raw_path_sha256=sha256(path).hexdigest(),
+            raw_query_sha256=sha256(query).hexdigest(),
+            body_sha256=sha256(b"").hexdigest(),body_len=0,**raw)
+        payload.update(changes)
+        return jwt.encode(payload,demo.product_signer,algorithm="RS256",
+                          headers={"typ":"JWT","kid":SIGN_KID})
+    def admitted(c,token,q=query):
+        return protected_transaction(c,verifier=verifier,
+            replay_store=PostgresDurableReplayStore(),compact_assertion=token,
+            method="GET",raw_path=path,raw_query=q,body=b"")
+    def idle(c):
+        assert c.info.transaction_status==TransactionStatus.IDLE
+        assert c.execute("SELECT count(*) AS n FROM history_l1.conversations").fetchone()["n"]==0
+    def denied(c,token,q=query):
+        try:
+            with admitted(c,token,q):
+                raise AssertionError("UNAUTHORIZED_ACTION_REACHED")
+        except TrustRejected:pass
+        else:raise AssertionError("UNAUTHORIZED_PROOF_ACCEPTED")
+        idle(c)
+    class RollbackProbe(Exception):pass
+    def read(c,actor,ids,foreign):
+        assert c.info.transaction_status==TransactionStatus.INTRANS
+        pid=c.info.backend_pid
+        tx=c.execute("SELECT pg_current_xact_id()::text AS tx").fetchone()["tx"]
+        c.execute("SELECT set_config('app.owner_id',%s,true)",(foreign,))
+        rows=repository.list_conversations(c,actor,limit=100)["items"]
+        assert {r["conversation_id"] for r in rows}==ids
+        assert c.info.backend_pid==pid
+        assert c.execute("SELECT pg_current_xact_id()::text AS tx").fetchone()["tx"]==tx
+        assert c.execute("SELECT current_setting('app.owner_id',true) AS o").fetchone()["o"]==actor
+    with psycopg.connect(os.environ["DB_APP_DSN"],autocommit=True,row_factory=dict_row) as c:
+        assert c.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()["ssl"]
+        idle(c)
+        if revoked:
+            denied(c,sign(raw_a))
+            with admitted(c,sign(raw_b)) as actor:
+                assert actor==raw_b["owner_id"]
+                read(c,actor,ids_b,raw_a["owner_id"])
+            idle(c)
+            print("DB_OIDC_SAME_TX_REVOKED_A_DENIED_B_ADMITTED=PASS",flush=True)
+            return
+        for raw,other,ids,foreign_ids in ((raw_a,raw_b,ids_a,ids_b),(raw_b,raw_a,ids_b,ids_a)):
+            token=sign(raw)
+            with admitted(c,token) as actor:
+                assert actor==raw["owner_id"]
+                read(c,actor,ids,other["owner_id"])
+                try:repository.list_messages(c,actor,sorted(foreign_ids)[0],session_transaction=True)
+                except repository.NotFound:pass
+                else:raise AssertionError("FOREIGN_REPOSITORY_READ")
+            idle(c)
+            denied(c,token)
+            denied(c,sign(raw,owner_id=other["owner_id"]))
+            denied(c,sign(raw,epoch=raw["epoch"]+1))
+            denied(c,sign(raw,generation=raw["generation"]+1))
+            denied(c,sign(raw),b"limit=3")
+            retry=sign(raw)
+            try:
+                with admitted(c,retry) as actor:
+                    read(c,actor,ids,other["owner_id"])
+                    raise RollbackProbe()
+            except RollbackProbe:pass
+            else:raise AssertionError("INJECTED_ROLLBACK_NOT_OBSERVED")
+            idle(c)
+            with admitted(c,retry) as actor:
+                read(c,actor,ids,other["owner_id"])
+            idle(c)
+            denied(c,retry)
+    print("DB_OIDC_SAME_TX_"+phase+"_TWO_REAL_OWNERS_BINDING_REPLAY_ROLLBACK=PASS",flush=True)
 
 
 def inventory(demo):
@@ -536,8 +628,8 @@ async def execute():
         output=Path(os.environ["RUNNER_TEMP"])/"f3-browser-source-restored"
         async with async_playwright() as pw:
             browser=await pw.chromium.launch(headless=True)
-            ctx_a,page_a,_,_=await demo.browser_login(browser,"A",False,output,require_trusted_tls=True)
-            ctx_b,page_b,_,_=await demo.browser_login(browser,"B",False,output,require_trusted_tls=True)
+            ctx_a,page_a,_,raw_a=await demo.browser_login(browser,"A",False,output,require_trusted_tls=True)
+            ctx_b,page_b,_,raw_b=await demo.browser_login(browser,"B",False,output,require_trusted_tls=True)
             a_id=create_extra_question(demo,"A")
             b_id=create_extra_question(demo,"B")
             source,receipt_before,source_cluster=inventory(demo)
@@ -547,6 +639,7 @@ async def execute():
             ids_b={r[1] for r in source if r[0]==demo.owners["B"]}
             assert len(ids_a)==3 and len(ids_b)==3 and ids_a.isdisjoint(ids_b)
             assert a_id in ids_a and b_id in ids_b
+            oidc_same_transaction_matrix(demo,raw_a,raw_b,"SOURCE",ids_a,ids_b)
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
             await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
             await signed_pagination(page_a,ids_a)
@@ -566,6 +659,7 @@ async def execute():
 
             restored=restore_separate_volume(demo,source,source_cluster,pg_tls)
             restricted_history_snapshot(demo,"RESTORED_BEFORE_BROWSER",restricted_before)
+            oidc_same_transaction_matrix(demo,raw_a,raw_b,"RESTORED",ids_a,ids_b)
             # Continue same real two browser contexts, same session cookie,
             # same Keycloak process and Next/BFF/API, now independent PG volume.
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
@@ -590,6 +684,7 @@ async def execute():
             # initial snapshot: fake or resurrected Answer/receipt is forbidden.
             rollback_seconds=rollback_to_original_lab_database(restored,source_cluster)
             restricted_history_snapshot(demo,"ROLLBACK_BEFORE_BROWSER",restricted_before)
+            oidc_same_transaction_matrix(demo,raw_a,raw_b,"ROLLBACK",ids_a,ids_b)
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
             await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
             await mobile_320_keyboard_accessibility(page_a)
@@ -625,6 +720,7 @@ async def execute():
             assert surviving.status==200
             await foreign_owner_denied(page_b,ids_a)
             restricted_history_snapshot(demo,"AFTER_REVOKE",restricted_before)
+            oidc_same_transaction_matrix(demo,raw_a,raw_b,"AFTER_REVOKE",ids_a,ids_b,revoked=True)
             result={
                 "schema":"foundation.f3.real_browser_pg_restored_same_context.v1",
                 "sha":command(["git","rev-parse","HEAD"]).strip(),
@@ -660,6 +756,8 @@ async def execute():
                 "db_transport":"PG17_VERIFY_FULL_CA_SAN_SOURCE_RESTORE_ROLLBACK",
                 "db_tls_plaintext_wrong_san_negative":True,
                 "db_guc_is_not_identity_proof":True,
+                "db_real_oidc_same_transaction_matrix":"SOURCE_RESTORED_ROLLBACK_REVOKED_A_DENIED_B_ADMITTED",
+                "db_real_oidc_replay_rollback_and_forged_binding_denied":True,
                 "approved_rto_threshold":None,
                 "signed_history_a_after_restore":200,
                 "signed_history_b_after_restore":200,
