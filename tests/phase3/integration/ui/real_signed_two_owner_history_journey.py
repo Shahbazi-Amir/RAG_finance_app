@@ -233,6 +233,10 @@ async def open_mobile_drawer(page, width):
 
 async def exhaust_thread_message_pages(page, target, wanted):
     # Demand exact IDs from actual PG in order, both BEFORE and AFTER reload.
+    if not wanted:
+        # An empty real PG thread must remain empty after fresh list and detail.
+        await expect(page.locator('[data-testid^="history-message-"]')).to_have_count(0)
+        return
     await expect(page.get_by_test_id("history-message-" + wanted[0])).to_be_visible(
         timeout=15000)
     for _ in range(len(wanted)//30 + 3):
@@ -312,7 +316,7 @@ async def verify_list_and_thread(page, owner, width):
     data = await reply.json()
     assert data["owner_user_id"] == owner["owner_id"]
     assert data["conversation_id"] == target
-    wanted = owner["message_ids"][target]
+    wanted = owner["message_ids"].get(target, [])
     await exhaust_thread_message_pages(page, target, wanted)
     await page.reload(wait_until="domcontentloaded")
     await open_mobile_drawer(page, width)
@@ -347,9 +351,12 @@ async def journey(browser, receipt, idp, credentials, width):
         await verify_rtl_and_mobile_focus(pa, width)
         await verify_rtl_and_mobile_focus(pb, width)
         ca = await verify_list_and_thread(pa, receipt["users"]["A"], width)
-        await open_mobile_drawer(pb,width)
+        cb = await verify_list_and_thread(pb, receipt["users"]["B"], width)
+        assert ca != cb, "CROSS_OWNER_CONVERSATION_ID_COLLISION"
         visible_b = await pb.locator('[data-testid^="conversation-"]').evaluate_all(
             "(nodes) => nodes.map(n => n.getAttribute('data-testid').slice(13))")
+        assert visible_b == receipt["users"]["B"]["conversation_ids"], (
+            "B_HISTORY_PG_ID_ORDER_MISMATCH", width)
         assert not set(visible_b) & set(receipt["users"]["A"]["conversation_ids"])
         # Direct foreign URL from B's real context; the BFF signs B's identity.
         foreign = await browser_fetch(pb,
@@ -402,6 +409,7 @@ async def journey(browser, receipt, idp, credentials, width):
             "viewport":width,
             "oidc_auth_two_users":True,
             "owner_scoped_pg_history":True,
+            "owner_b_own_list_detail_refresh":True,
             "pagination_and_refresh":True,
             "cross_owner_404":True,
             "revoke_401_b_still_200":True,
