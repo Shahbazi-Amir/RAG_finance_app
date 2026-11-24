@@ -2,14 +2,14 @@ name: F3 DB common exact-tree both-side Compose 31 messages and restricted SQL
 
 on:
   pull_request:
-    branches: [agent/db-f3-common-db55-interrupted-migration-20261124]
+    branches: [agent/db-f3-post-revoke-strict-compose-20261124]
   workflow_dispatch:
 permissions:
   contents: read
 
 jobs:
   api-session-011:
-    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/db-f3-post-revoke-strict-compose-20261124' && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/db-f3-pitr-wal-negative-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     services:

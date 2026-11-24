@@ -1,13 +1,13 @@
 name: F3 DB physical WAL timestamp PITR (disposable only)
 on:
   pull_request:
-    branches: [agent/db-f3-common-db55-interrupted-migration-20261124]
+    branches: [agent/db-f3-post-revoke-strict-compose-20261124]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   real-pg17-pitr:
-    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/db-f3-post-revoke-strict-compose-20261124' && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/db-f3-pitr-wal-negative-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -51,7 +51,7 @@ jobs:
           for k in ("basebackup_manifest_verified","wal_after_basebackup_replayed","later_commit_excluded","same_physical_system_identifier","new_volume_promoted_timeline","ledger_exact","history_exact","restricted_set_role_rls","a_revoked_at_target","b_post_target_revocation_absent"):
               assert r[k] is True,k
           assert r["network"]=="NONE" and r["stale_session_admission"] is False
-          for k in ("detached_backup_volume_verified","source_stopped_before_recovery","source_volume_not_mounted_on_target"):
+          for k in ("detached_backup_volume_verified","source_stopped_before_recovery","source_volume_not_mounted_on_target","tampered_base_rejected","missing_post_base_wal_rejected_no_promotion","original_detached_backup_verified_after_faults"):
               assert r[k] is True,k
           assert r["operational_rpo_rto"]=="NOT_ATTESTED"
           assert r["accepted"] is False and r["engine_calls"]==0 and r["sql_011"] is False
