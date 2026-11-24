@@ -23,3 +23,7 @@ If isolated API restarts and BFF cannot see its loopback listener, recreate only
 ### NB23-SESSION-RESUME-15
 
 Keep the frozen C018 rollback intact. Stop only the independent nb23-session-product-local project and its dedicated temporary PostgreSQL when ending the local V4 test. Preserve the V4 ledger volume and pinned image. The full isolated start/stop drill remains pending.
+
+### NB23-SESSION-RESUME-19
+
+Version B keeps its running PostgreSQL while stopping or recreating isolated API, BFF and Worker services. The named SQLite volume retains retrieval outcomes. The operator procedure lives in the execution worktree at infra/nb23-v4/STAGING_RETRIEVAL.md. Full restore and accepted Freeze remain pending.

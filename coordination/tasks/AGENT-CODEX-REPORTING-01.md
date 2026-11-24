@@ -371,3 +371,9 @@ Status is review. Supervisor approval is pending.
 - Report baseline 768b9be, execution af57f26, V4 f49f536f4d82, derivative UI 37b5c8ec3c50. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
 - Tested: two real CONTEXT_READY attempts and 95,537/73,111 ms with stable Worker PID. Signed Chrome GET and correlation-restored reload rendered actual result without POST. Offline Next and TypeScript build exited 0 and isolated SQLite fixture preserved duration and owner scoping. Automatic initial DOM wait and same-session distinct second question remain open.
 - Implemented: browser read-only recovery diagnostics, status-control recheck and extended cross-owner test. Cumulative local checkpoint and report updated. Formal 5/20, private 12/20, supervisor acceptance pending. [Evidence and continuation](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### Docker_3 / NB23-SESSION-RESUME-19 — persistent UNKNOWN and owner-scoped recovery
+
+- Report baseline fea70af, execution af57f26, V4 f49f536f4d82, owner recovery UI 8b72e5b40a65. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
+- Tested: another Chrome-origin Attempt persisted as UNKNOWN, with no completed runtime receipt. Second fixture account denied the other account's conversation, Attempt and retrieval result. Offline derivative build and TypeScript succeeded. Live recovery across natural expiry pending.
+- Implemented locally: attempt checkpoint owner binding, product chat expiry handling, staged build recipe, socket-peer cleanup and startup/error metrics, Chrome expiry and HTTP busy harnesses and local operator guide. See exact paths and methods in [report](../../docs/codex_execution/MAC_FIRST_START_FA.md). Formal 5/20, private 12/20, quality acceptance and Freeze pending.

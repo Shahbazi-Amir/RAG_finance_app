@@ -739,3 +739,19 @@ checkpoint `NB23-SESSION-RESUME-18`. درخواست واقعی دوم نیز CON
 - پذیرش رسمی و Freeze در انتظار. Generation غیرفعال و Golden حل‌نشده.
 
 پس از پایدار شدن API و HTTPS، ابزار `--chrome-v4` مسیر کامل را اجرا می‌کند. `--chrome-recover-v4` فقط خواندنی برای نتیجهٔ قبلی است و `--cross-owner` جداسازی History و Engine Status را می‌سنجد. تنظیم اجرای مشتق UI با `NB23_SESSION_BFF_IMAGE=rag-finance-f3/web:experimental-local-v4` و `NB23_SESSION_V4_UI_METRICS=1` در Compose مستقل اعمال می‌شود.
+
+## Docker_3 — حفظ Attempt ناموفق و نسخهٔ بازیابی نشست
+
+checkpoint `NB23-SESSION-RESUME-19`. پس از فعال‌سازی نخستین مشتق UI، Chrome دوباره Send و Refresh همان Attempt را ثبت کرد. این درخواست در دفتر عملیاتی با وضعیت UNKNOWN باقی ماند. انتظار اولیهٔ UI پایان یافت و زمان موفق Worker برای این Attempt وجود ندارد. وضعیت aggregate علت داخلی شکست را نشان نمی‌دهد.
+
+آزمون حساب دوم با OIDC واقعی و BFF امضاشده خروج ۰ داشت. فهرست مالک دوم گفت‌وگوی مالک اول را نداشت، خواندن مستقیم ۴۰۴ داد و هر دو Status و Engine Status اطلاعات Attempt و شمار نتایج را محفوظ نگه داشتند.
+
+در UI آزمایشی، `apps/web/src/ui/attempt-checkpoints.ts` و `product-chat.tsx` پس از 401 دادهٔ رندرشده را پاک می‌کنند و فقط هم‌بستگی همان مالک را برای ورود دوباره نگه می‌دارند. بازیابی پس از احراز هویت و تطبیق scope هش‌شده مجاز است. تغییر مالک هم‌بستگی قبلی را پاک می‌کند. مشتق جدید آفلاین با بررسی TypeScript و خروج ۰ ساخته شد. شناسه `sha256:8b72e5b40a655a62ba881087a5819492c7217da5d05aa79cad98b206ce62c9c1` است. سیاست‌های Idle=120 و Absolute=500 تغییر نکردند. آزمون Chrome انقضای طبیعی و ورود دوباره در حال راه‌اندازی است.
+
+`infra/nb23-v4/session_worker_socket.py` اکنون قطع ارتباط API را پایش می‌کند و همان فرایند Worker را جمع می‌کند. `persistent_v4_pipe.py` و `session_product_api.py` زمان Startup و فقط ردهٔ خطای Worker را ثبت می‌کنند. `STAGING_RETRIEVAL.md` مسیر اپراتور محلی و توقف مستقل را ثبت کرد. `check_session_browser.py --http-v4-busy` برای سنجش مدیریت ازدحام و replay آماده شد و هنوز اجرا نشده است.
+
+- رسمی ۵/۲۰ → ۵/۲۰ (۲۵٪) [#####---------------].
+- خصوصی ۱۲/۲۰ → ۱۲/۲۰ (۶۰٪) [############--------]. T17 دارای شاهد حفظ UNKNOWN است؛ بازیابی و جلوگیری از replay در شرایط شکست نیازمند شاهد تکمیلی است.
+- پذیرش و Freeze رسمی بازند. Generation غیرفعال و Golden حل‌نشده است.
+
+برای ادامه، تصویر `rag-finance-f3/web:experimental-local-v4-owner-recovery` را با metrics فعال در Compose مستقل استفاده کنید. پس از تأیید HTTPS و Worker readiness، `python3 -B -u infra/nb23-v4/check_session_browser.py ../nb23-session-product-local --chrome-expiry-v4` روی Attempt UNKNOWN ذخیره‌شده اجرا می‌شود. پس از آن دو سؤال متمایز و کنترل‌های مرورگر با `--chrome-v4` بررسی می‌شوند.
