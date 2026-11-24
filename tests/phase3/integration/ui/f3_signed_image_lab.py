@@ -32,7 +32,7 @@ class Relay(socketserver.ThreadingTCPServer):
 class Handler(socketserver.BaseRequestHandler):
     def handle(self):
         try:
-            with socket.create_connection((self.server.target,8443),timeout=5) as upstream:
+            with socket.create_connection((self.server.target,getattr(self.server,"target_port",8443)),timeout=5) as upstream:
                 upstream.settimeout(20)
                 self.request.settimeout(20)
                 sockets=(upstream,self.request)
@@ -107,7 +107,7 @@ class SignedImageLab:
             self.pg=None
 
     def launch(self):
-        docker("run","-d","--name",self.name,"--network",self.network,
+        docker("run","-d","--name",self.name,"--network",self.network,"--network-alias","f3-api",
                "--read-only","--cap-drop","ALL","--security-opt","no-new-privileges",
                "--pids-limit","128","--memory","512m","--cpus","1.0",
                "--env","API_CURSOR_KEY","--env","API_CURSOR_TTL_SECONDS",
@@ -151,3 +151,130 @@ class SignedImageLab:
             self.pg=None
         docker("network","rm",self.network,check=False)
         sudo("rm","-rf",self.secrets)
+
+
+# The Web test image keeps the existing CI-only localhost-origin checks.
+# A byte-only TCP relay connects them to the actual private network, never
+# terminates mTLS, rewrites headers, or fabricates responses.
+WEB_RELAY = """
+import net from 'node:net';
+import {spawn} from 'node:child_process';
+const ports=[
+ [Number(process.env.F3_LAB_PRODUCT_PORT),'f3-api',8443],
+ [Number(process.env.F3_LAB_BOOTSTRAP_PORT),process.env.F3_LAB_BRIDGE_GATEWAY,Number(process.env.F3_LAB_BOOTSTRAP_PORT)]
+];
+const servers=[];
+for(const [port,host,target] of ports){
+ const s=net.createServer(client=>{
+  const upstream=net.connect(target,host);
+  client.on('error',()=>upstream.destroy());
+  upstream.on('error',()=>client.destroy());
+  client.pipe(upstream); upstream.pipe(client);
+ });
+ await new Promise((ok,fail)=>{s.once('error',fail);s.listen(port,'127.0.0.1',ok);});
+ servers.push(s);
+}
+const child=spawn('./node_modules/.bin/next',['start','-H','0.0.0.0','-p','3000'],{stdio:'inherit'});
+for(const sig of ['SIGTERM','SIGINT'])process.on(sig,()=>{child.kill(sig);for(const s of servers)s.close();});
+child.on('exit',code=>process.exit(code??1));
+"""
+
+class WebImageLab:
+    def __init__(self,api,root,env,shared,bootstrap_port,product_port):
+        assert os.getenv("F3_BROWSER_WEB_IMAGE")=="1" and api is not None
+        self.api=api
+        self.root=root
+        self.shared=shared
+        self.image=os.environ["F3_WEB_IMAGE_TAG"]
+        self.name=api.name.replace("signed-api","web")
+        self.image_id=docker("image","inspect","--format","{{.Id}}",self.image)
+        assert docker("image","inspect","--format",'{{index .Config.Labels "org.opencontainers.image.revision"}}',self.image)==os.environ["GITHUB_SHA"]
+        assert docker("image","inspect","--format","{{.Config.User}}",self.image)=="11003:11003"
+        self.secret_dir=root/"web-container-secrets"
+        self.secret_dir.mkdir(mode=0o700)
+        self.env_file=root/"web-container.env"
+        self.boot_relay=None
+        self.web_relay=None
+        self.roundtrip=None
+        # BFF-only keys, no API server key or privileged database DSN.
+        values={k:v for k,v in env.items() if k.startswith("AUTH_CI_") and k not in
+                {"AUTH_CI_TLS_CERT","AUTH_CI_TLS_KEY"}}
+        for field in ("AUTH_CI_BOOTSTRAP_SIGN_KEY","AUTH_CI_BOOTSTRAP_CA",
+                "AUTH_CI_BOOTSTRAP_CERT","AUTH_CI_BOOTSTRAP_KEY","AUTH_CI_PRODUCT_SIGN_KEY"):
+            filename=field.lower()
+            shutil.copyfile(values[field],self.secret_dir/filename)
+            values[field]="/run/ci-web/"+filename
+        (self.secret_dir/"relay.mjs").write_text(WEB_RELAY)
+        for p in self.secret_dir.iterdir():p.chmod(0o600)
+        sudo("chown","-R","11003:11003",self.secret_dir,self.shared)
+        gateway=docker("network","inspect","--format","{{(index .IPAM.Config 0).Gateway}}",api.network)
+        assert gateway and gateway!="127.0.0.1"
+        values.update(CI="true",PHASE3_APP_MODE="APP_ONLY",AUTH_CI_SHARED_STORE_DIR="/tmp/f3-aliases",
+            F3_LAB_PRODUCT_PORT=str(product_port),F3_LAB_BOOTSTRAP_PORT=str(bootstrap_port),
+            F3_LAB_BRIDGE_GATEWAY=gateway)
+        assert all("\n" not in v and "\r" not in v for v in values.values())
+        self.env_file.write_text("".join(k+"="+v+"\n" for k,v in sorted(values.items())))
+        self.env_file.chmod(0o600)
+        try:
+            self.boot_relay=Relay((gateway,bootstrap_port),Handler)
+            self.boot_relay.target="127.0.0.1"
+            self.boot_relay.target_port=bootstrap_port
+            threading.Thread(target=self.boot_relay.serve_forever,daemon=True).start()
+            self.launch()
+            self.web_relay=Relay(("127.0.0.1",3000),Handler)
+            self.web_relay.target=self.ip
+            self.web_relay.target_port=3000
+            threading.Thread(target=self.web_relay.serve_forever,daemon=True).start()
+        except BaseException:
+            self.close()
+            raise
+
+    def launch(self):
+        docker("run","-d","--init","--name",self.name,"--network",self.api.network,
+            "--read-only","--cap-drop","ALL","--security-opt","no-new-privileges",
+            "--pids-limit","128","--memory","768m","--cpus","1.0",
+            "--tmpfs","/tmp:rw,nosuid,size=32m,uid=11003,gid=11003",
+            "--tmpfs","/srv/release/apps/web/.next/cache:rw,nosuid,size=64m,uid=11003,gid=11003",
+            "--env-file",self.env_file,
+            "--mount","type=bind,src="+str(self.secret_dir)+",dst=/run/ci-web,readonly",
+            "--mount","type=bind,src="+str(self.shared)+",dst=/tmp/f3-aliases",
+            self.image_id,"node","/run/ci-web/relay.mjs")
+        assert docker("inspect","--format","{{.Image}}",self.name)==self.image_id
+        assert docker("inspect","--format","{{.Config.User}}",self.name)=="11003:11003"
+        assert docker("inspect","--format","{{.HostConfig.ReadonlyRootfs}}",self.name)=="true"
+        assert not json.loads(docker("inspect","--format","{{json .HostConfig.PortBindings}}",self.name))
+        mounts=json.loads(docker("inspect","--format","{{json .Mounts}}",self.name))
+        binds=[m for m in mounts if m["Type"]=="bind"]
+        assert {m["Destination"]:m["RW"] for m in binds}=={"/run/ci-web":False,"/tmp/f3-aliases":True}
+        self.ip=docker("inspect","--format","{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",self.name)
+        assert self.ip
+        if self.web_relay:self.web_relay.target=self.ip
+
+    def read_alias(self,name):
+        assert name.startswith("alias-") and name.endswith(".json") and "/" not in name
+        return subprocess.check_output(["sudo","cat",str(self.shared/name)],text=True,timeout=5)
+
+    def reload(self):
+        archive=self.root/"web-image.tar"
+        start=time.monotonic()
+        docker("save","-o",archive,self.image)
+        with archive.open("rb") as f:digest=hashlib.file_digest(f,"sha256").hexdigest()
+        docker("rm","-f",self.name)
+        docker("image","rm",self.image)
+        assert docker("image","inspect",self.image_id,check=False)!=0
+        docker("load","-i",archive)
+        assert docker("image","inspect","--format","{{.Id}}",self.image)==self.image_id
+        self.launch()
+        self.roundtrip={"local_oci_id":self.image_id,"archive_sha256":digest,
+            "removed_image_id_then_reloaded":True,"archive_bytes":archive.stat().st_size,
+            "archive_roundtrip_seconds":round(time.monotonic()-start,3)}
+        archive.unlink()
+
+    def close(self):
+        for relay in (self.web_relay,self.boot_relay):
+            if relay:
+                relay.shutdown()
+                relay.server_close()
+        docker("rm","-f",self.name,check=False)
+        sudo("rm","-rf",self.secret_dir,self.shared)
+        self.env_file.unlink(missing_ok=True)

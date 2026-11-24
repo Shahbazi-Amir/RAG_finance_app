@@ -73,6 +73,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test -z "$(git status --porcelain)"
           docker build --pull=false -f infra/phase3_l1/Dockerfile.api.signed_history --build-arg SOURCE_SHA="$GITHUB_SHA" -t f3-browser-signed-api:ci .
+          docker build --pull=false -f infra/phase3_l1/Dockerfile.web --build-arg SOURCE_SHA="$GITHUB_SHA" -t f3-browser-web:ci .
       - name: Audit canonical 393 IDs without acceptance promotion
         run: |
           set -euo pipefail
@@ -322,6 +323,8 @@ jobs:
           F3_BROWSER_PRIVATE_RUNTIME: ${{ github.ref == 'refs/heads/integration/f3-foundation-send-fence-restore-20261124' && '1' || '0' }}
           F3_BROWSER_SIGNED_IMAGE: ${{ github.ref == 'refs/heads/integration/f3-foundation-send-fence-restore-20261124' && '1' || '0' }}
           F3_SIGNED_IMAGE_TAG: f3-browser-signed-api:ci
+          F3_BROWSER_WEB_IMAGE: ${{ github.ref == 'refs/heads/integration/f3-foundation-send-fence-restore-20261124' && '1' || '0' }}
+          F3_WEB_IMAGE_TAG: f3-browser-web:ci
         run: |
           set -euo pipefail
           python tests/phase3/integration/foundation/browser_history_restore.py

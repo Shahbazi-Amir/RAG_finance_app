@@ -489,6 +489,9 @@ async def execute():
                 tls.load_cert_chain(demo.client[0],demo.client[1])
                 demo.await_url(demo.product_origin+"/internal/ready",tls,200)
                 demo.assert_private_readiness(200)
+            if demo.web_lab:
+                demo.web_lab.reload()
+                demo.await_url(ORIGIN+"/login",__import__("ssl").create_default_context(cafile=demo.ca))
             # Continue same real two browser contexts, same session cookie,
             # same Keycloak process and Next/BFF/API, now independent PG volume.
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
@@ -558,7 +561,10 @@ async def execute():
                 "signed_image_archive_replay":demo.image_lab.roundtrip if demo.image_lab else None,
                 "signed_api_internal_network_no_published_ports":bool(demo.image_lab),
                 "signed_api_nonroot_readonly_only_api_secrets_mount":bool(demo.image_lab),
-                "web_host_process_not_container":True,
+                "web_host_process_not_container":not bool(demo.web_lab),
+                "actual_web_image":bool(demo.web_lab),
+                "web_image_archive_replay":demo.web_lab.roundtrip if demo.web_lab else None,
+                "web_internal_network_no_published_ports":bool(demo.web_lab),
                 "ci_bootstrap_and_https_proxy_used":True,
                 "browser_default_history_sql_equal":True,
                 "browser_pagination_and_detail_sql_equal":True,

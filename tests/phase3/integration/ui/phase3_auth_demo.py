@@ -70,6 +70,7 @@ class Demo:
     def __init__(self, *, private_product=False):
         self.private_product=private_product
         self.image_lab=None
+        self.web_lab=None
         self.source_pg=None
         self.tmp=TemporaryDirectory(prefix="rag-phase3-demo-")
         self.root=Path(self.tmp.name)
@@ -303,8 +304,12 @@ class Demo:
             AUTH_CI_TLS_CERT=server[0],
             AUTH_CI_TLS_KEY=server[1],
         )
-        self.add(["./node_modules/.bin/next","start","-H","127.0.0.1",
-                  "-p","3000"],web_env,ROOT/"apps/web")
+        if os.environ.get("F3_BROWSER_WEB_IMAGE")=="1":
+            from f3_signed_image_lab import WebImageLab
+            self.web_lab=WebImageLab(self.image_lab,self.root,web_env,shared,bootstrap_port,product_port)
+        else:
+            self.add(["./node_modules/.bin/next","start","-H","127.0.0.1",
+                      "-p","3000"],web_env,ROOT/"apps/web")
         self.add(["node","tests/phase3/integration/ui/auth_010_https_proxy.mjs"],
                  web_env)
         # Public TLS does not require a client cert; private links do.
@@ -326,7 +331,7 @@ class Demo:
 
     def raw_from_alias(self,handle):
         name="alias-"+sha256(handle.encode()).hexdigest()+".json"
-        record=json.loads((self.shared/name).read_text())
+        record=json.loads(self.web_lab.read_alias(name) if self.web_lab else (self.shared/name).read_text())
         assert record["status"]=="ACTIVE"
         def decode(value):
             return urlsafe_b64decode(value+"="*((-len(value))%4))
@@ -494,6 +499,8 @@ class Demo:
             if ctx_b is not None:await ctx_b.close()
 
     def stop(self):
+        if self.web_lab:
+            self.web_lab.close()
         if self.image_lab:
             self.image_lab.close()
         for proc,log in reversed(self.children):
