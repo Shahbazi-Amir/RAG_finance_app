@@ -257,6 +257,40 @@ def oidc_same_transaction_matrix(demo,raw_a,raw_b,phase,ids_a,ids_b,revoked=Fals
     print("DB_OIDC_SAME_TX_"+phase+"_TWO_REAL_OWNERS_BINDING_REPLAY_ROLLBACK=PASS",flush=True)
 
 
+def migration_ledger_snapshot(phase,source_cluster,baseline=None):
+    manifest=ROOT/"infra/postgres/dev_f3_isolated/MIGRATIONS_001_010_PINNED.tsv"
+    assert sha256(manifest.read_bytes()).hexdigest()=="9ff95a59570f5f6c6188479d9c37cf684ef836c599e89d9faa2bb0e17a4946f7"
+    expected={}
+    for line in manifest.read_text().splitlines()[1:]:
+        ver,direction,source,path,blob=line.split("\t")
+        if direction=="UP":
+            expected[ver]=(source,blob,sha256((ROOT/path).read_bytes()).hexdigest())
+    assert sorted(expected)==[f"{n:03d}" for n in range(1,11)]
+    with connect() as c:
+        rows=c.execute("""SELECT trim(version),trim(source_commit),trim(git_blob_sha1),
+            trim(sql_sha256),status,started_at,applied_at,applied_txid,cluster_system_id
+            FROM db55_audit.migration_runs ORDER BY version""").fetchall()
+        assert len(rows)==10
+        for ver,source,blob,digest,status,started,applied,tx,cluster in rows:
+            assert expected[ver]==(source,blob,digest)
+            assert status=="APPLIED" and applied>=started and tx is not None
+            assert cluster==str(source_cluster)
+        physical=c.execute("""SELECT count(*) FROM pg_class c JOIN pg_namespace n
+            ON n.oid=c.relnamespace WHERE n.nspname IN ('auth_l1','history_l1')
+            AND c.relkind IN ('r','p') AND c.relrowsecurity AND c.relforcerowsecurity""").fetchone()[0]
+        assert physical==14
+    # Verify actual denied service login, not just catalog ACL.
+    try:
+        with psycopg.connect(os.environ["DB_APP_DSN"],autocommit=True) as c:
+            c.execute("SELECT count(*) FROM db55_audit.migration_runs")
+    except psycopg.errors.InsufficientPrivilege:pass
+    else:raise AssertionError("PRODUCT_ROLE_CAN_READ_MIGRATION_LEDGER")
+    fingerprint=sha256(json.dumps(rows,default=str).encode()).hexdigest()
+    if baseline is not None:assert fingerprint==baseline,"BROWSER_LEDGER_RESTORE_DRIFT"
+    print("F3_DB_BROWSER_MIGRATION_LEDGER_"+phase+"_10_EXACT_ROWS_PRIVATE_14_FORCE_RLS=PASS",flush=True)
+    return fingerprint
+
+
 def inventory(demo):
     with connect() as c:
         records=c.execute(
@@ -633,6 +667,7 @@ async def execute():
             a_id=create_extra_question(demo,"A")
             b_id=create_extra_question(demo,"B")
             source,receipt_before,source_cluster=inventory(demo)
+            ledger_before=migration_ledger_snapshot("SOURCE",source_cluster)
             messages_before=message_inventory(demo)
             restricted_before=restricted_history_snapshot(demo,"SOURCE")
             ids_a={r[1] for r in source if r[0]==demo.owners["A"]}
@@ -659,6 +694,7 @@ async def execute():
 
             restored=restore_separate_volume(demo,source,source_cluster,pg_tls)
             restricted_history_snapshot(demo,"RESTORED_BEFORE_BROWSER",restricted_before)
+            migration_ledger_snapshot("RESTORED",source_cluster,ledger_before)
             oidc_same_transaction_matrix(demo,raw_a,raw_b,"RESTORED",ids_a,ids_b)
             # Continue same real two browser contexts, same session cookie,
             # same Keycloak process and Next/BFF/API, now independent PG volume.
@@ -684,6 +720,7 @@ async def execute():
             # initial snapshot: fake or resurrected Answer/receipt is forbidden.
             rollback_seconds=rollback_to_original_lab_database(restored,source_cluster)
             restricted_history_snapshot(demo,"ROLLBACK_BEFORE_BROWSER",restricted_before)
+            migration_ledger_snapshot("ROLLBACK",source_cluster,ledger_before)
             oidc_same_transaction_matrix(demo,raw_a,raw_b,"ROLLBACK",ids_a,ids_b)
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
             await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
@@ -720,6 +757,7 @@ async def execute():
             assert surviving.status==200
             await foreign_owner_denied(page_b,ids_a)
             restricted_history_snapshot(demo,"AFTER_REVOKE",restricted_before)
+            migration_ledger_snapshot("AFTER_REVOKE",source_cluster,ledger_before)
             oidc_same_transaction_matrix(demo,raw_a,raw_b,"AFTER_REVOKE",ids_a,ids_b,revoked=True)
             result={
                 "schema":"foundation.f3.real_browser_pg_restored_same_context.v1",
@@ -758,6 +796,10 @@ async def execute():
                 "db_guc_is_not_identity_proof":True,
                 "db_real_oidc_same_transaction_matrix":"SOURCE_RESTORED_ROLLBACK_REVOKED_A_DENIED_B_ADMITTED",
                 "db_real_oidc_replay_rollback_and_forged_binding_denied":True,
+                "db_browser_migration_ledger":"ACTUAL_PINNED_001_010_EXECUTION_SOURCE_RESTORE_ROLLBACK_REVOKE_EXACT_PRIVATE",
+                "db_browser_migration_ledger_rows":10,
+                "db_browser_migration_ledger_checkpoints":4,
+                "db_browser_db55_bridge":"NOT_RUN_IN_BROWSER_FIXTURE",
                 "approved_rto_threshold":None,
                 "signed_history_a_after_restore":200,
                 "signed_history_b_after_restore":200,
