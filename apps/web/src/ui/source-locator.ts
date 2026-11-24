@@ -6,8 +6,13 @@ import type {Source} from '../mock/transport';
 import {publicHttpsUrl} from './public-https.ts';
 
 export function verifiedSourceUrl(source:Source):string|null {
+  // A verified locator must also be an authorized website-source pair.
+  // A book/transcript carrying a plausible HTTPS URL is not a verified web
+  // destination, and missing source IDs cannot be opened as citations.
   if(source.resolution_status!=='verified'||
      source.attribution_status!=='verified'||
+     source.source_type!=='website'||
+     typeof source.source_id!=='string'||!source.source_id.trim()||
      source.display_title_origin==='SYNTHETIC'||
      source.locator?.kind!=='url'||!source.locator.url)return null;
   return publicHttpsUrl(source.locator.url);
