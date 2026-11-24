@@ -90,6 +90,37 @@ def reviewed_ui_overrides():
     return {r["path"]:r for r in rows}
 
 
+
+BROWSER31_DELTA=ROOT/"coordination/integration/F3_84_BROWSER_31_MESSAGE_SOURCE_EXTENSION_20261124.json"
+
+def verified_candidate_browser31_source():
+    """Explicitly permitted *test harness* extension, never an API-source merge."""
+    d=json.loads(BROWSER31_DELTA.read_text(encoding="utf-8"))
+    assert d["schema"]=="foundation.f3.browser_31_page2_before_after_pg_restore.v1"
+    assert d["parent_verified_sha"]=="9cacaede2fd67b5cf13331c7650532b8b408a8dc"
+    assert d["root_84_sha"]=="0fd1066945ef91a3913e040ab4c350bb645ea502"
+    assert d["path"]=="tests/phase3/integration/api/test_app_only_browser_journey.py"
+    assert d["historical_signed_api_owner_blob_sha"]=="52e0f1632cb8573a80911e0b1c8dfba8ff2055e4"
+    assert d["candidate_blob_sha"]=="a12c64c75361577b94a8d42bf24714dcc16864e5"
+    assert all(d[k] is True for k in (
+        "not_new_source_witness_rows","not_a_phase3_activity_acceptance",
+        "uses_only_disposable_ci_pg"))
+    assert all(d[k] is False for k in (
+        "owner_signed_acceptance","target_verified","engine_enabled",
+        "migration_011_applied"))
+    expected=[
+        "31 PostgreSQL fixture messages owned by verified Keycloak owner A",
+        "React DOM first 30 + cursor last message; exact IDs/texts before restore",
+        "fresh-volume PostgreSQL TLS restored full 31 parity and same React DOM cursor page",
+        "320px real signed browser drawer focus/Escape and Send disabled",
+    ]
+    assert d["bounded_new_scope"]==expected
+    actual=subprocess.run(["git","hash-object",d["path"]],
+        cwd=ROOT,capture_output=True,text=True,check=True).stdout.strip()
+    assert actual==d["candidate_blob_sha"]
+    return d
+
+
 class LedgerTest(unittest.TestCase):
     def test_all_393_source_ids_one_to_one(self):
         header,rows=read(LEDGER)
@@ -173,6 +204,7 @@ class LedgerTest(unittest.TestCase):
         # transfer may change a pending path, but cannot change its original
         # owner decision or turn it into acceptance.
         transfer_path=ROOT/"coordination/integration/F3_SIGNED_API_SOURCE_TRANSFER_20261124.json"
+        browser_31=verified_candidate_browser31_source()
         overrides={}
         if transfer_path.is_file():
             transfer=json.loads(transfer_path.read_text(encoding="utf-8"))
@@ -188,7 +220,15 @@ class LedgerTest(unittest.TestCase):
                 self.assertEqual(item["candidate_blob_sha"],item["source_blob_sha"])
                 actual=subprocess.run(["git","hash-object",item["path"]],cwd=ROOT,
                     capture_output=True,text=True,check=True).stdout.strip()
-                self.assertEqual(actual,item["source_blob_sha"],item["path"])
+                if item["path"]==browser_31["path"]:
+                    # Only this already-owned test-harness file is allowed to
+                    # advance beyond the frozen API owner source blob. The
+                    # original manifest remains unchanged and owner review open.
+                    self.assertEqual(item["source_blob_sha"],
+                                     browser_31["historical_signed_api_owner_blob_sha"])
+                    self.assertEqual(actual,browser_31["candidate_blob_sha"])
+                else:
+                    self.assertEqual(actual,item["source_blob_sha"],item["path"])
                 self.assertEqual(item["historical_58_path"],
                                  item["path"] in {r["path"] for r in records})
                 if item["historical_58_path"]:
