@@ -1,0 +1,33 @@
+name: F3 source 58 path / 16 owner-retained diff readonly CI — nonapproval
+on:
+  push:
+    branches: [integration/f3-owner-58-path-readonly-audit-20261124]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-58-path-owner-refs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Reject 12 forms of false owner acceptance, source path or SHA
+        run: python3 -m unittest discover -s tests/phase3/foundation -p 'test_f3_owner_58_readonly.py' -v
+      - name: Compare pinned owner Git blobs of 16 retained paths against exact checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/phase3/verify_f3_owner_58_readonly.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f3-58-source-16-owner-retained-text-audit-no-acceptance
+          path: ci_receipts/foundation/owner_58_source_readonly_audit.json
+          retention-days: 14
+          if-no-files-found: warn
