@@ -55,3 +55,7 @@ Runner با خروج 124 و زمان بیرونی 305 ثانیه پایان یا
 ## آزمون تمدید امضاشده و ONNX
 
 تمدید Send امضاشده و رد replay در PostgreSQL ایزوله موفق بود. مرور بدون Send پس از ۱۲۰ ثانیه Idle منقضی می‌شود. گزینهٔ x64quantprecision اختلاف نخستین batch Docker را رفع نکرد. تست مرورگر و اتصال V4 بازند. [گزارش فارسی](MAC_FIRST_START_FA.md)
+
+## Staging مستقل احراز هویت
+
+PostgreSQL مستقل با Migrationهای پین‌شده و Keycloak مستقل برقرارند. HTTPS discovery و ورود و PKCE در namespace داخلی PASS شد. Session محصول و Browser Refresh بازند. [گزارش فارسی](MAC_FIRST_START_FA.md)

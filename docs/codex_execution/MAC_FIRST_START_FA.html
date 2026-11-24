@@ -337,4 +337,14 @@ Adapter خصوصی `persistent_v4_pipe.py` با Worker ساختگی سه آزم�
 
 هیچ Q2/Q3 کامل، C018، Build، یا اتصال V4 به محصول در این نوبت تکرار نشد. گزارش‌های قبلی تنها شاهد زمان گرم و تلاش محصول هستند. نسخهٔ Stage، Rollback و داده‌های قبلی محفوظ‌اند. Source Permission BLOCKED، Arvan HOLD و Generation/Gateway غیرفعال هستند. پذیرش سرپرست ثبت نشده است.
 </pre></section>
+<section dir="rtl"><pre style="white-space:pre-wrap">## Staging مستقل PostgreSQL و Keycloak
+
+مبنای اجرا a3430c7 و مبنای گزارش 7ec4685 بود. بررسی وابستگی‌های در جریان از Checkpoint قبل با خروج ۰ بازیابی شد. ایمیج API محلی psycopg، PyJWT و httpx دارد. ایمیج BFF دارای Next و React است و Playwright/Puppeteer ندارد. Chrome روی مک نصب است. Playwright 1.64.1 پین Harness قدیمی است و ماژول‌های initial_oidc_harness و test_bootstrap_oidc_010 نیز در Worktree فعلی موجود نیستند. هیچ نصب یا دانلودی انجام نشد.
+
+در af57f26 سه ابزار در infra/nb23-v4 ثبت شدند. prepare_session_oidc.py حساب ساختگی و TLS محلی ساخت، init_session_e2e_db.sh Migrationهای پین‌شدهٔ 001 تا 010 و تمدید Idle را روی PostgreSQL موقت اعمال کرد و check_session_oidc.py جریان واقعی OIDC را سنجید. خطای -addext در OpenSSL میزبان با فایل CNF رفع شد. قلاب initdb روی mount اجراپذیر نبود و نصب نسخهٔ 0644 در کانتینر آزمایشی تازه آن را رفع کرد. با psql حضور دقیق هر دو تابع issue_initial_login_pending و admit_and_renew_staging_session تأیید شد.
+
+شبکهٔ nb23-session-e2e از نوع internal است. PostgreSQL و Keycloak مستقل روی tmpfs فعال‌اند. Keycloak از ایمیج محلی 7e66a96e4739 و PostgreSQL از ff87138949ad با --pull never استفاده کردند. Docker اتصال 19443 روی میزبان را در شبکهٔ internal منتشر نکرد. آزمون در namespace Keycloak با ایمیج API موجود انجام شد. پس از timeout درخواست نخست در گرم‌شدن JVM، آزمون بعدی با خروج ۰، HTTPS discovery، فرم ورود واقعی و تبادل Authorization Code با PKCE را ثبت کرد. هیچ Cookie، Token، حساب واقعی یا گذرواژه در گزارش نیست.
+
+BFF، Bootstrap و API هنوز به Realm و PostgreSQL تازه متصل نشده‌اند. پروفایل برنامه به origin ثابت https://ragfinance.ir و callback متناظر، mTLS تازه و نقش‌های Login جداگانه نیاز دارد. Browser Refresh، History و Logout محصول اجرا نشدند. پشتهٔ آزمایشی در این مرحله URL محصول برای مالک ندارد. مقادیر Idle/Absolute روی ۱۲۰/۵۰۰ باقی‌اند. Volumeهای تاریخی، فاز دوم، مدل و Golden محفوظ‌اند. Generation/Gateway غیرفعال و Arvan HOLD است. پذیرش سرپرست ثبت نشده است.
+</pre></section>
 </html>

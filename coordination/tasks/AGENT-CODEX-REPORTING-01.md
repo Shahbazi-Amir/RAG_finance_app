@@ -293,3 +293,11 @@ Status is review. Supervisor approval is pending.
 - Tested: actual isolated PostgreSQL RSA signed transaction, read-only GET timing, replay, invalid proof, wrong owner, unauthorized GET renewal and rollback. Browser/OIDC not exercised. Model hash equality and no external tensor files, different native/Linux binaries and AVX2 visibility. First-batch quant precision reproduced old Docker logits; optimizer-off combination exited 124. Host CPU sysctl initially sandbox-denied and read successfully with approval.
 - Open: first divergent operator, compatible Docker runtime, independent browser/OIDC staging, real refresh and V4 integration. No acceptance or canonical checklist edits. Arvan HOLD.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — Independent PostgreSQL and Keycloak staging
+
+- Status: review for independent IdP and schema, blocked for browser E2E. P3M14-A01 (Module 14, activity 1), P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist). Local starting a3430c7, result af57f26, report start 7ec4685, Keycloak 7e66a96e4739, PostgreSQL ff87138949ad and request image d8d93260a4d4.
+- Implemented: infra/nb23-v4/check_session_oidc.py, init_session_e2e_db.sh and prepare_session_oidc.py. Report paths MAC_FIRST_START_FA.md/.html, CURRENT_STATUS.md and this ledger. Disposable fixtures and credentials excluded.
+- Tested: local image dependency imports, PostgreSQL startup and function signature query, HTTPS discovery and real Keycloak form/code+PKCE by container namespace. OpenSSL flag, init hook access and first authorization timeout corrected. Local container port is not published on the internal network. Browser E2E not run.
+- Pending: isolated application TLS, signed Bootstrap/BFF/API, browser Session/Refresh/History and supervisor acceptance. No canonical checklist or Gate edits. Arvan HOLD.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
