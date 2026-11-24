@@ -182,6 +182,22 @@ class ReplayPostCI(base.RealProductSession011):
         self.assertEqual(self.list(b).status_code,200)
         self.assertEqual(snap(),original)
         self.callback_witness(original)
+        out=ROOT/"ci_receipts"/"f3_m10_a10_signed_post_replay.json"
+        out.parent.mkdir(exist_ok=True)
+        out.write_text(json.dumps({
+            "schema":"foundation.f3.m10_a10_replay_ci.v1",
+            "source_sha":os.environ["GITHUB_SHA"],"run_id":os.environ["GITHUB_RUN_ID"],
+            "scope":"DISPOSABLE_CI_ONLY_PERSISTENCE_PROFILE_REAL_SIGNED_POST_REAL_PG",
+            "parallel_requests":len(replies),"created":sum(d["disposition"]=="created" for d in docs),
+            "replayed":sum(d["disposition"]=="replayed" for d in docs),
+            "distinct_request_ids":len({d["request_id"] for d in docs}),
+            "one_message_one_attempt":True,"same_sql_after_restart":True,
+            "same_key_changed_payload":bad.status_code,"foreign_owner":foreign.status_code,
+            "after_api_restart":again.status_code,"revoked_A":revoked.status_code,
+            "B_after_revoke":200,"t1":1,"t2":1,"t3":0,
+            "ci_unknown_callback_count":1,"provider_or_runner_executed":False,
+            "app_only_send_remains_disabled":True,"target_verified":False,"accepted":False
+        },indent=2)+"\n")
         print("F3_M10_A10_REAL_SIGNED_POST_8_CONCURRENT_RESTART_REPLAY_ZERO_T3_PASS",flush=True)
 
 if __name__=="__main__":

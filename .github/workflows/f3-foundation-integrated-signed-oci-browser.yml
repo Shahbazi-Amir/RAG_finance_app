@@ -370,6 +370,7 @@ jobs:
           path: |
             ci_receipts/f3_integrated_signed_oci_browser.json
             ci_receipts/f3_post_restore_shared_compose.json
+            ci_receipts/f3_m10_a10_signed_post_replay.json
           if-no-files-found: error
       - name: Show bounded SQL permissions and container status
         if: always()
