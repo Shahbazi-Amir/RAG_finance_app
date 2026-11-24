@@ -69,6 +69,10 @@ jobs:
           docker run --rm --network none --read-only --cap-drop ALL \
             -e PYTHONDONTWRITEBYTECODE=1 "api-f3-84-signed:$GITHUB_SHA" \
             python3 -m unittest discover -s tests/phase3/api -p 'test_staging_claim_bridge.py' -v
+          docker run --rm --network none --read-only --cap-drop ALL \
+            -e PYTHONDONTWRITEBYTECODE=1 "api-f3-84-signed:$GITHUB_SHA" \
+            python3 -m unittest discover -s tests/phase3/api -p 'test_offline_resource_contract.py' -v
+          echo 'API_F3_OFFLINE_RESOURCE_DRAFT_NO_PRODUCT_AUTHORITY_PASS'
           echo 'API_F3_OFFLINE_CONTRACT_BOUNDARIES_NO_NETWORK_NO_ENGINE_PASS'
       - name: Explicit no-target/no-engine evidence
         if: always()
