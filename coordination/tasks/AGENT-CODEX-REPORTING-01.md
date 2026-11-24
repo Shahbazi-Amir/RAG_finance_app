@@ -301,3 +301,11 @@ Status is review. Supervisor approval is pending.
 - Tested: local image dependency imports, PostgreSQL startup and function signature query, HTTPS discovery and real Keycloak form/code+PKCE by container namespace. OpenSSL flag, init hook access and first authorization timeout corrected. Local container port is not published on the internal network. Browser E2E not run.
 - Pending: isolated application TLS, signed Bootstrap/BFF/API, browser Session/Refresh/History and supervisor acceptance. No canonical checklist or Gate edits. Arvan HOLD.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — Account migration handoff
+
+- Status: review for handoff, blocked for Browser E2E and product V4. P3M14-A01 (Module 14, activity 1), P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist). Live Git observations in Shahbazi-Amir/RAG_finance_app: clean execution branch ops/nb23-v4-staging at af57f26eaac0b20b32a53f0b934f0a5f3d1c814c and origin/codex starting at 88702f547b86d8e44d8d58efa0fc05a50d3da974. Engine and historical test claims reference the prior checkpoints, not new runs.
+- Implemented: docs/codex_execution/ACCOUNT_MIGRATION_HANDOFF_20261124_FA.md and this existing ledger. Report-only publication retains exact local resume, provenance and policy boundaries. Private artifacts, candidate code, credentials and raw traces stay on the Mac.
+- Verified by read-only git status, git worktree list, git log, git ls-remote, docker ps -a, selected docker inspect fields, docker network inspect and filtered ps executable names. Seven historical containers stopped, isolated PostgreSQL and Keycloak running, no matching heavy host worker found. Initial socket and process accesses were sandbox-restricted; narrow approved read-only calls supplied the evidence. Document checked for whitespace, section coverage and staged scope. No application tests, benchmarks, builds, migrations, starts or rollout.
+- Pending: wire isolated Bootstrap, signed BFF, Product API and HTTPS/mTLS, then finish browser Session/History/Refresh/Logout. Independently isolate the first divergent ONNX operator. Source Permission blocked, Arvan HOLD. No new Gate, checklist or supervisor acceptance.
+- [Account migration handoff](../../docs/codex_execution/ACCOUNT_MIGRATION_HANDOFF_20261124_FA.md).
