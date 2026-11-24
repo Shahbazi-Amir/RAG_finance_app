@@ -771,3 +771,50 @@ checkpoint `NB23-SESSION-RESUME-21`. اجرای فعال آزمون ازدحام
 `infra/nb23-v4/session_product_api.py` کلید cursor را در Volume محافظت‌شدهٔ همان API به‌صورت فایل مالک با mode 0600 ایجاد و در startup بعدی بازیابی می‌کند. TTL cursor ۳۰۰ ثانیه است و مهلت‌های Session تغییر نکردند. smoke محلی mode و استفادهٔ مجدد از کلید را تأیید کرد. مقدار کلید در خروجی یا گزارش نیست. `check_session_browser.py` فقط کد ساختاریافتهٔ خطای History را برای تشخیص ثبت می‌کند. فعال‌سازی آخرین اصلاح، بازآزمون replay موجود و سپس یک Send تازه در جریان است.
 
 تلاش انتشار checkpoint ۲۰ و یک بررسی فقط‌خواندنی جداگانه در بازبینی خودکار HTTP 404 گرفتند. بررسی‌های بعدی از مسیر مجاز Workspace انجام شدند. رسمی ۵/۲۰ (۲۵٪) → ۵/۲۰ [#####---------------]. خصوصی ۱۲/۲۰ (۶۰٪) → ۱۲/۲۰ [############--------]. پذیرش رسمی و Freeze در انتظار. Generation غیرفعال و Golden حل‌نشده است.
+
+## Docker_3 — History و replay پس از تفکیک readiness
+
+checkpoint `NB23-SESSION-RESUME-22`. در راه‌اندازی قبلی، API تا بالا آمدن Worker منتظر ماند و با exit 1 متوقف شد. نسخهٔ جدید در `infra/nb23-v4/session_product_api.py` آماده‌سازی Worker را با سقف ۲۴۰ ثانیه مستقل می‌کند و پس از شکست انتقال یک rewarm کنترل‌شده بدون replay دارد. `apps/api/product_session_api.py` پیش از T2 تازه readiness را کنترل می‌کند. تا آن زمان Send تازه commit نمی‌شود. Authentication، History و replay موجود به Worker وابسته نیستند. سقف یک درخواست Worker همان ۱۸۰ ثانیه است.
+
+راه‌اندازی مستقل خروج موفق داد. `--http-v4-replay` در پشتهٔ جدید ورود OIDC و History امضاشده را گذراند. replay همان receipt FAILED با HTTP 200 بازگشت، همان Attempt و Outcome محفوظ ماند و مهلت‌های SQL و شمار Attempt تغییر نکردند. این بررسی dispatch تازه نداشت. آزمون Send تازه پس از پیام WORKER_READY انجام می‌شود.
+
+- رسمی ۵/۲۰ → ۵/۲۰ (۲۵٪) [#####---------------].
+- خصوصی ۱۲/۲۰ → ۱۳/۲۰ (۶۵٪) [#############-------]. T17 با شکست واقعی، حفظ Outcome و replay بدون تمدید موفق شد.
+- پذیرش و Freeze رسمی در انتظار؛ Generation غیرفعال و Golden حل‌نشده.
+
+`STAGING_RETRIEVAL.md` مسیر راه‌اندازی و توقف نسخهٔ آزمایشی و فرمان Chrome محلی را ثبت کرده است. برای ادامه، تا readiness واقعی Worker صبر کنید و پس از آن `check_session_browser.py --http-v4` و `--chrome-v4` را اجرا کنید. درج این checkpoint به‌معنای آمادگی آزمون نهایی مالک نیست.
+
+## Docker_3 — نتیجهٔ آخر آزمون آمادگی خصوصی
+
+checkpoint `NB23-SESSION-RESUME-23`. اجرای مصوب با exit 1 و `WORKER_NOT_READY worker_error=TimeoutError` در سقف ۲۴۰ ثانیهٔ startup پایان یافت. Send تازه در آن اجرا انجام نشد. پیش از آن در همان پشته، Login، History صفحه‌بندی‌شده و replay همان Attempt شکست‌خورده با HTTP 200 و بدون تمدید یا dispatch موفق بودند. پشتهٔ نسخهٔ B آزمایشی است و آمادگی کامل آزمون مالک احراز نشده است. اجرای نهایی Chrome و کیفیت و Freeze رسمی بازند.
+
+نسخهٔ A، C018 در پروژهٔ `rag-f3-db-rotate-local`، و ایمیج‌ها، Volumeها، تنظیمات، backup و مسیر Rollback تاریخی دست‌نخورده ماندند. در مشاهدهٔ مصوب این چرخه هفت سرویس آن متوقف بودند. نسخهٔ B پروژهٔ `nb23-session-product-local`، Worker پین `f49f536f4d82` و مشتق UI `8b72e5b40a65` است. زمان‌های startup موفق ثبت‌شده ۱۱۱٫۹۴۵ و ۱۴۹٫۴۲۳ ثانیه و زمان‌های Worker برای دو retrieval موفق ۹۵٫۵۳۷ و ۷۳٫۱۱۱ ثانیه بودند. زمان به تفکیک Retrieval، Reranking، Context و Send تا UI ثبت نشد. نمایش نتیجه در Chrome پس از بازیابی هم‌بستگی بدون POST دید شد. نتیجهٔ مجاز شمار شواهد و وضعیت فنی است. Generation/Gateway غیرفعال‌اند و Golden Docker حل‌نشده است.
+
+رسمی ۵/۲۰ → ۵/۲۰ (۲۵٪) [#####---------------]. خصوصی از شروع مأموریت جدید ۰/۲۰ → ۱۳/۲۰ (۶۵٪) [#############-------]. از checkpoint قبل افزایش صفر. ۱۳ PASS و ۷ مورد ناتمام. پذیرش و Freeze رسمی در انتظار.
+
+| آزمون | وضعیت | شاهد یا مانع |
+| --- | --- | --- |
+| T01 | PASS | Compose مستقل و PostgreSQL راه‌اندازی شدند |
+| T02 | PASS | سلامت و readiness همه در اجراهای قبلی ثبت شد؛ Worker در اجرای اخیر FAIL است |
+| T03 | PASS | باز شدن UI در Chrome واقعی |
+| T04 | PASS | ورود Keycloak و History امضاشده |
+| T05 | PASS | ثبت Conversation واقعی با Send |
+| T06 | PASS | سؤال از Chrome به Worker V4 واقعی رسید |
+| T07 | PARTIAL | RUNNING در دفتر واقعی؛ بازبینی مستمر نمایش UI باز است |
+| T08 | PASS | CONTEXT_READY واقعی، Top-10=10، در بازیابی Chrome ثبت شد |
+| T09 | PASS | زمان‌های واقعی Worker ثبت شدند |
+| T10 | PASS | Refresh در نشست معتبر موجب Logout نشد |
+| T11 | PASS | Conversation و Attempt پس از Refresh یکسان |
+| T12 | PASS | یک POST در Refresh؛ replay جداگانه بدون dispatch |
+| T13 | PARTIAL | نمایش پس از Reload با بازیابی آزمونی هم‌بستگی؛ مسیر طبیعی کامل باز |
+| T14 | PARTIAL | دو اجرای واقعی روی PID یکسان؛ دو سؤال متمایز در همان نشست باز |
+| T15 | PARTIAL | History و حفظ انتخاب تأیید شد؛ تغییر دستی بین گفتگوها در مسیر نهایی باز |
+| T16 | PARTIAL | کنترل Send و پیگیری بررسی شدند؛ صفحه‌کلید، sidebar و RTL مرورگری نهایی باز |
+| T17 | PASS | FAILED و UNKNOWN واقعی حفظ شدند؛ replay همان FAILED بدون تغییر SQL |
+| T18 | PARTIAL | ابطال پیشین HTTP؛ Logout کامل روی Chromium نامزد اخیر باز |
+| T19 | PASS | نسخهٔ A مستقل و دست‌نخورده؛ فعال‌سازی فقط در B |
+| T20 | PARTIAL | مسیر Chrome و Rollback مستند؛ handoff نهایی منتظر readiness |
+
+`EXPERIMENTAL_LOCAL_V4 — GOLDEN PARITY NOT VERIFIED` و `GENERATION DISABLED — GOLDEN PARITY UNRESOLVED`. URL فقط با پروفایل محلی معتبر `https://ragfinance.ir/login` است. پس از readiness واقعی، از worktree اجرایی `python3 -B -u infra/nb23-v4/check_session_browser.py ../nb23-session-product-local --owner-window` پروفایل Chrome محدود به loopback را باز می‌کند. از fixture محلی استفاده شود. راهنمای توقف نسخهٔ B و مسیر بازگشت نسخهٔ A در `infra/nb23-v4/STAGING_RETRIEVAL.md` و گزارش تاریخی Freeze است.
+
+بازبینی خودکار Push مربوط به checkpoint ۲۲ و بررسی جداگانهٔ وضعیت Docker HTTP 404 گرفتند. آخرین ref تأییدشده پیش از انتشار این بسته `d07f216086456c01ec0b3dc06a6fea8337a590ba` بود. ادامه از checkpoint ۲۳، پس از رفع مانع startup یا تغییر شرایط عملیاتی، انتظار برای Worker readiness و سپس `--chrome-v4` است. تکرار کورکورانهٔ restart یا تحقیق داخلی موتور جزو این مرحله نیست.

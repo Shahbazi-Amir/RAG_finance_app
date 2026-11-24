@@ -66,3 +66,11 @@
 ## NB23-SESSION-RESUME-21
 
 - TimeoutError واقعی و حفظ UNKNOWN/FAILED، تشخیص 503 صفحه‌بندی، کلید محلی 0600 و آزمون نگهداشت آن. بازبینی Push قبلی HTTP 404؛ انتشار تجمعی دوباره از مسیر مجاز پیگیری می‌شود.
+
+## NB23-SESSION-RESUME-22
+
+- خروج API هم‌زمان با انتظار Worker، تفکیک readiness، بازآزمون واقعی History و FAILED replay بدون تمدید، همان Attempt. T17 PASS؛ Send تازه و Chrome نهایی بازند.
+
+## NB23-SESSION-RESUME-23
+
+- آخرین rollout عملی exit 1 با TimeoutError readiness. Send تازه و Chrome نهایی اجرا نشدند. جدول T01–T20 و روش شروع/بازگشت به‌روز شدند. HTTP 404 بازبینی ثبت شد.

@@ -111,3 +111,11 @@ Worker cold ۱۱۱٫۹۴۵ ثانیه. Chrome expiry در CDP timeout شد. ای
 ### NB23-SESSION-RESUME-21
 
 علت 503 History پس از چند گفت‌وگو CURSOR_CONFIGURATION بود. اصلاح کلید محافظت‌شده و مسیر بازآزمون آماده است. رسمی ۵/۲۰؛ خصوصی ۱۲/۲۰.
+
+### NB23-SESSION-RESUME-22
+
+History و replay همان FAILED بدون تمدید و Attempt جدید PASS شدند. تشخیص Readiness Worker مستقل است. رسمی ۵/۲۰؛ خصوصی ۱۳/۲۰.
+
+### NB23-SESSION-RESUME-23
+
+نسخهٔ B آزمایشی. Worker آخرین بار در startup ۲۴۰ ثانیه TimeoutError داد. Login، History و replay PASS؛ تحویل نهایی Chrome BLOCKED. رسمی ۵/۲۰، خصوصی ۱۳/۲۰، Freeze در انتظار.

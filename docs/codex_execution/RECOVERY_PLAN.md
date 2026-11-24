@@ -27,3 +27,7 @@ Keep the frozen C018 rollback intact. Stop only the independent nb23-session-pro
 ### NB23-SESSION-RESUME-19
 
 Version B keeps its running PostgreSQL while stopping or recreating isolated API, BFF and Worker services. The named SQLite volume retains retrieval outcomes. The operator procedure lives in the execution worktree at infra/nb23-v4/STAGING_RETRIEVAL.md. Full restore and accepted Freeze remain pending.
+
+### NB23-SESSION-RESUME-22
+
+The isolated API now starts independently of Worker warmup. Before an owner Send, confirm the WORKER_READY marker. Replaying an existing FAILED receipt was observed to leave the PostgreSQL deadline, Attempt count and isolated outcome unchanged.

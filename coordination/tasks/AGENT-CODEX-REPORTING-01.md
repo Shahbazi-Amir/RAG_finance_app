@@ -389,3 +389,15 @@ Status is review. Supervisor approval is pending.
 - Report baseline 11f5bc0 with checkpoint 20 local, execution af57f26, V4 f49f536f4d82. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
 - Tested: actual Worker TimeoutError and persistent UNKNOWN, API restart and private TCP readiness, 149,423 ms Worker startup. OIDC callback succeeded while History returned structured 503 CURSOR_CONFIGURATION. Cursor key creation/mode/reuse smoke passed locally. Private-ASGI fixture remains blocked on host LibreSSL; no-dispatch tests reported 15 pass, one skip.
 - Implemented locally: session_product_api.py isolated protected cursor configuration and check_session_browser.py sanitized History diagnostics. Latest rollout/replay and fresh send pending. First report publish attempt and one read-only escalation returned HTTP 404. Formal 5/20, private 12/20, acceptance pending. [Evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### Docker_3 / NB23-SESSION-RESUME-22 — verified same receipt with no Idle renewal
+
+- Report baseline d07f216, execution af57f26, pinned V4 f49f536f4d82. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
+- Implemented locally: API/Worker startup separation and controlled rewarm in session_product_api.py, readiness admission guard in apps/api/product_session_api.py, startup timing support in persistent_v4_pipe.py and updated runbook.
+- Tested: real isolated HTTPS, OIDC and paginated signed History; existing FAILED receipt replay HTTP 200 with unchanged SQL session timestamps, outcome and Attempt count. Initial synchronous startup failure recovered by the isolated architecture change. Fresh Send/Worker and Chrome flow are pending. Formal 5/20, private 13/20, approval and Freeze pending. [Details](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### Docker_3 / NB23-SESSION-RESUME-23 — current Worker startup blocked
+
+- Report baseline d07f216, execution af57f26, pinned V4 f49f536f4d82 and owner recovery UI 8b72e5b40a65. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
+- Tested: current approved trial exit 1 with Worker startup TimeoutError; earlier signed History and safe replay passed on the same new stack. New Send and Chrome completion not run. No reranking or ONNX changes.
+- Implemented cumulative reporting and local checkpoint; complete private T01–T20 status and safe owner/rollback procedure are in the Persian report. One publication approval and one separate status read returned HTTP 404. Formal 5/20, private 13/20, official acceptance/Freeze pending. [Evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
