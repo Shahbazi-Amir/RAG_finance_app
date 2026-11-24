@@ -110,6 +110,18 @@ class SequenceTests(unittest.TestCase):
             ids={'api':sha+'a','web':sha+'w'};lab.records.append({'image_ids':{'api':sha},'container_ids':ids});return ids
         lab.activate=Mock(side_effect=activation)
         with self.assertRaisesRegex(m.Denied,'ROLLBACK_NOT_RECREATED'):lab.execute()
+    def test_cleanup_forwards_timeout_to_real_compose_wrapper(self):
+        lab=m.Lab(ROOT_CI,ENV,PROJECT)
+        lab.active=CURRENT
+        lab.started=True
+        lab.cmd=Mock(return_value=b"")
+        lab.cleanup()
+        args,kwargs=lab.cmd.call_args
+        self.assertEqual(args,("docker","compose","--project-name",PROJECT,"--file",
+                               m.COMPOSE,"down","--remove-orphans"))
+        self.assertEqual(kwargs["timeout"],120)
+        self.assertEqual(kwargs["env"]["F3_PROJECT_NAME"],PROJECT)
+        self.assertEqual(kwargs["env"]["F3_SOURCE_SHA"],CURRENT)
     def test_cleanup_cannot_remove_unstarted_project(self):
         lab=m.Lab(ROOT_CI,ENV,PROJECT);lab.compose=Mock();lab.cleanup();lab.compose.assert_not_called()
     def test_fault_does_not_stop_unowned_container(self):

@@ -98,10 +98,10 @@ class Lab:
         data=json.loads(self.cmd(*args)); require(isinstance(data,list) and len(data)==1,'INSPECT_SHAPE');return data[0]
     def tag(self,kind,sha):
         return 'rag-f3-app-only-'+kind+':'+self.project+'-'+sha
-    def compose(self,*args,sha=None):
+    def compose(self,*args,sha=None,timeout=600):
         e=dict(self.env,F3_PROJECT_NAME=self.project,F3_SOURCE_SHA=sha or self.active or self.current,
                F3_RELEASE_TAG=self.project+'-'+(sha or self.active or self.current))
-        return self.cmd('docker','compose','--project-name',self.project,'--file',COMPOSE,*args,env=e)
+        return self.cmd('docker','compose','--project-name',self.project,'--file',COMPOSE,*args,env=e,timeout=timeout)
     def prepare(self):
         require(self.cmd('git','rev-parse','HEAD').decode().strip()==self.current,'HEAD_DRIFT')
         require(not self.cmd('git','status','--porcelain','--untracked-files=no').strip(),'TRACKED_DIRTY')
