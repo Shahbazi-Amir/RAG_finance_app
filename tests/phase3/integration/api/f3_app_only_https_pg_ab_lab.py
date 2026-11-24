@@ -254,7 +254,8 @@ def run_server(host, db, scenario):
                     with ctx_probe.wrap_socket(raw, server_hostname="127.0.0.1") as verified:
                         tls_probe = "HANDSHAKE_OK_" + verified.version()
             except (ssl.SSLError, OSError) as exc:
-                tls_probe = type(exc).__name__ + "_" + str(getattr(exc, "reason", "GENERIC"))
+                tls_probe = (type(exc).__name__ + "_" + str(getattr(exc, "reason", "GENERIC"))
+                             + "_VERIFY_CODE_" + str(getattr(exc, "verify_code", "NA")))
             print("APP_ONLY_HTTP_LAB_DIAGNOSTIC_TLS=" + tls_probe, flush=True)
             print("APP_ONLY_HTTP_LAB_DIAGNOSTIC_EXIT=" + str(p.poll()) +
                   "_TCP_CONNECT_EX=" + socket_state +
