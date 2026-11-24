@@ -247,11 +247,71 @@ def authenticated_backup():
     print("DB_BACKUP_AEAD_WRONG_CONTEXT_REJECTED=PASS", flush=True)
     restored = cipher.decrypt(envelope[:12], envelope[12:], aad)
     assert sha256(restored).digest() == sha256(payload).digest()
-    write_secret(PRIVATE / "aead_verified_restore.dump", restored)
+    # Retain a LAB-only key in a separate private directory, then exit.
+    # Another container/process must reopen the envelope with that key.
+    keydir=PRIVATE/"aead_key_material"
+    keydir.mkdir(mode=0o700)
+    write_secret(keydir/"key.bin",key)
+    write_secret(PRIVATE/"aead_plaintext.sha256",sha256(payload).hexdigest().encode())
     assert all((p.stat().st_mode & 0o777)==0o600 for p in (
-        source,out,PRIVATE/"aead_verified_restore.dump"))
+        source,out,keydir/"key.bin",PRIVATE/"aead_plaintext.sha256"))
     source.unlink()
     print("DB_BACKUP_AES256_GCM_ROUNDTRIP_MODE0600=PASS", flush=True)
+
+
+def reopen_backup():
+    keydir=PRIVATE/"aead_key_material"
+    keyfile=keydir/"key.bin"
+    envelopefile=PRIVATE/"aead_backup.bin"
+    digestfile=PRIVATE/"aead_plaintext.sha256"
+    assert keydir.is_dir() and not keydir.is_symlink() and keydir.stat().st_uid==os.geteuid()
+    assert (keydir.stat().st_mode & 0o777)==0o700
+    for path in (keyfile,envelopefile,digestfile):
+        assert path.is_file() and not path.is_symlink() and path.stat().st_uid==os.geteuid()
+        assert (path.stat().st_mode & 0o777)==0o600
+    assert not (PRIVATE/"aead_input.dump").exists()
+    assert not (PRIVATE/"aead_verified_restore.dump").exists()
+    assert keyfile.stat().st_size==32
+    assert 28 < envelopefile.stat().st_size <= 16*1024*1024+28
+    envelope=envelopefile.read_bytes()
+    key=keyfile.read_bytes()
+    aad=b"f3-db-lab-pg17.11-history-001-010-v1"
+    # Negative test after actual process exit: wrong key never yields a file.
+    try:
+        AESGCM(AESGCM.generate_key(bit_length=256)).decrypt(envelope[:12],envelope[12:],aad)
+    except InvalidTag:
+        pass
+    else:
+        raise AssertionError("RECOVERY_WRONG_KEY_ACCEPTED")
+    assert not (PRIVATE/"aead_verified_restore.dump").exists()
+    restored=AESGCM(key).decrypt(envelope[:12],envelope[12:],aad)
+    assert sha256(restored).hexdigest()==digestfile.read_text()
+    write_secret(PRIVATE/"aead_verified_restore.dump",restored)
+    # This is a short-lived CI key only; deletion is not secure erasure.
+    keyfile.unlink()
+    keydir.rmdir()
+    print("DB_BACKUP_INDEPENDENT_PROCESS_RECOVERY_WRONG_KEY_DENIED_KEY_REMOVED=PASS",flush=True)
+
+
+def stale_snapshot_witness():
+    """Do NOT start any product listener against an older revoked-session snapshot.
+    This is a read-only two-cluster demonstration, not a production DR protocol.
+    """
+    state=json.loads((PRIVATE/"session_state.json").read_text())
+    def read(host,db):
+        with conn("auth_sessions",host,db) as c:
+            with c.transaction():
+                c.execute("SET TRANSACTION READ ONLY")
+                return {label:auth_session.inspect(c,state[label]["token"]) for label in ("a","b")}
+    stale=read("demo-db","rag_finance_f3_http_ab_source")
+    current=read("restore-db","rag_finance_f3_http_ab_restored")
+    assert stale["a"] is not None and current["a"] is None,"EXPECTED_STALE_REVOKE_DIVERGENCE"
+    assert stale["a"]["owner_id"]==state["a"]["owner"]
+    assert stale["b"] is not None and current["b"] is not None
+    assert stale["b"]["owner_id"]==current["b"]["owner_id"]==state["b"]["owner"]
+    # Refuse stale in this lab on observed divergence. Never serve or mutate it.
+    assert any(stale[label]!=current[label] for label in ("a","b"))
+    print("DB_STALE_SNAPSHOT_REVOKE_DIVERGENCE_OBSERVED_NO_LISTENER_ADMISSION=PASS",flush=True)
 
 
 def catalog_snapshot(phase):
@@ -746,10 +806,16 @@ def verify_revoked_backup_copy():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("phase", choices=("seed", "before", "after", "revoke", "snapshot_source", "snapshot_restore", "ready200", "ready503", "m10_process", "m10_child", "authenticated_backup", "catalog_source", "catalog_restore", "snapshot_revoked_copy", "verify_revoked_copy", "concurrent_repository"))
+    parser.add_argument("phase", choices=("seed", "before", "after", "revoke", "snapshot_source", "snapshot_restore", "ready200", "ready503", "m10_process", "m10_child", "authenticated_backup", "catalog_source", "catalog_restore", "snapshot_revoked_copy", "verify_revoked_copy", "concurrent_repository", "reopen_backup", "stale_snapshot", "verify_revoked_restored"))
     parser.add_argument("--crash", choices=("t1_before", "t1_after", "t2_before", "t2_after"))
     args = parser.parse_args()
     require_lab()
+    if args.phase == "reopen_backup":
+        reopen_backup()
+        return
+    if args.phase == "stale_snapshot":
+        stale_snapshot_witness()
+        return
     if args.phase == "authenticated_backup":
         authenticated_backup()
         return
@@ -779,6 +845,9 @@ def main():
         raise RuntimeError("NO_SYNTHETIC_SESSION_FIXTURE")
     if args.phase in ("snapshot_source", "snapshot_restore", "snapshot_revoked_copy"):
         sql_snapshot(args.phase)
+        return
+    if args.phase == "verify_revoked_restored":
+        run_server("restore-db", "rag_finance_f3_http_ab_restored", verify_revoked_backup_copy)
         return
     if args.phase == "verify_revoked_copy":
         run_server("demo-db", "rag_finance_f3_http_ab_revoked_copy", verify_revoked_backup_copy)

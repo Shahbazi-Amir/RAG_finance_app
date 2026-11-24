@@ -153,6 +153,8 @@ chmod 0600 "$dump" "$dump.sha256"
 shasum -a 256 -c "$dump.sha256" > /dev/null
 sudo install -o 11001 -g 11001 -m 0600 "$dump" "$probe_dir/private/aead_input.dump"
 run_probe authenticated_backup
+[[ ! -e "$probe_dir/private/aead_verified_restore.dump" ]] || exit 70
+run_probe reopen_backup
 admin restore-db -c "CREATE DATABASE $dst OWNER postgres" >/dev/null
 admin restore-db -c "REVOKE CONNECT,TEMP ON DATABASE $dst FROM PUBLIC" >/dev/null
 admin restore-db -c "GRANT CONNECT ON DATABASE $dst TO history_app,auth_mapper,auth_sessions,auth_revoker" >/dev/null
@@ -160,6 +162,9 @@ sudo cat "$probe_dir/private/aead_verified_restore.dump" | compose exec -T resto
  echo STOP_AB_HTTP_RESTORE_FAILED >&2; exit 70;
 }
 sudo rm "$probe_dir/private/aead_verified_restore.dump"
+[[ ! -e "$probe_dir/private/aead_key_material/key.bin" ]] || exit 70
+# Drop redundant plaintext dump only after successful independent restore.
+rm "$dump"
 echo DB_AUTHENTICATED_BACKUP_ACTUAL_PG_RESTORE=PASS
 [[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM db55_audit.migration_runs WHERE status='APPLIED'")" == 10 ]] || exit 70
 [[ "$(DB_SERVICE=lab-db DB_NAME="$src" dbpsql -Atc "SELECT count(*) FROM history_l1.conversations")" == 8 ]] || exit 70
@@ -221,6 +226,8 @@ trap - EXIT
 [[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM history_l1.conversations")" == 8 ]] || exit 70
 [[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM history_l1.send_receipts")" == 0 ]] || exit 70
 [[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM history_l1.answers")" == 0 ]] || exit 70
+run_probe verify_revoked_restored
+run_probe stale_snapshot
 # Backup *after* revocation, then restore into a fresh clone on the other
 # independent cluster. No attempt to activate a stale pre-revocation backup.
 revoked_copy=rag_finance_f3_http_ab_revoked_copy
@@ -272,7 +279,11 @@ report={
  "repository_negative_matrix":"NINE_FOREIGN_UNKNOWN_CONFLICT_DENIALS_ZERO_MUTATION",
  "repository_terminal_replay":"UNKNOWN_CANCELLED_STABLE_ATTEMPT_ZERO_ANSWER_NO_OWNER_LEAK",
  "backup_aead":"AES256_GCM_ACTUAL_PG_RESTORE_WRONG_KEY_TAMPER_TRUNCATION_AAD_DENIED",
- "backup_key_custody":"EPHEMERAL_MEMORY_ONLY_NOT_PRODUCTION_KMS_OR_RETENTION",
+ "backup_key_custody":"EPHEMERAL_MODE0600_FILE_REMOVED_NOT_PRODUCTION_KMS_OR_RETENTION",
+ "backup_independent_process":"ENCRYPT_PROCESS_EXIT_SEPARATE_DECRYPT_PROCESS_WRONG_KEY_DENIED_ACTUAL_RESTORE",
+ "backup_plaintext_cleanup":"ORIGINAL_DUMP_AND_VERIFIED_RESTORE_REMOVED_AFTER_SUCCESS",
+ "stale_snapshot_witness":"REAL_READ_ONLY_SESSION_DIVERGENCE_NO_STALE_LISTENER_ADMISSION",
+ "post_outage_revocation_recheck":"A401_B200_FOREIGN_UNKNOWN404",
  "catalog_parity":"SIX_TABLES_COLUMNS_CONSTRAINTS_INDEXES_RLS_EXACT_SOURCE_RESTORE",
  "keyset_index_paths":"FORCED_PLANNER_ELIGIBILITY_NOT_LATENCY_BENCHMARK",
  "post_revoke_backup_restore":"NEW_DB_OTHER_CLUSTER_A401_B200_HISTORY_PARITY",
