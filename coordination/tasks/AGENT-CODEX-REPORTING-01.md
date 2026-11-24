@@ -285,3 +285,11 @@ Status is review. Supervisor approval is pending.
 - Recovery evidence: original native exit 1 during receipt serialization, corrected and captured all 25 batches, then one Docker twin with exit 0. Identical tensor inputs, changed logits starting at batch 1. Three worker-transport fixture tests passed. First-batch option probe results in report.
 - Pending: real staging login, trusted activity and refresh, verified parity and API integration, publication permission and supervisor acceptance. No canonical checklist or Gate acceptance. Arvan HOLD.
 - [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — Signed renewal boundary and quantized CPU
+
+- Status: review for isolated signed renewal, blocked for browser and V4 deployment. P3M14-A01 (Module 14, activity 1), P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist). Report base bc90f7f, local cec1efc to a3430c7, V4 91a1a346 and local images f49f536f4d82/d8d93260a4d4.
+- Implemented: infra/nb23-v4/check_signed_idle.py, test_signed_idle_db.sh and updated probe_onnx_options.py. Report paths MAC_FIRST_START_FA.md/.html, CURRENT_STATUS.md and this ledger.
+- Tested: actual isolated PostgreSQL RSA signed transaction, read-only GET timing, replay, invalid proof, wrong owner, unauthorized GET renewal and rollback. Browser/OIDC not exercised. Model hash equality and no external tensor files, different native/Linux binaries and AVX2 visibility. First-batch quant precision reproduced old Docker logits; optimizer-off combination exited 124. Host CPU sysctl initially sandbox-denied and read successfully with approval.
+- Open: first divergent operator, compatible Docker runtime, independent browser/OIDC staging, real refresh and V4 integration. No acceptance or canonical checklist edits. Arvan HOLD.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
