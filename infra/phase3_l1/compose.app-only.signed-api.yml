@@ -1,0 +1,17 @@
+# Explicit isolated API overlay for Foundation; not a full product stack.
+# Use alongside compose.app-only.internal.yml. No published port.
+services:
+  api:
+    image: rag-f3-signed-api:${F3_RELEASE_TAG:?pin candidate tag}
+    build:
+      dockerfile: infra/phase3_l1/Dockerfile.signed-api
+    environment:
+      PHASE3_APP_MODE: APP_ONLY
+      API_RUNNER_EXECUTION_MODE: APP_ONLY
+    volumes:
+      - type: bind
+        source: ${F3_API_SECRET_DIR:?isolated API-owned config directory required}
+        target: /run/secrets
+        read_only: true
+        bind:
+          create_host_path: false
