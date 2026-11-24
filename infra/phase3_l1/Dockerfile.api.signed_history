@@ -11,7 +11,7 @@ COPY apps/api /srv/release/apps/api
 COPY src/phase3 /srv/release/src/phase3
 COPY packages/contracts /srv/release/packages/contracts
 COPY references/phase2 /srv/release/references/phase2
-COPY tests/phase3 /srv/release/tests/phase3
+# Test fixtures intentionally never enter signed runtime image.
 RUN groupadd -g 11001 api && useradd -u 11001 -g 11001 -m -d /home/api api
 USER 11001:11001
 # Only an Ops-mounted 0600 JSON and mTLS/PG roles can start this.

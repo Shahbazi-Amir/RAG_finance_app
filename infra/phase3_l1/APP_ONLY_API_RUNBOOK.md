@@ -8,7 +8,7 @@ to deploy, change existing volumes, enable Qdrant/Runner, or alter Mac/Arvan.
 - `apps/api/private_app_only_asgi.py`: one-process Uvicorn 0.48.0 real HTTPS
   listener; mutual TLS `CERT_REQUIRED`, pinned BFF client leaf, original
   signed RS256 and PostgreSQL 004/005 admission for History/Revoke.
-- `infra/phase3_l1/Dockerfile.api`: non-root UID 11001 real CMD, no engine
+- `infra/phase3_l1/Dockerfile.api.signed_history`: non-root UID 11001 signed History CMD, no engine
   startup or C018 requirement, TCP socket-only Docker liveness. This is NOT
   proof of live PostgreSQL/IdP readiness.
 - `GET /internal/ready`: BFF-mTLS-only live PostgreSQL role and function
@@ -37,7 +37,7 @@ PHASE3_APP_MODE=APP_ONLY npm --prefix apps/web run start
 python3 tests/phase3/integration/ui/app_only_real_browser.py
 ```
 
-Run `.github/workflows/f3-app-only-runtime-ci.yml` at exact candidate SHA
+Run `.github/workflows/f3-foundation-candidate-full-isolated-regression.yml` at exact candidate SHA
 for source pins, real Docker API/Web builds, actual local network TLS/Chrome
 smoke. `api-session-011.yml` separately verifies original signed
 HTTPS/Keycloak/PG17 A/B History/revoke with disposable infrastructure.
@@ -91,3 +91,18 @@ before starting; this repository is only an executable candidate.
 Engine and server are separate later missions. No transition to
 `NO_DISPATCH_ONLY`, C018, model generation, NB23/C019 or DB011 is allowed
 by an app-only image tag or this README.
+
+
+## Exact-SHA signed runtime and 42 bounded per-ID CI slice receipts (not deployment)
+
+The 4-job isolated regression now builds a separate signed-History image from
+Dockerfile.api.signed_history, probes the import without Engine/mounted secrets,
+requires exit 78 on absent protected Ops config, scans the SAME image with
+SPDX/Grype and retains local image ID + sanitized findings. It does not start
+an authorized IdP/PG production target.
+
+After all 4 same-SHA jobs succeed, a dependent fifth job verifies 42 additional
+canonical IDs against exact CI-invoked source assertions and merges those rows
+with 20 historical bounded witnesses: 62/262 **lab-witnessed only**, no owner
+acceptance, no Gate PASS. This only improves evidence traceability; P0 and
+canonical activity completion denominators remain unchanged.

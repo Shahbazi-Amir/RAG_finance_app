@@ -439,6 +439,120 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
+
+  signed-app-only-api-image-lab:
+    name: Immutable signed-History mTLS-only candidate image, fail-closed without Ops secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build isolated REAL signed mTLS History entrypoint without mounting secrets or Engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test ! -f infra/postgres/migrations/011_product_answer_claims.up.sql
+          docker build --pull=false --file infra/phase3_l1/Dockerfile.api.signed_history \
+             --build-arg SOURCE_SHA="$GITHUB_SHA" -t rag-f3-signed-app-only-api:ci .
+          python3 - <<'PY'
+          import json,os,subprocess
+          x=json.loads(subprocess.check_output(
+            ["docker","image","inspect","rag-f3-signed-app-only-api:ci"],text=True))[0]
+          c=x["Config"]
+          assert c["Labels"]["org.opencontainers.image.revision"]==os.environ["GITHUB_SHA"]
+          assert c["User"]=="11001:11001"
+          assert c["Cmd"]==["python3","-m","apps.api.private_app_only_asgi",
+                             "--config","/run/secrets/phase3-app-only.json"]
+          assert c.get("Healthcheck",{}).get("Test")
+          assert x["Os"]=="linux" and x["Architecture"]=="amd64"
+          print("F3_SIGNED_APP_ONLY_RUNTIME_REAL_IMAGE_NONROOT_PINNED_CMD_PASS")
+          PY
+          docker run --rm --network none --read-only --user 11001:11001 \
+            --entrypoint python3 rag-f3-signed-app-only-api:ci \
+            -c "import apps.api.private_app_only_asgi; from pathlib import Path; assert not Path('/srv/release/tests').exists(); print('REAL_SIGNED_IMPORT_NO_TEST_ASSETS_PASS')"
+      - name: Prove signed API cannot start with absent protected Ops config
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          docker run --rm --network none --read-only --user 11001:11001 \
+            --pids-limit 64 --memory 256m \
+            rag-f3-signed-app-only-api:ci > "$RUNNER_TEMP/f3-signed-refusal-private.txt" 2>&1
+          code=$?
+          set -e
+          test "$code" -eq 78
+          grep -Fxq "APP_ONLY_STARTUP_DENIED" "$RUNNER_TEMP/f3-signed-refusal-private.txt"
+          rm -f "$RUNNER_TEMP/f3-signed-refusal-private.txt"
+          mkdir -p ci_receipts/foundation/signed_runtime
+          echo F3_SIGNED_API_NO_SECRETS_NO_CONFIG_FAIL_CLOSED_EXIT78_PASS
+      - name: SPDX SBOM signed-real-runtime, same tested OCI image
+        uses: anchore/sbom-action@a930d0ac434e3182448fe678398ba5713717112a
+        with:
+          image: rag-f3-signed-app-only-api:ci
+          format: spdx-json
+          syft-version: v1.38.0
+          output-file: ci_receipts/foundation/signed_runtime/signed-api.spdx.json
+          upload-artifact: 'false'
+          upload-release-assets: 'false'
+          dependency-snapshot: 'false'
+      - name: Grype scan signed-real-runtime SBOM, findings never auto-release
+        uses: anchore/scan-action@16910ac423301c6d30554b83a7f71ac6ff4a51f3
+        with:
+          sbom: ci_receipts/foundation/signed_runtime/signed-api.spdx.json
+          grype-version: v0.110.0
+          output-format: json
+          output-file: ci_receipts/foundation/signed_runtime/private-signed-grype.json
+          fail-build: 'false'
+          cache-db: 'false'
+      - name: Sanitized same-SHA signed image identity and vulnerability counts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          root=Path("ci_receipts/foundation/signed_runtime")
+          scan=json.loads((root/"private-signed-grype.json").read_text())
+          assert isinstance(scan.get("matches"),list)
+          spdx=root/"signed-api.spdx.json"
+          doc=json.loads(spdx.read_text())
+          assert doc["spdxVersion"]=="SPDX-2.3" and doc.get("packages")
+          img=json.loads(subprocess.check_output(
+            ["docker","image","inspect","rag-f3-signed-app-only-api:ci"],text=True))[0]
+          bysev={}
+          for match in scan["matches"]:
+              sev=str(match["vulnerability"].get("severity","UNKNOWN")).upper()
+              bysev[sev]=bysev.get(sev,0)+1
+          receipt={
+             "schema":"foundation.f3.signed_real_runtime_local_oci_scan.v1",
+             "git_sha":os.environ["GITHUB_SHA"],
+             "same_job_tested_and_scanned_image_id":img["Id"],
+             "spdx_sha256":hashlib.sha256(spdx.read_bytes()).hexdigest(),
+             "spdx_packages":len(doc["packages"]),
+             "grype_matches":len(scan["matches"]),"by_severity":bysev,
+             "no_config_exit_code":78,"no_engine_started":True,
+             "no_runtime_test_assets":True,"no_production_credentials":True,
+             "registry_manifest_digest":None,"mac_target_tested":False,
+             "ready_with_real_idp_and_pg":False,"owner_security_approved":False,
+             "release":"HOLD"}
+          (root/"signed-api-receipt.json").write_text(
+              json.dumps(receipt,sort_keys=True,indent=2)+chr(10))
+          print("F3_SIGNED_HISTORY_RUNTIME_LOCAL_IMAGE_TEST_SCAN_PASS_SECURITY_HOLD")
+          PY
+          rm -f ci_receipts/foundation/signed_runtime/private-signed-grype.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f3-signed-app-only-real-runtime-local-sbom-hold
+          path: |
+            ci_receipts/foundation/signed_runtime/signed-api.spdx.json
+            ci_receipts/foundation/signed_runtime/signed-api-receipt.json
+          retention-days: 14
+          if-no-files-found: warn
+
+
   integrated-isolated-pg17:
     name: Integrated PG17.11 pinned 001-010, TLS RLS DB55 backup restore
     runs-on: ubuntu-24.04
@@ -503,3 +617,56 @@ jobs:
           path: ci_receipts/*
           if-no-files-found: error
           retention-days: 14
+
+
+  evidence-42-slices-on-success:
+    name: Source-test mapped 42 additional bounded IDs, 393 unique, no owner acceptance
+    needs:
+      - integrated-code-and-real-loopback
+      - build-api-app-only-container
+      - integrated-isolated-pg17
+      - signed-app-only-api-image-lab
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: f3-foundation-393-per-id-unaccepted-canonical-ledger
+          path: ci_receipts/previous_canonical_ledger
+      - name: Reject malformed or fabricated bounded witness source mappings
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests/phase3/foundation -p 'test_f3_42_witness_guards.py' -v
+      - name: Verify 42 new distinct source-tested bounded slices after 4 successful same-SHA jobs
+        env:
+          CI: 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/phase3/emit_f3_42_source_ci_witnesses.py \
+             --ledger ci_receipts/previous_canonical_ledger/f3_393_evidence_ledger.json \
+             --out ci_receipts/foundation/source_attested_62
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          path=Path("ci_receipts/foundation/source_attested_62")
+          a=json.loads((path/"f3_393_62_ci_lab_rows_unaccepted.json").read_text())
+          b=json.loads((path/"f3_42_additional_ci_lab_witnesses.json").read_text())
+          assert len(a["rows"])==393
+          assert b["git_sha"]==os.environ["GITHUB_SHA"]
+          assert a["counts"]["all_bounded_ci_rows"]==62
+          assert b["additional_source_tested_on_this_sha"]==42
+          assert all(x["acceptance_status"]=="NOT_ACCEPTED_NO_INDEPENDENT_SIGNED_RECEIPT"
+                     for x in a["rows"])
+          print("F3_62_OF_262_CI_BOUNDED_EVIDENCE_NO_OWNER_ACCEPTANCE_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f3-source-attested-62-of-262-bounded-ci-only-no-acceptance
+          path: ci_receipts/foundation/source_attested_62/*
+          retention-days: 14
+          if-no-files-found: error
