@@ -9,7 +9,7 @@ on:
       - 'tests/phase3/integration/ui/f3_app_only_bff_product_request_pg.mjs'
       - 'apps/api/private_app_only_asgi.py'
   pull_request:
-    branches: [agent/db-f3-revoked-backup-restore-20261124]
+    branches: [agent/db-f3-concurrent-replay-scope-20261124]
     paths:
       - 'infra/postgres/dev_f3_isolated/scripts/28_signed_history_https_pg_lab.sh'
       - 'tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py'
@@ -80,7 +80,11 @@ jobs:
           assert r["post_revoke_backup_restore"]=="NEW_DB_OTHER_CLUSTER_A401_B200_HISTORY_PARITY"
           assert r["stale_pre_revoke_backup_admission"]=="NOT_AUTHORIZED_REQUIRES_OWNER_SECURITY_POLICY"
           assert r["backup_aead"]=="AES256_GCM_ACTUAL_PG_RESTORE_WRONG_KEY_TAMPER_TRUNCATION_AAD_DENIED"
-          assert r["backup_key_custody"]=="EPHEMERAL_MEMORY_ONLY_NOT_PRODUCTION_KMS_OR_RETENTION"
+          assert r["backup_key_custody"]=="EPHEMERAL_MODE0600_FILE_REMOVED_NOT_PRODUCTION_KMS_OR_RETENTION"
+          assert r["backup_independent_process"]=="ENCRYPT_PROCESS_EXIT_SEPARATE_DECRYPT_PROCESS_WRONG_KEY_DENIED_ACTUAL_RESTORE"
+          assert r["backup_plaintext_cleanup"]=="ORIGINAL_DUMP_AND_VERIFIED_RESTORE_REMOVED_AFTER_SUCCESS"
+          assert r["stale_snapshot_witness"]=="REAL_READ_ONLY_SESSION_DIVERGENCE_NO_STALE_LISTENER_ADMISSION"
+          assert r["post_outage_revocation_recheck"]=="A401_B200_FOREIGN_UNKNOWN404"
           assert r["catalog_parity"]=="SIX_TABLES_COLUMNS_CONSTRAINTS_INDEXES_RLS_EXACT_SOURCE_RESTORE"
           assert r["keyset_index_paths"]=="FORCED_PLANNER_ELIGIBILITY_NOT_LATENCY_BENCHMARK"
           assert r["concurrent_repository"]=="CREATE_T1_T2_SIX_REAL_SESSIONS_EACH_EXACTLY_ONE"
