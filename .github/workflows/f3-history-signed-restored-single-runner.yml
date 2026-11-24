@@ -2,7 +2,7 @@ name: FOUNDATION_F3 same-run signed API/PG A-B and independent volume restore â€
 
 on:
   push:
-    branches: [integration/f3-foundation-history-two-users-20261124]
+    branches: [integration/f3-foundation-history-two-users-20261124, integration/f3-foundation-send-fence-restore-20261124]
   workflow_dispatch:
 
 permissions:
@@ -287,8 +287,10 @@ jobs:
         run: |
           python - <<'PY'
           import os,secrets
+          key=secrets.token_urlsafe(48)
+          print('::add-mask::'+key,flush=True)
           with open(os.environ['GITHUB_ENV'],'a',encoding='utf-8') as f:
-              f.write('API_CURSOR_KEY='+secrets.token_urlsafe(48)+'\n')
+              f.write('API_CURSOR_KEY='+key+'\n')
               f.write('API_CURSOR_TTL_SECONDS=900\n')
           PY
       - name: Real HTTPS Callback plus Product-session API 005 004 History/revoke tests

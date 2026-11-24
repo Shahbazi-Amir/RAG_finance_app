@@ -2,7 +2,7 @@ name: FOUNDATION F3 integrated real signed OCI browser and independent PG restor
 
 on:
   push:
-    branches: [integration/f3-foundation-history-two-users-20261124]
+    branches: [integration/f3-foundation-history-two-users-20261124, integration/f3-foundation-send-fence-restore-20261124]
   workflow_dispatch:
 permissions:
   contents: read

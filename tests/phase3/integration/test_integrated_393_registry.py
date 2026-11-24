@@ -112,13 +112,21 @@ class LedgerTest(unittest.TestCase):
             self.assertFalse(transfer["p0_1_accepted"])
             self.assertEqual(len(transfer["rows"]),10)
             self.assertEqual(len({r["path"] for r in transfer["rows"]}),10)
+            delta=json.loads((ROOT/"coordination/integration/F3_WAVE4_DERIVED_API_TRANSFER.json").read_text())
+            self.assertFalse(delta["accepted"])
+            derived={r["path"]:r for r in delta["rows"]}
+            self.assertEqual(set(derived),{"apps/api/private_app_only_asgi.py","tests/phase3/api/test_app_only_no_engine.py"})
             for item in transfer["rows"]:
                 self.assertFalse(item["owner_signed_acceptance"])
                 self.assertTrue(re.fullmatch(r"[0-9a-f]{40}",item["source_blob_sha"]))
                 self.assertEqual(item["candidate_blob_sha"],item["source_blob_sha"])
                 actual=subprocess.run(["git","hash-object",item["path"]],cwd=ROOT,
                     capture_output=True,text=True,check=True).stdout.strip()
-                self.assertEqual(actual,item["source_blob_sha"],item["path"])
+                if item["path"] in derived:
+                    self.assertEqual(derived[item["path"]]["source_blob_sha"],item["source_blob_sha"])
+                    self.assertEqual(actual,derived[item["path"]]["derived_blob_sha"])
+                else:
+                    self.assertEqual(actual,item["source_blob_sha"],item["path"])
                 self.assertEqual(item["historical_58_path"],
                                  item["path"] in {r["path"] for r in records})
                 if item["historical_58_path"]:

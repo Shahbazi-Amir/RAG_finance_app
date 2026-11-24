@@ -175,8 +175,9 @@ class AppOnlyASGI:
             return await JSONResponse(
                 {"error": "SERVICE_UNAVAILABLE"}, status_code=503,
                 headers={"Cache-Control": "no-store"})(scope, receive, private_send)
-        if (scope.get("path") == "/v1/messages"
-                and scope.get("method") == "POST"):
+        if (scope.get("method") == "POST"
+                and (scope.get("raw_path") == b"/v1/messages"
+                     or (scope.get("path") or "").rstrip("/") == "/v1/messages")):
             # Routing uses the percent-decoded ASGI path. A raw-path-only
             # comparison could let /v1/%6dessages bypass the pre-body fence.
             # No body parsing, trusted-user mutation, PG T1/T2, runner queue,
