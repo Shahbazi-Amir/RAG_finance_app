@@ -59,6 +59,11 @@ def trust_ephemeral_browser_ca(demo):
     subprocess.run(["sudo","install","-m","0644",str(ca),trust_path],check=True)
     subprocess.run(["sudo","update-ca-certificates"],check=True,
                    stdout=subprocess.DEVNULL)
+    # Playwright's APIRequestContext uses its Node driver, not Chromium's
+    # NSS trust or Python's system CA bundle. Give only this ephemeral CI CA
+    # to that Node subprocess before async_playwright() starts. Do not bypass
+    # TLS verification for either browser navigation or direct API requests.
+    os.environ["NODE_EXTRA_CA_CERTS"]=str(ca)
     nss=Path.home()/".pki"/"nssdb"
     nss.mkdir(parents=True,exist_ok=True)
     spec="sql:"+str(nss)
@@ -193,6 +198,12 @@ async def browser_long_thread_dom(page, owner, conversation_id):
             await page.reload(wait_until="domcontentloaded")
         await expect(page.get_by_test_id("conversation-"+conversation_id)
                      ).to_be_attached(timeout=20000)
+        # Select the SQL-pinned thread explicitly in the rendered product;
+        # its default selection can refer to a different conversation.
+        selected=page.get_by_test_id("conversation-"+conversation_id)
+        if (await selected.get_attribute("aria-current"))!="page":
+            await selected.click()
+        await expect(selected).to_have_attribute("aria-current","page",timeout=15000)
         messages=page.locator('[data-testid^="history-message-"]')
         await expect(messages).to_have_count(30,timeout=25000)
         observed=await messages.evaluate_all(
