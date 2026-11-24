@@ -1453,6 +1453,199 @@ try {
         private(self.request("GET", "/v1/unknown-private-route"), 404)
         print("API_F3_REAL_PRIVATE_HISTORY_AB_CONDITIONAL_NOSTORE_PASS", flush=True)
 
+    def test_API011_22_actual_private_listener_after_isolated_database_restore(self):
+        """Real CLI startup + pg_dump/restore, fresh DB, original private auth.
+
+        Only the exact CI PG service is used. This is NOT a fresh-volume
+        full-stack recovery, browser journey or destination installation.
+        """
+        import re
+        from psycopg import sql
+        from psycopg.conninfo import conninfo_to_dict, make_conninfo
+        cid = os.environ.get("API_F3_ISOLATED_PG_CID", "")
+        if (os.getenv("CI") != "true" or os.getenv("GITHUB_ACTIONS") != "true"
+                or not re.fullmatch(r"[a-f0-9]{12,64}", cid)
+                or os.getenv("PGHOST") != "127.0.0.1"
+                or os.getenv("PGPORT") != "5432"):
+            raise AssertionError("RESTORE_ISOLATED_CI_FENCE_DENIED")
+        source = {}
+        for var, role in (("DB_APP_DSN", "history_app"),
+                          ("AUTH_REVOKER_DSN", "auth_revoker")):
+            opts = conninfo_to_dict(os.environ[var])
+            self.assertEqual((opts.get("host"), opts.get("port"),
+                              opts.get("dbname"), opts.get("user")),
+                             ("127.0.0.1", "5432", "history_ci", role))
+            source[var] = opts
+        inspection = subprocess.run(
+            ["docker", "inspect", "--format", "{{.Config.Image}} {{.State.Running}}", cid],
+            capture_output=True, text=True, timeout=10, check=True)
+        self.assertEqual(inspection.stdout.strip(), "postgres:17.11 true")
+        a, b = self.login("A"), self.login("B")
+        self.assertNotEqual(a["owner_id"], b["owner_id"])
+        ids = [self.seed(a, "CI_RESTORE_A_" + uuid.uuid4().hex) for _ in range(3)]
+        bid = self.seed(b, "CI_RESTORE_B_" + uuid.uuid4().hex)
+        first = self.list(a, query="?limit=1")
+        self.assertEqual(first.status_code, 200, first.text)
+        first_doc = first.json()
+        aid = first_doc["items"][0]["conversation_id"]
+        self.assertIn(aid, ids)
+        cursor = first_doc["page"]["next_cursor"]
+        self.assertTrue(cursor)
+        page2_query = "?limit=1&cursor=" + cursor
+        second = self.list(a, query=page2_query)
+        self.assertEqual(second.status_code, 200, second.text)
+        sid = second.json()["items"][0]["conversation_id"]
+        self.assertIn(sid, ids)
+        self.assertNotEqual(aid, sid)
+        # Prove a committed durable replay row is included in the backup.
+        token, proof = self.signed(a, query=b"limit=1")
+        self.assertEqual(self.list(a, token=token, query="?limit=1").status_code, 200)
+        replay_key = sha256((proof["iss"] + "\x00" + proof["jti"]).encode()).hexdigest()
+        dbname = "history_api_restore_ci_" + uuid.uuid4().hex[:16]
+        super_dsn = dict(host="127.0.0.1", port=5432, dbname="postgres",
+                         user="postgres", password=os.environ["PGPASSWORD"],
+                         connect_timeout=5)
+        # No DB-name interpolation except psycopg Identifier; no user DB
+        # discovery, no volume removal, no changes to source schema/roles.
+        created = False
+        child = None
+        with TemporaryDirectory(prefix="api-private-restore-ci-") as dirname:
+            lab = Path(dirname)
+            with psycopg.connect(**super_dsn, autocommit=True) as admin:
+                try:
+                    admin.execute(sql.SQL("CREATE DATABASE {} TEMPLATE template0").format(
+                        sql.Identifier(dbname)))
+                    created = True
+                    dump = subprocess.run(
+                        ["docker", "exec", cid, "pg_dump", "-U", "postgres", "-Fc", "history_ci"],
+                        capture_output=True, timeout=45, check=False)
+                    self.assertEqual(dump.returncode, 0, "CI_PG_DUMP_FAILED")
+                    self.assertTrue(dump.stdout.startswith(b"PGDMP"))
+                    restored = subprocess.run(
+                        ["docker", "exec", "-i", cid, "pg_restore", "-U", "postgres",
+                         "--exit-on-error", "-d", dbname],
+                        input=dump.stdout, capture_output=True, timeout=60, check=False)
+                    self.assertEqual(restored.returncode, 0, "CI_PG_RESTORE_FAILED")
+                    del dump, restored
+                    clone = {**super_dsn, "dbname": dbname}
+                    with psycopg.connect(**clone, autocommit=True, row_factory=dict_row) as check:
+                        self.assertEqual(check.execute(
+                            "SELECT current_database() AS db").fetchone()["db"], dbname)
+                        rows = check.execute(
+                            "SELECT id,owner_id FROM history_l1.conversations WHERE id=ANY(%s)",
+                            (ids + [bid],)).fetchall()
+                        self.assertEqual({row["id"]: row["owner_id"] for row in rows},
+                                         {**{i: a["owner_id"] for i in ids}, bid: b["owner_id"]})
+                        self.assertEqual(check.execute(
+                            "SELECT count(*) AS n FROM auth_l1.service_assertion_replays "
+                            "WHERE issuer_jti_sha256=%s", (replay_key,)).fetchone()["n"], 1)
+
+                    # Actual production-path CLI: no CI config override, no
+                    # TestOnlyTLSProfile, no injected Product-session globals.
+                    def protected_copy(src, name):
+                        dst = lab / name
+                        fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                        with os.fdopen(fd, "wb") as out:
+                            out.write(Path(src).read_bytes())
+                        return str(dst)
+                    api_port = port()
+                    config = {
+                        "contract_version": "api.private_app_only_asgi.v1",
+                        "listen_host": "127.0.0.1", "listen_port": api_port,
+                        "server_tls_cert_file": protected_copy(self.temp / "server.pem", "server.pem"),
+                        "server_tls_key_file": protected_copy(self.temp / "server.key", "server.key"),
+                        "trusted_bff_ca_file": protected_copy(self.fixture.ca, "ca.pem"),
+                        "bff_leaf_cert_sha256": sha256(ssl.PEM_cert_to_DER_cert(
+                            Path(self.fixture.cert).read_text(encoding="ascii"))).hexdigest(),
+                        "bff_issuer": ISSUER, "bff_audience": AUDIENCE, "bff_kid": KID,
+                        "bff_rs256_public_key_file": protected_copy(self.pubkey, "public.pem"),
+                        "history_dsn": make_conninfo(**{**source["DB_APP_DSN"], "dbname": dbname}),
+                        "revoke_dsn": make_conninfo(**{**source["AUTH_REVOKER_DSN"], "dbname": dbname}),
+                    }
+                    config_file = lab / "app-only.json"
+                    fd = os.open(config_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    with os.fdopen(fd, "w", encoding="utf-8") as out:
+                        json.dump(config, out)
+                    env = {
+                        "PATH": os.environ["PATH"], "HOME": dirname, "LANG": "C.UTF-8",
+                        "API_RUNNER_EXECUTION_MODE": "APP_ONLY", "PHASE3_APP_MODE": "APP_ONLY",
+                        "API_CURSOR_KEY": self.api_worker_env["API_CURSOR_KEY"],
+                        "API_CURSOR_TTL_SECONDS": self.api_worker_env["API_CURSOR_TTL_SECONDS"],
+                    }
+                    with (lab / "listener.log").open("wb") as output:
+                        child = subprocess.Popen(
+                            [sys.executable, "-m", "apps.api.private_app_only_asgi",
+                             "--config", str(config_file)], cwd=ROOT, env=env,
+                            stdout=output, stderr=output)
+                        original_url = self.url
+                        try:
+                            self.url = "https://127.0.0.1:" + str(api_port)
+                            for _ in range(100):
+                                self.assertIsNone(child.poll(), "ACTUAL_PRIVATE_LISTENER_EXITED")
+                                try:
+                                    if self.request("GET", "/internal/ready").status_code == 200:
+                                        break
+                                except httpx.HTTPError:
+                                    time.sleep(0.1)
+                            else:
+                                self.fail("ACTUAL_PRIVATE_LISTENER_NOT_READY")
+                            ready = self.request("GET", "/health/ready",
+                                                 self.signed(a, path="/health/ready")[0])
+                            self.assertEqual(ready.status_code, 200, ready.text)
+                            self.assertEqual(ready.json()["signed_actor_pg"], "verified")
+                            self.assertEqual(ready.json()["bootstrap_idp"], "not_probed")
+                            self.assertEqual(self.list(a, query="?limit=1").json()["items"][0]
+                                             ["conversation_id"], aid)
+                            after = self.list(a, query=page2_query)
+                            self.assertEqual(after.status_code, 200, after.text)
+                            self.assertEqual(after.json()["items"][0]["conversation_id"], sid)
+                            self.assertEqual(self.list(b, query=page2_query).status_code, 404)
+                            path = "/v1/conversations/" + aid + "/messages"
+                            for actor, expected in ((a, 200), (b, 404)):
+                                result = self.request("GET", path,
+                                    self.signed(actor, path=path)[0])
+                                self.assertEqual(result.status_code, expected, result.text)
+                            self.assertEqual(self.list(b, query="?limit=1").json()["items"][0]
+                                             ["conversation_id"], bid)
+                            with psycopg.connect(**clone, autocommit=True, row_factory=dict_row) as check:
+                                def counts():
+                                    return check.execute(
+                                        "SELECT "
+                                        "(SELECT count(*) FROM history_l1.send_receipts) AS t1,"
+                                        "(SELECT count(*) FROM history_l1.execution_attempts) AS t2,"
+                                        "(SELECT count(*) FROM history_l1.answers) AS t3").fetchone()
+                                before = counts()
+                                denied = self.request("POST", "/v1/messages", body=b"{}")
+                                self.assertEqual(denied.status_code, 503, denied.text)
+                                self.assertEqual(counts(), before)
+                            op = str(uuid.uuid4())
+                            body = json.dumps({"operation_id": op}).encode()
+                            revoked = self.request("POST", REVOKE,
+                                self.signed(a, "POST", REVOKE, body)[0], body=body)
+                            self.assertEqual(revoked.status_code, 200, revoked.text)
+                            self.assertEqual(self.list(a).status_code, 401)
+                            self.assertEqual(self.list(b).status_code, 200)
+                        finally:
+                            self.url = original_url
+                            child.terminate()
+                            try:
+                                child.wait(timeout=5)
+                            except subprocess.TimeoutExpired:
+                                child.kill()
+                                child.wait(timeout=5)
+                            child = None
+                    # Clone revoke must not alter source session or History.
+                    self.assertEqual(self.list(a).status_code, 200)
+                    self.assertEqual(self.list(b).status_code, 200)
+                finally:
+                    if child is not None:
+                        child.kill()
+                        child.wait(timeout=5)
+                    if created:
+                        admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(
+                            sql.Identifier(dbname)))
+        print("API_F3_REAL_PRIVATE_CLI_FRESH_DB_RESTORE_AB_CURSOR_REVOKE_PASS", flush=True)
+
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
         """Actual verified HTTPS callback, same pinned redirect for Code exchange."""
         from cryptography.hazmat.primitives import serialization
