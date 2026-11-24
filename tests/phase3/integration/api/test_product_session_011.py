@@ -859,6 +859,71 @@ class RealProductSession011(unittest.TestCase):
         print("API_F3_REAL_SIGNED_PG_UNKNOWN_CANCELLED_ONE_T2_NO_T3_PASS",
               flush=True)
 
+    def test_API011_11_real_isolated_pg_container_loss_readiness_503_recovery(self):
+        """Actual PG network outage, no mocks: exact CI-owned service only.
+
+        This test may stop ONLY the GitHub Actions postgres:17.11 service
+        bound to synthetic history_ci, never a user or Mac database.
+        """
+        import re
+        cid = os.environ.get("API_F3_ISOLATED_PG_CID", "")
+        if (os.environ.get("CI") != "true"
+                or os.environ.get("GITHUB_ACTIONS") != "true"
+                or not re.fullmatch(r"[a-f0-9]{12,64}", cid)
+                or "dbname=history_ci" not in os.environ.get("DB_APP_DSN", "")
+                or os.environ.get("PGHOST") != "127.0.0.1"
+                or os.environ.get("PGPORT") != "5432"):
+            raise AssertionError("ISOLATED_PG_STOP_FENCE_DENIED")
+        inspect = subprocess.run(
+            ["docker", "inspect", "--format",
+             "{{.Config.Image}} {{.State.Running}}", cid],
+            capture_output=True, text=True, timeout=10, check=True)
+        self.assertEqual(inspect.stdout.strip(), "postgres:17.11 true")
+        a = self.login("A")
+        cid_a = self.seed(a, "CI_REAL_PG_OUTAGE_" + uuid.uuid4().hex)
+        self.assertEqual(self.list(a).status_code, 200)
+        before_token, _ = self.signed(a, path="/health/ready")
+        self.assertEqual(self.request(
+            "GET", "/health/ready", before_token).status_code, 200)
+        stopped = False
+        try:
+            subprocess.run(
+                ["docker", "stop", "--time", "2", cid],
+                capture_output=True, text=True, timeout=20, check=True)
+            stopped = True
+            # A valid, fresh RSA proof/owner cannot compensate for an
+            # unreachable PG: the signed endpoint must fail closed.
+            token, _ = self.signed(a, path="/health/ready")
+            outage = self.request("GET", "/health/ready", token)
+            self.assertEqual(outage.status_code, 503, outage.text)
+            self.assertEqual(outage.headers.get("cache-control"), "no-store")
+            self.assertEqual(outage.json()["state"], "unavailable")
+            self.assertNotIn("postgres", outage.text.lower())
+            self.assertNotIn("password", outage.text.lower())
+        finally:
+            if stopped:
+                subprocess.run(
+                    ["docker", "start", cid],
+                    capture_output=True, text=True, timeout=20, check=True)
+        for _ in range(50):
+            probe = subprocess.run(
+                ["pg_isready", "-h", "127.0.0.1", "-p", "5432"],
+                capture_output=True, timeout=3, check=False)
+            if probe.returncode == 0:
+                break
+            time.sleep(0.2)
+        else:
+            raise AssertionError("ISOLATED_PG_DID_NOT_RECOVER")
+        token, _ = self.signed(a, path="/health/ready")
+        restored = self.request("GET", "/health/ready", token)
+        self.assertEqual(restored.status_code, 200, restored.text)
+        history = self.list(a)
+        self.assertEqual(history.status_code, 200, history.text)
+        self.assertIn(cid_a, [r["conversation_id"]
+                              for r in history.json()["items"]])
+        print("API_F3_ACTUAL_PG_CONTAINER_STOP_READY_503_RESTART_200_PASS",
+              flush=True)
+
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
         """Actual verified HTTPS callback, same pinned redirect for Code exchange."""
         from cryptography.hazmat.primitives import serialization
