@@ -1,0 +1,83 @@
+name: F3 DB A-B real History SQL independent restore
+on:
+  pull_request:
+    branches: [integration/f3-foundation-history-two-users-20261124]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: f3-db-isolated-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  two-owner-history-restore:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout immutable SQL source history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify isolated DB scripts and never run migration 011
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "AB_DB_SOURCE_SHA=$(git rev-parse HEAD)"
+          bash -n infra/postgres/dev_f3_isolated/scripts/26_two_owner_history_sql_restore.sh
+          bash infra/postgres/dev_f3_isolated/tests/run_static.sh
+          for ref in d93dcf7cbf9290acd4cd3aa0164ef05689049da4 656604356dadea953031fcdb74650a5d42df4e9b 1678e87b7984094b74ec995383b8d4383e5f5ae7 bfd6b1d9ed23e5f4cc6f126b579f90d7c877a7a6; do
+            git cat-file -e "$ref^{commit}"
+          done
+          test ! -f infra/postgres/migrations/011_product_answer_claims.up.sql
+      - name: Real PostgreSQL 17.11 fresh 001-010, private TLS, independent restore and A-B History replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd infra/postgres/dev_f3_isolated
+          export SOURCE_REPO="$GITHUB_WORKSPACE"
+          export LAB_ROOT="$RUNNER_TEMP/f3-db-ab-history-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          bash scripts/00_prepare_source.sh
+          bash scripts/01_create_isolated_lab.sh
+          bash scripts/02_provision_roles.sh
+          bash scripts/03_apply_pinned_001_010.sh
+          bash scripts/03_apply_pinned_001_010.sh | grep -F ALREADY_APPLIED_EXACT_PINS_NO_RERUN
+          bash scripts/04_bridge_and_db55.sh
+          bash scripts/05_test_roles_tls_rls.sh
+          bash scripts/06_backup_restore_independent.sh
+          bash scripts/26_two_owner_history_sql_restore.sh
+          echo "AB_HISTORY_REAL_DB_SOURCE_SHA=$GITHUB_SHA"
+          echo 'AB_HISTORY_NO_DEMO_NO_011_NO_ENGINE=PASS'
+      - name: Validate sanitized two-owner pre/post restore evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          path=Path("ci_receipts/ab_history_restore_receipt.json")
+          d=json.loads(path.read_text())
+          assert d["contract_version"]=="f3.db.two_owner_history_sql_restore.v1"
+          assert d["environment"]=="real_postgresql_17.11_disposable_ci_only"
+          assert d["subjects"]=="TWO_SYNTHETIC_NOT_AUTHENTICATED_BY_IDP"
+          assert d["role"]=="history_app" and d["transport"]=="SCRAM_TLS_VERIFY_FULL_CA_SAN"
+          assert d["migrations"]=="001-010" and d["migration_011"]=="NOT_RUN"
+          assert (d["owners"],d["owner_a_conversations"],d["owner_b_conversations"])==(2,5,3)
+          assert (d["owner_a_messages"],d["owner_b_messages"])==(4,2)
+          assert d["before_sql_assertions"]==d["after_sql_assertions"]==18
+          assert d["source_restore_independent_clusters"] and d["source_restore_exact_sql_parity"]
+          assert d["restored_history_force_rls_tables"]==6
+          assert d["cross_owner_and_no_owner_denied"]=="PASS_BOTH_CLUSTERS"
+          assert d["no_send_rows_in_fixture"]=="PASS_BOTH_CLUSTERS"
+          assert len(d["backup_sha256"])==len(d["before_after_sql_snapshot_sha256"])==64
+          assert d["signed_oidc_actor_same_transaction"]=="NOT_PROVEN"
+          assert d["real_http_history_refresh_send_revoke"]=="NOT_RUN"
+          assert d["module_gate"]=="NOT_ACCEPTED"
+          print("AB_HISTORY_36_SQL_ASSERTIONS_PRE_POST_RESTORE_RECEIPT_VALID=PASS")
+          PY
+      - name: Upload sanitized DB SQL receipt only
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3-db-ab-history-before-after-restore
+          path: ci_receipts/ab_history_restore_receipt.json
+          if-no-files-found: error
+          retention-days: 14

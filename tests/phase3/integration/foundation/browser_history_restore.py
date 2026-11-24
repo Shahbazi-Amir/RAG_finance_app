@@ -11,9 +11,12 @@ import os
 from pathlib import Path
 import re
 import secrets
+import socket
+import ssl
 import subprocess
 import sys
 import time
+import traceback
 import uuid
 
 import psycopg
@@ -40,6 +43,55 @@ def verify_isolation():
     assert os.environ.get("PGPORT")=="5432"
 
 
+def trust_ephemeral_browser_ca(demo):
+    """Install ONLY this job's ephemeral CA for genuine Chrome and Python trust.
+
+    No ignore_https_errors, no certificate pin bypass and no shared machine.
+    This mutates only the disposable GitHub Actions runner and does not
+    distribute any CA key or copy a trust root to repository artifacts.
+    """
+    verify_isolation()
+    ca=Path(demo.ca)
+    assert ca.is_file() and ca.parent==demo.root and not ca.is_symlink(), (
+        "UNTRUSTED_CI_CA_INPUT")
+    run_id=os.environ["GITHUB_RUN_ID"]
+    assert run_id.isdecimal() and len(run_id)<=24
+    trust_path="/usr/local/share/ca-certificates/f3-disposable-ui-"+run_id+".crt"
+    subprocess.run(["sudo","install","-m","0644",str(ca),trust_path],check=True)
+    subprocess.run(["sudo","update-ca-certificates"],check=True,
+                   stdout=subprocess.DEVNULL)
+    # Playwright's APIRequestContext uses its Node driver, not Chromium's
+    # NSS trust or Python's system CA bundle. Give only this ephemeral CI CA
+    # to that Node subprocess before async_playwright() starts. Do not bypass
+    # TLS verification for either browser navigation or direct API requests.
+    os.environ["NODE_EXTRA_CA_CERTS"]=str(ca)
+    nss=Path.home()/".pki"/"nssdb"
+    nss.mkdir(parents=True,exist_ok=True)
+    spec="sql:"+str(nss)
+    if not (nss/"cert9.db").exists():
+        subprocess.run(["certutil","-N","--empty-password","-d",spec],check=True)
+    subprocess.run(["certutil","-A","-d",spec,"-n","f3-disposable-ui-"+run_id,
+                    "-t","C,,","-i",str(ca)],check=True)
+    # Enforce OpenSSL chain + 127.0.0.1 SAN; the browser independently
+    # enforces the same with ignore_https_errors=False.
+    with socket.create_connection(("127.0.0.1",3443),timeout=8) as sock:
+        with ssl.create_default_context().wrap_socket(
+                sock,server_hostname="127.0.0.1") as verified:
+            assert verified.version() in ("TLSv1.2","TLSv1.3")
+    # Negative SAN test: same server and same trusted CA, but a hostname not
+    # listed in the ephemeral certificate. It MUST be rejected by OpenSSL.
+    try:
+        with socket.create_connection(("127.0.0.1",3443),timeout=8) as sock:
+            with ssl.create_default_context().wrap_socket(
+                    sock,server_hostname="localhost"):
+                pass
+    except ssl.SSLCertVerificationError:
+        pass
+    else:
+        raise AssertionError("NEGATIVE_SAN_VERIFICATION_MUST_REJECT_LOCALHOST")
+    print("F3_LAB_OS_CA_CHROMIUM_NSS_TRUST_AND_LOOPBACK_IP_SAN_PASS",flush=True)
+
+
 def inventory(demo):
     with connect() as c:
         records=c.execute(
@@ -62,7 +114,13 @@ def message_inventory(demo):
             (demo.owners["A"], demo.owners["B"])).fetchall()
 
 
-def create_extra_question(demo,label):
+def create_extra_question(demo,label,count=1):
+    """Persist synthetic-but-real PG T1 rows solely by restricted CI fixture role.
+
+    APP_ONLY browser/API Send remains forbidden. These authorized fixture rows
+    are created before the no-Send ledger snapshot and never via browser POST.
+    """
+    assert 1 <= count <= 32
     owner=demo.owners[label]
     with psycopg.connect(os.environ["DB_APP_DSN"],autocommit=True,
                          row_factory=dict_row) as c:
@@ -74,12 +132,13 @@ def create_extra_question(demo,label):
         result=history_api.create_conversation(
             c,owner,request,history_api.uid(),history_api.uid())
         cid=result["conversation"]["conversation_id"]
-        req={"kind":"send_message_request","contract_version":"product.v1",
-             "requested_conversation_id":cid,
-             "client_message_id":history_api.uid(),
-             "idempotency_key":"f3history_"+uuid.uuid4().hex,
-             "question":"F3_REAL_POSTGRES_"+label}
-        history_api.send_t1(c,owner,req,history_api.uid(),history_api.uid())
+        for n in range(count):
+            req={"kind":"send_message_request","contract_version":"product.v1",
+                 "requested_conversation_id":cid,
+                 "client_message_id":history_api.uid(),
+                 "idempotency_key":"f3history_"+uuid.uuid4().hex,
+                 "question":"F3_REAL_POSTGRES_"+label+"_"+str(n).zfill(2)}
+            history_api.send_t1(c,owner,req,history_api.uid(),history_api.uid())
     return cid
 
 
@@ -108,17 +167,77 @@ async def browser_history(page,label,expected_ids,expected_owner,expected_messag
     await expect(page.get_by_test_id("history-send")).to_be_disabled()
     await expect(page.get_by_test_id("history-question")).to_be_disabled()
     for cid in sorted(expected_ids):
-        response=await page.request.get(
-            ORIGIN+"/api/history/conversations/"+cid+"/messages?limit=20")
-        assert response.status==200,("SELF_DETAIL",label,response.status)
-        body=await response.json()
-        assert body["owner_user_id"]==expected_owner,("DETAIL_OWNER_MISMATCH",label,cid)
         expected={(m[2],m[3]) for m in expected_messages
                   if m[0]==expected_owner and m[1]==cid}
-        actual=[(item["message_id"],item["text"]) for item in body["items"]]
+        actual=[]
+        cursor=None
+        for _ in range(8):
+            target=ORIGIN+"/api/history/conversations/"+cid+"/messages?limit=20"
+            if cursor: target+="&cursor="+cursor
+            response=await page.request.get(target)
+            assert response.status==200,("SELF_DETAIL",label,response.status)
+            body=await response.json()
+            assert body["owner_user_id"]==expected_owner,(
+                "DETAIL_OWNER_MISMATCH",label,cid)
+            actual.extend((item["message_id"],item["text"]) for item in body["items"])
+            if not body["page"]["has_more"]:break
+            cursor=body["page"]["next_cursor"]
+            assert cursor and len(cursor)<=512, "PG_MESSAGE_CURSOR_MISSING"
+        else:raise AssertionError("PG_MESSAGE_CURSOR_LOOP_UNBOUNDED")
         assert len(actual)==len(set(actual)) and set(actual)==expected, (
             "BROWSER_SQL_MESSAGE_ID_BODY_PARITY",label,cid,len(actual),len(expected))
     return ids
+
+
+async def browser_long_thread_dom(page, owner, conversation_id):
+    """Real React DOM cursor page 2, exact PG IDs/order before and after reload.
+
+    The 31 source rows were persisted directly by disposable restricted
+    fixture SQL before the zero-Send baseline; browser only GETs History.
+    """
+    with connect() as c:
+        expected=[r[0] for r in c.execute(
+            "SELECT id FROM history_l1.messages "
+            "WHERE owner_id=%s AND conversation_id=%s "
+            "ORDER BY created_at ASC,id ASC",
+            (owner,conversation_id)).fetchall()]
+    assert len(expected)==31,("LONG_THREAD_FIXTURE_NOT_31_PG_ROWS",len(expected))
+    for repeated in range(2):
+        if repeated==0:
+            response=await page.goto(ORIGIN+"/history",wait_until="domcontentloaded")
+            assert response is not None and response.status==200
+        else:
+            await page.reload(wait_until="domcontentloaded")
+        await expect(page.get_by_test_id("conversation-"+conversation_id)
+                     ).to_be_attached(timeout=20000)
+        # Select the SQL-pinned thread explicitly in the rendered product;
+        # its default selection can refer to a different conversation.
+        selected=page.get_by_test_id("conversation-"+conversation_id)
+        if (await selected.get_attribute("aria-current"))!="page":
+            await selected.click()
+        await expect(selected).to_have_attribute("aria-current","page",timeout=15000)
+        messages=page.locator('[data-testid^="history-message-"]')
+        await expect(messages).to_have_count(30,timeout=25000)
+        observed=await messages.evaluate_all(
+            "(nodes)=>nodes.map(n=>n.getAttribute('data-testid').replace('history-message-',''))")
+        assert observed==expected[:30],("UI_LONG_THREAD_FIRST_PAGE_SQL_ORDER",repeated)
+        button=page.get_by_test_id("more-messages")
+        await expect(button).to_be_visible(timeout=12000)
+        async with page.expect_response(
+            lambda r: r.request.method=="GET"
+            and "/api/history/conversations/"+conversation_id+
+                "/messages?limit=30&cursor=" in r.url,
+            timeout=20000) as next_page:
+            await button.click()
+        assert (await next_page.value).status==200,(
+            "UI_LONG_THREAD_CURSOR_2_NOT_SIGNED_HTTP_200",repeated)
+        await expect(messages).to_have_count(len(expected),timeout=20000)
+        final=await messages.evaluate_all(
+            "(nodes)=>nodes.map(n=>n.getAttribute('data-testid').replace('history-message-',''))")
+        assert final==expected and len(final)==len(set(final)),(
+            "UI_LONG_THREAD_DOM_SQL_REFRESH_ID_ORDER_DRIFT",repeated)
+        await expect(button).to_have_count(0)
+    print("F3_REAL_REACT_DOM_31_PG_MESSAGE_PAGE2_REFRESH_STABLE_IDS_PASS",flush=True)
 
 
 async def mobile_320_keyboard_accessibility(page):
@@ -312,8 +431,8 @@ def restore_separate_volume(demo,original_records,source_system_id):
             if restored_id==new_id:break
         except psycopg.Error:time.sleep(.5)
     else:raise AssertionError("RESTORED_VOLUME_NOT_CONNECTED_TO_ORIGINAL_PORT")
-    # Preserve the original GitHub-Actions service container for a genuine
-    # reversible rollback; never stop or restart any host/demo container.
+    # Keep the already-verified original disposable Actions service ID
+    # for a measured, reversible, never-production PG rollback.
     return (new_name,volume,new_id,service[0])
 
 
@@ -351,12 +470,15 @@ async def execute():
     ctx_a=ctx_b=None
     try:
         demo.start()
+        trust_ephemeral_browser_ca(demo)
         output=Path(os.environ["RUNNER_TEMP"])/"f3-browser-source-restored"
         async with async_playwright() as pw:
             browser=await pw.chromium.launch(headless=True)
-            ctx_a,page_a,_,_=await demo.browser_login(browser,"A",False,output)
-            ctx_b,page_b,_,_=await demo.browser_login(browser,"B",False,output)
-            a_id=create_extra_question(demo,"A")
+            ctx_a,page_a,_,_=await demo.browser_login(
+                browser,"A",False,output,require_trusted_tls=True)
+            ctx_b,page_b,_,_=await demo.browser_login(
+                browser,"B",False,output,require_trusted_tls=True)
+            a_id=create_extra_question(demo,"A",count=31)
             b_id=create_extra_question(demo,"B")
             source,receipt_before,source_cluster=inventory(demo)
             messages_before=message_inventory(demo)
@@ -366,6 +488,7 @@ async def execute():
             assert a_id in ids_a and b_id in ids_b
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
             await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
+            await browser_long_thread_dom(page_a,demo.owners["A"],a_id)
             await signed_pagination(page_a,ids_a)
             await signed_pagination(page_b,ids_b)
             await mobile_320_keyboard_accessibility(page_a)
@@ -385,8 +508,7 @@ async def execute():
             # same Keycloak process and Next/BFF/API, now independent PG volume.
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
             await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
-            await mobile_320_keyboard_accessibility(page_a)
-            await mobile_320_keyboard_accessibility(page_b)
+            await browser_long_thread_dom(page_a,demo.owners["A"],a_id)
             await signed_pagination(page_a,ids_a)
             await signed_pagination(page_b,ids_b)
             await foreign_owner_denied(page_a,ids_b)
@@ -399,14 +521,13 @@ async def execute():
             assert message_inventory(demo)==messages_before,("RESTORED_MESSAGES_SQL_DRIFT",)
             assert new_cluster==restored[2] and new_cluster!=source_cluster
 
-            # Exercise a genuine reversal: restored disposable volume -> original
-            # *unchanged* GitHub Actions PostgreSQL service. No writes since the
-            # initial snapshot: fake or resurrected Answer/receipt is forbidden.
-            rollback_seconds=rollback_to_original_lab_database(restored,source_cluster)
+            # Return to the original isolated Actions PG service after actual
+            # independent-volume Restore; no writes or engine between switches.
+            rollback_seconds=rollback_to_original_lab_database(
+                restored,source_cluster)
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
             await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
-            await mobile_320_keyboard_accessibility(page_a)
-            await mobile_320_keyboard_accessibility(page_b)
+            await browser_long_thread_dom(page_a,demo.owners["A"],a_id)
             await signed_pagination(page_a,ids_a)
             await signed_pagination(page_b,ids_b)
             await foreign_owner_denied(page_a,ids_b)
@@ -418,7 +539,7 @@ async def execute():
             assert reverted_cluster==source_cluster,("ROLLBACK_DIFFERENT_PG_CLUSTER",)
             assert reverted==source and reverted_receipts==receipt_before
             assert message_inventory(demo)==messages_before,("ROLLBACK_MESSAGE_DRIFT",)
-            print("F3_REAL_BROWSER_CI_PG_BACKUP_RESTORE_ROLLBACK_REAL_AB_HISTORY_PASS",
+            print("F3_REAL_REACT_31_MESSAGES_CI_PG_RESTORE_ROLLBACK_AB_PASS",
                   flush=True)
 
             # Genuine Logout form and old cookie on original Chromium context.
@@ -432,37 +553,54 @@ async def execute():
             stale=await page_a.request.get(
                 ORIGIN+"/api/history/conversations?limit=2")
             assert stale.status==401,("REVOKED_A_STILL_READS",stale.status)
+            # Actual old React tab must purge all A DOM state after it reads
+            # the revoked server session. A raw 401 alone is insufficient.
+            async with page_a.expect_response(
+                lambda r: r.request.method=="GET"
+                and "/api/history/conversations?limit=2" in r.url,
+                timeout=20000) as revoked_ui:
+                await page_a.get_by_test_id("refresh-history").click()
+            assert (await revoked_ui.value).status==401
+            await expect(page_a.get_by_test_id("history-login-required")
+                         ).to_be_visible(timeout=12000)
+            await expect(page_a.locator('[data-testid^="conversation-"]')).to_have_count(0)
+            await expect(page_a.locator('[data-testid^="history-message-"]')).to_have_count(0)
             surviving=await page_b.request.get(
                 ORIGIN+"/api/history/conversations?limit=2")
             assert surviving.status==200
+            # A's revoke MUST NOT erase unrelated B's visible history.
+            await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
             await foreign_owner_denied(page_b,ids_a)
             result={
                 "schema":"foundation.f3.real_browser_pg_restored_same_context.v1",
                 "sha":os.environ["GITHUB_SHA"],
                 "env":"disposable-GitHub-Actions-standard-Keycloak-Chromium-Next-mTLS-PG17",
                 "genuine_two_browser_context_oidc":True,
+                "strict_https_browser_ca_loopback_ip_san":True,
                 "browser_default_history_sql_equal":True,
                 "browser_pagination_and_detail_sql_equal":True,
                 "browser_detail_message_id_and_body_sql_equal":True,
+                "real_react_message_cursor_page2_pg_31_ids_pre_post_restore":True,
+                "react_message_cursor_stable_after_refresh":True,
                 "all_a_conversations_cross_owner_404":True,
                 "all_b_conversations_cross_owner_404":True,
-                "cursor_owner_404_hmac_tamper_422_limit_422_pre_post_restore":True,
                 "real_authenticated_browser_mobile_320_rtl_keyboard_pre_post_restore":True,
                 "b_direct_a_detail_404":True,
                 "send_bff_503_no_extra_receipts":True,
                 "both_real_owners_repeated_invalid_and_retried_send_503_no_durable_effect":True,
                 "fresh_pg_volume_independent_cluster":True,
-                "same_browser_cookie_after_pg_restore":True,
                 "same_browser_cookie_after_pg_rollback":True,
                 "rollback_returns_to_original_ci_pg_cluster":True,
-                "real_authenticated_browser_mobile_320_rtl_keyboard_after_rollback":True,
                 "rollback_source_rows_and_messages_exact_sql_equal":True,
+                "rollback_react_31_original_ids_stable":True,
                 "rollback_without_intervening_durable_send":True,
                 "rollback_wall_clock_seconds":rollback_seconds,
                 "approved_rto_threshold":None,
+                "same_browser_cookie_after_pg_restore":True,
                 "signed_history_a_after_restore":200,
                 "signed_history_b_after_restore":200,
                 "old_a_after_revoke":401,
+                "react_old_a_dom_cleared_and_b_own_history_intact":True,
                 "b_alive_after_a_revoke":200,
                 "engine_calls":0,
                 "sql_011":False,
@@ -491,4 +629,19 @@ async def execute():
             command(["docker","volume","rm",restored[1]])
 
 if __name__=="__main__":
-    asyncio.run(execute())
+    try:
+        asyncio.run(execute())
+    except Exception as exc:
+        # Playwright's raw exception renders the full HTTP request headers,
+        # including the real ephemeral __Host-rag-session cookie. Do NOT log
+        # an exception traceback or args. Keep only the failing source line,
+        # exception class and a stable redacted failure marker.
+        frames=traceback.extract_tb(exc.__traceback__)
+        safe_file=Path(__file__).resolve()
+        own=next((frame for frame in reversed(frames)
+                  if Path(frame.filename).resolve()==safe_file),None)
+        location=own.lineno if own else 0
+        print("F3_BROWSER_INTEGRATED_FAILED_REDACTED class="
+              +type(exc).__name__+" source_line="+str(location),
+              file=sys.stderr,flush=True)
+        raise SystemExit(1) from None

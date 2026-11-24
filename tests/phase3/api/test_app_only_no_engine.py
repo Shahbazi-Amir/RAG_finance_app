@@ -174,7 +174,8 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             return {"kind": "fixture_history"}
         wrapper = AppOnlyASGI(app, FakeProfile())
 
-        async def invoke(path, method, trusted, mode="APP_ONLY"):
+        async def invoke(path, method, trusted, mode="APP_ONLY",
+                         raw_path=None, headers=None):
             receive_reads = []
             emitted = []
             async def recv():
@@ -185,8 +186,8 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             scope = {
                 "type": "http", "scheme": "https" if trusted else "http",
                 "trusted_transport_test": trusted,
-                "path": path, "raw_path": path.encode(),
-                "method": method, "query_string": b"", "headers": [],
+                "path": path, "raw_path": (raw_path or path).encode(),
+                "method": method, "query_string": b"", "headers": headers or [],
                 "http_version": "1.1",
             }
             with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": mode}):
@@ -208,6 +209,27 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             self.assertEqual({k.lower(): v for k, v in headers.items()}[b"cache-control"], b"no-store")
             self.assertFalse(reads)
             self.assertNotIn(b"unsafe", body)
+        # Encoded send route is decoded by ASGI routing and must be denied
+        # before consuming request bytes or invoking the underlying app.
+        status, _, body, reads = asyncio.run(invoke(
+            "/v1/messages", "POST", True, raw_path="/v1/%6dessages"))
+        self.assertEqual(status, 503)
+        self.assertFalse(reads)
+        self.assertNotIn(b"unsafe", body)
+
+        # A signed no-body History GET cannot accept inconsistent framing
+        # (including a Transfer-Encoding: chunked ambiguity).
+        for framed in (
+            [(b"content-length", b"1")],
+            [(b"content-length", b"0"), (b"content-length", b"0")],
+            [(b"transfer-encoding", b"chunked")],
+        ):
+            status, _, body, reads = asyncio.run(invoke(
+                "/v1/conversations", "GET", True, headers=framed))
+            self.assertEqual(status, 401)
+            self.assertFalse(reads)
+            self.assertNotIn(b"fixture_history", body)
+
         self.assertEqual(calls["app"], 0)
 
     def test_bff_only_history_is_routed_but_not_created_here(self):
