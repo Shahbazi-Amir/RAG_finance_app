@@ -132,9 +132,14 @@ async def mobile_320_keyboard_accessibility(page):
             "(el) => getComputedStyle(el).direction")=="rtl", "MOBILE_NOT_RTL"
         menu=page.get_by_role("button",name="بازکردن فهرست گفت‌وگوها")
         await expect(menu).to_be_visible()
+        # :focus-visible requires genuine keyboard modality. A scripted
+        # focus() following a mouse operation does NOT prove keyboard focus.
         await menu.focus()
+        await page.keyboard.press("Shift+Tab")
+        await page.keyboard.press("Tab")
+        await expect(menu).to_be_focused()
         assert await menu.evaluate(
-            "(el) => getComputedStyle(el).outlineStyle")!="none", "NO_FOCUS_OUTLINE"
+            "(el) => getComputedStyle(el).outlineStyle")!="none", "NO_KEYBOARD_FOCUS_OUTLINE"
         await menu.click()
         await expect(page.get_by_role(
             "dialog",name="فهرست گفتگوها")).to_be_visible()
