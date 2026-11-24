@@ -78,3 +78,18 @@
 **مرزهای بازِ واقعی:** هیچ IdP استاندارد OIDC با دو حساب واقعاً login نشده؛ هیچ callback/کوکی/Next BFF عادی یا Chromium/Safari تا PG اجرا نشده؛ تست signing از کلید **آزمایشگاهی** و نگاشت synthetic است؛ readiness کل محصول، نصب Mac/Arvan، SLO/DR امضاشده، rollback محصول، API lost-ACK/process-crash و RPO/RTO هنوز نیاز به شواهد مستقل دارند. **P0-1…P0-6 به‌طور کامل پذیرفته نشده، DB 5/57 DONE محدود و 0/26 Gates پذیرفته باقی می‌ماند.**
 
 **تحویل نقش‌ها:** Foundation باید SHA کاندیدای #84 را با PR #86 مقایسه و فایل‌های مرتبط را بدون overwrite اعتبارسنجی‌شده روی همان شاخهٔ مشترک منتقل و E2E تک‌Runner Web/BFF/API/Bootstrap/IdP/PG را اجرا کند؛ API باید واقعی‌بودن OIDC و session/epoch در همان تراکنش و خطای 401/404/503 را حفظ کند؛ UI باید دو browser context مستقل و DOM/cookie/revoke را با data IDهای PostgreSQL مرتبط کند؛ DB فقط رسید SQL/mTLS lab و restore ارائه داده است. **هیچ Merge/Release/Deployed/ACCEPTED اعلام نشده است.**
+
+
+## نوبت بعدی DB — رفع واقعی مرز BFF→API→PG روی یک SHA (۲۴ نوامبر)
+
+**شاخه DB، SHA اجرایی دقیق موفق**: `07cff22bde59a03336a06d5bed09183564bd19bc`. [CI واقعی 45314209334](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45314209334) با یک job `SUCCESS` و Artifact پاک‌سازی‌شده `14884966955`، `f3-app-only-real-https-pg-ab-restore-lab`.
+
+در این اجرای محدود، **کد واقعی** `apps/web/src/auth/server/product-session.ts::productRequest` در یک کانتینر Node و یک namespace مشترک واقعی با listener mTLS/API، به PostgreSQL17.11 وصل شد. دو نشست مصنوعی نگاشت‌شده به owner A/B با List، Detail، Keyset و رد B→A به 404 کار کردند. امضای RS256 و client-cert واقعی بود؛ flow ساخت Login/OIDC/کوکی مرورگر در این شاخه انجام نشد. همان Runner علاوه بر این مرحله، HTTP A/B پیش و پس از PG Restore مستقل، رد JTI replay/owner cursor، Revoke (A=401/B=200)، Send503 بدون durable row، readiness `200→503→200` در قطع DB را تأیید کرد.
+
+**علت باگ و اصلاح کوچک:** [CI 45301529832](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45301529832) در `STOP_BFF_SOURCE_API_NOT_READY` شکست خورد. [CI 45313370660](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45313370660) ثابت کرد listener واقعاً `running` و `Uvicorn bound` است، `STARTUP_DENIED=0`. فرمان Probe دوم برخلاف Probe اصلی `PYTHONPATH=/srv/release` نداشت و script import آزمایشگاهی قبل از ارسال TLS fail می‌شد. به جای تزریق fake ready، همان ENV مسیر منبع برای کانتینر دوم تنظیم شد و CI همان SHA واقعاً سبز شد.
+
+**همان SHA برای SQL:** دو workflow DB [45314209586](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45314209586) و [45314209382](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45314209382) هر دو `SUCCESS`؛ اجرای History/Restore/owner-GUC/RLS/M10 SQL در همین نقطه بدون ادعای M10 HTTP crash.
+
+**ارتباط با Foundation موازی:** [CI 45313811296](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45313811296) روی SHA **دیگر** `47d00b605b200d01fccecf38424632cffa6a9cd3` برای Keycloak و دو Chromium واقعی موفق بوده و Artifact `14884582085` دارد. این شاهد مستقل را **با SHA DB یکی حساب نکنید**. Foundation باید روی کاندیدای خودش merge-base/diff را بررسی کند و تست‌های BFF/DB/Keycloak/Web را روی **یک SHA نهایی** دوباره اجرا کند؛ هیچ پذیرش Gate یا پایان P0 از این دو موفقیت مستقل نتیجه نمی‌شود.
+
+محدودیت ثابت: `LAB11` آزمایشگاهی پاس شد؛ **محصول مقصد، موتور، Qdrant، migration011، Login واقعی در شاخه DB، full clean-install/rollback، Mac/Arvan و ۲۶ Gate** در این تحویل پذیرفته نشده‌اند. رجیستر canonical ۳۹۳ ردیفی فقط با مدرک اختصاصی ردیف و اختیار مالک قابل تغییر است.
