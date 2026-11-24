@@ -23,7 +23,7 @@ export class OwnerFence {
 export function sameOwnerPrivacyEpoch(
   fence:OwnerFence,ownerRevision:number,privacyAtStart:number,privacyNow:number
 ):boolean {
-  return Number.isSafeInteger(privacyAtStart)&&
-    Number.isSafeInteger(privacyNow)&&
+  return Number.isSafeInteger(privacyAtStart)&&privacyAtStart>=0&&
+    Number.isSafeInteger(privacyNow)&&privacyNow>=0&&
     privacyAtStart===privacyNow&&fence.current(ownerRevision);
 }
