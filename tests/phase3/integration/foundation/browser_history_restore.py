@@ -62,7 +62,13 @@ def message_inventory(demo):
             (demo.owners["A"], demo.owners["B"])).fetchall()
 
 
-def create_extra_question(demo,label):
+def create_extra_question(demo,label,count=1):
+    """Persist synthetic-but-real PG T1 rows solely by restricted CI fixture role.
+
+    APP_ONLY browser/API Send remains forbidden. These authorized fixture rows
+    are created before the no-Send ledger snapshot and never via browser POST.
+    """
+    assert 1 <= count <= 32
     owner=demo.owners[label]
     with psycopg.connect(os.environ["DB_APP_DSN"],autocommit=True,
                          row_factory=dict_row) as c:
@@ -74,12 +80,13 @@ def create_extra_question(demo,label):
         result=history_api.create_conversation(
             c,owner,request,history_api.uid(),history_api.uid())
         cid=result["conversation"]["conversation_id"]
-        req={"kind":"send_message_request","contract_version":"product.v1",
-             "requested_conversation_id":cid,
-             "client_message_id":history_api.uid(),
-             "idempotency_key":"f3history_"+uuid.uuid4().hex,
-             "question":"F3_REAL_POSTGRES_"+label}
-        history_api.send_t1(c,owner,req,history_api.uid(),history_api.uid())
+        for n in range(count):
+            req={"kind":"send_message_request","contract_version":"product.v1",
+                 "requested_conversation_id":cid,
+                 "client_message_id":history_api.uid(),
+                 "idempotency_key":"f3history_"+uuid.uuid4().hex,
+                 "question":"F3_REAL_POSTGRES_"+label+"_"+str(n).zfill(2)}
+            history_api.send_t1(c,owner,req,history_api.uid(),history_api.uid())
     return cid
 
 
@@ -108,14 +115,23 @@ async def browser_history(page,label,expected_ids,expected_owner,expected_messag
     await expect(page.get_by_test_id("history-send")).to_be_disabled()
     await expect(page.get_by_test_id("history-question")).to_be_disabled()
     for cid in sorted(expected_ids):
-        response=await page.request.get(
-            ORIGIN+"/api/history/conversations/"+cid+"/messages?limit=20")
-        assert response.status==200,("SELF_DETAIL",label,response.status)
-        body=await response.json()
-        assert body["owner_user_id"]==expected_owner,("DETAIL_OWNER_MISMATCH",label,cid)
         expected={(m[2],m[3]) for m in expected_messages
                   if m[0]==expected_owner and m[1]==cid}
-        actual=[(item["message_id"],item["text"]) for item in body["items"]]
+        actual=[]
+        cursor=None
+        for _ in range(8):
+            target=ORIGIN+"/api/history/conversations/"+cid+"/messages?limit=20"
+            if cursor: target+="&cursor="+cursor
+            response=await page.request.get(target)
+            assert response.status==200,("SELF_DETAIL",label,response.status)
+            body=await response.json()
+            assert body["owner_user_id"]==expected_owner,(
+                "DETAIL_OWNER_MISMATCH",label,cid)
+            actual.extend((item["message_id"],item["text"]) for item in body["items"])
+            if not body["page"]["has_more"]:break
+            cursor=body["page"]["next_cursor"]
+            assert cursor and len(cursor)<=512, "PG_MESSAGE_CURSOR_MISSING"
+        else:raise AssertionError("PG_MESSAGE_CURSOR_LOOP_UNBOUNDED")
         assert len(actual)==len(set(actual)) and set(actual)==expected, (
             "BROWSER_SQL_MESSAGE_ID_BODY_PARITY",label,cid,len(actual),len(expected))
     return ids
@@ -292,7 +308,7 @@ async def execute():
             browser=await pw.chromium.launch(headless=True)
             ctx_a,page_a,_,_=await demo.browser_login(browser,"A",False,output)
             ctx_b,page_b,_,_=await demo.browser_login(browser,"B",False,output)
-            a_id=create_extra_question(demo,"A")
+            a_id=create_extra_question(demo,"A",count=31)
             b_id=create_extra_question(demo,"B")
             source,receipt_before,source_cluster=inventory(demo)
             messages_before=message_inventory(demo)
