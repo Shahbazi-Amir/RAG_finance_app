@@ -32,7 +32,10 @@ export type Answer = {
   kind:'answer';state:string;outcome:string;answer_id:string;answer_text:string|null;message_id:string;
   conversation_id:string;request_id:string;trace_id:string;claims:Claim[];citations:Citation[];
   confidence:null|{value:number;meaning:string;calibration_scope:string};
-  provenance:{origin:string;rag_binding:{status:string;blocked_by:string|null;adapter_verified:boolean}};
+  // Matches existing product.v1.schema.json provenance fields exactly.
+  // No wire/fixture/contract change; synthetic fixtures use null values.
+  provenance:{origin:string;producer_reference:string|null;source_fingerprint:string|null;
+    rag_binding:{status:string;blocked_by:string|null;release_id:string|null;adapter_verified:boolean}};
 };
 export type StreamEvent = {kind:'stream_event';contract_version:'product.v1';seq:number;stream_id:string;answer_id:string;request_id:string;
   trace_id:string;event_type:string;data:Record<string,unknown>};
