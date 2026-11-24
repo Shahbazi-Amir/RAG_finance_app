@@ -298,6 +298,12 @@ jobs:
           set -euo pipefail
           npm ci --no-audit --no-fund
           npm run build
+      - name: Compile restored Compose lab before expensive OCI builds
+        run: |
+          set -euo pipefail
+          python -m py_compile tests/phase3/integration/foundation/compose_restored_browser.py
+          node --check tests/phase3/integration/foundation/ci_loopback_relay.mjs
+          docker compose version
       - name: Build exact-SHA non-root API image for restored-browser journey
         run: |
           set -euo pipefail

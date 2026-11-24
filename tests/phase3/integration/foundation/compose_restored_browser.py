@@ -106,9 +106,9 @@ class ComposeRestoredBrowserDemo(AppOnlyBrowserDemo):
 
         lab = self.root/"compose-restored"
         lab.mkdir(mode=0o700)
-        webfiles, bootfiles, auditdir, fixture = [lab/n for n in
-                                                  ("web","bootstrap","audit","fixture")]
-        for d in (webfiles,bootfiles,auditdir,fixture):
+        webfiles, bootfiles, ingressfiles, auditdir, fixture = [lab/n for n in
+                                        ("web","bootstrap","ingress","audit","fixture")]
+        for d in (webfiles,bootfiles,ingressfiles,auditdir,fixture):
             d.mkdir(mode=0o700)
 
         def copy_secret(src, directory, name):
@@ -120,8 +120,10 @@ class ComposeRestoredBrowserDemo(AppOnlyBrowserDemo):
         env=dict(self.web_env)
         for key in ("AUTH_CI_BOOTSTRAP_SIGN_KEY","AUTH_CI_PRODUCT_SIGN_KEY",
                     "AUTH_CI_BOOTSTRAP_CA","AUTH_CI_BOOTSTRAP_CERT",
-                    "AUTH_CI_BOOTSTRAP_KEY","AUTH_CI_TLS_CERT","AUTH_CI_TLS_KEY"):
+                    "AUTH_CI_BOOTSTRAP_KEY"):
             env[key]=copy_secret(env[key],webfiles,key.lower())
+        proxy_tls={key:copy_secret(env.pop(key),ingressfiles,key.lower())
+                   for key in ("AUTH_CI_TLS_CERT","AUTH_CI_TLS_KEY")}
         env["AUTH_CI_SHARED_STORE_DIR"]="/run/aliases"
         env.update(CI="true",PHASE3_APP_MODE="APP_ONLY",NEXT_TELEMETRY_DISABLED="1")
         env.pop("AUTH_CI_PRODUCT_CHAT_MODE",None)
@@ -129,9 +131,8 @@ class ComposeRestoredBrowserDemo(AppOnlyBrowserDemo):
         webenv=lab/"web.env"
         self.env_file(webenv,env)
         proxyenv=lab/"proxy.env"
-        self.env_file(proxyenv,{k:env[k] for k in
-                      ("CI","AUTH_CI_PROXY_SECRET","AUTH_CI_TLS_KEY",
-                       "AUTH_CI_TLS_CERT","AUTH_CI_DEMO_MODE")})
+        self.env_file(proxyenv,{**proxy_tls,**{k:env[k] for k in
+                      ("CI","AUTH_CI_PROXY_SECRET","AUTH_CI_DEMO_MODE")}})
 
         worker=json.loads((self.root/"restore-bootstrap.json").read_text())
         assert worker["fault"] == ""
@@ -163,13 +164,13 @@ class ComposeRestoredBrowserDemo(AppOnlyBrowserDemo):
         idp=json.loads(run("docker","inspect",self.kc.container))[0]
         assert idp["Config"]["Image"] == self.kc.IMAGE
         assert set(idp["NetworkSettings"]["Networks"]) == {self.kc.network}
-        self.compose_idp_network=network
         run("docker","network","connect","--alias","f3-ci-idp",network,self.kc.container)
+        self.compose_idp_network=network
 
         self.compose_project="f3-restored-"+uuid.uuid4().hex[:20]
         self.compose_file=lab/"compose.json"
         self.compose_chowns=[]
-        for uid, directory in ((11003,webfiles),(11003,self.shared),
+        for uid, directory in ((11003,webfiles),(11003,self.shared),(11003,ingressfiles),
                                (11001,bootfiles),(11001,auditdir)):
             self.compose_chowns.append(directory)
             run("sudo","chown","-R",f"{uid}:{uid}",str(directory))
@@ -198,7 +199,7 @@ class ComposeRestoredBrowserDemo(AppOnlyBrowserDemo):
                            "/srv/release/src/phase3/auth/initial_oidc_login.py")]}
         ingress={**common(web_image,11003),"network_mode":"service:web","depends_on":["web"],
                  "env_file":[str(proxyenv)],"command":["node","/run/fixture/ingress.mjs"],
-                 "volumes":[mount(webfiles,"/run/lab"),
+                 "volumes":[mount(ingressfiles,"/run/lab"),
                             mount(ROOT/"tests/phase3/integration/ui/auth_010_https_proxy.mjs",
                                   "/run/fixture/ingress.mjs")]}
         endpoints={"product_port":int(self.product_origin.rsplit(":",1)[1]),
@@ -227,6 +228,12 @@ class ComposeRestoredBrowserDemo(AppOnlyBrowserDemo):
             assert d["HostConfig"]["ReadonlyRootfs"]
             assert d["Config"]["Labels"]["com.docker.compose.project"] == self.compose_project
             services[service]=d
+        # Keep BFF private signing keys and encrypted alias store out of the
+        # ingress and relay containers; verify mounts, not just config intent.
+        for service in ("bootstrap","ingress","relay"):
+            sources={m["Source"] for m in services[service]["Mounts"]}
+            assert str(webfiles) not in sources and str(self.shared) not in sources
+        assert str(ingressfiles) in {m["Source"] for m in services["ingress"]["Mounts"]}
         webid=services["web"]["Id"]
         assert set(services["web"]["NetworkSettings"]["Networks"]) == {network}
         assert services["web"]["HostConfig"]["PortBindings"] == {
@@ -262,6 +269,7 @@ class ComposeRestoredBrowserDemo(AppOnlyBrowserDemo):
             "shared_network_member_count":len(members),
             "web_bootstrap_ingress_relay_shared_namespace":True,
             "no_public_port":True,"ci_fixture_bootstrap":True,
+            "ingress_no_bff_signer_or_alias_mount":True,
             "source_phase_web_bootstrap_containerized":False,
             "full_compose_verified":False,"target_verified":False,"accepted":False,
         }
