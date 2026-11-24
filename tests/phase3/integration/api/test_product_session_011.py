@@ -1,6 +1,7 @@
 """Real SQL + mTLS HTTP Product-session API (no override), pinned #48 login."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from hashlib import sha256
 from http.server import ThreadingHTTPServer
@@ -1268,15 +1269,9 @@ class RealProductSession011(unittest.TestCase):
         self.assertEqual(self.list(a).status_code, 200)
         print("API_F3_APP_ONLY_PARALLEL_SEND_RETRIES_ZERO_T1_T2_T3_REPLAY_PASS", flush=True)
 
-    def test_API011_19_actual_web_bff_signer_to_real_pg_history_revoke(self):
-        """Use the real Web TypeScript signer, not the Python signing helper.
-
-        CI-only OIDC sessions and disposable PG; no Next browser or cookie
-        proof, no private-staging deployment, no Send or engine.
-        """
-        a, b = self.login("A"), self.login("B")
-        ids = [self.seed(a, "CI_BFF_A_" + uuid.uuid4().hex) for _ in range(3)]
-        bid = self.seed(b, "CI_BFF_B_" + uuid.uuid4().hex)
+    @contextmanager
+    def _actual_web_bff_client(self):
+        """Actual unchanged TypeScript signer; synthetic CI key kept in memory/file."""
         signer_path = self.temp / ("bff_signer_" + uuid.uuid4().hex + ".pem")
         key_bytes = self.fixture.signer.private_bytes(
             serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
@@ -1328,6 +1323,20 @@ try {
                 response = json.loads(proc.stdout)
                 return response["status"], json.loads(response["body"])
 
+            yield call
+        finally:
+            signer_path.unlink(missing_ok=True)
+
+    def test_API011_19_actual_web_bff_signer_to_real_pg_history_revoke(self):
+        """Use the real Web TypeScript signer, not the Python signing helper.
+
+        CI-only OIDC sessions and disposable PG; no Next browser or cookie
+        proof, no private-staging deployment, no Send or engine.
+        """
+        a, b = self.login("A"), self.login("B")
+        ids = [self.seed(a, "CI_BFF_A_" + uuid.uuid4().hex) for _ in range(3)]
+        bid = self.seed(b, "CI_BFF_B_" + uuid.uuid4().hex)
+        with self._actual_web_bff_client() as call:
             status, first = call(a, "history", "?limit=1")
             self.assertEqual(status, 200)
             self.assertEqual(first["scope_user_id"], a["owner_id"])
@@ -1369,8 +1378,6 @@ try {
             self.assertEqual(receipt, {"state": "REVOKED_COMMITTED", "operation_id": op})
             self.assertEqual(call(a, "history", "?limit=1")[0], 401)
             self.assertEqual(call(b, "history", "?limit=1")[0], 200)
-        finally:
-            signer_path.unlink(missing_ok=True)
         print("API_F3_ACTUAL_WEB_BFF_SIGNER_PG_AB_PAGINATION_REVOKE_PASS", flush=True)
 
     def test_API011_20_ambiguous_signed_json_never_consumes_pg_replay(self):
@@ -1594,19 +1601,29 @@ try {
                             self.assertEqual(ready.status_code, 200, ready.text)
                             self.assertEqual(ready.json()["signed_actor_pg"], "verified")
                             self.assertEqual(ready.json()["bootstrap_idp"], "not_probed")
-                            self.assertEqual(self.list(a, query="?limit=1").json()["items"][0]
-                                             ["conversation_id"], aid)
-                            after = self.list(a, query=page2_query)
-                            self.assertEqual(after.status_code, 200, after.text)
-                            self.assertEqual(after.json()["items"][0]["conversation_id"], sid)
-                            self.assertEqual(self.list(b, query=page2_query).status_code, 404)
-                            path = "/v1/conversations/" + aid + "/messages"
-                            for actor, expected in ((a, 200), (b, 404)):
-                                result = self.request("GET", path,
-                                    self.signed(actor, path=path)[0])
-                                self.assertEqual(result.status_code, expected, result.text)
-                            self.assertEqual(self.list(b, query="?limit=1").json()["items"][0]
-                                             ["conversation_id"], bid)
+                            # Use the exact same real Web signer as API011-19,
+                            # but now against the actual private CLI + restored PG.
+                            with self._actual_web_bff_client() as call:
+                                status, first_restored = call(a, "history", "?limit=1")
+                                self.assertEqual(status, 200)
+                                self.assertEqual(first_restored["scope_user_id"], a["owner_id"])
+                                self.assertEqual(first_restored["items"][0]["conversation_id"], aid)
+                                status, after = call(a, "history", page2_query)
+                                self.assertEqual(status, 200)
+                                self.assertEqual(after["items"][0]["conversation_id"], sid)
+                                self.assertEqual(call(b, "history", page2_query)[0], 404)
+                                status, detail = call(a, "messages", "?limit=2", aid)
+                                self.assertEqual(status, 200)
+                                self.assertEqual(detail["conversation_id"], aid)
+                                self.assertEqual(detail["owner_user_id"], a["owner_id"])
+                                self.assertEqual(call(b, "messages", "?limit=2", aid)[0], 404)
+                                status, other = call(b, "history", "?limit=1")
+                                self.assertEqual(status, 200)
+                                self.assertEqual(other["scope_user_id"], b["owner_id"])
+                                self.assertEqual(other["items"][0]["conversation_id"], bid)
+                                status, refresh = call(a, "history", "?limit=1")
+                                self.assertEqual(status, 200)
+                                self.assertEqual(refresh["items"][0]["conversation_id"], aid)
                             with psycopg.connect(**clone, autocommit=True, row_factory=dict_row) as check:
                                 def counts():
                                     return check.execute(
@@ -1618,13 +1635,18 @@ try {
                                 denied = self.request("POST", "/v1/messages", body=b"{}")
                                 self.assertEqual(denied.status_code, 503, denied.text)
                                 self.assertEqual(counts(), before)
-                            op = str(uuid.uuid4())
-                            body = json.dumps({"operation_id": op}).encode()
-                            revoked = self.request("POST", REVOKE,
-                                self.signed(a, "POST", REVOKE, body)[0], body=body)
-                            self.assertEqual(revoked.status_code, 200, revoked.text)
-                            self.assertEqual(self.list(a).status_code, 401)
-                            self.assertEqual(self.list(b).status_code, 200)
+                            with self._actual_web_bff_client() as call:
+                                op = str(uuid.uuid4())
+                                status, revoked = call(a, "revoke", operation_id=op)
+                                self.assertEqual(status, 200)
+                                self.assertEqual(revoked, {"state": "REVOKED_COMMITTED",
+                                                           "operation_id": op})
+                                self.assertEqual(call(a, "history", "?limit=1")[0], 401)
+                                self.assertEqual(call(b, "history", "?limit=1")[0], 200)
+                            self.assertEqual(self.request("GET", "/health/ready",
+                                self.signed(a, path="/health/ready")[0]).status_code, 503)
+                            self.assertEqual(self.request("GET", "/health/ready",
+                                self.signed(b, path="/health/ready")[0]).status_code, 200)
                         finally:
                             self.url = original_url
                             child.terminate()
@@ -1644,7 +1666,7 @@ try {
                     if created:
                         admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(
                             sql.Identifier(dbname)))
-        print("API_F3_REAL_PRIVATE_CLI_FRESH_DB_RESTORE_AB_CURSOR_REVOKE_PASS", flush=True)
+        print("API_F3_REAL_BFF_PRIVATE_CLI_FRESH_DB_RESTORE_AB_CURSOR_REVOKE_PASS", flush=True)
 
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
         """Actual verified HTTPS callback, same pinned redirect for Code exchange."""
