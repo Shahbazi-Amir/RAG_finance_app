@@ -220,20 +220,30 @@ def run_server(host, db, scenario):
         env=environ, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
     try:
         ready = False
+        last_http = "NONE"
+        last_tls_error = "NONE"
         with tls_client() as c:
             for _ in range(100):
                 if p.poll() is not None:
                     break
                 try:
                     r = c.get(BASE + "/internal/ready")
+                    last_http = str(r.status_code)
                     if r.status_code == 200:
                         assert r.json().get("state") == "ready", "READY_BODY"
                         assert r.json().get("bootstrap_idp") == "not_probed"
                         ready = True
                         break
-                except httpx.HTTPError:
-                    pass
+                except httpx.HTTPError as exc:
+                    last_tls_error = type(exc).__name__
                 time.sleep(0.15)
+        if not ready:
+            log.flush()
+            log_text = (PRIVATE / "app-only-server.log").read_text(errors="replace")
+            print("APP_ONLY_HTTP_LAB_DIAGNOSTIC_EXIT=" + str(p.poll()) +
+                  "_HTTP=" + last_http + "_NETWORK_CLASS=" + last_tls_error +
+                  "_STARTUP_DENIED=" + str("APP_ONLY_STARTUP_DENIED" in log_text) +
+                  "_MODULE_MISSING=" + str("ModuleNotFoundError" in log_text), flush=True)
         assert ready, "PRIVATE_ASGI_MTLS_DB_READY_NOT_REACHED"
         print("HTTPS_APP_ONLY_REAL_MTLS_PG_READINESS_200_IDP_NOT_PROBED=PASS", flush=True)
         scenario()
