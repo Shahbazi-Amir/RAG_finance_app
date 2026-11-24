@@ -11,3 +11,7 @@ The historical reports document component checks. Full recovery remains open. Co
 ## Docker_3 — isolated logical restore
 
 The disposable session database passed a custom dump and restore into a separate database. Conversation, message, Attempt and session-state counts and FORCE RLS and test-definer policy counts matched. Full rollback, physical recovery and immutable baseline restoration remain pending. Before restarting the isolated product stack, account for loss of tmpfs provisioning. [Commands and historical evidence](MAC_FIRST_START_FA.md#docker_3--بازیابی-پس-از-انتقال-حساب)
+
+### NB23-SESSION-RESUME-11
+
+A tmpfs restart replay exposed stale generated role setup. The three required grants now live in the guarded staging SQL used by the provisioning path. Apply it only to the verified disposable clone after restarting its PostgreSQL. Full frozen-stack recovery remains pending.

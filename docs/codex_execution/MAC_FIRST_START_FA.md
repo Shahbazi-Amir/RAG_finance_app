@@ -597,3 +597,16 @@ Keycloak به دلیل نبود setpriv به‌صورت مستقیم با UID 10
 checkpoint محلی NB23-SESSION-RESUME-10، مبنای اجرا af57f26 و گزارش 2fa5372. اجرای آفلاین `probe_onnx_intermediates.py /trial/fingerprints.json --environment docker --branches 1 --exact-attention` با ایمیج پین‌شده خروج ۰ داشت. هر دو کنترل logits در هر دو محیط برقرار بود. عملوند راست و هر دو zero point برابر بودند و عملوند چپ متفاوت بود. Native و Docker هر دو محاسبهٔ int32 دقیق برای ورودی‌های خود را با صفر عنصر متفاوت بازتولید کردند. اختلاف خروجی در این MatMulInteger از عملوند چپ به ارث رسیده است.
 
 بازبینی فقط‌خواندنی GraphProto زنجیرهٔ Softmax → DynamicQuantizeLinear → MatMulInteger را در nodeهای صفرمبنای ۵۵۵، ۵۵۶ و ۵۵۸ نشان داد. `infra/nb23-v4/probe_onnx_intermediates.py` اکنون ورودی و خروجی Softmax را در کپی موقت و با همان کنترل logits مشاهده می‌کند. قدم بعد اجرای یک جفت شاهد روی همین Batch 1 با همین دستور و `--environment native` برای اجرای مک، سپس مقایسهٔ هش ورودی و خروجی Softmax است. اصلاح و Golden هنوز بازند. پیشرفت قبل و بعد ۴/۲۰ (۲۰٪) [####----------------]، افزایش صفر. وضعیت Chrome، Worker و پذیرش باز است.
+
+## Docker_3 — مرز کنترل‌شدهٔ Softmax و بازیابی staging
+
+در checkpoint `NB23-SESSION-RESUME-11`، اجرای هدفمند Q2 Batch 1 با `probe_onnx_intermediates.py … --branches 1 --exact-attention` در Native و Docker با خروج ۰ پایان یافت. در هر دو، logits اجرای اصلی با شاهد تاریخی و logits مدل instrumented با اجرای اصلی برابر بود. ورودی float32 عملگر Softmax هش یکسان داشت، خروجی آن متفاوت بود و اختلاف به عملوند چپ MatMulInteger رسید. مرز عملگر اثبات شد. منشأ عددی داخل Softmax و اصلاح هنوز بازند. گزینهٔ `--softmax-reference` برای مقایسهٔ normalization با مرجع پایدار float64 اضافه شد. نتایج این گزینه هنوز کامل نیستند.
+
+PostgreSQL روی tmpfs مستقل بازآماده شد و ابزار provision خروج ۰ داد. پس از Compose up، API با exit 1 متوقف شد. `check_session_service.py api` از مسیر TLS گذشت و در کنترل EXECUTE تابع PostgreSQL رد شد. فایل نقش‌های تولیدشدهٔ قدیمی سه مجوز لازم را نداشت. مجوزها از generator در `prepare_session_product.py` به `session_staging_rls.sql` با بررسی نام DB و نقش محدود منتقل شدند. اجرای SQL روی کلون مستقل BEGIN، DO، سه GRANT و COMMIT داد و API دوباره شروع شد. نخستین poll سلامت edge با 502 یا timeout پایان یافت و Chrome را آغاز نکرد. آزمون مستقل Chrome روی about:blank با pipe و محاسبهٔ JS خروج ۰ داشت. `check_session_browser.py` اکنون قبل از navigation هدف را روی صفحهٔ خالی بررسی می‌کند. آزمون کامل پس از سلامت HTTPS ادامه دارد.
+
+```text
+قبل [####----------------] 4/20 20%
+بعد [#####---------------] 5/20 25%
+```
+
+فعالیت ۱۰ تکمیل شد، ۵ واحد درصد افزایش. فعالیت ۱۱ تا اثبات مرجع و اصلاح باز است. پس از تشخیص مرز عددی، اصلاح روی کپی مستقل، سپس Golden Q2/Q3/WARM. در مسیر Session، edge مستقل را پس از upstreamها بازخوانی و CA/hostname را بررسی کنید، سپس آزمون Chrome fixture را اجرا کنید. انتشار منبع، dispatch واقعی V4، معیار آمادگی انسانی و پذیرش سرپرست همچنان بازند.

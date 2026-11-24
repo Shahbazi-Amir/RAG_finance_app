@@ -322,3 +322,10 @@ Status is review. Supervisor approval is pending.
 - Report baseline 2fa5372, execution af57f26, pinned V4 f49f536f4d82. P3M14-A01 (Module 14, activity 1) remains pending for Chrome; P3M22-A06 (Module 22, activity 6) and P3OP11-R07 (§Launch checklist) retain the isolated restore evidence.
 - Tested: Docker exact-attention exit 0, both logits controls true, right operand and both zero points equal between runtimes. Left operand differs and each runtime exactly reproduces its own expected int32 result. GraphProto inspection traced the input through Softmax and DynamicQuantizeLinear.
 - Implemented locally: Softmax input/output observation in infra/nb23-v4/probe_onnx_intermediates.py and cumulative execution checkpoint. Updated both report formats, current status, work log and this ledger. Private evidence remains local. Progress 4/20 → 4/20; root cause, Golden, Chrome, real dispatch and supervisor acceptance pending.
+
+### Docker_3 / NB23-SESSION-RESUME-11 — Softmax boundary and staging replay
+
+- Report baseline 34ea078, execution af57f26, pinned V4 f49f536f4d82. P3M14-A01 (Module 14, activity 1), P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist).
+- Implemented locally under infra/nb23-v4: optional float64 witness in probe_onnx_intermediates.py, guarded staging grants in session_staging_rls.sql and simplified generator in prepare_session_product.py, blank-page readiness in check_session_browser.py, cumulative local checkpoint. Report updated in all five requested report files and this ledger.
+- Tested: both Softmax witnesses exit 0 with preserved logits, equal input and different output. Isolated PG provision exit 0, API authority preflight failed at EXECUTE check with stale material, guarded SQL exit 0 and API container restarted. Blank-page Chrome CDP exit 0. First HTTPS poll failed before browser launch. Float64 witness, readiness recheck, Chrome E2E, parity, actual dispatch and acceptance are pending.
+- Progress 4/20 → 5/20. See [detailed evidence and continuation](../../docs/codex_execution/MAC_FIRST_START_FA.md#docker_3--مرز-کنترلشدهٔ-softmax-و-بازیابی-staging).
