@@ -434,5 +434,57 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         asyncio.run(scenario())
 
 
+    def test_slow_pg_role_metadata_does_not_stall_no_engine_http(self):
+        """Even mTLS-only /internal/ready is isolated from the event loop.
+
+        This is a deterministic unit control, not a real PG timeout;
+        the separate Actions outage test exercises stopped PG17.
+        """
+        from threading import Event
+        started, release = Event(), Event()
+        wrapper = AppOnlyASGI(FastAPI(), FakeProfile())
+
+        async def trusted(scope, receive, send):
+            scope["scheme"] = "https"
+            scope["trusted_transport_test"] = True
+            return await wrapper(scope, receive, send)
+
+        def slow_metadata(_profile):
+            started.set()
+            if not release.wait(timeout=3):
+                raise RuntimeError("TEST_SLOW_DB_METADATA_TIMED_OUT")
+
+        async def scenario():
+            with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}):
+                with patch(
+                    "apps.api.private_app_only_asgi.verify_staging_database_authority",
+                    side_effect=slow_metadata,
+                ) as verifier:
+                    async with AsyncClient(
+                        transport=ASGITransport(app=trusted),
+                        base_url="https://test.invalid",
+                    ) as client:
+                        pending = asyncio.create_task(client.get("/internal/ready"))
+                        try:
+                            seen = await asyncio.wait_for(
+                                asyncio.to_thread(started.wait, 2), timeout=2.5)
+                            self.assertTrue(seen)
+                            denied = await asyncio.wait_for(
+                                client.post("/v1/messages",
+                                            content=b"invalid-body-unguarded"),
+                                timeout=1.2)
+                            self.assertEqual(denied.status_code, 503)
+                            self.assertIn("ENGINE_NOT_CONFIGURED", denied.text)
+                            self.assertFalse(release.is_set())
+                        finally:
+                            release.set()
+                        ready = await asyncio.wait_for(pending, timeout=3)
+                        self.assertEqual(ready.status_code, 200)
+                        self.assertEqual(ready.json()["history_db"], "verified")
+                        self.assertEqual(verifier.call_count, 1)
+
+        asyncio.run(scenario())
+
+
 if __name__ == "__main__":
     unittest.main()
