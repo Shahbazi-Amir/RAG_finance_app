@@ -203,7 +203,7 @@ class WebImageLab:
                 "AUTH_CI_BOOTSTRAP_CERT","AUTH_CI_BOOTSTRAP_KEY","AUTH_CI_PRODUCT_SIGN_KEY"):
             filename=field.lower()
             shutil.copyfile(values[field],self.secret_dir/filename)
-            values[field]="/run/ci-web/"+filename
+            values[field]="/tmp/f3-ci-web/"+filename
         (self.secret_dir/"relay.mjs").write_text(WEB_RELAY)
         for p in self.secret_dir.iterdir():p.chmod(0o600)
         sudo("chown","-R","11003:11003",self.secret_dir,self.shared)
@@ -221,6 +221,7 @@ class WebImageLab:
             self.boot_relay.target_port=bootstrap_port
             threading.Thread(target=self.boot_relay.serve_forever,daemon=True).start()
             self.launch()
+            self.transport_preflight()
             self.web_relay=Relay(("127.0.0.1",3000),Handler)
             self.web_relay.target=self.ip
             self.web_relay.target_port=3000
@@ -236,19 +237,58 @@ class WebImageLab:
             "--tmpfs","/tmp:rw,nosuid,size=32m,uid=11003,gid=11003",
             "--tmpfs","/srv/release/apps/web/.next/cache:rw,nosuid,size=64m,uid=11003,gid=11003",
             "--env-file",self.env_file,
-            "--mount","type=bind,src="+str(self.secret_dir)+",dst=/run/ci-web,readonly",
+            "--mount","type=bind,src="+str(self.secret_dir)+",dst=/tmp/f3-ci-web,readonly",
             "--mount","type=bind,src="+str(self.shared)+",dst=/tmp/f3-aliases",
-            self.image_id,"node","/run/ci-web/relay.mjs")
+            self.image_id,"node","/tmp/f3-ci-web/relay.mjs")
         assert docker("inspect","--format","{{.Image}}",self.name)==self.image_id
         assert docker("inspect","--format","{{.Config.User}}",self.name)=="11003:11003"
         assert docker("inspect","--format","{{.HostConfig.ReadonlyRootfs}}",self.name)=="true"
         assert not json.loads(docker("inspect","--format","{{json .HostConfig.PortBindings}}",self.name))
         mounts=json.loads(docker("inspect","--format","{{json .Mounts}}",self.name))
         binds=[m for m in mounts if m["Type"]=="bind"]
-        assert {m["Destination"]:m["RW"] for m in binds}=={"/run/ci-web":False,"/tmp/f3-aliases":True}
+        assert {m["Destination"]:m["RW"] for m in binds}=={"/tmp/f3-ci-web":False,"/tmp/f3-aliases":True}
         self.ip=docker("inspect","--format","{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",self.name)
         assert self.ip
         if self.web_relay:self.web_relay.target=self.ip
+
+    def transport_preflight(self):
+        # Run from the actual nonroot Web namespace, with the exact files
+        # the existing server-side CI guards accept. Never print their bytes.
+        script = """
+const fs=require('node:fs'),https=require('node:https'),assert=require('node:assert/strict');
+const files=['AUTH_CI_BOOTSTRAP_SIGN_KEY','AUTH_CI_PRODUCT_SIGN_KEY',
+'AUTH_CI_BOOTSTRAP_CA','AUTH_CI_BOOTSTRAP_CERT','AUTH_CI_BOOTSTRAP_KEY'];
+for(const name of files){
+ const p=process.env[name],st=fs.statSync(p);
+ assert(p.startsWith('/tmp/')&&!p.includes('..'));
+ assert.equal(st.uid,process.getuid());assert.equal(st.mode&0o777,0o600);
+ assert(fs.readFileSync(p).length>0);
+}
+const ca=fs.readFileSync(process.env.AUTH_CI_BOOTSTRAP_CA);
+const cert=fs.readFileSync(process.env.AUTH_CI_BOOTSTRAP_CERT);
+const key=fs.readFileSync(process.env.AUTH_CI_BOOTSTRAP_KEY);
+function get(origin,path,withCert){
+ return new Promise((resolve,reject)=>{
+ const req=https.get(origin+path,{ca,...(withCert?{cert,key}:{}),rejectUnauthorized:true,agent:false},res=>{
+  res.resume();res.on('end',()=>resolve(res.statusCode));});
+ req.setTimeout(5000,()=>req.destroy(new Error('timeout')));req.on('error',reject);
+ });
+}
+(async()=>{
+ assert.equal(await get(process.env.AUTH_CI_BOOTSTRAP_ORIGIN,'/__fixture_health',true),200);
+ assert.equal(await get(process.env.AUTH_CI_PRODUCT_ORIGIN,'/internal/ready',true),200);
+ await assert.rejects(get(process.env.AUTH_CI_PRODUCT_ORIGIN,'/internal/ready',false));
+ console.log('F3_WEB_CONTAINER_MTLS_BOTH_UPSTREAMS_AND_SECRET_MODES_PASS');
+})().catch(()=>process.exit(1));
+"""
+        for _ in range(25):
+            try:
+                assert docker("exec",self.name,"node","-e",script)=="F3_WEB_CONTAINER_MTLS_BOTH_UPSTREAMS_AND_SECRET_MODES_PASS"
+                print("F3_WEB_CONTAINER_MTLS_BOTH_UPSTREAMS_AND_SECRET_MODES_PASS",flush=True)
+                return
+            except RuntimeError:
+                time.sleep(.5)
+        raise AssertionError("WEB_CONTAINER_MTLS_OR_SECRET_PREFLIGHT_FAILED")
 
     def read_alias(self,name):
         assert name.startswith("alias-") and name.endswith(".json") and "/" not in name
@@ -265,6 +305,7 @@ class WebImageLab:
         docker("load","-i",archive)
         assert docker("image","inspect","--format","{{.Id}}",self.image)==self.image_id
         self.launch()
+        self.transport_preflight()
         self.roundtrip={"local_oci_id":self.image_id,"archive_sha256":digest,
             "removed_image_id_then_reloaded":True,"archive_bytes":archive.stat().st_size,
             "archive_roundtrip_seconds":round(time.monotonic()-start,3)}

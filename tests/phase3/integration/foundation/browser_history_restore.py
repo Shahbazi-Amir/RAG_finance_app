@@ -563,6 +563,7 @@ async def execute():
                 "signed_api_nonroot_readonly_only_api_secrets_mount":bool(demo.image_lab),
                 "web_host_process_not_container":not bool(demo.web_lab),
                 "actual_web_image":bool(demo.web_lab),
+                "web_nonroot_secret_file_modes_and_mtls_positive_missing_cert_negative_pre_post":bool(demo.web_lab),
                 "web_image_archive_replay":demo.web_lab.roundtrip if demo.web_lab else None,
                 "web_internal_network_no_published_ports":bool(demo.web_lab),
                 "ci_bootstrap_and_https_proxy_used":True,
