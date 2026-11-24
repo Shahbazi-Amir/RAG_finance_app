@@ -15,3 +15,15 @@ export class OwnerFence {
   capture():number{return this.#revision;}
   current(revision:number):boolean{return this.#revision===revision;}
 }
+
+
+/** An in-flight POST receipt or transport error is UI-observable only if
+ * BOTH the signed owner generation and read-only owner revalidation epoch
+ * have remained stable since dispatch. This never authorizes any POST. */
+export function sameOwnerPrivacyEpoch(
+  fence:OwnerFence,ownerRevision:number,privacyAtStart:number,privacyNow:number
+):boolean {
+  return Number.isSafeInteger(privacyAtStart)&&privacyAtStart>=0&&
+    Number.isSafeInteger(privacyNow)&&privacyNow>=0&&
+    privacyAtStart===privacyNow&&fence.current(ownerRevision);
+}

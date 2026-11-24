@@ -1,12 +1,16 @@
 # CI-only real Next container, actual HTTP synthetic preview only
-ARG BASE=public.ecr.aws/docker/library/node@sha256:47725aca53d3295ec2d3be8f62726599b3033cc262edc2c7e429909b3ac599fc
+ARG BASE=docker.io/library/node@sha256:47725aca53d3295ec2d3be8f62726599b3033cc262edc2c7e429909b3ac599fc
 FROM ${BASE} AS build
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /srv/release
 COPY apps/web /srv/release/apps/web
 COPY packages/contracts /srv/release/packages/contracts
 WORKDIR /srv/release/apps/web
-RUN npm ci --no-audit --no-fund && npm run build
+# Build needs lint/type tooling; the served image must not ship dev packages.
+RUN npm ci --no-audit --no-fund && npm run build \
+  && npm prune --omit=dev --no-audit --no-fund \
+  && test -x node_modules/.bin/next \
+  && node -e "require('next/package.json');require('react/package.json')"
 FROM ${BASE}
 ARG SOURCE_SHA
 LABEL org.opencontainers.image.revision="${SOURCE_SHA}"
@@ -14,6 +18,11 @@ ENV NEXT_TELEMETRY_DISABLED=1 NODE_ENV=production HOME=/home/web
 WORKDIR /srv/release/apps/web
 COPY --from=build /srv/release/apps/web /srv/release/apps/web
 COPY --from=build /srv/release/packages/contracts /srv/release/packages/contracts
+# A running Next server does not need npm/npx; removing npm's global CLI
+# dependency tree also eliminates unnecessary attack surface from the image.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
+  && test ! -e /usr/local/lib/node_modules/npm \
+  && test -x ./node_modules/.bin/next
 RUN groupadd -g 11003 web && useradd -u 11003 -g 11003 -m -d /home/web web && chown -R 11003:11003 /srv/release/apps/web
 # This app-only candidate has no Engine service; runtime controls remain
 # server-enforced by the BFF, not a JavaScript/HTML feature flag.
