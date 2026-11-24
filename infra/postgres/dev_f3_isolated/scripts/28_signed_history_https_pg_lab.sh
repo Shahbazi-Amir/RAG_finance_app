@@ -160,8 +160,7 @@ docker run -d --name "$probe_name" --no-healthcheck \
   -e API_RUNNER_EXECUTION_MODE=APP_ONLY \
   -e PYTHONPATH=/srv/release \
   -e F3_ISOLATED_DB_HTTP=YES \
-  "$image" python3 -m apps.api.private_app_only_asgi \
-  --config /run/f3_http_probe/private/server-config.json \
+  "$image" /bin/sh -c 'export API_CURSOR_KEY="$(cat /run/f3_http_probe/private/cursor.key)"; export API_CURSOR_TTL_SECONDS=300; exec python3 -m apps.api.private_app_only_asgi --config /run/f3_http_probe/private/server-config.json' \
   > /dev/null
 trap 'docker rm -f "$probe_name" > /dev/null 2>&1 || true' EXIT
 ready=0
@@ -171,7 +170,16 @@ for n in $(seq 1 45); do
  fi
  sleep 1
 done
-[[ "$ready" == 1 ]] || { echo STOP_API_READY_BEFORE_OUTAGE >&2; exit 70; }
+if [[ "$ready" != 1 ]]; then
+  # Only coarse container state; never print private API logs, auth material,
+  # cursor key or session/cert data to GitHub Actions receipts.
+  state="$(docker inspect "$probe_name" --format '{{.State.Status}}' 2>/dev/null || true)"
+  exit_code="$(docker inspect "$probe_name" --format '{{.State.ExitCode}}' 2>/dev/null || true)"
+  oom="$(docker inspect "$probe_name" --format '{{.State.OOMKilled}}' 2>/dev/null || true)"
+  echo "PG_RESTORE_PROBE_DIAG_STATE=$state EXIT=$exit_code OOM=$oom" >&2
+  echo STOP_API_READY_BEFORE_OUTAGE >&2
+  exit 70
+fi
 echo APP_ONLY_RUNNING_MTLS_API_READY_BEFORE_PG_OUTAGE_200=PASS
 compose --profile restore stop restore-db > /dev/null
 docker exec "$probe_name" python3 /srv/release/tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py ready503
