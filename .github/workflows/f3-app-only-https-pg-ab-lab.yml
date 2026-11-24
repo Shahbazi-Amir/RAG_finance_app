@@ -8,6 +8,13 @@ on:
       - '.github/workflows/f3-app-only-https-pg-ab-lab.yml'
       - 'tests/phase3/integration/ui/f3_app_only_bff_product_request_pg.mjs'
       - 'apps/api/private_app_only_asgi.py'
+  pull_request:
+    branches: [agent/db-f3-ab-history-restore-20261124]
+    paths:
+      - 'infra/postgres/dev_f3_isolated/scripts/28_signed_history_https_pg_lab.sh'
+      - 'tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py'
+      - 'tests/phase3/integration/ui/f3_app_only_bff_product_request_pg.mjs'
+      - '.github/workflows/f3-app-only-https-pg-ab-lab.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -20,6 +27,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Verify exact source and negative protection before PG
         shell: bash
         run: |
@@ -57,7 +65,8 @@ jobs:
           from pathlib import Path
           r=json.loads(Path("ci_receipts/app_only_https_pg_ab_restore.json").read_text())
           assert r["contract_version"]=="f3.app_only.real_mtls_signed_history_pg_ab_lab.v1"
-          assert r["source_git_sha"]==os.environ["GITHUB_SHA"]
+          import subprocess
+          assert r["source_git_sha"]==subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
           assert r["idp"]=="NOT_RUN_SYNTHETIC_DB_MAPPED_SUBJECTS"
           assert r["browser"]=="NOT_RUN"
           assert r["private_api_listener"]=="REAL_UVICORN_H11_MTLS"
@@ -68,6 +77,8 @@ jobs:
           assert r["authenticated_session_revoke_after_restore"]=="A_DENIED_B_ALLOWED"
           assert r["real_mtls_api_dependency_readiness"]=="200_THEN_503_PG_DOWN_THEN_200_RECOVERED"
           assert r["real_web_product_request_bff"]=="ACTUAL_NEXT_SOURCE_NODE22_SIGNED_MTLS_TWO_OWNERS"
+          assert r["bff_restore_replay"]=="BEFORE_AFTER_REFRESH_AND_REVOKED_A401_B200"
+          assert r["sql_independent_history_snapshot"]=="EXACT_PARITY_SOURCE_RESTORE_A5_B3_M4_M2_ZERO_SEND"
           assert r["send_without_engine"]=="503_ZERO_DURABLE_WRITES"
           assert r["no_cert_wrong_leaf"]=="REJECTED"
           assert r["identity_same_tx_bound_to_real_oidc"]=="NOT_PROVEN"

@@ -171,6 +171,42 @@ def create_fixture():
     print("HTTPS_LAB_TWO_SYNTHETIC_DB_MAPPED_OWNER_SESSIONS_CREATED=PASS", flush=True)
 
 
+def sql_snapshot(phase: str):
+    """Independent service-role SQL, never derived from HTTP or UI output."""
+    host, db = (("demo-db", "rag_finance_f3_http_ab_source") if phase == "snapshot_source"
+                else ("restore-db", "rag_finance_f3_http_ab_restored"))
+    state = json.loads((PRIVATE / "session_state.json").read_text())
+    assert state["a"]["owner"] != state["b"]["owner"], "OWNER_COLLISION"
+    rows = {}
+    with conn("history_app", host, db) as sql:
+        for label, nconv, nmsg in (("a", 5, 4), ("b", 3, 2)):
+            with sql.transaction():
+                sql.execute("SELECT set_config('app.owner_id', %s, true)", (state[label]["owner"],))
+                conv = sql.execute(
+                    "SELECT id,title,state,created_at,updated_at FROM history_l1.conversations "
+                    "ORDER BY updated_at DESC,id DESC").fetchall()
+                msg = sql.execute(
+                    "SELECT id,conversation_id,role,body,created_at FROM history_l1.messages "
+                    "ORDER BY created_at DESC,id DESC").fetchall()
+                assert [r["id"] for r in conv] == [
+                    f"f3-net-{label}-{n}" for n in range(nconv, 0, -1)]
+                assert [r["id"] for r in msg] == [
+                    f"f3-net-{label}-msg-{n}" for n in range(nmsg, 0, -1)]
+                assert all(r["conversation_id"] == f"f3-net-{label}-1" for r in msg)
+                for table in ("send_receipts", "execution_attempts", "answers", "create_receipts"):
+                    assert sql.execute(f"SELECT count(*) AS n FROM history_l1.{table}").fetchone()["n"] == 0
+                rows[label] = {"conversations": conv, "messages": msg}
+            with sql.transaction():
+                assert sql.execute("SELECT count(*) AS n FROM history_l1.conversations").fetchone()["n"] == 0
+    digest = sha256(json.dumps(rows, sort_keys=True, default=str).encode()).hexdigest()
+    baseline = PRIVATE / "sql_history_baseline.sha256"
+    if phase == "snapshot_source" and not baseline.exists():
+        write_secret(baseline, digest.encode())
+    else:
+        assert baseline.read_text() == digest, "SQL_HISTORY_SNAPSHOT_DRIFT"
+    print("BFF_SQL_" + phase.upper() + "_A5_B3_M4_M2_ZERO_SEND_EXACT_PARITY=PASS", flush=True)
+
+
 def signature(label, method: str, raw_path: str, raw_query: str = "", body: bytes = b"",
               owner_override=None, session_override=None) -> str:
     state = json.loads((PRIVATE / "session_state.json").read_text())[label]
@@ -389,7 +425,7 @@ def revoke_and_check():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("phase", choices=("seed", "before", "after", "ready200", "ready503"))
+    parser.add_argument("phase", choices=("seed", "before", "after", "revoke", "snapshot_source", "snapshot_restore", "ready200", "ready503"))
     args = parser.parse_args()
     require_lab()
     if args.phase in ("ready200", "ready503"):
@@ -404,13 +440,17 @@ def main():
         return
     if not (PRIVATE / "session_state.json").is_file():
         raise RuntimeError("NO_SYNTHETIC_SESSION_FIXTURE")
+    if args.phase in ("snapshot_source", "snapshot_restore"):
+        sql_snapshot(args.phase)
+        return
     host = "demo-db" if args.phase == "before" else "restore-db"
     db = ("rag_finance_f3_http_ab_source" if args.phase == "before"
           else "rag_finance_f3_http_ab_restored")
     def scenario():
-        verify_history(args.phase)
-        if args.phase == "after":
+        if args.phase == "revoke":
             revoke_and_check()
+        else:
+            verify_history(args.phase)
     run_server(host, db, scenario)
 
 

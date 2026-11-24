@@ -65,6 +65,7 @@ run_probe(){
   "$image" python3 /srv/release/tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py "$1"
 }
 run_probe seed
+run_probe snapshot_source
 run_probe before
 
 # REAL Next/Web productRequest TypeScript in a separate Node22 container,
@@ -80,6 +81,8 @@ for pair in 'signer.key:signer.key' 'ca.pem:ca.pem' 'bff.pem:bff.pem' 'bff.key:b
 done
 sudo chmod 0600 "$bff_dir"/*
 sudo chown -R 11003:11003 "$bff_dir"
+run_bff(){
+local phase="$1"
 api_bff_name="f3-bff-api-$short_sha"
 docker run -d --name "$api_bff_name" --no-healthcheck \
   --network "$network" --read-only --security-opt no-new-privileges:true \
@@ -124,9 +127,13 @@ docker run --rm --network "container:$api_bff_name" --user 11003:11003 \
   -e AUTH_CI_PRODUCT_AUDIENCE=urn:rag-finance:api:internal-ci \
   -e AUTH_CI_PRODUCT_KID=ci-rsa-1 \
   "$node_image" node --experimental-strip-types \
-  /repo/tests/phase3/integration/ui/f3_app_only_bff_product_request_pg.mjs
+  /repo/tests/phase3/integration/ui/f3_app_only_bff_product_request_pg.mjs "$phase"
 docker rm -f "$api_bff_name" >/dev/null
 trap - EXIT
+echo "APP_ONLY_REAL_NEXT_BFF_${phase^^}_TO_ACTUAL_MTLS_SIGNED_PG_HISTORY=PASS"
+}
+run_bff before
+run_probe snapshot_source
 echo APP_ONLY_REAL_NEXT_BFF_SOURCE_TO_ACTUAL_MTLS_SIGNED_PG_HISTORY=PASS
 dump="$LAB_WORK/f3_http_ab.dump"
 compose exec -T lab-db pg_dump -U postgres -d "$src" -Fc > "$dump"
@@ -148,7 +155,13 @@ dst_id="$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc 'SELECT system_identi
 [[ -n "$src_id" && -n "$dst_id" && "$src_id" != "$dst_id" ]] || exit 70
 # Source and second cluster use the same ephemeral session value; a fresh
 # signed proof must still pass DB session epoch/generation and durable replay.
+run_probe snapshot_restore
 run_probe after
+run_bff after
+run_probe snapshot_restore
+run_probe revoke
+run_bff revoked
+run_probe snapshot_restore
 # The HTTPS listener is a separate nonroot process. Keep it running across a
 # deliberate outage of ONLY this disposable restore-db container, then restore
 # that same lab cluster. This is dependency readiness, NOT full machine DR.
@@ -213,6 +226,8 @@ report={
  "postgres_service":"history_app_TLS_VERIFY_FULL_CA_SAN",
  "real_signed_http_history":"SOURCE_AND_INDEPENDENT_RESTORE",
  "real_web_product_request_bff":"ACTUAL_NEXT_SOURCE_NODE22_SIGNED_MTLS_TWO_OWNERS",
+ "bff_restore_replay":"BEFORE_AFTER_REFRESH_AND_REVOKED_A401_B200",
+ "sql_independent_history_snapshot":"EXACT_PARITY_SOURCE_RESTORE_A5_B3_M4_M2_ZERO_SEND",
  "two_owner_conversations":[5,3],
  "two_owner_messages":[4,2],
  "authenticated_session_revoke_after_restore":"A_DENIED_B_ALLOWED",
