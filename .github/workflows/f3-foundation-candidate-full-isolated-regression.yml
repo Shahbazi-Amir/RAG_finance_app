@@ -176,6 +176,7 @@ jobs:
           set -euo pipefail
           docker build --pull=false --file infra/phase3_l1/Dockerfile.web --build-arg SOURCE_SHA="$(git rev-parse HEAD)" -t rag-f3-app-only-web:ci .
           docker image inspect rag-f3-app-only-web:ci --format '{{.Id}} {{.Config.User}} {{.Config.Healthcheck.Test}}'
+          docker run --rm --network none rag-f3-app-only-web:ci node -e "const fs=require('fs'); if(fs.existsSync('/usr/local/lib/node_modules/npm')) process.exit(2); require('next/package.json'); require('react/package.json'); console.log('WEB_PROD_RUNTIME_NO_NPM_TOOLCHAIN_PASS')"
       - name: Isolated Web+API containers internal DNS, zero Send and unavailable signed History
         run: |
           set -euo pipefail
