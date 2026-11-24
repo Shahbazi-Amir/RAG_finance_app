@@ -101,6 +101,41 @@ class AppOnlyBrowserDemo(Demo):
             else:raise AssertionError("DB_TLS_NEGATIVE_ACCEPTED")
         print("DB_COMPOSE_"+phase+"_PG_VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN=PASS",flush=True)
 
+    def db55_readonly_catalog_gate(self, phase, cfg):
+        """Run unchanged pinned DB55 verifier with a distinct no-write login.
+        CI clone only; no new bridge GRANT, no deployment attestation.
+        """
+        dsn=cfg["DB55_CI_AUDITOR_DSN"]
+        options=conninfo_to_dict(dsn)
+        assert options["sslmode"]=="verify-full"
+        assert re.fullmatch(r"history_browser_restore_ci_[a-f0-9]{16}",options["dbname"])
+        assert options["user"]=="f3_db55_ci_auditor"
+        verifier=ROOT/"infra/postgres/staging/db55_verify_staging.sql"
+        assert subprocess.check_output(["git","hash-object",str(verifier)],cwd=ROOT,text=True).strip()=="e2115d8cebc649fdf05d3fbee4ef435ad5f39a47"
+        with psycopg.connect(dsn,autocommit=True) as conn:
+            assert conn.execute("SELECT current_user,rolsuper,rolbypassrls,rolinherit,rolcreatedb,rolcreaterole FROM pg_roles WHERE rolname=current_user").fetchone()==("f3_db55_ci_auditor",False,False,False,False,False)
+            assert conn.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()[0]
+            assert not conn.execute("SELECT EXISTS(SELECT 1 FROM pg_auth_members WHERE member=(SELECT oid FROM pg_roles WHERE rolname=current_user))").fetchone()[0]
+            assert not conn.execute("SELECT has_database_privilege(current_user,current_database(),'CREATE')").fetchone()[0]
+            for schema in ("history_l1","auth_l1"):
+                assert conn.execute("SELECT has_schema_privilege(current_user,%s,'USAGE')",(schema,)).fetchone()[0]
+                assert not conn.execute("SELECT has_schema_privilege(current_user,%s,'CREATE')",(schema,)).fetchone()[0]
+            assert not conn.execute("SELECT has_schema_privilege(current_user,'db55_audit','USAGE')").fetchone()[0]
+            assert conn.execute("""SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                 WHERE n.nspname IN ('auth_l1','history_l1') AND c.relkind IN ('r','p')
+                 AND has_table_privilege(current_user,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')""").fetchone()[0]==0
+            for table in ("history_l1.messages","auth_l1.sessions","db55_audit.migration_runs"):
+                try:
+                    conn.execute("SELECT count(*) FROM "+table)
+                except psycopg.errors.InsufficientPrivilege:
+                    pass
+                else:
+                    raise AssertionError("DB55_AUDITOR_DIRECT_ROW_READ_ALLOWED")
+        env=dict(os.environ,PGHOST=options["host"],PGPORT=options["port"],PGDATABASE=options["dbname"],PGUSER=options["user"],PGPASSWORD=options["password"],PGSSLMODE="verify-full",PGSSLROOTCERT=options["sslrootcert"],PGGSSENCMODE="disable",PGOPTIONS="-c default_transaction_read_only=on")
+        result=subprocess.run(["psql","-X","-v","ON_ERROR_STOP=1","-v","db55_phase=private_no_dispatch","-f",str(verifier)],env=env,capture_output=True,timeout=20)
+        assert result.returncode==0 and b"DB55_private_no_dispatch_DB_ROLE_SCHEMA_AND_FUNCTION_GATE_PASS" in result.stderr, "DB55_PINNED_CATALOG_GATE_FAILED"
+        print("DB_COMMON_DB55_"+phase+"_PINNED_READONLY_AUDITOR_TLS=PASS",flush=True)
+
     def restricted_db_snapshot(self, phase, dsns=None, baseline=None, revoked=False):
         """Independent read-only product-role SQL. No admin for History rows.
         Real OIDC owner IDs come only from successful browser logins.
@@ -177,6 +212,7 @@ class AppOnlyBrowserDemo(Demo):
                 c.execute("SELECT count(*) FROM db55_audit.migration_runs")
         except psycopg.errors.InsufficientPrivilege:pass
         else:raise AssertionError("PRODUCT_ROLE_LEDGER_READ_ALLOWED")
+        self.db55_readonly_catalog_gate(phase,cfg)
         print("DB_OCI_BROWSER_"+phase+"_SIX_TABLES_AB_EXACT_READ_ONLY_LEDGER_PARITY=PASS",flush=True)
         return result
 
@@ -1103,7 +1139,7 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
                     print("API_F3_BROWSER_RESTORE_SOURCE_SESSIONS_UNCHANGED_PASS", flush=True)
                     receipt=ROOT/"ci_receipts/db_oci_browser_restricted_parity.json"
                     receipt.parent.mkdir(exist_ok=True)
-                    receipt.write_text(json.dumps({"source_sha":os.environ["F3_EXACT_SHA"],"api_image_id":self.api_image_id,"checkpoints":6,"history_tables":6,"real_31_message_page2_before_after":True,"signed_mobile_320_focus":True,"actual_oci_read_revoke_blocking_pid_chain":True,"real_oidc_owners":2,"exact_row_parity":True,"migration_ledger_rows":10,"data_bearing_up":9,"actual_failed_002_no_autoretry":True,"force_rls_tables":14,"source_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","restored_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","migration_install_origin":"ACTIONS_PG_BEFORE_FIRST_CLONE","two_journey_clusters_distinct_from_installer":True,"engine_calls":0,"sql_011":False,"target_verified":False,"accepted":False},indent=2)+"\n")
+                    receipt.write_text(json.dumps({"source_sha":os.environ["F3_EXACT_SHA"],"api_image_id":self.api_image_id,"checkpoints":6,"history_tables":6,"real_31_message_page2_before_after":True,"signed_mobile_320_focus":True,"actual_oci_read_revoke_blocking_pid_chain":True,"real_oidc_owners":2,"exact_row_parity":True,"migration_ledger_rows":10,"data_bearing_up":9,"actual_failed_002_no_autoretry":True,"actual_interrupted_002_no_autoretry":(Path(os.environ["RUNNER_TEMP"])/"f3-actual-migration-interrupted-verified.txt").read_text().strip()=="PASS","db55_pinned_readonly_auditor_checkpoints":6,"force_rls_tables":14,"source_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","restored_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","migration_install_origin":"ACTIONS_PG_BEFORE_FIRST_CLONE","two_journey_clusters_distinct_from_installer":True,"engine_calls":0,"sql_011":False,"target_verified":False,"accepted":False},indent=2)+"\n")
                 finally:
                     self.stop_container_api()
                     for child in (self.api_process, self.bootstrap_process):
