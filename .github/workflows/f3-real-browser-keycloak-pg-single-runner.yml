@@ -4,7 +4,7 @@ on:
   push:
     branches: [integration/f3-foundation-history-two-users-20261124]
   pull_request:
-    branches: [agent/db-f3-browser-migration-ledger-20261124]
+    branches: [agent/db-f3-atomic-corrupt-restore-keyset-20261124]
     paths:
       - 'tests/phase3/integration/foundation/browser_history_restore.py'
       - '.github/workflows/f3-real-browser-keycloak-pg-single-runner.yml'
@@ -22,7 +22,7 @@ jobs:
     if: >-
       github.event_name == 'push'
       || (github.event_name == 'pull_request'
-          && github.event.pull_request.head.ref == 'agent/db-f3-real-oidc-revoke-lock-20261124'
+          && github.event.pull_request.head.ref == 'agent/db-f3-physical-owner-graph-20261124'
           && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 55
@@ -350,6 +350,9 @@ jobs:
           assert r["db_browser_migration_ledger_rows"]==10 and r["db_browser_migration_ledger_checkpoints"]==4
           assert r["db_browser_db55_bridge"]=="NOT_RUN_IN_BROWSER_FIXTURE"
           assert r["db_real_browser_logout_pg_lock_edge_then_commit"] is True
+          assert r["db_physical_owner_graph"]=="12_REQUIRED_1_CONDITIONAL_1_SERVICE_REAL_OIDC_LINEAGE_AND_SCHEMA_PARITY"
+          assert r["db_physical_owner_graph_checkpoints"]==4 and r["db_cross_schema_select_denials"]==104
+          assert r["db_owner_id_user_id_policy"]=="REQUIRES_OWNER_APPROVAL"
           assert set(r["db_restricted_owner_counts"])=={"A","B"}
           for counts in r["db_restricted_owner_counts"].values():
               assert set(counts)=={"conversations","messages","create_receipts","send_receipts","execution_attempts","answers"}
