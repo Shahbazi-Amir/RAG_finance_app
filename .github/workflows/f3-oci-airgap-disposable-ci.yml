@@ -19,6 +19,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Draft-only consent, withdrawal and export syntax — no approved policy or API side effects
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --no-cache-dir 'jsonschema==4.26.0'
+          python3 -m unittest discover -s tests/phase3/contracts -p 'test_privacy_intent_draft_v0.py' -v
       - name: Twelve fail-closed tests for local-only receipt integrity
         run: python3 -m unittest discover -s tests/phase3/foundation -p 'test_f3_oci_airgap_receipt.py' -v
       - name: Validate SHA/source and Bash syntax before any Docker action

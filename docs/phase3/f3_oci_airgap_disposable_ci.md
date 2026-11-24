@@ -21,3 +21,12 @@ Next Send 503 حتی با بدنهٔ JSON معیوب. SBOM از همین imageه
 این آزمایش به معنای rollback دیتابیس یا مقصد نیست. زمان آن SLO/RPO/RTO
 مصوب نیست. هیچ policy امنیتی، release، Gate، فعالیت canonical یا پذیرش
 CENTRAL را خودکار تغییر نمی‌دهد. تمام این موارد HOLD باقی می‌مانند.
+
+## حریم خصوصی: فقط قرارداد پیش‌نویس
+
+`packages/contracts/privacy_intent.draft.v0.schema.json` و
+`tests/phase3/contracts/test_privacy_intent_draft_v0.py` فقط نحوِ درخواست بررسی
+سیاست برای Consent، Withdrawal و Export را کنترل می‌کنند. `Feedback` و `Delete`
+در `product.v1` از قبل وجود دارند و این تغییر آن فایل یا قرارداد را عوض نمی‌کند.
+هیچ endpoint، عملیات export، تأیید رضایت، نگهداری، خروجی داده یا امضای مالک
+با این آزمون‌ها مجاز یا فعال نمی‌شود. تمام سیاست‌ها و Gateها همچنان HOLD هستند.
