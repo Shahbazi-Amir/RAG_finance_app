@@ -46,7 +46,7 @@
       "id": "P3M02-A06",
       "source_file": ".github/workflows/f3-foundation-candidate-full-isolated-regression.yml",
       "literal_assertion": "npm --prefix apps/web run typecheck",
-      "ci_job": "WEB_UNIT",
+      "ci_job": "WEB_BUILD",
       "canonical_criterion": "**Output:** تنظیم Lint، Type check و Test command واحد; **Check:** clean build and security scan in a separately authorized environment",
       "owner_acceptance": false,
       "full_criterion_satisfied": false,
