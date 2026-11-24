@@ -1,0 +1,213 @@
+{
+  "schema": "foundation.f3.bounded_ci_lab_slices.v1",
+  "evidence_sha": "c7a31e2827839be2d4638493ddfefa4666fb4922",
+  "source": "coordination/phase3_checklist.md",
+  "environment": "disposable-GitHub-Actions-CI",
+  "scope": "INDEPENDENT_CI_SLICES_ONLY_NOT_CANONICAL_ACTIVITY_COMPLETION_OR_ACCEPTANCE",
+  "owner_approved": false,
+  "mac_target_tested": false,
+  "engine_executed": false,
+  "gates_accepted": 0,
+  "rows": [
+    {
+      "id": "P3M02-A07",
+      "criterion_fragment": "ساخت SBOM",
+      "run_id": 45306044635,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044635",
+      "subset": "SBOM_API_WEB_SPDX_AND_GRYPE_VULN_RESULTS_SECURITY_HOLD",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M10-A10",
+      "criterion_fragment": "Idempotency",
+      "run_id": 45306044606,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044606",
+      "subset": "DB24_CONCURRENCY_PROBE_ONLY_NOT_CLIENT_BFF",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M14-A03",
+      "criterion_fragment": "صفحه Chat",
+      "run_id": 45306044721,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044721",
+      "subset": "ACTUAL_KEYCLOAK_CHROMIUM_HISTORY_LIST_DETAIL_PRE_POST_RESTORE",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M14-A10",
+      "criterion_fragment": "Accessibility",
+      "run_id": 45306044721,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044721",
+      "subset": "CHROMIUM_320_RTL_KEYBOARD_FOCUS_MODAL_ONLY",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M14-A11",
+      "criterion_fragment": "موبایل",
+      "run_id": 45306044721,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044721",
+      "subset": "CHROMIUM_DESKTOP_320_MOBILE_ONLY_NOT_FULL_BROWSER_MATRIX",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M18-A02",
+      "criterion_fragment": "کاربر غیر root",
+      "run_id": 45306044606,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044606",
+      "subset": "LOCAL_CONTAINER_UID_11001_11003_ONLY",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M18-A03",
+      "criterion_fragment": "Healthcheck",
+      "run_id": 45306044606,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044606",
+      "subset": "CI_APP_LIVE_HEALTH_AND_NOT_READY503_NO_IDP_TARGET",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M18-A04",
+      "criterion_fragment": "Network segmentation",
+      "run_id": 45306044606,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044606",
+      "subset": "COMPOSE_PRIVATE_NETWORK_ZERO_HOST_PORTS_CI",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M18-A07",
+      "criterion_fragment": "CPU/Memory",
+      "run_id": 45306044606,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044606",
+      "subset": "DOCKER_COMPOSE_PIDS_MEMORY_CPU_LIMITS_CI",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M18-A09",
+      "criterion_fragment": "Compose",
+      "run_id": 45306044606,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044606",
+      "subset": "APP_ONLY_PRIVATE_COMPOSE_CI_ONLY_NOT_DEPLOYMENT",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M18-A10",
+      "criterion_fragment": "Cold-start",
+      "run_id": 45306044606,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044606",
+      "subset": "CLEAN_COMPOSE_RESTART_7S_NOT_RTO_OR_ROLLBACK",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M19-A01",
+      "criterion_fragment": "Lint",
+      "run_id": 45306044606,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044606",
+      "subset": "LINT_TYPECHECK_UNIT_WEB_API_FULL_SOURCE_SHA_CI",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M19-A02",
+      "criterion_fragment": "Integration tests",
+      "run_id": 45306044606,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044606",
+      "subset": "ISOLATED_WEB_API_PG17_INTEGRATION_ONLY",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M19-A03",
+      "criterion_fragment": "Migration test",
+      "run_id": 45306044606,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044606",
+      "subset": "PG17_001_010_DB55_DOWN_ROLLBACK_AND_RESTORE_CI",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M19-A04",
+      "criterion_fragment": "Contract",
+      "run_id": 45306044606,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044606",
+      "subset": "SCHEMA_AND_NEGATIVE_SECURITY_CI_SUBSETS",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M19-A05",
+      "criterion_fragment": "Build",
+      "run_id": 45306044635,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044635",
+      "subset": "API_WEB_IMAGES_BUILT_AND_VULN_SCANNED_BUT_CRITICAL_OPEN",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M19-A06",
+      "criterion_fragment": "Release manifest",
+      "run_id": 45306044635,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044635",
+      "subset": "LOCAL_SBOM_ONLY_NOT_APPROVED_RELEASE_MANIFEST",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M22-A01",
+      "criterion_fragment": "Backup",
+      "run_id": 45306044606,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044606",
+      "subset": "PG17_VERSIONED_DUMP_CI_NOT_TARGET_ENCRYPTION_OR_POLICY",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M22-A06",
+      "criterion_fragment": "Restore",
+      "run_id": 45306044721,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044721",
+      "subset": "REAL_NEW_PG17_CLUSTER_SAME_BROWSER_SESSION_CI",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    },
+    {
+      "id": "P3M22-A09",
+      "criterion_fragment": "خرابی",
+      "run_id": 45306044606,
+      "url": "https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45306044606",
+      "subset": "ISOLATED_PG_CRASH_RECOVERY_PROBE_ONLY",
+      "owner_accepted": false,
+      "target_verified": false,
+      "full_criterion_satisfied": false
+    }
+  ]
+}
