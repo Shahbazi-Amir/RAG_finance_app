@@ -121,7 +121,16 @@ export type Active=Readonly<{ownerId:string;epoch:number;generation:number;
   sessionVerifier:string;receiptId:string;attemptId:string}>;
 export async function getActive(alias:string):Promise<Active|null>{
   if(!valid(alias))return null;
-  const c=await dir(),x=await read(file(c.root,'alias',alias));
+  const c=await dir();
+  let x:Record<string,unknown>|null;
+  try{
+    const stored:unknown=JSON.parse(await readFile(file(c.root,'alias',alias),'utf8'));
+    if(!isRecord(stored))return fail();
+    x=stored;
+  }catch(error){
+    if((error as NodeJS.ErrnoException).code==='ENOENT')return null;
+    return fail();
+  }
   if(!x||x.status!=='ACTIVE'||typeof x.created!=='number'||
       Date.now()-x.created>500000)return null;
   try{

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {CHECKPOINT_KEY,readCheckpoints,retainCheckpoint,
+import {CHECKPOINT_KEY,readCheckpoints,retainCheckpoint,rememberConversation,restoreConversation,
   forgetCheckpoints,statusCorrelators} from '../../../apps/web/src/ui/attempt-checkpoints.ts';
 
 function memory(){
@@ -12,6 +12,14 @@ const item=(s='uih_aaaa')=>({
   requested_conversation_id:null,client_message_id:s,
   idempotency_key:'key_1234567890',created_at:1784301000000,
   resolved_conversation_id:null,
+});
+test('restores a selection only from the current authenticated list',()=>{
+  const storage=memory();
+  rememberConversation(storage,'conv_second');
+  assert.equal(restoreConversation(storage,['conv_first','conv_second']),'conv_second');
+  assert.equal(restoreConversation(storage,['conv_other']),null);
+  forgetCheckpoints(storage);
+  assert.equal(restoreConversation(storage,['conv_second']),null);
 });
 test('checkpoint before irreversible send preserves only original immutable correlators',()=>{
   const storage=memory(),r=item();

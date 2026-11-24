@@ -6,6 +6,7 @@
 import type {SendRequest} from '../mock/transport';
 
 export const CHECKPOINT_KEY='rag-finance-attempt-correlation-v1';
+const SELECTION_KEY='rag-finance-selected-conversation-v1';
 export type AttemptCheckpoint=Pick<SendRequest,
   'requested_conversation_id'|'client_message_id'|'idempotency_key'> & {
     created_at:number;resolved_conversation_id:string|null
@@ -51,6 +52,19 @@ export function retainCheckpoint(storage:StoragePort,record:AttemptCheckpoint):b
 }
 export function forgetCheckpoints(storage:StoragePort):void{
   try{storage.removeItem(CHECKPOINT_KEY);}catch{/* session might already be gone */}
+  rememberConversation(storage,null);
+}
+export function rememberConversation(storage:StoragePort,conversation:string|null):void{
+  try{
+    if(id(conversation))storage.setItem(SELECTION_KEY,conversation);
+    else storage.removeItem(SELECTION_KEY);
+  }catch{/* history remains usable without browser storage */}
+}
+export function restoreConversation(storage:StoragePort,visible:readonly string[]):string|null{
+  try{
+    const saved=storage.getItem(SELECTION_KEY);
+    return id(saved)&&visible.includes(saved)?saved:null;
+  }catch{return null;}
 }
 export function statusCorrelators(record:AttemptCheckpoint):Pick<SendRequest,
   'requested_conversation_id'|'client_message_id'|'idempotency_key'> {

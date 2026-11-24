@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,readFile,rm,readdir} from 'node:fs/promises';
+import {mkdtemp,readFile,rm,readdir,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomBytes,randomUUID} from 'node:crypto';
@@ -18,6 +18,22 @@ process.env.AUTH_CI_CSRF_SECRET=randomBytes(32).toString('base64url');
 process.env.AUTH_CI_PUBLIC_ORIGIN='https://127.0.0.1:3443';
 process.env.AUTH_CI_PROXY_SECRET=randomBytes(32).toString('base64url');
 test.after(async()=>{await rm(dir,{recursive:true,force:true});});
+test('History distinguishes a missing alias from an unreadable alias record',async()=>{
+  const {forwardHistoryProxy}=await import('../../../apps/web/src/history/proxy.ts');
+  process.env.AUTH_CI_LOGIN_MODE='true';
+  try{
+    const alias=fresh();
+    const call=()=>forwardHistoryProxy(new Request('http://127.0.0.1:3000/api/history/conversations',{
+      headers:{'x-auth-ci-proxy-proof':process.env.AUTH_CI_PROXY_SECRET,
+        cookie:SESSION+'='+alias}
+    }),['conversations']);
+    assert.equal((await call()).status,401);
+    await writeFile(join(dir,'alias-'+digest(alias)+'.json'),'{');
+    const failed=await call();
+    assert.equal(failed.status,503);
+    assert.deepEqual(await failed.json(),{error:'AUTH_STORE_UNAVAILABLE'});
+  }finally{delete process.env.AUTH_CI_LOGIN_MODE;}
+});
 const root=process.cwd().endsWith('/apps/web')?join(process.cwd(),'../..'):process.cwd();
 
 test('UIAUTH01: START state and initiator persist across process and one callback claim',async()=>{

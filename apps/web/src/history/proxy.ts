@@ -25,7 +25,11 @@ export async function forwardHistoryProxy(request:Request,path:string[]):Promise
   if(process.env.AUTH_CI_LOGIN_MODE==='true'||stagingRequested()){
     if(!secureBrowser(request))return new Response(null,{status:503,headers:noStore});
     const handle=cookie(request,SESSION);
-    const active=handle?await getActive(handle):null;
+    let active:Awaited<ReturnType<typeof getActive>>;
+    try{active=handle?await getActive(handle):null;}
+    catch{
+      return Response.json({error:'AUTH_STORE_UNAVAILABLE'},{status:503,headers:noStore});
+    }
     if(!active)
       return Response.json({error:'AUTH_REQUIRED'},{status:401,headers:noStore});
     if(!stagingRequested()&&process.env.AUTH_CI_DEMO_MODE!=='true')

@@ -8,6 +8,7 @@ import type {Answer,Citation} from '../mock/transport';
 import {verifiedSourceUrl} from './source-locator';
 import {isVerifiedLiveAnswer,productOutcomeLabel} from './answer-visibility';
 import {readCheckpoints,retainCheckpoint,forgetCheckpoints,statusCorrelators,
+  rememberConversation,restoreConversation,
   type AttemptCheckpoint} from './attempt-checkpoints';
 
 type ListData={items:ConversationView[];next:string|null;more:boolean};
@@ -119,8 +120,12 @@ export default function ProductChat(){
       setList(prev=>({items:append?mergeUnique(prev.items,page.items,x=>x.id):page.items,
         next:page.next,more:page.more}));
       setListState('ready');
-      if(!append)setSelected(current=>current==='draft:new'&&page.items.length?
-        page.items[0].id:current);
+      if(!append){
+        const s=sessionStore();
+        const saved=s?restoreConversation(s,page.items.map(item=>item.id)):null;
+        setSelected(current=>current==='draft:new'&&page.items.length?
+          saved??page.items[0].id:current);
+      }
     }catch(e){if(!invalidate(e)&&!lost.current){setListState('error');setError(failureLabel(e));}}
   },[invalidate]);
   const loadThread=useCallback(async (id:string,append=false,cursor:string|null=null)=>{
@@ -220,6 +225,11 @@ export default function ProductChat(){
     });
     return ()=>{active=false;};
   },[loadList,probe]);
+  useEffect(()=>{
+    if(listState!=='ready'||selected==='draft:new')return;
+    const s=sessionStore();
+    if(s)rememberConversation(s,selected.startsWith('draft:')?null:selected);
+  },[listState,selected]);
   useEffect(()=>{
     if(!selected||selected.startsWith('draft:'))return;
     let active=true;
