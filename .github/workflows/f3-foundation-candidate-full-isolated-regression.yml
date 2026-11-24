@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: foundation-f3-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   integrated-code-and-real-loopback:
     runs-on: ubuntu-24.04
@@ -21,6 +25,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Guard OCI immutable digest equivalence after registry mirror ECR429
+        run: python -m unittest discover -s tests/phase3/foundation -p 'test_f3_base_image_digest_mirror.py' -v
       - name: Bind one exact source tree and forbid unapproved SQL 011
         run: |
           set -euo pipefail
