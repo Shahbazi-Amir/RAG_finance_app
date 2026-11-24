@@ -78,7 +78,7 @@ for pair in 'signer.key:signer.key' 'ca.pem:ca.pem' 'bff.pem:bff.pem' 'bff.key:b
  to="$bff_dir/${pair#*:}"
  sudo cp "$from" "$to"
 done
-chmod 0600 "$bff_dir"/*
+sudo chmod 0600 "$bff_dir"/*
 sudo chown -R 11003:11003 "$bff_dir"
 api_bff_name="f3-bff-api-$short_sha"
 docker run -d --name "$api_bff_name" --no-healthcheck \
