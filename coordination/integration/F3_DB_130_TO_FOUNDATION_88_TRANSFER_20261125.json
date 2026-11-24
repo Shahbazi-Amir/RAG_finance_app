@@ -1,0 +1,95 @@
+{
+  "scope": "DB_OWNER_TRANSFER_PROPOSAL_NO_ACCEPTANCE",
+  "source_sha": "59b7220e469d68bd036aecf869e2e33419fa8cca",
+  "source_browser_run": 45489244670,
+  "source_browser_artifact": 14965697393,
+  "source_pitr_run": 45489244570,
+  "source_pitr_artifact": 14964579673,
+  "foundation_base_sha": "a93d7807b29c0f3743953be4379e524b0f97744d",
+  "source_paths": [
+    {
+      "path": ".github/workflows/f3-db-common-compose-31-browser.yml",
+      "source_blob": "157eb1e8c66332462aa3d530a4d39dddb7ac8590",
+      "foundation_blob": null,
+      "action": "COPY_WORKFLOW_BRANCH_GUARDS_ONLY"
+    },
+    {
+      "path": ".github/workflows/f3-db-physical-pitr-ci.yml",
+      "source_blob": "b61b5080e7df6b0e2aa094a72aa677e67c2b3807",
+      "foundation_blob": null,
+      "action": "COPY_WORKFLOW_BRANCH_GUARDS_ONLY"
+    },
+    {
+      "path": "infra/postgres/dev_f3_isolated/compose.lab.yaml",
+      "source_blob": "e6c5f5fd4563776fc64c83b056ed8a542325710d",
+      "foundation_blob": "ed3dde2cc3181cf4dafb7f273a85bf66e3fa0271",
+      "action": "IMMUTABLE_REGISTRY_MIRROR_ONLY"
+    },
+    {
+      "path": "infra/postgres/dev_f3_isolated/scripts/29_physical_pitr_ci.sh",
+      "source_blob": "4b470dde7ad5ae62f26ec35bda2921af1a508b39",
+      "foundation_blob": null,
+      "action": "COPY_ABSENT"
+    },
+    {
+      "path": "scripts/phase3/f3_browser_pinned_migration_ledger.sh",
+      "source_blob": "564553d36db748ff122acaeee50bb4f0add95cfd",
+      "foundation_blob": null,
+      "action": "COPY_ABSENT"
+    },
+    {
+      "path": "tests/phase3/integration/api/db_actual_migration_interrupt_ci.py",
+      "source_blob": "ab0bfee88f5c4feb55ebfcba65172c0ca16514c2",
+      "foundation_blob": null,
+      "action": "COPY_ABSENT"
+    },
+    {
+      "path": "tests/phase3/integration/api/db_common_compose_browser_journey.py",
+      "source_blob": "9255d28592bf6bdc69a3e37c4aa836b85483205d",
+      "foundation_blob": null,
+      "action": "COPY_ABSENT"
+    },
+    {
+      "path": "tests/phase3/integration/api/db_post_commit_ledger_interrupt_ci.py",
+      "source_blob": "6f1e59377dfd1a95e83b983ba0f11aec3cbbefaa",
+      "foundation_blob": null,
+      "action": "COPY_ABSENT"
+    },
+    {
+      "path": "tests/phase3/integration/foundation/db_common_compose_restored_browser.py",
+      "source_blob": "c3ee2af9adf2b989279ab446dab1688922ddf31d",
+      "foundation_blob": null,
+      "action": "COPY_ABSENT"
+    },
+    {
+      "path": "src/phase3/auth/initial_oidc_login.py",
+      "source_blob": "2bff474c880c0e48616a27e15e38779a8f9d260c",
+      "foundation_blob": null,
+      "action": "COPY_ABSENT"
+    },
+    {
+      "path": "tests/phase3/integration/api/bootstrap_010_worker.py",
+      "source_blob": "5631dc200075f2da2a9f865589210ac4c5e972e3",
+      "foundation_blob": null,
+      "action": "COPY_ABSENT"
+    },
+    {
+      "path": "tests/phase3/integration/api/initial_oidc_harness.py",
+      "source_blob": "6528947a9fd5ed79178ece866dea98160a8de1ac",
+      "foundation_blob": null,
+      "action": "COPY_ABSENT"
+    },
+    {
+      "path": "tests/phase3/integration/api/test_bootstrap_oidc_010.py",
+      "source_blob": "9df717ca72957c094ba7aebda4414ed6fbba9e95",
+      "foundation_blob": null,
+      "action": "COPY_ABSENT"
+    }
+  ],
+  "retained_foundation_changes": true,
+  "external_source_overlay": false,
+  "foundation_target_verified": false,
+  "accepted": false,
+  "engine_calls": 0,
+  "sql_011": false
+}
