@@ -245,16 +245,16 @@ docker run -d --name "$crash_client" --network "$network" --read-only \
   python3 /srv/release/tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py hold_pg_crash >/dev/null
 trap 'docker rm -f "$crash_client" >/dev/null 2>&1 || true' EXIT
 for n in $(seq 1 40); do
- [[ -f "$probe_dir/private/pg_crash_tx_open" ]] && break
+ sudo test -f "$probe_dir/private/pg_crash_tx_open" && break
  sleep .25
 done
-[[ -f "$probe_dir/private/pg_crash_tx_open" ]] || exit 70
+sudo test -f "$probe_dir/private/pg_crash_tx_open" || exit 70
 # Independent administrator cannot see uncommitted row.
 [[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM history_l1.conversations WHERE id='f3-uncommitted-pg-crash'")" == 0 ]] || exit 70
 docker kill --signal KILL "$restore_cid" >/dev/null
 [[ "$(docker inspect -f '{{.State.ExitCode}}' "$restore_cid")" == 137 ]] || exit 70
 [[ "$(timeout 30 docker wait "$crash_client")" == 0 ]] || exit 70
-[[ -f "$probe_dir/private/pg_crash_tx_disconnected" ]] || exit 70
+sudo test -f "$probe_dir/private/pg_crash_tx_disconnected" || exit 70
 docker rm "$crash_client" >/dev/null
 trap - EXIT
 docker start "$restore_cid" >/dev/null
