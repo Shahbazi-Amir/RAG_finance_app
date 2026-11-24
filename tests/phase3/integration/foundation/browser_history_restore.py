@@ -334,11 +334,22 @@ async def foreign_owner_denied(page,foreign_ids):
 
 
 async def send_denied(page):
-    r=await page.request.post(ORIGIN+"/api/history/messages",
-        data='{"question":"NEVER_DISPATCH"}',
-        headers={"content-type":"application/json"})
-    assert r.status==503,("SEND_NOT_DISABLED",r.status)
-    assert (await r.json())["error"]=="ENGINE_NOT_AVAILABLE"
+    # APP_ONLY must reject *before* parsing bytes or idempotency fields.
+    # Test retries and corrupted payload, not just a happy-path 503.
+    cases=[
+        ('{"question":"NEVER_DISPATCH"}',{"content-type":"application/json"}),
+        ('{"question":"NEVER_DISPATCH","idempotency_key":"f3_retry_same_key_12345678"}',
+         {"content-type":"application/json"}),
+        ('{"question":"NEVER_DISPATCH","idempotency_key":"f3_retry_same_key_12345678"}',
+         {"content-type":"application/json"}),
+        ('{"invalid":"json"',{"content-type":"application/json"}),
+        ("X"*65536,{"content-type":"text/plain"}),
+    ]
+    for body,headers in cases:
+        r=await page.request.post(ORIGIN+"/api/history/messages",
+            data=body,headers=headers)
+        assert r.status==503,("SEND_NOT_DISABLED_OR_PAYLOAD_PARSED",r.status)
+        assert (await r.json())["error"]=="ENGINE_NOT_AVAILABLE"
 
 
 def restore_separate_volume(demo,original_records,source_system_id):
@@ -459,7 +470,9 @@ async def execute():
             await foreign_owner_denied(page_b,ids_a)
             await cursor_owner_signature_denied(page_a,page_b)
             await send_denied(page_a)
+            await send_denied(page_b)
             assert inventory(demo)[1]==receipt_before
+            assert message_inventory(demo)==messages_before,("NO_ENGINE_SEND_CREATED_MESSAGE",)
             print("F3_REAL_BROWSER_KEYCLOAK_NEXT_PG17_AB_PAGING_DETAIL_SEND503_PRE_RESTORE_PASS",
                   flush=True)
 
@@ -475,6 +488,7 @@ async def execute():
             await foreign_owner_denied(page_b,ids_a)
             await cursor_owner_signature_denied(page_a,page_b)
             await send_denied(page_a)
+            await send_denied(page_b)
             after,receipt_after,new_cluster=inventory(demo)
             assert source==after and receipt_before==receipt_after
             assert message_inventory(demo)==messages_before,("RESTORED_MESSAGES_SQL_DRIFT",)
@@ -525,6 +539,7 @@ async def execute():
                 "real_authenticated_browser_mobile_320_rtl_keyboard_pre_post_restore":True,
                 "b_direct_a_detail_404":True,
                 "send_bff_503_no_extra_receipts":True,
+                "both_real_owners_repeated_invalid_and_retried_send_503_no_durable_effect":True,
                 "fresh_pg_volume_independent_cluster":True,
                 "same_browser_cookie_after_pg_restore":True,
                 "signed_history_a_after_restore":200,
