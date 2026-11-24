@@ -3,6 +3,8 @@ name: F3 UI source-boundaries real Chromium Firefox WebKit no-engine negative
 on:
   push:
     branches: [agent/ui-f3-source-boundaries-20261124]
+  pull_request:
+    branches: [agent/ui-f3-next-verified-20261124]
   workflow_dispatch:
 
 permissions:
