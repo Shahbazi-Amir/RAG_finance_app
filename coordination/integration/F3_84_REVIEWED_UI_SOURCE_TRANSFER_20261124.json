@@ -1,0 +1,106 @@
+{
+  "schema": "foundation.f3.reviewed_ui_source_transfer.v1",
+  "root_candidate_sha": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+  "foundation_parent_sha": "9f708c73439ab790a1b402e2c8dc78e45df3d717",
+  "tested_source_sha": "ed28a6840d5e8714ff7d943ad6215534992e6a7b",
+  "source_ci_runs": [
+    45396172643,
+    45396172648
+  ],
+  "scope": "EXACT_TESTED_UI_SOURCE_TRANSFER_NOT_OWNER_ACCEPTANCE",
+  "p0_1_accepted": false,
+  "owner_signed_acceptance": false,
+  "target_verified": false,
+  "rows": [
+    {
+      "path": "apps/web/src/mock/transport.ts",
+      "previous_blob_sha": "b1f609d8e57866a85463bfd77d5023e8f12bbfbb",
+      "source_blob_sha": "8910fccfffb9afe4eb3f64ee615485272b6da591",
+      "candidate_blob_sha": "8910fccfffb9afe4eb3f64ee615485272b6da591",
+      "historical_42_path": false,
+      "historical_58_path": false,
+      "historical_58_decision": null,
+      "owner_signed_acceptance": false
+    },
+    {
+      "path": "apps/web/src/ui/answer-visibility.ts",
+      "previous_blob_sha": "0cf494596aafd00e8618f9f75c7baab637714b19",
+      "source_blob_sha": "5ef344f6c5ef85d00ff31a43ec3aa568c1250068",
+      "candidate_blob_sha": "5ef344f6c5ef85d00ff31a43ec3aa568c1250068",
+      "historical_42_path": true,
+      "historical_58_path": true,
+      "historical_58_decision": "FOUNDATION_SECURITY_COMPAT",
+      "owner_signed_acceptance": false
+    },
+    {
+      "path": "apps/web/src/ui/owner-fence.ts",
+      "previous_blob_sha": "69dcd7d940b58e44468bc8f51f8d511aa44f38cb",
+      "source_blob_sha": "f57541d9cd92c57bc8e6562d88ad2c35344fa5ba",
+      "candidate_blob_sha": "f57541d9cd92c57bc8e6562d88ad2c35344fa5ba",
+      "historical_42_path": false,
+      "historical_58_path": false,
+      "historical_58_decision": null,
+      "owner_signed_acceptance": false
+    },
+    {
+      "path": "apps/web/src/ui/product-chat.tsx",
+      "previous_blob_sha": "ec4771ca73820453681ed9ce7342949ed58c02f1",
+      "source_blob_sha": "5f120827d93cbbf11e534c227cda82f55fbd83ec",
+      "candidate_blob_sha": "5f120827d93cbbf11e534c227cda82f55fbd83ec",
+      "historical_42_path": true,
+      "historical_58_path": true,
+      "historical_58_decision": "EXACT_SOURCE_SELECTED",
+      "owner_signed_acceptance": false
+    },
+    {
+      "path": "apps/web/src/ui/source-locator.ts",
+      "previous_blob_sha": "6a19733a5ef49b8749002d47a1c7b91b3d020711",
+      "source_blob_sha": "ef10bfa6de16f8c54c88c47183bc956d46c9df71",
+      "candidate_blob_sha": "ef10bfa6de16f8c54c88c47183bc956d46c9df71",
+      "historical_42_path": true,
+      "historical_58_path": true,
+      "historical_58_decision": "FOUNDATION_SECURITY_COMPAT",
+      "owner_signed_acceptance": false
+    },
+    {
+      "path": "tests/phase3/ui/live-answer-provenance-gate.test.mjs",
+      "previous_blob_sha": null,
+      "source_blob_sha": "e996fba0b736d7dffb98f940d1bec0e7ab84606a",
+      "candidate_blob_sha": "e996fba0b736d7dffb98f940d1bec0e7ab84606a",
+      "historical_42_path": false,
+      "historical_58_path": false,
+      "historical_58_decision": null,
+      "owner_signed_acceptance": false
+    },
+    {
+      "path": "tests/phase3/ui/owner-fence.test.mjs",
+      "previous_blob_sha": "da20df905e6a32064e86e46e949d68aebdc5bd30",
+      "source_blob_sha": "d73d500c3f20501cc388a25fb0b011eee77b71c8",
+      "candidate_blob_sha": "d73d500c3f20501cc388a25fb0b011eee77b71c8",
+      "historical_42_path": false,
+      "historical_58_path": false,
+      "historical_58_decision": null,
+      "owner_signed_acceptance": false
+    },
+    {
+      "path": "tests/phase3/ui/product-chat-client.test.mjs",
+      "previous_blob_sha": "f0e1a8aaa0790d5680be82abdebcb425dc666c87",
+      "source_blob_sha": "75086bacf70fe9612e04bcc7f19ef76acc75e404",
+      "candidate_blob_sha": "75086bacf70fe9612e04bcc7f19ef76acc75e404",
+      "historical_42_path": false,
+      "historical_58_path": true,
+      "historical_58_decision": "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
+      "owner_signed_acceptance": false
+    },
+    {
+      "path": "tests/phase3/ui/source-display.test.mjs",
+      "previous_blob_sha": "b227af2c6cd1dc6165ac3043543a774f7629c3fe",
+      "source_blob_sha": "eb515e893248428710012f07b9678235963e541d",
+      "candidate_blob_sha": "eb515e893248428710012f07b9678235963e541d",
+      "historical_42_path": false,
+      "historical_58_path": false,
+      "historical_58_decision": null,
+      "owner_signed_acceptance": false
+    }
+  ]
+}
