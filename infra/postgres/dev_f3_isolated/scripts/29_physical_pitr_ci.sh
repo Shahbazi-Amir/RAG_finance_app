@@ -19,7 +19,7 @@ image="$(docker inspect -f '{{.Image}}' "$cid")"
 [[ "$(dbpsql -Atq -c 'SHOW server_version')" == 17.11* ]] || exit 70
 [[ "$(dbpsql -Atq -c 'SHOW archive_mode')" == off ]] || exit 70
 # Private local-socket replication solely for basebackup, no TCP replication.
-! grep -Eq '^local[[:space:]]+replication' "$LAB_SECRETS/pg_hba.conf"
+if grep -Eq '^local[[:space:]]+replication' "$LAB_SECRETS/pg_hba.conf"; then echo STOP_EXISTING_REPLICATION_RULE >&2; exit 70; fi
 printf '%s\n' 'local replication postgres trust' >> "$LAB_SECRETS/pg_hba.conf"
 compose exec -T -u 0 lab-db bash -euc '
   cd /var/lib/postgresql/data
@@ -62,6 +62,7 @@ echo DB_PITR_REAL_PHYSICAL_BASEBACKUP_MANIFEST_VERIFIED=PASS
 dbpsql -q -c "INSERT INTO history_l1.conversations(owner_id,id,title) VALUES('f3-pitr-a','pitr-a-before-target','A committed after base backup')"
 [[ "$(dbpsql -Atq -c "BEGIN; SET LOCAL ROLE auth_sessions; SELECT auth_l1.revoke_one('$a_digest',0); COMMIT;")" == t ]] || exit 70
 point="$(dbpsql -Atq -c "SELECT pg_create_restore_point('f3_after_a_revoke')")"
+[[ "$point" =~ ^[A-F0-9]+/[A-F0-9]+$ ]] || exit 70
 target="$(dbpsql -Atq -c "SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US')||'+00'")"
 [[ "$target" =~ ^[0-9-]{10}\ [0-9:.]{15}\+00$ ]] || exit 70
 source_snapshot="$(dbpsql -Atq -c "SELECT to_jsonb(t)::text FROM history_l1.conversations t WHERE owner_id IN ('f3-pitr-a','f3-pitr-b') ORDER BY owner_id,id" | sha256sum | awk '{print $1}')"
@@ -86,8 +87,9 @@ echo DB_PITR_SOURCE_FUTURE_COMMIT_AND_WAL_ARCHIVED=PASS
 # by copy/recovery containers; no public port, no network, no service admission.
 name="f3-pitr-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
 vol="$name-data"
-! docker volume inspect "$vol" >/dev/null 2>&1
-! docker container inspect "$name" >/dev/null 2>&1
+if docker volume inspect "$vol" >/dev/null 2>&1 || docker container inspect "$name" >/dev/null 2>&1; then
+  echo STOP_EXISTING_PITR_RESOURCE >&2; exit 70
+fi
 docker volume create --label "rag.finance.ci.pitr=$name" "$vol" >/dev/null
 cleanup(){
   if docker container inspect "$name" >/dev/null 2>&1; then
