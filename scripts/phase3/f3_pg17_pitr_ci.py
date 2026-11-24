@@ -49,7 +49,7 @@ class Lab:
         self.volumes.append(name);return name
     def create(self,suffix,args,*,entry=None,temporary=False):
         name=self.prefix+"-"+suffix
-        require(run("docker","inspect",name,check=False).returncode!=0,"CONTAINER_COLLISION")
+        require(run("docker","container","inspect",name,check=False).returncode!=0,"CONTAINER_COLLISION")
         cmd=["docker","run","--network","none","--label","foundation.f3.pitr="+self.prefix,"--name",name]
         cmd+=["--rm"] if temporary else ["-d"]
         if entry:cmd+=["--entrypoint",entry]
@@ -57,7 +57,7 @@ class Lab:
         if not temporary:self.containers.append(name)
         result=out(*cmd,timeout=180)
         if not temporary:
-            d=json.loads(out("docker","inspect",name))[0]
+            d=json.loads(out("docker","container","inspect",name))[0]
             require(d["Config"]["Labels"]["foundation.f3.pitr"]==self.prefix and d["HostConfig"]["NetworkMode"]=="none" and not d["HostConfig"]["PortBindings"],"ISOLATION_DENIED")
         return result if temporary else name
     def exec(self,name,*args,root=False,check=True,data=None,timeout=120):
@@ -68,12 +68,13 @@ class Lab:
     def wait(self,name,db="postgres",seconds=80):
         deadline=time.monotonic()+seconds
         while time.monotonic()<deadline:
-            if self.exec(name,"psql","-X","-qAt","-U","postgres","-d",db,"-c","SELECT 1",check=False).returncode==0:return
+            if (self.exec(name,"cat","/proc/1/comm",check=False).stdout.strip()==b"postgres"
+                and self.exec(name,"psql","-X","-qAt","-U","postgres","-d",db,"-c","SELECT 1",check=False).returncode==0):return
             time.sleep(.5)
         raise RuntimeError("PG_NOT_READY")
     def cleanup(self):
         for name in reversed(self.containers):
-            p=run("docker","inspect",name,check=False)
+            p=run("docker","container","inspect",name,check=False)
             if p.returncode==0:
                 d=json.loads(p.stdout)[0]
                 require(d["Config"]["Labels"].get("foundation.f3.pitr")==self.prefix,"CLEANUP_CONTAINER_OWNER_DENIED")
