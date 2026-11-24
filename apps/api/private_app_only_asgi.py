@@ -223,7 +223,10 @@ class AppOnlyASGI:
                 and scope.get("method") == "GET"
                 and not scope.get("query_string")):
             try:
-                verify_staging_database_authority(self._profile)
+                # Real role/004+005 metadata queries are synchronous.
+                # Keep /internal/ready from blocking unrelated ASGI traffic.
+                await run_in_threadpool(
+                    verify_staging_database_authority, self._profile)
             except (StagingConfigDenied, OSError, RuntimeError):
                 return await JSONResponse(
                     {"kind": "app_only_readiness", "state": "unavailable",
