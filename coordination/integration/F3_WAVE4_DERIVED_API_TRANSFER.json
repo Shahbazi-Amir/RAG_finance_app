@@ -1,0 +1,20 @@
+{
+  "schema": "foundation.f3.derived_api_transfer.v1",
+  "source_parent": "9c14c56d847cc3657fc69327e4df59b002273719",
+  "foundation_parent": "1624eea32cde9a77a6a8ad09cc32fa56e8dc5b89",
+  "accepted": false,
+  "rows": [
+    {
+      "path": "apps/api/private_app_only_asgi.py",
+      "source_blob_sha": "5a4807dbb725e9474676b21be221aed4b7a52d38",
+      "derived_blob_sha": "7502030fc40419f0fa88ac20c790c488331fcc7c",
+      "reason": "Preserve #113 decoded and trailing-slash Send denial; retain all #88 signed readiness and fail-closed tests."
+    },
+    {
+      "path": "tests/phase3/api/test_app_only_no_engine.py",
+      "source_blob_sha": "9514d9ac21b3f45542a3bcdeaf689168f1096912",
+      "derived_blob_sha": "3bbc9321204b1646b35f5e3169d04683ae2079af",
+      "reason": "Preserve #113 decoded and trailing-slash Send denial; retain all #88 signed readiness and fail-closed tests."
+    }
+  ]
+}

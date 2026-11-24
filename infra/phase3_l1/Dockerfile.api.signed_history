@@ -3,7 +3,7 @@ ARG BASE=docker.io/library/python@sha256:f3dac913ab53b78c64f26d5518fcd7043d5a1a4
 FROM ${BASE}
 ARG SOURCE_SHA
 LABEL org.opencontainers.image.revision="${SOURCE_SHA}"
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/home/api API_RUNNER_EXECUTION_MODE=APP_ONLY
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/home/api PHASE3_APP_MODE=APP_ONLY API_RUNNER_EXECUTION_MODE=APP_ONLY
 WORKDIR /srv/release
 COPY locks/requirements-api.lock /tmp/requirements-api.lock
 RUN python3 -m pip install --require-hashes --only-binary=:all: --no-cache-dir -r /tmp/requirements-api.lock && python3 -m pip check

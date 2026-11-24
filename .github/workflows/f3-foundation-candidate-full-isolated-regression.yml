@@ -68,6 +68,33 @@ jobs:
         shell: bash
         run: |
           python -m unittest discover -s tests/phase3/foundation -p 'test_f3_exact_sha_artifacts.py' -v
+      - name: Verify exact transferred API source objects, no acceptance
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git 23db3da6367e6a8279072ee96b56a2bd4b7f0fbc
+          test "$(git rev-parse FETCH_HEAD)" = "23db3da6367e6a8279072ee96b56a2bd4b7f0fbc"
+          python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          m=json.loads(Path("coordination/integration/F3_SIGNED_API_SOURCE_TRANSFER_20261124.json").read_text())
+          assert m["source_sha"]=="23db3da6367e6a8279072ee96b56a2bd4b7f0fbc" and m["p0_1_accepted"] is False
+          assert len(m["rows"])==len({r["path"] for r in m["rows"]})==10
+          delta=json.loads(Path("coordination/integration/F3_WAVE4_DERIVED_API_TRANSFER.json").read_text())
+          assert delta["accepted"] is False and delta["source_parent"]=="9c14c56d847cc3657fc69327e4df59b002273719"
+          overrides={r["path"]:r for r in delta["rows"]}
+          assert set(overrides)=={"apps/api/private_app_only_asgi.py","tests/phase3/api/test_app_only_no_engine.py"}
+          for row in m["rows"]:
+              assert row["owner_signed_acceptance"] is False
+              source=subprocess.check_output(["git","rev-parse",m["source_sha"]+":"+row["path"]],text=True).strip()
+              current=subprocess.check_output(["git","hash-object",row["path"]],text=True).strip()
+              assert source==row["source_blob_sha"]==row["candidate_blob_sha"],row["path"]
+              if row["path"] in overrides:
+                  derived=overrides[row["path"]]
+                  assert derived["source_blob_sha"]==source and derived["derived_blob_sha"]==current
+              else:
+                  assert source==current,row["path"]
+          print("F3_TEN_EXACT_API_TRANSFER_BLOBS_NO_OWNER_ACCEPTANCE_PASS")
+          PY
       - name: All 393 canonical IDs exact source mapping and no false acceptance
         run: python -m unittest discover -s tests/phase3/integration -p 'test_integrated_393_registry.py' -v
       - name: Emit all 393 canonical owner/criterion/test-state rows, no Gate promotion

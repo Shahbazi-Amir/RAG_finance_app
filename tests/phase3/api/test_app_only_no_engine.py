@@ -74,6 +74,9 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         with patch.dict(os.environ, {
             "CI": "false", "GITHUB_ACTIONS": "false",
             "API_RUNNER_EXECUTION_MODE": "APP_ONLY",
+            "PHASE3_APP_MODE": "APP_ONLY",
+            "API_CURSOR_KEY": "p" * 48,
+            "API_CURSOR_TTL_SECONDS": "300",
         }):
             with patch("apps.api.private_app_only_asgi._test_tls_material"):
                 with patch("apps.api.private_app_only_asgi.verify_staging_database_authority"):
@@ -91,6 +94,50 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         self.assertEqual(install.call_count, 1)
         self.assertIs(app._app, product_session_api.app)
         self.assertIsNone(product_session_api._SERVER_NO_DISPATCH_TASK)
+
+    def test_missing_cursor_signing_secret_fails_before_signed_service_exposed(self):
+        """Original History page 2 requires a stable Ops HMAC+TTL."""
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization
+        from apps.api.private_app_only_asgi import prepare_app_only
+        from apps.api import product_session_api
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        (self.root / "pub.pem").write_bytes(
+            key.public_key().public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo))
+        cfg = load_app_only_config(self.config_file)
+        with patch.dict(os.environ, {
+            "CI": "false", "GITHUB_ACTIONS": "false",
+            "PHASE3_APP_MODE": "APP_ONLY",
+            "API_RUNNER_EXECUTION_MODE": "APP_ONLY",
+            "API_CURSOR_KEY": "",
+            "API_CURSOR_TTL_SECONDS": "300",
+        }):
+            with patch("apps.api.private_app_only_asgi._test_tls_material"):
+                with patch("apps.api.private_app_only_asgi.verify_staging_database_authority"):
+                    with patch.object(product_session_api, "install_private_staging_auth") as install:
+                        with self.assertRaises(StagingConfigDenied):
+                            prepare_app_only(cfg)
+                        install.assert_not_called()
+
+    def test_invalid_bff_public_key_denied_without_traceback_or_socket(self):
+        """Malformed RS256 key must exit 78, not expose internals or run."""
+        from contextlib import redirect_stderr
+        from io import StringIO
+        from apps.api.private_app_only_asgi import main
+        sink = StringIO()
+        with patch.dict(os.environ, {
+            "CI": "false", "GITHUB_ACTIONS": "false",
+            "PHASE3_APP_MODE": "APP_ONLY",
+            "API_RUNNER_EXECUTION_MODE": "APP_ONLY",
+        }):
+            with patch("apps.api.private_app_only_asgi._test_tls_material"):
+                with patch("apps.api.private_app_only_asgi.verify_staging_database_authority"):
+                    with redirect_stderr(sink):
+                        code = main(["--config", str(self.config_file)])
+        self.assertEqual(code, 78)
+        self.assertEqual(sink.getvalue().strip(), "APP_ONLY_STARTUP_DENIED")
 
     def test_config_exact_and_redacted_no_runner_no_ledger(self):
         cfg = load_app_only_config(self.config_file)
@@ -150,10 +197,12 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         self.save()
 
     def test_production_only_mode_fails_closed_for_dispatch_and_ci(self):
-        env = {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}
+        env = {"API_RUNNER_EXECUTION_MODE": "APP_ONLY",
+               "PHASE3_APP_MODE": "APP_ONLY"}
         assert_app_only_environment(env)
         for update in ({"API_RUNNER_EXECUTION_MODE": "NO_DISPATCH_ONLY"},
                        {"API_RUNNER_EXECUTION_MODE": "CLAIM_STUB_CI_ONLY"},
+                       {"PHASE3_APP_MODE": "ENGINE_ENABLED"},
                        {"CI": "true"}, {"GITHUB_ACTIONS": "true"},
                        {"MODEL_GATEWAY_URL": "https://invalid.example"},
                        {"C018_RUNNER_PATH": "/tmp/runner"}):
@@ -267,6 +316,10 @@ class AppOnlyNoEngineTests(unittest.TestCase):
                         base_url="https://test.invalid",
                     ) as c:
                         response = await c.get("/internal/ready")
+                        alias = await c.get("/health/ready")
+                        # /health/ready is stricter than the mTLS-only
+                        # metadata probe: it needs signed session+PG.
+                        self.assertEqual(alias.status_code, 503)
                         self.assertEqual(response.status_code, 503)
                         self.assertEqual(response.json()["generation"], "unavailable")
                         self.assertEqual(response.headers["cache-control"], "no-store")
@@ -279,12 +332,508 @@ class AppOnlyNoEngineTests(unittest.TestCase):
                         base_url="https://test.invalid",
                     ) as c:
                         response = await c.get("/internal/ready")
+                        alias = await c.get("/health/ready")
+                        # /health/ready is stricter than the mTLS-only
+                        # metadata probe: it needs signed session+PG.
+                        self.assertEqual(alias.status_code, 503)
                         self.assertEqual(response.status_code, 200)
                         self.assertEqual(response.json()["history_db"], "verified")
                         self.assertEqual(response.json()["retrieval"], "unavailable")
                         self.assertEqual(response.json()["generation"], "unavailable")
                         self.assertEqual(response.json()["bootstrap_idp"], "not_probed")
         asyncio.run(run())
+
+
+    def test_health_ready_requires_real_bff_signed_session_pg_transaction(self):
+        """Only the original signed admission may issue a 200 readiness.
+
+        _signed_history is mocked here to inspect composition; actual
+        cryptographic and PG behavior is exercised by CI signed PG E2E.
+        """
+        app = AppOnlyASGI(FastAPI(), FakeProfile())
+
+        async def trusted(scope, receive, send):
+            scope["scheme"] = "https"
+            scope["trusted_transport_test"] = True
+            return await app(scope, receive, send)
+
+        async def scenario():
+            with patch.dict(os.environ, {
+                "API_RUNNER_EXECUTION_MODE": "APP_ONLY",
+            }):
+                with patch("apps.api.product_session_api._signed_history",
+                           side_effect=ValueError("invalid signed actor")) as proof:
+                    async with AsyncClient(
+                        transport=ASGITransport(app=trusted),
+                        base_url="https://test.invalid",
+                    ) as client:
+                        denied = await client.get("/health/ready")
+                        self.assertEqual(denied.status_code, 503)
+                        self.assertEqual(denied.headers["cache-control"], "no-store")
+                        self.assertNotIn("invalid", denied.text)
+                    self.assertEqual(proof.call_count, 1)
+                with patch("apps.api.product_session_api._signed_history",
+                           return_value=(None, None)) as proof:
+                    async with AsyncClient(
+                        transport=ASGITransport(app=trusted),
+                        base_url="https://test.invalid",
+                    ) as client:
+                        ready = await client.get("/health/ready")
+                        self.assertEqual(ready.status_code, 200)
+                        self.assertEqual(ready.json()["signed_actor_pg"], "verified")
+                        self.assertEqual(ready.json()["bootstrap_idp"], "not_probed")
+                        self.assertEqual(ready.json()["generation"], "unavailable")
+                    self.assertEqual(proof.call_count, 1)
+
+        asyncio.run(scenario())
+
+
+    def test_slow_pg_readiness_does_not_block_app_only_send_fence(self):
+        """A slow signed DB admission must not monopolize the ASGI loop.
+
+        The signed DB call is mocked *only* for deterministic unit control;
+        the real PG and signer acceptance stays in API-SESSION-011 Actions.
+        """
+        from threading import Event
+        started, release = Event(), Event()
+        wrapper = AppOnlyASGI(FastAPI(), FakeProfile())
+
+        async def trusted(scope, receive, send):
+            scope["scheme"] = "https"
+            scope["trusted_transport_test"] = True
+            return await wrapper(scope, receive, send)
+
+        def slow_pg(*args, **kwargs):
+            started.set()
+            if not release.wait(timeout=3):
+                raise RuntimeError("TEST_SLOW_PG_TIMED_OUT")
+            return None, None
+
+        async def scenario():
+            with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}):
+                with patch("apps.api.product_session_api._signed_history",
+                           side_effect=slow_pg) as proof:
+                    async with AsyncClient(
+                        transport=ASGITransport(app=trusted),
+                        base_url="https://test.invalid",
+                    ) as client:
+                        readiness = asyncio.create_task(client.get("/health/ready"))
+                        try:
+                            began = await asyncio.wait_for(
+                                asyncio.to_thread(started.wait, 2), timeout=2.5)
+                            self.assertTrue(began)
+                            # Send remains disabled and cannot read/dispatch,
+                            # *while* the other worker is blocked in SQL.
+                            denied = await asyncio.wait_for(
+                                client.post("/v1/messages",
+                                            content=b"malformed-large-" + b"x"*9000),
+                                timeout=1.2)
+                            self.assertEqual(denied.status_code, 503)
+                            self.assertIn("ENGINE_NOT_CONFIGURED", denied.text)
+                            self.assertFalse(release.is_set())
+                        finally:
+                            release.set()
+                        ready = await asyncio.wait_for(readiness, timeout=3)
+                        self.assertEqual(ready.status_code, 200)
+                        self.assertEqual(ready.json()["signed_actor_pg"], "verified")
+                        self.assertEqual(proof.call_count, 1)
+
+        asyncio.run(scenario())
+
+
+    def test_slow_pg_role_metadata_does_not_stall_no_engine_http(self):
+        """Even mTLS-only /internal/ready is isolated from the event loop.
+
+        This is a deterministic unit control, not a real PG timeout;
+        the separate Actions outage test exercises stopped PG17.
+        """
+        from threading import Event
+        started, release = Event(), Event()
+        wrapper = AppOnlyASGI(FastAPI(), FakeProfile())
+
+        async def trusted(scope, receive, send):
+            scope["scheme"] = "https"
+            scope["trusted_transport_test"] = True
+            return await wrapper(scope, receive, send)
+
+        def slow_metadata(_profile):
+            started.set()
+            if not release.wait(timeout=3):
+                raise RuntimeError("TEST_SLOW_DB_METADATA_TIMED_OUT")
+
+        async def scenario():
+            with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}):
+                with patch(
+                    "apps.api.private_app_only_asgi.verify_staging_database_authority",
+                    side_effect=slow_metadata,
+                ) as verifier:
+                    async with AsyncClient(
+                        transport=ASGITransport(app=trusted),
+                        base_url="https://test.invalid",
+                    ) as client:
+                        pending = asyncio.create_task(client.get("/internal/ready"))
+                        try:
+                            seen = await asyncio.wait_for(
+                                asyncio.to_thread(started.wait, 2), timeout=2.5)
+                            self.assertTrue(seen)
+                            denied = await asyncio.wait_for(
+                                client.post("/v1/messages",
+                                            content=b"invalid-body-unguarded"),
+                                timeout=1.2)
+                            self.assertEqual(denied.status_code, 503)
+                            self.assertIn("ENGINE_NOT_CONFIGURED", denied.text)
+                            self.assertFalse(release.is_set())
+                        finally:
+                            release.set()
+                        ready = await asyncio.wait_for(pending, timeout=3)
+                        self.assertEqual(ready.status_code, 200)
+                        self.assertEqual(ready.json()["history_db"], "verified")
+                        self.assertEqual(verifier.call_count, 1)
+
+        asyncio.run(scenario())
+
+
+    def test_signed_get_rejects_ambiguous_body_before_history_or_pg(self):
+        """ASGI framing fence is independent of the signed session/DB."""
+        calls = []
+        async def downstream(scope, receive, send):
+            calls.append(scope["path"])
+            raise AssertionError("BODY_BEARING_GET_MUST_NOT_REACH_PRODUCT")
+        wrapper = AppOnlyASGI(downstream, FakeProfile())
+
+        async def scenario():
+            for path, expected in (
+                ("/v1/conversations", 401),
+                ("/v1/conversations/example/messages", 401),
+                ("/v1/message-requests/status", 401),
+                ("/health/ready", 503),
+                ("/internal/ready", 503),
+            ):
+                for headers in (
+                    [(b"content-length", b"1")],
+                    [(b"content-length", b"0"), (b"content-length", b"0")],
+                    [(b"content-length", b"00")],
+                    [(b"transfer-encoding", b"chunked")],
+                    [(b"content-length", b"0"), (b"transfer-encoding", b"chunked")],
+                ):
+                    with self.subTest(path=path, headers=headers):
+                        events = []
+                        async def receive():
+                            raise AssertionError("REJECT_BEFORE_READING_BODY")
+                        async def send(event):
+                            events.append(event)
+                        await wrapper({
+                            "type": "http", "scheme": "https",
+                            "trusted_transport_test": True, "path": path,
+                            "raw_path": path.encode(), "method": "GET",
+                            "query_string": b"", "headers": headers,
+                            "http_version": "1.1",
+                        }, receive, send)
+                        start = next(e for e in events
+                                     if e["type"] == "http.response.start")
+                        self.assertEqual(start["status"], expected)
+                        self.assertEqual(dict(start["headers"])[b"cache-control"],
+                                         b"no-store")
+            self.assertEqual(calls, [])
+
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}):
+            asyncio.run(scenario())
+
+    def test_slow_revoke_does_not_block_prebody_send(self):
+        """Mock SQL worker delay only; exercise the actual revoke route."""
+        from threading import Event
+        from starlette.responses import JSONResponse
+        from apps.api import product_session_api
+        started, release = Event(), Event()
+        wrapper = AppOnlyASGI(product_session_api.app, FakeProfile())
+        op = "f88ef6e2-12c0-41ca-9117-2ad283ec71e2"
+
+        async def trusted(scope, receive, send):
+            scope["scheme"] = "https"
+            scope["trusted_transport_test"] = True
+            return await wrapper(scope, receive, send)
+
+        def delayed_commit(scope, raw, operation_id):
+            started.set()
+            if not release.wait(timeout=5):
+                raise RuntimeError("TEST_REVOKE_COMMIT_TIMED_OUT")
+            return JSONResponse({"state": "REVOKED_COMMITTED",
+                                 "operation_id": operation_id})
+
+        async def scenario():
+            with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}):
+                with patch.object(product_session_api, "_PRIVATE_STAGING_PROFILE", None):
+                    with patch.object(product_session_api, "_revoke_committed",
+                                      side_effect=delayed_commit) as commit:
+                        async with AsyncClient(
+                            transport=ASGITransport(app=trusted),
+                            base_url="https://test.invalid",
+                        ) as client:
+                            pending = asyncio.create_task(client.post(
+                                "/internal/auth/session/v1/revoke-one",
+                                json={"operation_id": op}))
+                            try:
+                                self.assertTrue(await asyncio.wait_for(
+                                    asyncio.to_thread(started.wait, 2), timeout=3))
+                                denied = await asyncio.wait_for(
+                                    client.post("/v1/messages", content=b"invalid"),
+                                    timeout=1.5)
+                                self.assertEqual(denied.status_code, 503)
+                                self.assertIn("ENGINE_NOT_CONFIGURED", denied.text)
+                                self.assertFalse(pending.done())
+                            finally:
+                                release.set()
+                            revoked = await asyncio.wait_for(pending, timeout=3)
+                            self.assertEqual(revoked.status_code, 200)
+                            self.assertEqual(revoked.json()["operation_id"], op)
+                            self.assertEqual(commit.call_count, 1)
+
+        asyncio.run(scenario())
+
+
+    def test_signed_readiness_checks_actual_history_action_without_leaking_page(self):
+        from starlette.responses import JSONResponse
+        from apps.api import history_api, product_session_api
+        wrapper = AppOnlyASGI(FastAPI(), FakeProfile())
+        context = {"owner": "test_owner_only", "conn": object()}
+
+        async def trusted(scope, receive, send):
+            scope["scheme"] = "https"
+            scope["trusted_transport_test"] = True
+            return await wrapper(scope, receive, send)
+
+        def invoke_action(request, body, path, action):
+            self.assertEqual(body, b"")
+            self.assertEqual(path, b"/health/ready")
+            return None, action(context)
+
+        async def scenario():
+            with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}):
+                with patch.object(product_session_api, "_signed_history",
+                                  side_effect=invoke_action):
+                    with patch.object(history_api, "_cursor_config",
+                                      return_value=(b"x" * 32, 300)):
+                        async with AsyncClient(
+                            transport=ASGITransport(app=trusted),
+                            base_url="https://test.invalid",
+                        ) as client:
+                            with patch.object(history_api, "conversations",
+                                              return_value=JSONResponse({
+                                                  "title": "PRIVATE_TEST_HISTORY"
+                                              })) as read:
+                                ready = await client.get("/health/ready")
+                                self.assertEqual(ready.status_code, 200)
+                                self.assertNotIn("PRIVATE_TEST_HISTORY", ready.text)
+                                self.assertNotIn("test_owner_only", ready.text)
+                                self.assertIs(read.call_args.args[1], context)
+                            with patch.object(history_api, "conversations",
+                                              side_effect=RuntimeError(
+                                                  "PRIVATE_DB_FAILURE")):
+                                denied = await client.get("/health/ready")
+                                self.assertEqual(denied.status_code, 503)
+                                self.assertNotIn("PRIVATE_DB_FAILURE", denied.text)
+
+        asyncio.run(scenario())
+
+
+    def test_revoke_declared_size_and_disconnect_never_reach_commit(self):
+        """Reject oversized/ambiguous headers early and truncated bodies safely."""
+        from apps.api import product_session_api
+        wrapper = AppOnlyASGI(product_session_api.app, FakeProfile())
+        path = "/internal/auth/session/v1/revoke-one"
+
+        async def invoke(headers, input_events, status):
+            received, events = [], []
+            async def receive():
+                received.append(True)
+                if not input_events:
+                    raise AssertionError("HEADER_DENIAL_MUST_NOT_READ")
+                return input_events.pop(0)
+            async def send(event):
+                events.append(event)
+            scope = {
+                "type": "http", "scheme": "https", "trusted_transport_test": True,
+                "path": path, "raw_path": path.encode(), "root_path": "",
+                "method": "POST", "query_string": b"", "http_version": "1.1",
+                "headers": [(b"content-type", b"application/json"), *headers],
+                "client": ("127.0.0.1", 12345), "server": ("test.invalid", 443),
+            }
+            await wrapper(scope, receive, send)
+            start = next(e for e in events if e["type"] == "http.response.start")
+            self.assertEqual(start["status"], status)
+            self.assertEqual(dict(start["headers"])[b"cache-control"], b"no-store")
+            return received
+
+        async def scenario():
+            self.assertEqual(await invoke([(b"content-length", b"513")], [], 413), [])
+            self.assertEqual(await invoke([(b"content-length", b"invalid")], [], 422), [])
+            self.assertEqual(await invoke(
+                [(b"content-length", b"1"), (b"content-length", b"1")],
+                [], 422), [])
+            self.assertEqual(len(await invoke([(b"content-length", b"42")], [
+                {"type": "http.request", "body": b"{", "more_body": True},
+                {"type": "http.disconnect"},
+            ], 422)), 2)
+            self.assertEqual(len(await invoke([(b"content-length", b"42")], [
+                {"type": "http.request", "body": b"{}", "more_body": False},
+            ], 422)), 1)
+
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}):
+            with patch.object(product_session_api, "_PRIVATE_STAGING_PROFILE", None):
+                with patch.object(product_session_api, "_revoke_committed",
+                                  side_effect=AssertionError("NO_DB_ADMISSION")) as commit:
+                    asyncio.run(scenario())
+                    commit.assert_not_called()
+
+
+    def test_revoke_ambiguous_headers_reject_before_body_or_admission(self):
+        from apps.api import product_session_api
+        wrapper = AppOnlyASGI(product_session_api.app, FakeProfile())
+        path = "/internal/auth/session/v1/revoke-one"
+
+        async def scenario():
+            ct = (b"content-type", b"application/json")
+            for headers in (
+                [],
+                [ct, ct],
+                [ct, (b"content-type", b"text/plain")],
+                [ct, (b"content-length", b"1"), (b"transfer-encoding", b"chunked")],
+                [ct, (b"transfer-encoding", b"chunked"), (b"transfer-encoding", b"chunked")],
+                [ct, (b"transfer-encoding", b"gzip")],
+            ):
+                with self.subTest(headers=headers):
+                    events = []
+                    async def receive():
+                        raise AssertionError("AMBIGUOUS_HEADERS_MUST_NOT_READ_BODY")
+                    async def send(event):
+                        events.append(event)
+                    await wrapper({
+                        "type": "http", "scheme": "https", "trusted_transport_test": True,
+                        "path": path, "raw_path": path.encode(), "root_path": "",
+                        "method": "POST", "query_string": b"", "http_version": "1.1",
+                        "headers": headers, "client": ("127.0.0.1", 12345),
+                        "server": ("test.invalid", 443),
+                    }, receive, send)
+                    start = next(e for e in events if e["type"] == "http.response.start")
+                    self.assertEqual(start["status"], 422)
+                    self.assertEqual(dict(start["headers"])[b"cache-control"], b"no-store")
+                    body = b"".join(e.get("body", b"") for e in events
+                                    if e["type"] == "http.response.body")
+                    self.assertEqual(json.loads(body), {"error": "INVALID_REQUEST"})
+
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}):
+            with patch.object(product_session_api, "_PRIVATE_STAGING_PROFILE", None):
+                with patch.object(product_session_api, "_revoke_committed",
+                                  side_effect=AssertionError("NO_DB_ADMISSION")) as commit:
+                    asyncio.run(scenario())
+                    commit.assert_not_called()
+
+
+    def test_private_db_destination_cannot_be_overridden(self):
+        from src.phase3.auth.staging_service_profile import (
+            private_db_connection_options,
+        )
+        for operation, role in (("history", "history_app"), ("revoke", "auth_revoker")):
+            local = "host=127.0.0.1 dbname=stage user=" + role
+            remote = ("host=pg-restore dbname=stage user=" + role
+                      + " sslmode=verify-full sslrootcert=/run/secrets/pg-ca.pem")
+            with patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(private_db_connection_options(local, operation),
+                                 {"gssencmode": "disable"})
+                self.assertEqual(private_db_connection_options(remote, operation),
+                                 {"gssencmode": "disable"})
+                for invalid in (
+                    local + " hostaddr=192.0.2.10",
+                    local + " service=other",
+                    local + " port=5432,5433",
+                    local.replace("127.0.0.1", "127.0.0.1,pg-restore"),
+                    remote + " hostaddr=192.0.2.10",
+                    remote + " gssencmode=prefer",
+                    remote + " gssencmode=require",
+                    local + " invalid_option=private_test_secret",
+                    local + " password='private_test_secret",
+                ):
+                    with self.subTest(operation=operation), self.assertRaises(StagingConfigDenied) as caught:
+                        private_db_connection_options(invalid, operation)
+                    self.assertEqual(str(caught.exception), "PRIVATE_STAGING_CONFIG_DENIED")
+                for override in ("PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE"):
+                    with patch.dict(os.environ, {override:"private_test_secret"}):
+                        with self.assertRaises(StagingConfigDenied):
+                            private_db_connection_options(local, operation)
+                with patch.dict(os.environ, {"PGGSSENCMODE":"require"}):
+                    self.assertEqual(private_db_connection_options(remote, operation),
+                                     {"gssencmode": "disable"})
+
+    def test_private_db_bad_dsn_is_rejected_before_connect_or_startup(self):
+        from src.phase3.auth.staging_service_profile import PrivateStagingProfile
+        from apps.api.private_staging_asgi import verify_staging_database_authority
+        from apps.api import product_session_api
+        profile = PrivateStagingProfile(
+            issuer="urn:test:issuer", audience="urn:test:api", kid="test-key",
+            public_key_path=self.root / "pub.pem",
+            history_dsn="host=127.0.0.1 dbname=stage user=history_app hostaddr=192.0.2.10",
+            revoke_dsn=self.doc["revoke_dsn"], peer_verifier=lambda _: False)
+        with patch("psycopg.connect", side_effect=AssertionError("MUST_NOT_CONNECT")) as connect:
+            with self.assertRaises(StagingConfigDenied):
+                verify_staging_database_authority(profile)
+            with patch.object(product_session_api, "_PRIVATE_STAGING_PROFILE", profile):
+                with self.assertRaisesRegex(RuntimeError, "^PRIVATE_STAGING_DB_DENIED$"):
+                    product_session_api._conn("history")
+            connect.assert_not_called()
+
+
+    def test_app_only_startup_refuses_inherited_execution_capability(self):
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization
+        from apps.api.private_app_only_asgi import prepare_app_only
+        from apps.api import product_session_api
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        (self.root / "pub.pem").write_bytes(key.public_key().public_bytes(
+            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
+        cfg = load_app_only_config(self.config_file)
+        with patch.dict(os.environ, {"PHASE3_APP_MODE":"APP_ONLY",
+                "API_RUNNER_EXECUTION_MODE":"APP_ONLY", "API_CURSOR_KEY":"x"*48,
+                "API_CURSOR_TTL_SECONDS":"300", "CI":"false", "GITHUB_ACTIONS":"false"}):
+            with patch("apps.api.private_app_only_asgi._test_tls_material"), patch(
+                    "apps.api.private_app_only_asgi.verify_staging_database_authority"), patch.object(
+                    product_session_api, "install_private_staging_auth") as install:
+                for name in ("_SERVER_NO_DISPATCH_TASK", "_CI_CLAIM_STUB",
+                             "_CI_DISPATCH_REPORTER_DSN", "_CI_INVITED_RESULT_STORE"):
+                    with self.subTest(name=name), patch.object(product_session_api, name, object()):
+                        with self.assertRaises(StagingConfigDenied):
+                            prepare_app_only(cfg)
+                install.assert_not_called()
+
+    def test_actual_app_only_send_never_invokes_spawn_gateway_or_persistence(self):
+        from contextlib import ExitStack
+        from apps.api import product_session_api
+        wrapper = AppOnlyASGI(product_session_api.app, FakeProfile())
+        async def invoke():
+            async def trusted(scope, receive, send):
+                scope["trusted_transport_test"] = True
+                return await wrapper(scope, receive, send)
+            async with AsyncClient(transport=ASGITransport(app=trusted),
+                                   base_url="https://test.invalid") as client:
+                for path in ("/v1/messages", "/v1/%6dessages"):
+                    response = await client.post(path, content=b"not-json")
+                    self.assertEqual(response.status_code, 503)
+                    self.assertEqual(response.headers["cache-control"], "no-store")
+                    self.assertIn("ENGINE_NOT_CONFIGURED", response.text)
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE":"APP_ONLY"}):
+            with ExitStack() as stack:
+                forbidden = [
+                    "subprocess.Popen", "httpx.Client.request",
+                    "psycopg.connect", "apps.api.product_session_api.answer_from_fixture",
+                    "apps.api.product_session_api.start_t2",
+                    "apps.api.product_session_api.finalize_t3",
+                    "apps.api.product_session_api.after_definitive_commit",
+                    "apps.api.product_session_api._run_ci_claim_send",
+                ]
+                spies = [stack.enter_context(patch(name, side_effect=AssertionError(
+                         "FORBIDDEN_APP_ONLY_EFFECT"))) for name in forbidden]
+                asyncio.run(invoke())
+                for spy in spies:
+                    spy.assert_not_called()
 
 
 if __name__ == "__main__":
