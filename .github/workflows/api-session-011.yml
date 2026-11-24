@@ -300,6 +300,14 @@ jobs:
           # Verify History persistence using its OWN migrator; auth_migrator has zero History grants.
           PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -d history_ci -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'"
           test "$(PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -d history_ci -Aqt -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'")" = "1"
+      - name: Fail fast on restored PostgreSQL TLS and restart lifecycle
+        if: github.ref == 'refs/heads/agent/api-f3-pr84-signed-history-20261124'
+        env:
+          API_F3_ISOLATED_PG_CID: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          python -m pip install --no-cache-dir --index-url https://pypi.org/simple 'playwright==1.64.1'
+          python -u tests/phase3/integration/api/test_app_only_browser_journey.py --pg-preflight
       - name: Compile and real Keycloak mTLS two-process 009+010 Claim material tests
         run: |
           set -euo pipefail
@@ -359,7 +367,6 @@ jobs:
           API_RUNNER_EXECUTION_MODE: APP_ONLY
         run: |
           set -euo pipefail
-          python -m pip install --no-cache-dir --index-url https://pypi.org/simple 'playwright==1.64.1'
           python -m playwright install --with-deps chromium
           python -u tests/phase3/integration/api/test_app_only_browser_journey.py
       - name: Show bounded SQL permissions and container status

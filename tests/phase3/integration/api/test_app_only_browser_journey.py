@@ -834,6 +834,52 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
                 await context.close()
 
 
+def pg_lifecycle_preflight():
+    """Fast real PG lifecycle test before Keycloak/Next/Chromium build.
+
+    Reuse exactly the restore and TLS code of the full journey. No separate
+    mock implementation and no modifications to the original database.
+    """
+    if os.getenv("CI") != "true" or os.getenv("GITHUB_ACTIONS") != "true":
+        raise RuntimeError("BROWSER_PG_PREFLIGHT_CI_ONLY")
+    demo = AppOnlyBrowserDemo()
+    try:
+        with demo.fresh_volume() as (dsns, pg_id, _):
+            dsns = demo.configure_restore_pg_tls(pg_id, dsns)
+            def witness():
+                with psycopg.connect(dsns["DB_APP_DSN"], autocommit=True,
+                                     row_factory=dict_row) as conn:
+                    result = conn.execute(
+                        "SELECT current_user AS role, current_database() AS db, "
+                        "ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()
+                    assert result["role"] == "history_app" and result["ssl"] is True
+                    assert result["db"] == conninfo_to_dict(dsns["DB_APP_DSN"])["dbname"]
+            witness()
+            demo.ci_command("docker", "stop", "--time", "2", pg_id)
+            try:
+                try:
+                    witness()
+                except psycopg.OperationalError:
+                    print("API_F3_PG_PREFLIGHT_STOP_DENIED_PASS", flush=True)
+                else:
+                    raise AssertionError("STOPPED_PG_MUST_NOT_ACCEPT_CONNECTION")
+            finally:
+                demo.ci_command("docker", "start", pg_id)
+                demo.assert_restore_pg_binding(pg_id)
+            for _ in range(60):
+                try:
+                    witness()
+                    break
+                except psycopg.OperationalError:
+                    time.sleep(0.5)
+            else:
+                demo.restore_pg_diagnostic(pg_id)
+                raise RuntimeError("PG_PREFLIGHT_RESTART_FAILED")
+            print("API_F3_PG_PREFLIGHT_FRESH_VOLUME_TLS_STOP_START_PASS", flush=True)
+    finally:
+        demo.stop()
+
+
 async def main():
     if os.getenv("CI") != "true" or os.getenv("GITHUB_ACTIONS") != "true":
         raise RuntimeError("BROWSER_JOURNEY_CI_ONLY")
@@ -853,4 +899,9 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    if sys.argv[1:] == ["--pg-preflight"]:
+        pg_lifecycle_preflight()
+    elif not sys.argv[1:]:
+        asyncio.run(main())
+    else:
+        raise SystemExit("UNKNOWN_CI_ARGUMENT")
