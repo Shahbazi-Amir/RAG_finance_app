@@ -108,8 +108,12 @@ if [[ "$api_bff_ready" != 1 ]]; then
   echo STOP_BFF_SOURCE_API_NOT_READY >&2
   exit 70
 fi
-node_image='public.ecr.aws/docker/library/node@sha256:47725aca53d3295ec2d3be8f62726599b3033cc262edc2c7e429909b3ac599fc'
-docker pull --quiet "$node_image" > /dev/null
+# Same immutable Linux/amd64 digest as the Web Dockerfile; ECR pull
+# repeatedly returned HTTP 429 in the isolated lab. No mutable fallback.
+node_image='docker.io/library/node@sha256:47725aca53d3295ec2d3be8f62726599b3033cc262edc2c7e429909b3ac599fc'
+docker pull --platform linux/amd64 --quiet "$node_image" > /dev/null
+docker image inspect "$node_image" --format '{{json .RepoDigests}}' | grep -Fq 'node@sha256:47725aca53d3295ec2d3be8f62726599b3033cc262edc2c7e429909b3ac599fc'
+echo F3_SIGNED_BFF_NODE_EXACT_DIGEST_PULL_PASS
 docker run --rm --network "container:$api_bff_name" --user 11003:11003 \
   --read-only --security-opt no-new-privileges:true --pids-limit 96 --memory 384m \
   --mount "type=bind,src=$SOURCE_REPO,dst=/repo,readonly" \
