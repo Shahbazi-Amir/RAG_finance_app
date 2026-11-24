@@ -6,6 +6,7 @@ on:
       - 'infra/postgres/dev_f3_isolated/scripts/28_signed_history_https_pg_lab.sh'
       - 'tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py'
       - '.github/workflows/f3-app-only-https-pg-ab-lab.yml'
+      - 'tests/phase3/integration/ui/f3_app_only_bff_product_request_pg.mjs'
       - 'apps/api/private_app_only_asgi.py'
   workflow_dispatch:
 permissions:
@@ -66,6 +67,7 @@ jobs:
           assert r["source_restore_distinct_pg_clusters"] and r["source_and_restored_history_equal"]
           assert r["authenticated_session_revoke_after_restore"]=="A_DENIED_B_ALLOWED"
           assert r["real_mtls_api_dependency_readiness"]=="200_THEN_503_PG_DOWN_THEN_200_RECOVERED"
+          assert r["real_web_product_request_bff"]=="ACTUAL_NEXT_SOURCE_NODE22_SIGNED_MTLS_TWO_OWNERS"
           assert r["send_without_engine"]=="503_ZERO_DURABLE_WRITES"
           assert r["no_cert_wrong_leaf"]=="REJECTED"
           assert r["identity_same_tx_bound_to_real_oidc"]=="NOT_PROVEN"
