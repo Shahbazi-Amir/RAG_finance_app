@@ -35,6 +35,9 @@ def scenario(mode):
     answer["provenance"]={"origin":"LIVE_VERIFIED","rag_binding":{"status":"verified",
       "blocked_by":None,"release_id":"fixture_only","adapter_verified":True},
       "producer_reference":"synthetic-wire-test","source_fingerprint":"a"*64}
+    if mode=="no_answer":
+        provenance=answer["provenance"]
+        answer=fixture("valid_answer_no_answer");answer["conversation_id"]=cid;answer["provenance"]=provenance
     if mode=="unverified":
         answer=fixture("valid_answer_unresolved_source");answer["conversation_id"]=cid
         answer["answer_text"]="F3_HIDDEN_SYNTHETIC_ANSWER"
@@ -59,7 +62,7 @@ def main():
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=True)
         try:
-            for mode in ("positive","unverified","debug","unsafe","cross_claim"):
+            for mode in ("positive","no_answer","unverified","debug","unsafe","cross_claim","raw_error"):
                 cid,listing,thread,answer=scenario(mode)
                 context=browser.new_context(viewport={"width":1280,"height":800})
                 page=context.new_page(); seen={"list":0,"thread":0,"post":0}
@@ -70,7 +73,9 @@ def main():
                     if u.path=="/api/history/conversations":
                         seen["list"]+=1;route.fulfill(status=200,json=listing);return
                     if u.path=="/api/history/conversations/"+cid+"/messages":
-                        seen["thread"]+=1;route.fulfill(status=200,json=thread);return
+                        seen["thread"]+=1
+                        if mode=="raw_error":route.fulfill(status=503,json={"error":"F3_HIDDEN_INTERNAL_PROMPT","detail":"F3_HIDDEN_RAW_ASSISTANT_DEBUG"});return
+                        route.fulfill(status=200,json=thread);return
                     route.fulfill(status=404,json={"error":"NOT_FOUND"})
                 page.route("**/api/history/**",intercept)
                 page.goto(BASE,wait_until="domcontentloaded")
@@ -91,6 +96,12 @@ def main():
                     expect(panel.get_by_role("link",name="بازکردن پیوند معتبر منبع")).to_have_attribute("href","https://example.org/fixture-only")
                     expect(panel.get_by_test_id("verified-source-locator")).to_have_count(2)
                     expect(panel.get_by_text("دلیل انتخاب این منبع در قرارداد فعلی ارائه نشده است.")).to_have_count(2)
+                elif mode=="no_answer":
+                    panel=page.get_by_test_id("answer-"+answer["answer_id"])
+                    expect(panel).to_be_visible()
+                    expect(panel).to_contain_text("شاهد کافی نیست")
+                    assert panel.locator(".product-citation").count()==0
+                    expect(page.get_by_test_id("educational-boundary")).to_be_visible()
                 elif mode=="unverified":
                     expect(page.get_by_text("پاسخ نمونه یا تأییدنشده از API دریافت شده و عمداً نمایش داده نمی‌شود.")).to_be_visible()
                     assert page.locator(".product-answer").count()==0
@@ -107,7 +118,7 @@ def main():
     out.write_text(json.dumps({"source_sha":os.environ["GITHUB_SHA"],"run_id":os.environ["GITHUB_RUN_ID"],
       "scope":"REAL_REACT_CHROMIUM_TEST_ONLY_INTERCEPTED_WIRE_FIXTURE",
       "cases":results,"claim_local_citation_association":True,"unknown_reason_explicit":True,
-      "debug_raw_assistant_and_prompt_not_rendered":True,"actual_source_authority":False,
+      "debug_raw_assistant_and_prompt_not_rendered":True,"no_answer_no_citation":True,"actual_source_authority":False,
       "engine_calls":0,"accepted":False},indent=2)+"\n")
     print("F3_CLAIM_CITATION_DOM_FIXTURE_AND_DEBUG_NEGATIVE_PASS")
 

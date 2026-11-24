@@ -376,6 +376,17 @@ async def environment_observation(page):
             "persian_sql_dom_roundtrip":True,"target_locale_approved":False}
 
 
+def auth_state_counts(demo):
+    # Actual Auth SQL only; no owner identifier, digest, cookie or token is
+    # exported. Aggregate each of the two known synthetic owners separately.
+    result={}
+    with connect() as c:
+        for label in ("A","B"):
+            rows=c.execute("SELECT status,count(*) FROM auth_l1.sessions WHERE owner_id=%s GROUP BY status",
+                           (demo.owners[label],)).fetchall()
+            result[label]={str(status):int(n) for status,n in rows}
+    return result
+
 def private_log_negative(demo, extra_canaries=()):
     # Only scoped actual process/container logs. No payload, secrets or log
     # text is printed, persisted in receipt, or uploaded by this test.
@@ -633,6 +644,8 @@ async def execute():
                     cookies=[c for c in await ctx.cookies(ORIGIN) if c["name"]=="__Host-rag-session"]
                     assert len(cookies)==1 and cookies[0]["value"]==handle
             await same_handles()
+            auth_before=auth_state_counts(demo)
+            assert all(auth_before[x].get("active",0)>=1 for x in ("A","B"))
             a_id=create_extra_question(demo,"A")
             b_id=create_extra_question(demo,"B")
             source,receipt_before,source_cluster=inventory(demo)
@@ -717,6 +730,8 @@ async def execute():
             await negative_identity_and_private_cache(page_a,page_b,demo.owners["A"],demo.owners["B"],ids_a,ids_b)
             assert env_receipt==await environment_observation(page_a)
             measurements["after_restore"]=await measure_history_requests(page_a,page_b,demo.owners["A"],demo.owners["B"])
+            auth_restored=auth_state_counts(demo)
+            assert auth_restored==auth_before
             if redteam:
                 report,canary=await observe_redteam(page_a,page_b,ORIGIN,demo.owners,ids_a,ids_b,"restored")
                 redteam.append(report);redteam_canaries.append(canary)
@@ -769,6 +784,9 @@ async def execute():
                 ORIGIN+"/api/history/conversations?limit=2")
             assert surviving.status==200
             await foreign_owner_denied(page_b,ids_a)
+            auth_revoked=auth_state_counts(demo)
+            assert auth_revoked["A"].get("revoked",0)==auth_before["A"].get("revoked",0)+1
+            assert auth_revoked["B"]==auth_before["B"]
             log_receipt=private_log_negative(demo,redteam_canaries)
             result={
                 "schema":"foundation.f3.real_browser_pg_restored_same_context.v1",
@@ -801,6 +819,7 @@ async def execute():
                 "app_only_farsi_redteam":redteam,
                 "redteam_zero_durable_side_effect":bool(redteam),
                 "redteam_engine_safety_evaluated":False,
+                "ci_auth_event_sql_counts":{"after_login":auth_before,"after_restore":auth_restored,"after_revoke":auth_revoked,"browser_logout_http":303,"old_session_http":401,"other_session_http":200,"native_product_audit_implemented":False},
                 "operational_probe":ops,
                 "bounded_chromium_network_changed_navigation_retries":BROWSER_NETWORK_CHANGED_RETRIES,
                 "synthetic_backup_aes256gcm_roundtrip":demo.backup_evidence,
