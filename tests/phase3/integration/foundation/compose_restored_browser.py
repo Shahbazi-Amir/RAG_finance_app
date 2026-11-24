@@ -90,7 +90,7 @@ class ComposeRestoredBrowserDemo(AppOnlyBrowserDemo):
 
     def start_compose(self, dsns, network):
         run = self.ci_command
-        sha = os.environ["GITHUB_SHA"]
+        sha = os.environ["F3_EXACT_SHA"]
         assert re.fullmatch(r"[a-f0-9]{40}", sha)
         assert run("git","rev-parse","HEAD").decode().strip() == sha
         web_image = os.environ["F3_COMPOSE_BROWSER_WEB_IMAGE"]
@@ -343,6 +343,9 @@ class BothSidesComposeBrowserDemo(ComposeRestoredBrowserDemo):
 
     @contextmanager
     def source_environment(self):
+        opts=dict(conninfo_to_dict(os.environ["DB_APP_DSN"]),user="postgres",password=os.environ["PGPASSWORD"])
+        with psycopg.connect(**opts,autocommit=True) as admin:
+            self.db_install_system_id=str(admin.execute("SELECT system_identifier FROM pg_control_system()").fetchone()[0])
         self.start()
         with AppOnlyBrowserDemo.fresh_volume(self) as (dsns,pg,network):
             try:
@@ -361,6 +364,7 @@ class BothSidesComposeBrowserDemo(ComposeRestoredBrowserDemo):
                 stable.chmod(0o600)
                 dsns={k:make_conninfo(v,sslrootcert=str(stable)) for k,v in dsns.items()}
                 self.source_dsns=dsns
+                self.verify_db_tls(dsns["DB_APP_DSN"],"SOURCE")
                 self.switch_to_initial_compose(dsns,network)
                 self.source_witness=dict(self.compose_witness)
                 self.source_witness["scope"]="SOURCE_COMPOSE_BEFORE_FIRST_BROWSER_LOGIN"
@@ -538,7 +542,7 @@ class BothSidesComposeBrowserDemo(ComposeRestoredBrowserDemo):
                         sql.Identifier(options["user"]), sql.Literal(options["password"])))
                 admin.execute(sql.SQL("CREATE DATABASE {} TEMPLATE template0").format(
                     sql.Identifier(dbname)))
-            docker("exec", "-i", new_id, "pg_restore", "-U", "postgres", "--exit-on-error",
+            docker("exec", "-i", new_id, "pg_restore", "-U", "postgres", "--single-transaction", "--exit-on-error",
                    "-d", dbname, data=dump)
             del roles, dump
             clone_dsns = {key: make_conninfo(**{**value, "port": port, "dbname": dbname})
