@@ -1,0 +1,112 @@
+name: F3 APP_ONLY real mTLS signed HTTPS PG History A-B and restore lab
+on:
+  push:
+    branches: [agent/db-f3-ab-history-restore-20261124]
+    paths:
+      - 'infra/postgres/dev_f3_isolated/scripts/28_signed_history_https_pg_lab.sh'
+      - 'tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py'
+      - '.github/workflows/f3-app-only-https-pg-ab-lab.yml'
+      - 'tests/phase3/integration/ui/f3_app_only_bff_product_request_pg.mjs'
+      - 'apps/api/private_app_only_asgi.py'
+  pull_request:
+    branches: [integration/f3-foundation-history-two-users-20261124]
+    paths:
+      - 'infra/postgres/dev_f3_isolated/scripts/28_signed_history_https_pg_lab.sh'
+      - 'tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py'
+      - 'tests/phase3/integration/ui/f3_app_only_bff_product_request_pg.mjs'
+      - '.github/workflows/f3-app-only-https-pg-ab-lab.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  actual-mtls-https-postgres:
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/db-f3-common-sha-role-matrix-20261124' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact source and negative protection before PG
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "F3_APP_ONLY_HTTPS_GIT_SHA=$(git rev-parse HEAD)"
+          bash -n infra/postgres/dev_f3_isolated/scripts/28_signed_history_https_pg_lab.sh
+          python3 -m py_compile tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py
+          bash infra/postgres/dev_f3_isolated/tests/run_static.sh
+          test ! -f infra/postgres/migrations/011_product_answer_claims.up.sql
+          for ref in d93dcf7cbf9290acd4cd3aa0164ef05689049da4 656604356dadea953031fcdb74650a5d42df4e9b 1678e87b7984094b74ec995383b8d4383e5f5ae7 bfd6b1d9ed23e5f4cc6f126b579f90d7c877a7a6; do
+            git cat-file -e "$ref^{commit}"
+          done
+      - name: Build nonroot actual API HTTPS image, PG17 TLS lab and independent restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd infra/postgres/dev_f3_isolated
+          export SOURCE_REPO="$GITHUB_WORKSPACE"
+          export LAB_ROOT="$RUNNER_TEMP/f3-api-mtls-pg-ab-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          bash scripts/00_prepare_source.sh
+          bash scripts/01_create_isolated_lab.sh
+          bash scripts/02_provision_roles.sh
+          bash scripts/03_apply_pinned_001_010.sh
+          bash scripts/04_bridge_and_db55.sh
+          bash scripts/05_test_roles_tls_rls.sh
+          bash scripts/06_backup_restore_independent.sh
+          bash scripts/28_signed_history_https_pg_lab.sh
+          echo 'F3_APP_ONLY_NO_ENGINE_NO_011_NO_DEMO_NO_IDP_CLAIM=PASS'
+      - name: Verify sanitized signed HTTP and restore witness
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          r=json.loads(Path("ci_receipts/app_only_https_pg_ab_restore.json").read_text())
+          assert r["contract_version"]=="f3.app_only.real_mtls_signed_history_pg_ab_lab.v1"
+          import subprocess
+          assert r["source_git_sha"]==subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
+          assert r["idp"]=="NOT_RUN_SYNTHETIC_DB_MAPPED_SUBJECTS"
+          assert r["browser"]=="NOT_RUN"
+          assert r["private_api_listener"]=="REAL_UVICORN_H11_MTLS"
+          assert r["real_signed_http_history"]=="SOURCE_AND_INDEPENDENT_RESTORE"
+          assert r["two_owner_conversations"]==[5,3]
+          assert r["two_owner_messages"]==[4,2]
+          assert r["source_restore_distinct_pg_clusters"] and r["source_and_restored_history_equal"]
+          assert r["authenticated_session_revoke_after_restore"]=="A_DENIED_B_ALLOWED"
+          assert r["real_mtls_api_dependency_readiness"]=="200_THEN_503_PG_DOWN_THEN_200_RECOVERED"
+          assert r["real_web_product_request_bff"]=="ACTUAL_NEXT_SOURCE_NODE22_SIGNED_MTLS_TWO_OWNERS"
+          assert r["post_revoke_backup_restore"]=="NEW_DB_OTHER_CLUSTER_A401_B200_HISTORY_PARITY"
+          assert r["stale_pre_revoke_backup_admission"]=="NOT_AUTHORIZED_REQUIRES_OWNER_SECURITY_POLICY"
+          assert r["backup_aead"]=="AES256_GCM_ACTUAL_PG_RESTORE_WRONG_KEY_TAMPER_TRUNCATION_AAD_DENIED"
+          assert r["backup_key_custody"]=="EPHEMERAL_MODE0600_FILE_REMOVED_NOT_PRODUCTION_KMS_OR_RETENTION"
+          assert r["backup_independent_process"]=="ENCRYPT_PROCESS_EXIT_SEPARATE_DECRYPT_PROCESS_WRONG_KEY_DENIED_ACTUAL_RESTORE"
+          assert r["backup_plaintext_cleanup"]=="ORIGINAL_DUMP_AND_VERIFIED_RESTORE_REMOVED_AFTER_SUCCESS"
+          assert r["stale_snapshot_witness"]=="REAL_READ_ONLY_SESSION_DIVERGENCE_NO_STALE_LISTENER_ADMISSION"
+          assert r["post_outage_revocation_recheck"]=="A401_B200_FOREIGN_UNKNOWN404"
+          assert r["role_write_matrix"]=="26_SOURCE_26_RESTORED_ACTUAL_SQL_DENIALS_ZERO_MUTATION"
+          assert r["catalog_parity"]=="SIX_TABLES_COLUMNS_CONSTRAINTS_INDEXES_RLS_EXACT_SOURCE_RESTORE"
+          assert r["keyset_index_paths"]=="FORCED_PLANNER_ELIGIBILITY_NOT_LATENCY_BENCHMARK"
+          assert r["concurrent_repository"]=="CREATE_T1_T2_SIX_REAL_SESSIONS_EACH_EXACTLY_ONE"
+          assert r["repository_negative_matrix"]=="NINE_FOREIGN_UNKNOWN_CONFLICT_DENIALS_ZERO_MUTATION"
+          assert r["repository_terminal_replay"]=="UNKNOWN_CANCELLED_STABLE_ATTEMPT_ZERO_ANSWER_NO_OWNER_LEAK"
+          assert r["m10_process_crash"]=="REAL_SIGKILL_T1_T2_PRE_POST_COMMIT_REPLAY_IDS_STABLE"
+          assert r["m10_process_crash_scope"]=="TRUSTED_REPOSITORY_FIXTURE_NOT_HTTP_SEND_NO_DISPATCH"
+          assert r["bff_restore_replay"]=="BEFORE_AFTER_REFRESH_AND_REVOKED_A401_B200"
+          assert r["sql_independent_history_snapshot"]=="EXACT_PARITY_SOURCE_RESTORE_A5_B3_M4_M2_ZERO_SEND"
+          assert r["send_without_engine"]=="503_ZERO_DURABLE_WRITES"
+          assert r["no_cert_wrong_leaf"]=="REJECTED"
+          assert r["identity_same_tx_bound_to_real_oidc"]=="NOT_PROVEN"
+          assert r["module_gates"]=="NOT_ACCEPTED"
+          assert r["engine_calls"]==0 and r["migration_011"]=="NOT_RUN"
+          print("SIGNED_HTTPS_MTLS_PG_REAL_APP_HISTORY_AB_RESTORE_RECEIPT=PASS")
+          PY
+      - name: Upload sanitized authenticated-HTTP lab witness (no bearer token or key)
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3-app-only-real-https-pg-ab-restore-lab
+          path: ci_receipts/app_only_https_pg_ab_restore.json
+          if-no-files-found: error
+          retention-days: 14
