@@ -29,6 +29,42 @@ def read(path: Path):
 
 
 class LedgerTest(unittest.TestCase):
+    def reviewed_source_delta(self):
+        """Versioned, owner-unaccepted overlay; never mutate historical manifests."""
+        path=ROOT/"coordination/integration/F3_UI91_REVIEWED_SOURCE_DELTA_20261124.json"
+        doc=json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(doc["contract_version"],"integration.f3.reviewed_source_delta.v1")
+        self.assertEqual(doc["source_manifest"],
+                         "coordination/integration/FOUR_PR_APP_ONLY_PINNED_SOURCE_MANIFEST_20261124.json")
+        self.assertEqual(doc["three_way_audit"],
+                         "coordination/integration/FOUR_PR_58_PATH_THREE_WAY_AUDIT_20261124.json")
+        self.assertFalse(doc["owner_signed_acceptance"])
+        self.assertEqual(doc["status"],"SOURCE_REVIEWED_CI_LAB_ONLY_NOT_OWNER_ACCEPTED")
+        self.assertEqual(len(doc["files"]),1,"No broad source-manifest bypass")
+        row=doc["files"][0]
+        self.assertEqual(row["path"],"apps/web/src/ui/product-chat.tsx")
+        self.assertEqual(row["source_owner"],"ui")
+        self.assertEqual(row["source_pr"],90)
+        self.assertEqual(row["source_ref_commit_sha"],
+                         "3927feac78197d04f8661bf61abea11015c3ed6f")
+        self.assertEqual(row["original_integrated_blob_sha"],
+                         "ec4771ca73820453681ed9ce7342949ed58c02f1")
+        self.assertEqual(row["reviewed_blob_sha"],
+                         "42fa8b1dded5bfbf5e031f1c2b67b8041b2bc0fa")
+        self.assertFalse(row["owner_signed_acceptance"])
+        self.assertFalse(row["target_mac_accepted"])
+        self.assertFalse(row["integrated_ci_accepted"])
+        self.assertEqual(len(row["exact_change_scope"]),3)
+        self.assertTrue(all(re.fullmatch(r"[0-9a-f]{40}",row[x]) for x in (
+            "original_integrated_blob_sha","reviewed_blob_sha","source_ref_commit_sha")))
+        return {row["path"]:row}
+
+    def test_reviewed_ui_source_delta_is_exact_and_not_a_gate_acceptance(self):
+        reviewed=self.reviewed_source_delta()
+        row=reviewed["apps/web/src/ui/product-chat.tsx"]
+        actual=subprocess.run(["git","hash-object",row["path"]],
+                              cwd=ROOT,capture_output=True,text=True,check=True).stdout.strip()
+        self.assertEqual(actual,row["reviewed_blob_sha"])
     def test_all_393_source_ids_one_to_one(self):
         header,rows=read(LEDGER)
         self.assertEqual(header,list(FIELDS))
@@ -76,7 +112,15 @@ class LedgerTest(unittest.TestCase):
             self.assertTrue(re.fullmatch(r"[0-9a-f]{40}",file["integrated_blob_sha"]))
             result=subprocess.run(["git","hash-object",file["path"]],
                                   cwd=ROOT,capture_output=True,text=True,check=True)
-            self.assertEqual(result.stdout.strip(),file["integrated_blob_sha"],file["path"])
+            current_blob=result.stdout.strip()
+            reviewed=self.reviewed_source_delta()
+            if file["path"] in reviewed:
+                delta=reviewed[file["path"]]
+                self.assertEqual(file["integrated_blob_sha"],delta["original_integrated_blob_sha"])
+                self.assertEqual(file["original_source"],delta["source_owner"])
+                self.assertEqual(current_blob,delta["reviewed_blob_sha"],file["path"])
+            else:
+                self.assertEqual(current_blob,file["integrated_blob_sha"],file["path"])
             if file["path"] in expected:
                 self.assertEqual(file["resolution"],"FOUNDATION_SECURITY_COMPAT")
                 preserved+=1
@@ -107,6 +151,16 @@ class LedgerTest(unittest.TestCase):
                                 for x in row["source_options"]))
             blob=subprocess.run(["git","hash-object",row["path"]],
                                 cwd=ROOT,text=True,capture_output=True,check=True).stdout.strip()
+            reviewed=self.reviewed_source_delta()
+            if row["path"] in reviewed:
+                delta=reviewed[row["path"]]
+                self.assertEqual(row["integrated_blob_sha"],delta["original_integrated_blob_sha"])
+                self.assertEqual(row["decision"],"EXACT_SOURCE_SELECTED")
+                self.assertIn(delta["source_owner"],row["selected_owner_blobs"])
+                self.assertIn(delta["original_integrated_blob_sha"],
+                              [x["blob_sha"] for x in row["source_options"]])
+                self.assertEqual(blob,delta["reviewed_blob_sha"],row["path"])
+                continue
             self.assertEqual(blob,row["integrated_blob_sha"],row["path"])
             if row["decision"]=="EXACT_SOURCE_SELECTED":
                 self.assertTrue(row["selected_owner_blobs"])
