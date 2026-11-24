@@ -22,7 +22,12 @@ def canonical(value):
                       separators=(",", ":"), allow_nan=False).encode()
 
 
+class HybridCaptured(Exception):
+    pass
+
+
 def main():
+    hybrid_only = sys.argv[1:] == ["--hybrid-only"]
     source = ENGINE.read_bytes()
     if sha(source) != ENGINE_SHA:
         raise ValueError("ENGINE_PIN_MISMATCH")
@@ -78,6 +83,8 @@ def main():
                                       (i for i,(a,b) in enumerate(zip(observed,ref["hybrid100"]),1) if a!=b),
                                       None),
                                   hybrid_common=len(set(observed)&set(ref["hybrid100"])))
+                    if hybrid_only:
+                        raise HybridCaptured
                 elif step == "onnx":
                     scores = frame.f_locals["scores"]
                     record.update(onnx_score_sha=sha(canonical(scores)), onnx_pairs=len(scores))
@@ -93,6 +100,9 @@ def main():
                 result = engine["answer_question"](question, repo_root=repo,
                                                    artifacts_root=artifacts,
                                                    request_id=label, dispatch=False)
+            except HybridCaptured:
+                print(json.dumps(record), flush=True)
+                continue
             finally:
                 sys.settrace(None)
             record.update(context_parity=result["context_sha256"]==ref["context_sha256"],
