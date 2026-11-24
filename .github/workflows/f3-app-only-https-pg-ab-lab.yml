@@ -1,9 +1,9 @@
 name: F3 APP_ONLY real mTLS signed HTTPS PG History A-B and restore lab
 on:
   push:
-    branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124]
+    branches: [agent/foundation-f3-84-31-message-restore-20261124]
   pull_request:
-    branches: [integration/f3-app-only-four-pr-candidate-20261124]
+    branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124]
   workflow_dispatch:
 permissions:
   contents: read

@@ -2,9 +2,9 @@ name: F3 #84 one-SHA full source 393 and app-only 42 bounded CI witness regressi
 
 on:
   push:
-    branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124]
+    branches: [agent/foundation-f3-84-31-message-restore-20261124]
   pull_request:
-    branches: [integration/f3-app-only-four-pr-candidate-20261124]
+    branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124]
   workflow_dispatch:
 
 permissions:
@@ -68,7 +68,7 @@ jobs:
         shell: bash
         run: |
           python -m unittest discover -s tests/phase3/foundation -p 'test_f3_exact_sha_artifacts.py' -v
-      - name: Verify exact transferred API source objects, no acceptance
+      - name: Verify 9 unchanged owner API sources plus exact one-file 31-message browser test extension
         run: |
           set -euo pipefail
           git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git 23db3da6367e6a8279072ee96b56a2bd4b7f0fbc
@@ -77,14 +77,28 @@ jobs:
           import json, subprocess
           from pathlib import Path
           m=json.loads(Path("coordination/integration/F3_SIGNED_API_SOURCE_TRANSFER_20261124.json").read_text())
+          ext=json.loads(Path("coordination/integration/F3_84_BROWSER_31_MESSAGE_SOURCE_EXTENSION_20261124.json").read_text())
           assert m["source_sha"]=="23db3da6367e6a8279072ee96b56a2bd4b7f0fbc" and m["p0_1_accepted"] is False
           assert len(m["rows"])==len({r["path"] for r in m["rows"]})==10
+          assert ext["schema"]=="foundation.f3.browser_31_page2_before_after_pg_restore.v1"
+          assert ext["path"]=="tests/phase3/integration/api/test_app_only_browser_journey.py"
+          assert ext["parent_verified_sha"]=="9cacaede2fd67b5cf13331c7650532b8b408a8dc"
+          assert ext["candidate_blob_sha"]=="a12c64c75361577b94a8d42bf24714dcc16864e5"
+          assert ext["owner_signed_acceptance"] is False and ext["target_verified"] is False
+          migrated=0
           for row in m["rows"]:
               assert row["owner_signed_acceptance"] is False
               source=subprocess.check_output(["git","rev-parse",m["source_sha"]+":"+row["path"]],text=True).strip()
               current=subprocess.check_output(["git","hash-object",row["path"]],text=True).strip()
-              assert source==current==row["source_blob_sha"]==row["candidate_blob_sha"],row["path"]
-          print("F3_TEN_EXACT_API_TRANSFER_BLOBS_NO_OWNER_ACCEPTANCE_PASS")
+              assert source==row["source_blob_sha"]==row["candidate_blob_sha"],row["path"]
+              if row["path"]==ext["path"]:
+                  assert source==ext["historical_signed_api_owner_blob_sha"]
+                  assert current==ext["candidate_blob_sha"]
+                  migrated+=1
+              else:
+                  assert current==source,row["path"]
+          assert migrated==1
+          print("F3_NINE_API_OWNER_EXACT_BLOBS_ONE_31_BROWSER_TEST_DELTA_NO_ACCEPTANCE_PASS")
           PY
       - name: All 393 canonical IDs exact source mapping and no false acceptance
         run: python -m unittest discover -s tests/phase3/integration -p 'test_integrated_393_registry.py' -v

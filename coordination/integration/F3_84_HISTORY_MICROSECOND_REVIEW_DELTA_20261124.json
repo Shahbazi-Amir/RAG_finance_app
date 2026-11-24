@@ -1,0 +1,16 @@
+{
+  "schema": "foundation.f3.web_history_microsecond_source_extension.v1",
+  "root_84_sha": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+  "last_verified_parent_sha": "9cacaede2fd67b5cf13331c7650532b8b408a8dc",
+  "path": "apps/web/src/history/client.ts",
+  "historical_58_decision": "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
+  "historical_blob_sha": "6e057e4d097dd76f36bc41843b17c63dfb96e313",
+  "candidate_blob_sha": "f0932d08ff37215111c04fea38f6503d4d3f41f1",
+  "source_behavior": "PostgreSQL microsecond-accurate chronological checks on signed History message and conversation page results",
+  "negative_test_file": "tests/phase3/ui/history-microsecond-ordering.test.mjs",
+  "scope_signed_ci_only": true,
+  "owner_signed_acceptance": false,
+  "canonical_activity_accepted": false,
+  "module_gate_accepted": false,
+  "original_58_manifest_frozen": true
+}
