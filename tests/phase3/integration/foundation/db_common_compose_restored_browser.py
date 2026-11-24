@@ -36,11 +36,70 @@ import uuid
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from psycopg.conninfo import make_conninfo
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, expect
+from psycopg.rows import dict_row
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / "tests/phase3/integration/api"))
 from db_common_compose_browser_journey import AppOnlyBrowserDemo, ORIGIN
+from src.phase3.storage.postgres import auth_session
+
+
+def verify_isolation():
+    assert os.environ.get("CI")=="true" and os.environ.get("GITHUB_ACTIONS")=="true"
+    assert os.environ.get("GITHUB_RUN_ID")
+    assert re.search(r"dbname=history_browser_restore_ci_[a-f0-9]{16}(?: |$)",os.environ.get("AUTH_MIG_DSN",""))
+    assert os.environ.get("PGHOST")=="127.0.0.1"
+    assert os.environ.get("PGPORT")=="5432"
+
+
+def trust_ephemeral_browser_ca(demo):
+    """Install ONLY this job's ephemeral CA for genuine Chrome and Python trust.
+
+    No ignore_https_errors, no certificate pin bypass and no shared machine.
+    This mutates only the disposable GitHub Actions runner and does not
+    distribute any CA key or copy a trust root to repository artifacts.
+    """
+    verify_isolation()
+    ca=Path(demo.ca)
+    assert ca.is_file() and ca.parent==demo.root and not ca.is_symlink(), (
+        "UNTRUSTED_CI_CA_INPUT")
+    run_id=os.environ["GITHUB_RUN_ID"]
+    assert run_id.isdecimal() and len(run_id)<=24
+    trust_path="/usr/local/share/ca-certificates/f3-disposable-ui-"+run_id+".crt"
+    subprocess.run(["sudo","install","-m","0644",str(ca),trust_path],check=True)
+    subprocess.run(["sudo","update-ca-certificates"],check=True,
+                   stdout=subprocess.DEVNULL)
+    # Playwright's APIRequestContext uses its Node driver, not Chromium's
+    # NSS trust or Python's system CA bundle. Give only this ephemeral CI CA
+    # to that Node subprocess before async_playwright() starts. Do not bypass
+    # TLS verification for either browser navigation or direct API requests.
+    os.environ["NODE_EXTRA_CA_CERTS"]=str(ca)
+    nss=Path.home()/".pki"/"nssdb"
+    nss.mkdir(parents=True,exist_ok=True)
+    spec="sql:"+str(nss)
+    if not (nss/"cert9.db").exists():
+        subprocess.run(["certutil","-N","--empty-password","-d",spec],check=True)
+    subprocess.run(["certutil","-A","-d",spec,"-n","f3-disposable-ui-"+run_id,
+                    "-t","C,,","-i",str(ca)],check=True)
+    # Enforce OpenSSL chain + 127.0.0.1 SAN; the browser independently
+    # enforces the same with ignore_https_errors=False.
+    with socket.create_connection(("127.0.0.1",3443),timeout=8) as sock:
+        with ssl.create_default_context().wrap_socket(
+                sock,server_hostname="127.0.0.1") as verified:
+            assert verified.version() in ("TLSv1.2","TLSv1.3")
+    # Negative SAN test: same server and same trusted CA, but a hostname not
+    # listed in the ephemeral certificate. It MUST be rejected by OpenSSL.
+    try:
+        with socket.create_connection(("127.0.0.1",3443),timeout=8) as sock:
+            with ssl.create_default_context().wrap_socket(
+                    sock,server_hostname="localhost"):
+                pass
+    except ssl.SSLCertVerificationError:
+        pass
+    else:
+        raise AssertionError("NEGATIVE_SAN_VERIFICATION_MUST_REJECT_LOCALHOST")
+    print("F3_LAB_OS_CA_CHROMIUM_NSS_TRUST_AND_LOOPBACK_IP_SAN_PASS",flush=True)
 
 
 class ComposeRestoredBrowserDemo(AppOnlyBrowserDemo):
@@ -425,27 +484,130 @@ class BothSidesComposeBrowserDemo(ComposeRestoredBrowserDemo):
         assert self.compose_witness["api_image_id"]==self.source_witness["api_image_id"]
         assert self.compose_witness["web_image_id"]==self.source_witness["web_image_id"]
 
+    async def prove_post_revoke_compose_restore(self,a,b,raw_a,raw_b,aid,bid,bmid,bmessage,expected,sql_before,before,restored,restored_id):
+        """Restore only the committed-revocation snapshot, not a stale backup."""
+        assert restored_id==self.restored_pg_id
+        assert self.signed_private(raw_a).status_code==401
+        assert self.signed_private(raw_b).status_code==200
+        second_witness=dict(self.compose_witness)
+        with psycopg.connect(restored["AUTH_SESSION_DSN"],autocommit=True,row_factory=dict_row) as auth:
+            assert auth_session.inspect(auth,raw_a["session_ref"]) is None
+            assert auth_session.inspect(auth,raw_b["session_ref"]) is not None
+        began=time.monotonic()
+        with self.clone_owned_source(post_revoke_dsns=restored) as (third,pg,network):
+            backup_restore_ms=round((time.monotonic()-began)*1000)
+            outage_start=time.monotonic()
+            self.stop_compose()
+            self.stop_container_api()
+            shutil.copyfile(self.root/"compose-restored/audit/exchange.sqlite",self.root/"exchange-audit.sqlite")
+            for name in ("restore-pg-tls","restore-api-container-secrets","compose-restored"):
+                shutil.move(str(self.root/name),str(self.root/("pre-post-revoke-"+name)))
+            (self.root/"restore-bootstrap.json").unlink()
+            try:
+                third=self.configure_restore_pg_tls(pg,third)
+                self.switch_to_restored(third,network)
+                assert self.compose_witness["api_image_id"]==second_witness["api_image_id"]
+                assert self.compose_witness["web_image_id"]==second_witness["web_image_id"]
+                with psycopg.connect(third["AUTH_SESSION_DSN"],autocommit=True,row_factory=dict_row) as auth:
+                    assert auth_session.inspect(auth,raw_a["session_ref"]) is None
+                    assert auth_session.inspect(auth,raw_b["session_ref"]) is not None
+                assert self.signed_private(raw_a).status_code==401
+                assert self.signed_private(raw_b).status_code==200
+                assert self.counts()==before
+                self.restricted_db_snapshot("POST_REVOKE_RESTORE",third,sql_before,revoked=True)
+                # A is already logged out: the disabled refresh control is
+                # correct. Re-test the real ordinary BFF HTTP boundary without
+                # re-injecting the removed cookie or forcing a disabled click.
+                await expect(a.get_by_test_id("refresh-history")).to_be_disabled()
+                denied=await a.evaluate("""async () => {
+                    const r=await fetch('/api/history/conversations?limit=2',{cache:'no-store'});
+                    return {status:r.status,noStore:r.headers.get('cache-control')==='no-store'};
+                }""")
+                assert denied=={"status":401,"noStore":True}
+                await expect(a.get_by_test_id("history-login-required")).to_be_visible()
+                print("DB_COMMON_POST_REVOKE_BROWSER_DISABLED_REFRESH_AND_REAL_BFF_401=PASS",flush=True)
+                assert await a.locator('[data-testid^="conversation-"]').count()==0
+                async with b.expect_response(lambda r:"/api/history/conversations?limit=2" in r.url and "cursor=" not in r.url and r.request.method=="GET") as wait:
+                    await b.get_by_test_id("refresh-history").click()
+                response=await wait.value
+                assert response.status==200
+                doc=await response.json()
+                assert doc["scope_user_id"]==self.owners["B"]
+                assert [x["conversation_id"] for x in doc["items"]]==[x["id"] for x in expected["B"][:2]]
+                async with b.expect_response(lambda r:"/api/history/conversations?" in r.url and "cursor=" in r.url and r.request.method=="GET") as wait:
+                    await b.get_by_role("button",name="نمایش گفت‌وگوهای بیشتر").click()
+                page2=await wait.value
+                assert page2.status==200
+                assert [x["conversation_id"] for x in (await page2.json())["items"]]==[x["id"] for x in expected["B"][2:]]
+                for row in expected["B"]:
+                    await expect(b.get_by_test_id("conversation-"+row["id"])).to_be_visible()
+                other=next(row["id"] for row in expected["B"] if row["id"]!=bid)
+                await b.get_by_test_id("conversation-"+other).click()
+                async with b.expect_response(lambda r:"/api/history/conversations/"+bid+"/messages?" in r.url and r.request.method=="GET") as wait:
+                    await b.get_by_test_id("conversation-"+bid).click()
+                detail=await wait.value
+                assert detail.status==200
+                payload=await detail.json()
+                assert payload["owner_user_id"]==self.owners["B"]
+                assert [(x["message_id"],x["text"]) for x in payload["items"]]==[(bmid,bmessage)]
+                await expect(b.get_by_test_id("history-message-"+bmid)).to_contain_text(bmessage)
+                status=await b.evaluate("""async id => (await fetch('/api/history/conversations/'+id+'/messages?limit=2',{cache:'no-store'})).status""",aid)
+                assert status==404
+                assert (await b.evaluate("""async () => (await fetch('/api/history/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status"""))==503
+                assert self.counts()==before
+                self.restricted_db_snapshot("POST_REVOKE_BROWSER",third,sql_before,revoked=True)
+                measured=round((time.monotonic()-outage_start)*1000)
+                self.post_revoke_witness={"three_distinct_volumes":len({self.source_volume,self.restored_pg_volume,self.post_revoke_pg_volume})==3,
+                    "three_distinct_pg_containers":len({self.source_pg_id,self.restored_pg_id,self.post_revoke_pg_id})==3,
+                    "source_sha":os.environ["F3_EXACT_SHA"],"api_image_id":self.compose_witness["api_image_id"],
+                    "web_image_id":self.compose_witness["web_image_id"],"committed_revoke_a_denied_b_replayed":True,
+                    "measured_backup_restore_ms":backup_restore_ms,"measured_cutover_to_browser_replay_ms":measured,
+                    "approved_operational_rpo_rto":False,"accepted":False}
+                assert self.post_revoke_witness["three_distinct_volumes"] and self.post_revoke_witness["three_distinct_pg_containers"]
+                print("DB_COMMON_POST_REVOKE_THIRD_VOLUME_ORDINARY_BROWSER_A401_B200_EXACT_PARITY=PASS",flush=True)
+            finally:
+                self.stop_compose()
+                self.stop_container_api()
+                self.compose_witness=second_witness
+
     @contextmanager
-    def clone_owned_source(self):
+    def clone_owned_source(self, post_revoke_dsns=None):
         """Use only the exact CI source service and newly created resources.
 
         A fresh Postgres data directory, not another database in the old
         container. Keep dump/role metadata only in process memory; do not
         export credentials, screenshots, or backups from the disposable lab.
         """
-        cid = self.source_pg_id
+        if post_revoke_dsns is None:
+            cid=self.source_pg_id
+            source_dsn_map=self.source_dsns
+            source_port=self.source_pg_port
+            source_label=self.source_pg_label
+            source_network=self.source_network
+            source_volume=self.source_volume
+            source_image=self.source_pg_image
+        else:
+            cid=self.restored_pg_id
+            source_dsn_map=post_revoke_dsns
+            source_port=self.restore_pg_port
+            source_label=self.restored_pg_label
+            source_network=self.restored_pg_network
+            source_volume=self.restored_pg_volume
+            source_image=self.restored_pg_image
+            assert cid!=self.source_pg_id and source_volume!=self.source_volume
+            assert self.compose_idp_network==source_network
         if (os.getenv("CI") != "true" or os.getenv("GITHUB_ACTIONS") != "true"
                 or not re.fullmatch(r"[a-f0-9]{64}", cid)
                 or cid.startswith(os.environ["API_F3_ISOLATED_PG_CID"])):
             raise RuntimeError("OWNED_SOURCE_CLONE_DENIED")
         source_dsns = {}
-        dbname = conninfo_to_dict(self.source_dsns["DB_APP_DSN"])["dbname"]
+        dbname = conninfo_to_dict(source_dsn_map["DB_APP_DSN"])["dbname"]
         assert re.fullmatch(r"history_browser_restore_ci_[a-f0-9]{16}",dbname)
-        for key,value in self.source_dsns.items():
+        for key,value in source_dsn_map.items():
             options = conninfo_to_dict(value)
             assert options["dbname"] == dbname
             assert options["host"] == "127.0.0.1"
-            assert int(options["port"]) == self.source_pg_port
+            assert int(options["port"]) == source_port
             assert options.get("sslmode") == "verify-full"
             assert options.get("user") and options.get("password")
             # The new CA is configured on the new independent volume.
@@ -465,13 +627,13 @@ class BothSidesComposeBrowserDemo(ComposeRestoredBrowserDemo):
             return result.stdout
         source = json.loads(docker("inspect", cid))[0]
         assert source["Id"] == cid and source["State"]["Running"]
-        assert source["Config"]["Labels"]["rag.finance.ci.restore"] == self.source_pg_label
-        assert set(source["NetworkSettings"]["Networks"]) == {self.source_network}
+        assert source["Config"]["Labels"]["rag.finance.ci.restore"] == source_label
+        assert set(source["NetworkSettings"]["Networks"]) == {source_network}
         assert source["NetworkSettings"]["Ports"]["5432/tcp"] == [
-            {"HostIp":"127.0.0.1","HostPort":str(self.source_pg_port)}]
-        assert any(m.get("Name")==self.source_volume for m in source["Mounts"])
+            {"HostIp":"127.0.0.1","HostPort":str(source_port)}]
+        assert any(m.get("Name")==source_volume for m in source["Mounts"])
         image = source["Image"]
-        assert image == self.source_pg_image
+        assert image == source_image
         assert re.fullmatch(r"sha256:[a-f0-9]{64}", image)
         # No password hashes in the global backup. Restore the exact CI
         # role names and attributes; provision synthetic passwords only
@@ -547,10 +709,19 @@ class BothSidesComposeBrowserDemo(ComposeRestoredBrowserDemo):
             del roles, dump
             clone_dsns = {key: make_conninfo(**{**value, "port": port, "dbname": dbname})
                           for key, value in source_dsns.items()}
-            self.restored_pg_id=new_id
-            self.restored_pg_volume=volume
             assert new_id != self.source_pg_id and volume != self.source_volume
-            print("F3_FULL_COMPOSE_SECOND_INDEPENDENT_VOLUME_RESTORE_PASS",flush=True)
+            if post_revoke_dsns is None:
+                self.restored_pg_id=new_id
+                self.restored_pg_volume=volume
+                self.restored_pg_label=suffix
+                self.restored_pg_network=network
+                self.restored_pg_image=image
+                print("F3_FULL_COMPOSE_SECOND_INDEPENDENT_VOLUME_RESTORE_PASS",flush=True)
+            else:
+                assert new_id!=self.restored_pg_id and volume!=self.restored_pg_volume
+                self.post_revoke_pg_id=new_id
+                self.post_revoke_pg_volume=volume
+                print("DB_COMMON_THIRD_INDEPENDENT_POST_REVOKE_VOLUME_RESTORE_PASS",flush=True)
             yield clone_dsns, new_id, network
         finally:
             # Exact resources generated in this invocation; no prune or
@@ -569,6 +740,7 @@ async def main():
     demo=BothSidesComposeBrowserDemo()
     try:
         with demo.source_environment():
+            trust_ephemeral_browser_ca(demo)
             async with async_playwright() as p:
                 browser=await p.chromium.launch()
                 try:
@@ -577,6 +749,8 @@ async def main():
                     await browser.close()
         receipt=demo.compose_witness
         receipt["scope"]="SOURCE_AND_RESTORED_SHARED_COMPOSE_CI_FIXTURE_BOOTSTRAP"
+        receipt["post_revoke_third_volume"]=demo.post_revoke_witness
+        receipt["strict_browser_tls"]=True
         receipt["source_phase_web_bootstrap_containerized"]=True
         receipt["source_witness"]=demo.source_witness
         receipt["two_independent_pg_volumes"]=demo.source_volume!=demo.restored_pg_volume

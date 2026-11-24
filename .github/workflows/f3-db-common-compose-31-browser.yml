@@ -2,14 +2,14 @@ name: F3 DB common exact-tree both-side Compose 31 messages and restricted SQL
 
 on:
   pull_request:
-    branches: [agent/db-f3-common-oci-rehydrate-real-read-lock-20261124]
+    branches: [agent/db-f3-common-db55-interrupted-migration-20261124]
   workflow_dispatch:
 permissions:
   contents: read
 
 jobs:
   api-session-011:
-    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/db-f3-common-db55-interrupted-migration-20261124' && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/db-f3-post-revoke-strict-compose-20261124' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     services:
@@ -204,6 +204,8 @@ jobs:
           SQL
           f3_prove_failed_migration_intent
           PGPASSWORD="$F3_LEDGER_ADMIN_PASSWORD" python tests/phase3/integration/api/db_actual_migration_interrupt_ci.py
+          PGPASSWORD="$F3_LEDGER_ADMIN_PASSWORD" python tests/phase3/integration/api/db_post_commit_ledger_interrupt_ci.py
+          test "$(cat "$RUNNER_TEMP/f3-postcommit-migration-interrupt-verified.txt")" = PASS
           f3_ledger_apply 002 infra/postgres/migrations/002_one_attempt.up.sql
           psql -d history_legacy_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
           # Separate synthetic chain seed: 001 first; acceptance test applies 002.
@@ -380,6 +382,9 @@ jobs:
           API_RUNNER_EXECUTION_MODE: APP_ONLY
         run: |
           set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libnss3-tools ca-certificates
+          command -v certutil
           python -m playwright install --with-deps chromium
           python -u tests/phase3/integration/foundation/db_common_compose_restored_browser.py
       - name: Write minimal exact-source journey receipt (post-restore Compose subset only)
@@ -407,14 +412,26 @@ jobs:
           assert r["source_witness"]["web_image_id"] == r["web_image_id"]
           assert r["source_witness"]["api_image_id"] == r["api_image_id"]
           assert r["full_compose_verified"] is False and r["accepted"] is False
+          third=r["post_revoke_third_volume"]
+          assert third["three_distinct_volumes"] and third["three_distinct_pg_containers"] and third["committed_revoke_a_denied_b_replayed"]
+          assert third["source_sha"]==sha and third["api_image_id"]==r["api_image_id"] and third["web_image_id"]==r["web_image_id"]
+          assert third["approved_operational_rpo_rto"] is False and third["accepted"] is False
+          assert r["strict_browser_tls"] is True
+          print("DB_COMMON_STRICT_TLS_POST_REVOKE_THIRD_COMPOSE_RECEIPT=PASS")
           db=json.loads(Path("ci_receipts/db_oci_browser_restricted_parity.json").read_text())
           assert db["source_sha"]==sha and db["api_image_id"]==data["Id"]
-          assert db["checkpoints"]==6 and db["exact_row_parity"] is True and db["accepted"] is False
+          assert db["checkpoints"]==8 and db["exact_row_parity"] is True and db["accepted"] is False
+          assert db["post_revoke_independent_compose_restore"] is True and db["strict_browser_tls"] is True
           assert db["real_31_message_page2_before_after"] is True and db["signed_mobile_320_focus"] is True
           assert db["actual_oci_read_revoke_blocking_pid_chain"] is True
           assert db["migration_ledger_rows"]==10 and db["force_rls_tables"]==14 and db["data_bearing_up"]==9
+          postcommit=json.loads(Path("ci_receipts/db_postcommit_migration.json").read_text())
+          assert postcommit["source_sha"]==sha and postcommit["run_id"]==os.environ["GITHUB_RUN_ID"]
+          assert postcommit["accepted"] is False and postcommit["target_verified"] is False
+          for k in ("actual_committed_index_observed","actual_applied_updater_terminated","started_retained","auto_retry_refused","history_rows_exact","ambiguous_clone_discarded","fresh_clone_distinct_database_oid","fresh_clone_002_applied","source_unchanged"):
+              assert postcommit[k] is True,k
           assert db["actual_failed_002_no_autoretry"] is True
-          assert db["actual_interrupted_002_no_autoretry"] is True and db["db55_pinned_readonly_auditor_checkpoints"]==6
+          assert db["actual_interrupted_002_no_autoretry"] is True and db["db55_pinned_readonly_auditor_checkpoints"]==8
           assert db["source_tls"]==db["restored_tls"]=="VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN"
           web=json.loads(subprocess.check_output(["docker","image","inspect","f3-compose-browser-web:"+sha]))[0]
           assert web["Id"]==r["web_image_id"] and web["Config"]["Labels"]["org.opencontainers.image.revision"]==sha
@@ -434,6 +451,7 @@ jobs:
             ci_receipts/f3_post_restore_shared_compose.json
             ci_receipts/db_oci_browser_restricted_parity.json
             ci_receipts/db_common_image_archive.json
+            ci_receipts/db_postcommit_migration.json
           if-no-files-found: error
       - name: Show bounded SQL permissions and container status
         if: always()

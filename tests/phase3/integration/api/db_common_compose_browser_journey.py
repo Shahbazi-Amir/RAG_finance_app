@@ -28,7 +28,8 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
-from playwright.async_api import async_playwright, expect
+from playwright.async_api import async_playwright, expect, Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path[:0] = [str(ROOT), str(ROOT / "tests/phase3/integration/ui")]
@@ -141,7 +142,7 @@ class AppOnlyBrowserDemo(Demo):
         Real OIDC owner IDs come only from successful browser logins.
         Both the actual source and restored role connections require TLS.
         """
-        assert phase in ("SOURCE","SOURCE_AFTER_SEND","RESTORED","AFTER_OUTAGE","AFTER_BROWSER","AFTER_REVOKE")
+        assert phase in ("SOURCE","SOURCE_AFTER_SEND","RESTORED","AFTER_OUTAGE","AFTER_BROWSER","AFTER_REVOKE","POST_REVOKE_RESTORE","POST_REVOKE_BROWSER")
         cfg=dsns if dsns is not None else os.environ
         tables=("conversations","messages","create_receipts","send_receipts","execution_attempts","answers")
         result={}
@@ -819,7 +820,7 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
                 return {status:r.status,cache:r.headers.get('cache-control')};
             }""", invalid)
             assert rejected == {"status":422, "cache":"no-store"}
-        anonymous = await browser.new_context(ignore_https_errors=True)
+        anonymous = await browser.new_context(ignore_https_errors=False)
         try:
             response = await anonymous.request.get(ORIGIN + same_uri, headers={
                 "X-Owner-Id":raw_a["owner_id"], "If-None-Match":"*"})
@@ -917,6 +918,102 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
             # The lock transaction has already exited on every exception.
             if tasks:
                 await asyncio.gather(*tasks,return_exceptions=True)
+
+    async def browser_login(self,browser,label,mobile,output):
+        ctx=await browser.new_context(
+            viewport={"width":390,"height":844} if mobile else {"width":1280,"height":800},
+            is_mobile=mobile,device_scale_factor=1,ignore_https_errors=False)
+        page=await ctx.new_page()
+        # Only the initial idempotent GET, BEFORE any credential submit,
+        # START POST, callback or cookie. Chromium can observe Docker's
+        # freshly attached private network as ERR_NETWORK_CHANGED.
+        for attempt in range(3):
+            try:
+                response=await page.goto(ORIGIN+"/login")
+                assert response is not None and response.status==200
+                break
+            except PlaywrightError as exc:
+                if "net::ERR_NETWORK_CHANGED" not in str(exc) or attempt==2:
+                    raise
+                assert not any(c["name"]=="__Host-rag-session" for c in await ctx.cookies(ORIGIN))
+                print("DB_COMMON_INITIAL_GET_NETWORK_CHANGED_RETRY",flush=True)
+                await asyncio.sleep(.5)
+        await expect(page.get_by_test_id("login-submit")).to_be_visible()
+        observed_posts=[]
+        failures=[]
+        csp_count=[]
+        def capture(response):
+            if response.request.method=="POST" and response.url.endswith("/api/auth/login"):
+                observed_posts.append(response.status)
+        def capture_failure(request):
+            if request.method=="POST" and request.url.endswith("/api/auth/login"):
+                failures.append("START_REQUEST_FAILED")
+        def capture_console(message):
+            if message.type=="error" and ("Content Security Policy" in message.text
+                    or "form-action" in message.text):
+                csp_count.append("CSP")
+        page.on("response",capture)
+        page.on("requestfailed",capture_failure)
+        page.on("console",capture_console)
+        await page.get_by_test_id("login-submit").click(no_wait_after=True)
+        visible=False
+        try:
+            await page.locator('input[name="username"]').wait_for(
+                state="visible",timeout=11000)
+            visible=True
+        except PlaywrightTimeoutError:
+            pass
+        location=urlsplit(page.url)
+        location_class=("KEYCLOAK" if location.port==self.kc.port and
+                        location.hostname=="127.0.0.1"
+                        else "NEXT" if location.port==3443 else "OTHER")
+        print("DEMO_LOGIN_DIAGNOSTIC",json.dumps({
+            "post_statuses":observed_posts,
+            "post_failed":len(failures),
+            "csp_errors":len(csp_count),
+            "site":location_class,
+            "path_kind":"OIDC_AUTH" if location.path.endswith(
+                "/protocol/openid-connect/auth") else
+                "LOGIN_ACTION" if "/login-actions/" in location.path
+                else "OTHER",
+            "idp_form_present":visible,
+        }),flush=True)
+        assert visible,"DEMO_REAL_KEYCLOAK_FORM_NOT_REACHED"
+        await page.locator('input[name="username"]').fill(self.kc.accounts[label]["email"])
+        await page.locator('input[name="password"]').fill(self.kc.accounts[label]["password"])
+        async with page.expect_response(
+            lambda r: "/api/history/conversations?limit=2" in r.url
+            and r.request.method=="GET",timeout=30000) as response_wait:
+            await page.locator("#kc-login").click()
+        response=await response_wait.value
+        assert response.status==200, ("LOGIN_HISTORY",label,response.status)
+        page_body=await response.json()
+        assert page_body["kind"]=="conversation_page"
+        assert page_body["scope_user_id"]==self.owners[label]
+        titles=[item["title"] for item in page_body["items"]]
+        assert set(titles)==set(TITLE[label]),("WRONG_HISTORY",label)
+        foreign=TITLE["B" if label=="A" else "A"]
+        assert not set(titles).intersection(foreign)
+        await expect(page.locator('nav.history-list')).to_contain_text(TITLE[label][0])
+        for title in foreign:
+            assert title not in await page.locator('nav.history-list').inner_text()
+        if mobile:
+            await page.locator(".mobile-menu-trigger").click()
+            await expect(page.get_by_test_id("refresh-history")).to_be_visible()
+        cookies=[c for c in await ctx.cookies(ORIGIN)
+                 if c["name"]=="__Host-rag-session"]
+        assert len(cookies)==1 and cookies[0]["secure"] and cookies[0]["httpOnly"]
+        assert cookies[0]["sameSite"]=="Lax"
+        handle=cookies[0]["value"]
+        raw=self.raw_from_alias(handle)
+        assert raw["owner_id"]==self.owners[label]
+        assert raw["session_ref"]!=handle
+        assert self.signed_private(raw).status_code==200
+        output.mkdir(parents=True,exist_ok=True)
+        await page.screenshot(path=str(output/(
+            ("mobile" if mobile else "desktop")+"-"+label+"-history.png")),
+            full_page=True)
+        return ctx,page,handle,raw
 
     async def journey(self, browser, output):
         contexts = []
@@ -1137,9 +1234,10 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
                         assert auth_session.inspect(original, raw_a["session_ref"]) is not None
                         assert auth_session.inspect(original, raw_b["session_ref"]) is not None
                     print("API_F3_BROWSER_RESTORE_SOURCE_SESSIONS_UNCHANGED_PASS", flush=True)
+                    await self.prove_post_revoke_compose_restore(a,b,raw_a,raw_b,aid,bid,bmid,bmessage,expected,sql_before,before,restored,restored_id)
                     receipt=ROOT/"ci_receipts/db_oci_browser_restricted_parity.json"
                     receipt.parent.mkdir(exist_ok=True)
-                    receipt.write_text(json.dumps({"source_sha":os.environ["F3_EXACT_SHA"],"api_image_id":self.api_image_id,"checkpoints":6,"history_tables":6,"real_31_message_page2_before_after":True,"signed_mobile_320_focus":True,"actual_oci_read_revoke_blocking_pid_chain":True,"real_oidc_owners":2,"exact_row_parity":True,"migration_ledger_rows":10,"data_bearing_up":9,"actual_failed_002_no_autoretry":True,"actual_interrupted_002_no_autoretry":(Path(os.environ["RUNNER_TEMP"])/"f3-actual-migration-interrupted-verified.txt").read_text().strip()=="PASS","db55_pinned_readonly_auditor_checkpoints":6,"force_rls_tables":14,"source_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","restored_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","migration_install_origin":"ACTIONS_PG_BEFORE_FIRST_CLONE","two_journey_clusters_distinct_from_installer":True,"engine_calls":0,"sql_011":False,"target_verified":False,"accepted":False},indent=2)+"\n")
+                    receipt.write_text(json.dumps({"source_sha":os.environ["F3_EXACT_SHA"],"api_image_id":self.api_image_id,"checkpoints":8,"history_tables":6,"post_revoke_independent_compose_restore":True,"strict_browser_tls":True,"real_31_message_page2_before_after":True,"signed_mobile_320_focus":True,"actual_oci_read_revoke_blocking_pid_chain":True,"real_oidc_owners":2,"exact_row_parity":True,"migration_ledger_rows":10,"data_bearing_up":9,"actual_failed_002_no_autoretry":True,"actual_interrupted_002_no_autoretry":(Path(os.environ["RUNNER_TEMP"])/"f3-actual-migration-interrupted-verified.txt").read_text().strip()=="PASS","db55_pinned_readonly_auditor_checkpoints":8,"force_rls_tables":14,"source_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","restored_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","migration_install_origin":"ACTIONS_PG_BEFORE_FIRST_CLONE","two_journey_clusters_distinct_from_installer":True,"engine_calls":0,"sql_011":False,"target_verified":False,"accepted":False},indent=2)+"\n")
                 finally:
                     self.stop_container_api()
                     for child in (self.api_process, self.bootstrap_process):

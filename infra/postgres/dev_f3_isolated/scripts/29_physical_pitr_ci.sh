@@ -87,7 +87,8 @@ echo DB_PITR_SOURCE_FUTURE_COMMIT_AND_WAL_ARCHIVED=PASS
 # by copy/recovery containers; no public port, no network, no service admission.
 name="f3-pitr-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
 vol="$name-data"
-if docker volume inspect "$vol" >/dev/null 2>&1 || docker container inspect "$name" >/dev/null 2>&1; then
+backupvol="$name-backup"
+if docker volume inspect "$vol" >/dev/null 2>&1 || docker volume inspect "$backupvol" >/dev/null 2>&1 || docker container inspect "$name" >/dev/null 2>&1; then
   echo STOP_EXISTING_PITR_RESOURCE >&2; exit 70
 fi
 docker volume create --label "rag.finance.ci.pitr=$name" "$vol" >/dev/null
@@ -96,14 +97,34 @@ cleanup(){
     [[ "$(docker inspect -f '{{index .Config.Labels "rag.finance.ci.pitr"}}' "$name")" == "$name" ]] && docker rm -f "$name" >/dev/null
   fi
   [[ "$(docker volume inspect -f '{{index .Labels "rag.finance.ci.pitr"}}' "$vol")" == "$name" ]] && docker volume rm "$vol" >/dev/null
+  if docker volume inspect "$backupvol" >/dev/null 2>&1; then
+    [[ "$(docker volume inspect -f '{{index .Labels "rag.finance.ci.pitr"}}' "$backupvol")" == "$name" ]] && docker volume rm "$backupvol" >/dev/null
+  fi
 }
 trap cleanup EXIT
+docker volume create --label "rag.finance.ci.pitr=$name" "$backupvol" >/dev/null
+source_timeline="$(dbpsql -Atq -c 'SELECT timeline_id FROM pg_control_checkpoint()')"
+# Copy verified base and WAL to a separately owned backup volume. Stop
+# only the exact CI source; recovery cannot mount the original data volume.
 docker run --rm --network none --pull never --entrypoint bash \
  --mount "type=volume,source=$LAB_VOLUME,target=/source,readonly" \
+ --mount "type=volume,source=$backupvol,target=/backup" "$image" -euc '
+  test ! -e /backup/base && test ! -e /backup/wal
+  cp -a /source/f3-pitr-base /backup/base
+  cp -a /source/f3-pitr-wal /backup/wal
+  chown postgres:postgres /backup
+  chmod 0700 /backup
+  su postgres -s /bin/bash -c "pg_verifybackup /backup/base"
+'
+docker stop --time 5 "$cid" >/dev/null
+[[ "$(docker inspect -f '{{.State.Running}}' "$cid")" == false ]] || exit 70
+echo DB_PITR_DETACHED_BASE_WAL_VERIFIED_SOURCE_STOPPED=PASS
+docker run --rm --network none --pull never --entrypoint bash \
+ --mount "type=volume,source=$backupvol,target=/backup,readonly" \
  --mount "type=volume,source=$vol,target=/clone" "$image" -euc '
   test ! -e /clone/pgdata
   install -d -m 0700 -o postgres -g postgres /clone/pgdata
-  cp -a /source/f3-pitr-base/. /clone/pgdata/
+  cp -a /backup/base/. /clone/pgdata/
   printf "local all postgres trust\nlocal all all reject\n" > /clone/pgdata/f3-pitr-hba.conf
   touch /clone/pgdata/recovery.signal
   chown postgres:postgres /clone/pgdata/f3-pitr-hba.conf /clone/pgdata/recovery.signal
@@ -112,16 +133,18 @@ docker run --rm --network none --pull never --entrypoint bash \
 start_ms="$(date +%s%3N)"
 docker run -d --name "$name" --label "rag.finance.ci.pitr=$name" --network none \
  --pull never --user postgres --entrypoint postgres \
- --mount "type=volume,source=$LAB_VOLUME,target=/source,readonly" \
+ --mount "type=volume,source=$backupvol,target=/backup,readonly" \
  --mount "type=volume,source=$vol,target=/var/lib/postgresql/data" \
  "$image" -D /var/lib/postgresql/data/pgdata \
  -c "listen_addresses=" -c ssl=off -c archive_mode=off \
  -c hba_file=/var/lib/postgresql/data/pgdata/f3-pitr-hba.conf \
- -c 'restore_command=cp /source/f3-pitr-wal/%f %p' \
+ -c 'restore_command=cp /backup/wal/%f %p' \
  -c "recovery_target_time=$target" -c recovery_target_action=promote >/dev/null
 [[ "$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$name")" == none ]] || exit 70
 [[ "$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' "$name")" == "$vol" ]] || exit 70
-[[ "$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/source"}}{{.RW}}{{end}}{{end}}' "$name")" == false ]] || exit 70
+[[ "$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/backup"}}{{.RW}}{{end}}{{end}}' "$name")" == false ]] || exit 70
+[[ "$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/backup"}}{{.Name}}{{end}}{{end}}' "$name")" == "$backupvol" ]] || exit 70
+if docker inspect -f '{{range .Mounts}}{{println .Name}}{{end}}' "$name" | grep -Fxq "$LAB_VOLUME"; then exit 70; fi
 rec(){ docker exec -i "$name" psql -X -Atq -v ON_ERROR_STOP=1 -U postgres -d rag_finance_f3_lab "$@"; }
 for n in $(seq 1 90); do
  if [[ "$(rec -c 'SELECT pg_is_in_recovery()' 2>/dev/null || true)" == f ]]; then break; fi
@@ -133,7 +156,7 @@ elapsed_ms="$(($(date +%s%3N)-start_ms))"
 # restore. Independent volume and promoted timeline are the proof.
 [[ "$(rec -c 'SELECT system_identifier FROM pg_control_system()')" == "$source_id" ]] || exit 70
 rec -c CHECKPOINT >/dev/null
-[[ "$(rec -c 'SELECT timeline_id FROM pg_control_checkpoint()')" -gt "$(dbpsql -Atq -c 'SELECT timeline_id FROM pg_control_checkpoint()')" ]] || exit 70
+[[ "$(rec -c 'SELECT timeline_id FROM pg_control_checkpoint()')" -gt "$source_timeline" ]] || exit 70
 [[ "$(rec -c "SELECT count(*) FROM history_l1.conversations WHERE id='pitr-a-before-target'")" == 1 ]] || exit 70
 [[ "$(rec -c "SELECT count(*) FROM history_l1.conversations WHERE id='pitr-b-after-target'")" == 0 ]] || exit 70
 [[ "$(rec -c "SELECT status FROM auth_l1.sessions WHERE digest_sha256='$a_digest'")" == revoked ]] || exit 70
@@ -167,6 +190,8 @@ p.write_text(json.dumps({
  "recovery_target_kind":"timestamp","wal_after_basebackup_replayed":True,
  "later_commit_excluded":True,"same_physical_system_identifier":True,
  "new_volume_promoted_timeline":True,"ledger_exact":True,"history_exact":True,
+ "detached_backup_volume_verified":True,"source_stopped_before_recovery":True,
+ "source_volume_not_mounted_on_target":True,
  "restricted_set_role_rls":True,"target_tls_login":"NOT_RUN_NETWORK_NONE",
  "a_revoked_at_target":True,"b_post_target_revocation_absent":True,
  "stale_session_admission":False,"network":"NONE",
