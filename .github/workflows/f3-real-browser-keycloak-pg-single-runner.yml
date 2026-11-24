@@ -4,7 +4,7 @@ on:
   push:
     branches: [integration/f3-foundation-history-two-users-20261124]
   pull_request:
-    branches: [integration/f3-foundation-history-two-users-20261124]
+    branches: [agent/db-f3-oidc-role-restore-rollback-20261124]
     paths:
       - 'tests/phase3/integration/foundation/browser_history_restore.py'
       - '.github/workflows/f3-real-browser-keycloak-pg-single-runner.yml'
@@ -22,7 +22,7 @@ jobs:
     if: >-
       github.event_name == 'push'
       || (github.event_name == 'pull_request'
-          && github.event.pull_request.head.ref == 'agent/db-f3-oidc-role-restore-rollback-20261124'
+          && github.event.pull_request.head.ref == 'agent/db-f3-real-oidc-pg-tls-20261124'
           && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 55
@@ -318,6 +318,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends libnss3-tools ca-certificates
           command -v certutil
       - name: Actual Keycloak two subjects browser login to signed BFF and PG history
+        env:
+          F3_CI_PG_CONTAINER_ID: ${{ job.services.postgres.id }}
         shell: bash
         run: |
           set -euo pipefail
@@ -332,6 +334,8 @@ jobs:
           r=json.loads(Path("ci_receipts/f3_history_real_browser_restored_lab.json").read_text())
           assert r["sha"]==subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
           assert r["strict_https_browser_ca_loopback_ip_san"] is True
+          assert r["db_transport"]=="PG17_VERIFY_FULL_CA_SAN_SOURCE_RESTORE_ROLLBACK"
+          assert r["db_tls_plaintext_wrong_san_negative"] is True
           assert r["db_restricted_history_role"]=="history_app"
           assert r["db_restricted_sql_read_only"] is True
           assert r["db_restricted_six_tables_exact_parity"] is True

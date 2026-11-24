@@ -32,7 +32,7 @@ sys.path[:0]=[
  str(ROOT),
 ]
 from phase3_auth_demo import Demo,ORIGIN
-from test_history_restore_signed import command,pg17,connect
+from test_history_restore_signed import command,pg17,connect,ssl_server
 from apps.api import history_api
 
 
@@ -93,6 +93,78 @@ def trust_ephemeral_browser_ca(demo):
     print("F3_LAB_OS_CA_CHROMIUM_NSS_TRUST_AND_LOOPBACK_IP_SAN_PASS",flush=True)
 
 
+def enable_lab_pg_tls(container, key, crt):
+    """CI-only PG container, no host/demo mutation. Local socket setup only."""
+    verify_isolation()
+    assert command(["docker","inspect","--format","{{.Config.Image}}",container]).strip()=="postgres:17.11"
+    for _ in range(70):
+        try:
+            command(["docker","exec",container,"pg_isready","-h","127.0.0.1","-p","5432"])
+            break
+        except AssertionError:time.sleep(.5)
+    else:raise AssertionError("PG_TLS_CONTAINER_NOT_READY")
+    for src,target in ((key,"server.key"),(crt,"server.crt")):
+        dest="/var/lib/postgresql/data/"+target
+        command(["docker","cp",str(src),container+":"+dest])
+        command(["docker","exec","-u","0",container,"chown","postgres:postgres",dest])
+        command(["docker","exec","-u","0",container,"chmod","0600",dest])
+    for setting in ("ssl='on'","ssl_cert_file='server.crt'","ssl_key_file='server.key'"):
+        command(["docker","exec","-u","postgres",container,"psql","-X","-U","postgres",
+                 "-d","postgres","-v","ON_ERROR_STOP=1","-c","ALTER SYSTEM SET "+setting])
+    # Prefix mandatory TLS rules ahead of image defaults; local socket remains
+    # available only within the disposable service for administration.
+    script="set -eu; cd /var/lib/postgresql/data; test -f pg_hba.conf; " \
+           "printf 'hostnossl all all all reject\\nhostssl all all all scram-sha-256\\n' > pg_hba.f3; " \
+           "cat pg_hba.conf >> pg_hba.f3; chown postgres:postgres pg_hba.f3; chmod 0600 pg_hba.f3; " \
+           "mv pg_hba.f3 pg_hba.conf"
+    command(["docker","exec","-u","0",container,"sh","-c",script])
+    command(["docker","restart",container])
+
+
+def verify_pg_tls(port, phase):
+    cfg=psycopg.conninfo.conninfo_to_dict(os.environ["DB_APP_DSN"])
+    cfg["port"]=str(port)
+    cfg["dbname"]="postgres"
+    for _ in range(80):
+        try:
+            with connect(port,db="postgres") as c:
+                assert c.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()[0]
+                break
+        except psycopg.Error:time.sleep(.5)
+    else:raise AssertionError("PG_TLS_VERIFY_FULL_NOT_READY")
+    cfg.update(user="postgres",password=os.environ["PGPASSWORD"])
+    for bad in ({"sslmode":"disable"},{"host":"localhost","hostaddr":"127.0.0.1"}):
+        candidate=dict(cfg,**bad)
+        try:
+            with psycopg.connect(**candidate):pass
+        except psycopg.OperationalError:pass
+        else:raise AssertionError("PG_TLS_NEGATIVE_NOT_REJECTED")
+    print("F3_DB_PG_TLS_"+phase+"_VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN_PASS",flush=True)
+
+
+def configure_source_pg_tls():
+    verify_isolation()
+    cid=os.environ["F3_CI_PG_CONTAINER_ID"]
+    assert re.fullmatch(r"[a-f0-9]{64}",cid)
+    assert command(["docker","inspect","--format","{{.Config.Image}}",cid]).strip()=="postgres:17.11"
+    ports=json.loads(command(["docker","inspect","--format","{{json .NetworkSettings.Ports}}",cid]))
+    assert any(x["HostPort"]=="5432" for x in ports.get("5432/tcp",[]))
+    root=Path(os.environ["RUNNER_TEMP"])/"f3-browser-pg-tls"
+    root.mkdir(mode=0o700)
+    ca,key,crt=ssl_server(root)
+    enable_lab_pg_tls(cid,key,crt)
+    os.environ["PGSSLMODE"]="verify-full"
+    os.environ["PGSSLROOTCERT"]=str(ca)
+    for name,value in list(os.environ.items()):
+        if name.endswith("_DSN") and "dbname=history_" in value:
+            cfg=psycopg.conninfo.conninfo_to_dict(value)
+            assert cfg.get("host")=="127.0.0.1" and cfg.get("port")=="5432"
+            cfg.update(sslmode="verify-full",sslrootcert=str(ca))
+            os.environ[name]=psycopg.conninfo.make_conninfo(**cfg)
+    verify_pg_tls(5432,"SOURCE")
+    return key,crt
+
+
 def inventory(demo):
     with connect() as c:
         records=c.execute(
@@ -128,12 +200,14 @@ def restricted_history_snapshot(demo, phase, baseline=None):
     verify_isolation()
     dsn=os.environ["DB_APP_DSN"]
     cfg=psycopg.conninfo.conninfo_to_dict(dsn)
+    assert cfg.get("sslmode")=="verify-full" and cfg.get("sslrootcert")==os.environ["PGSSLROOTCERT"]
     assert (cfg.get("host"),cfg.get("port"),cfg.get("dbname"),cfg.get("user")) == (
         "127.0.0.1","5432","history_ci","history_app"),"UNSAFE_HISTORY_ROLE_DSN"
     owners=(demo.owners["A"],demo.owners["B"])
     assert all(owners) and owners[0]!=owners[1],"OIDC_OWNER_COLLISION"
     result={}
     with psycopg.connect(dsn,autocommit=True) as c:
+        assert c.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()[0],"PG_SERVICE_TLS_NOT_ACTIVE"
         flags=c.execute("SELECT current_user,rolsuper,rolbypassrls,rolinherit,"
                         "rolcreaterole,rolcreatedb FROM pg_roles "
                         "WHERE rolname=current_user").fetchone()
@@ -339,7 +413,7 @@ async def send_denied(page):
         assert (await r.json())["error"]=="ENGINE_NOT_AVAILABLE"
 
 
-def restore_separate_volume(demo,original_records,source_system_id):
+def restore_separate_volume(demo,original_records,source_system_id,pg_tls):
     work=Path(os.environ["RUNNER_TEMP"])
     backup=work/"f3-browser-full-history.dump"
     roles=work/"f3-browser-roles.sql"
@@ -360,11 +434,8 @@ def restore_separate_volume(demo,original_records,source_system_id):
         "-p","127.0.0.1:5433:5432",
         "-e","POSTGRES_PASSWORD="+os.environ["PGPASSWORD"],
         "-v",volume+":/var/lib/postgresql/data","postgres:17.11"])
-    for _ in range(70):
-        try:
-            with connect(5433,db="postgres"):break
-        except psycopg.Error:time.sleep(.6)
-    else:raise AssertionError("FRESH_RESTORE_PG17_NOT_READY")
+    enable_lab_pg_tls(name,*pg_tls)
+    verify_pg_tls(5433,"FRESH_RESTORE")
     command(["psql","-h","127.0.0.1","-p","5433","-U","postgres",
              "-d","postgres","-v","ON_ERROR_STOP=1","-f",str(roles)])
     with connect(5433,db="postgres") as c:
@@ -401,6 +472,7 @@ def restore_separate_volume(demo,original_records,source_system_id):
                for bind in (ports.get("5432/tcp") or [])):
             service.append(cid)
     assert len(service)==1,("PG_SOURCE_HOST_PORT_COLLISION",len(service))
+    assert service[0]==os.environ["F3_CI_PG_CONTAINER_ID"] or os.environ["F3_CI_PG_CONTAINER_ID"].startswith(service[0]),"PG_SOURCE_ID_MISMATCH"
     original_image=command(["docker","inspect","--format","{{.Config.Image}}",service[0]]).strip()
     assert original_image=="postgres:17.11",("NOT_GITHUB_PG17_SERVICE",original_image)
     command(["docker","stop",service[0]])
@@ -418,6 +490,7 @@ def restore_separate_volume(demo,original_records,source_system_id):
             if restored_id==new_id:break
         except psycopg.Error:time.sleep(.5)
     else:raise AssertionError("RESTORED_VOLUME_NOT_CONNECTED_TO_ORIGINAL_PORT")
+    verify_pg_tls(5432,"RESTORED")
     # Preserve the original GitHub-Actions service container for a genuine
     # reversible rollback; never stop or restart any host/demo container.
     return (new_name,volume,new_id,service[0])
@@ -441,6 +514,7 @@ def rollback_to_original_lab_database(restored, source_system_id):
             with connect() as c:
                 live=c.execute("SELECT system_identifier FROM pg_control_system()").fetchone()[0]
                 if live==source_system_id:
+                    verify_pg_tls(5432,"ROLLBACK")
                     return round(time.monotonic()-start,3)
         except psycopg.Error:
             pass
@@ -456,6 +530,7 @@ async def execute():
     browser=None
     ctx_a=ctx_b=None
     try:
+        pg_tls=configure_source_pg_tls()
         demo.start()
         trust_ephemeral_browser_ca(demo)
         output=Path(os.environ["RUNNER_TEMP"])/"f3-browser-source-restored"
@@ -489,7 +564,7 @@ async def execute():
             print("F3_REAL_BROWSER_KEYCLOAK_NEXT_PG17_AB_PAGING_DETAIL_SEND503_PRE_RESTORE_PASS",
                   flush=True)
 
-            restored=restore_separate_volume(demo,source,source_cluster)
+            restored=restore_separate_volume(demo,source,source_cluster,pg_tls)
             restricted_history_snapshot(demo,"RESTORED_BEFORE_BROWSER",restricted_before)
             # Continue same real two browser contexts, same session cookie,
             # same Keycloak process and Next/BFF/API, now independent PG volume.
@@ -577,7 +652,8 @@ async def execute():
                 "db_restricted_owner_counts":{
                     label:{table:entry[0] for table,entry in tables.items()}
                     for label,tables in restricted_before.items()},
-                "db_transport":"CI_LOOPBACK_PG_NOT_TLS_ATTESTATION",
+                "db_transport":"PG17_VERIFY_FULL_CA_SAN_SOURCE_RESTORE_ROLLBACK",
+                "db_tls_plaintext_wrong_san_negative":True,
                 "db_guc_is_not_identity_proof":True,
                 "approved_rto_threshold":None,
                 "signed_history_a_after_restore":200,
