@@ -26,6 +26,14 @@ const request=async (operation,who,query,operationId='')=>{
   try{doc=JSON.parse(result.body);}catch{throw Error('non-JSON BFF response status '+result.status);}
   return {status:result.status,doc};
 };
+const phase=process.argv[2];
+assert.ok(['before','after','revoked'].includes(phase),'explicit phase required');
+if(phase==='revoked'){
+  assert.equal((await request('history','a','?limit=2')).status,401);
+  assert.equal((await request('history','b','?limit=2')).status,200);
+  console.log('REAL_BFF_RESTORED_REVOKED_A_401_B_200=PASS');
+  process.exit(0);
+}
 for(const [who,total,messages] of [['a',5,4],['b',3,2]]){
   let cursor=null;
   const ids=[];
@@ -43,6 +51,9 @@ for(const [who,total,messages] of [['a',5,4],['b',3,2]]){
     cursor=doc.page.next_cursor;
   }while(cursor);
   assert.deepEqual(ids,Array.from({length:total},(_,n)=>'f3-net-'+who+'-'+(total-n)));
+  const refresh=await request('history',who,'?limit=2');
+  assert.equal(refresh.status,200);
+  assert.deepEqual(refresh.doc.items.map(item=>item.conversation_id),ids.slice(0,2));
   const thread=await request('messages',who,'?limit=2','f3-net-'+who+'-1');
   assert.equal(thread.status,200);
   assert.equal(thread.doc.kind,'conversation_messages_page');
@@ -60,4 +71,5 @@ assert.ok(cursor);
 const foreignCursor=await request('history','b','?limit=2&cursor='+cursor);
 assert.equal(foreignCursor.status,404);
 console.log('REAL_WEB_PRODUCT_REQUEST_BFF_SOURCE_SIGNED_MTLS_API_PG_AB_PAGINATION_404=PASS');
+console.log('REAL_BFF_'+phase.toUpperCase()+'_OWNER_REFRESH=PASS');
 console.log('REAL_WEB_PRODUCT_REQUEST_NO_BROWSER_NO_REAL_OIDC=CONFIRMED');
