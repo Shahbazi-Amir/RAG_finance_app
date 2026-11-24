@@ -1268,6 +1268,111 @@ class RealProductSession011(unittest.TestCase):
         self.assertEqual(self.list(a).status_code, 200)
         print("API_F3_APP_ONLY_PARALLEL_SEND_RETRIES_ZERO_T1_T2_T3_REPLAY_PASS", flush=True)
 
+    def test_API011_19_actual_web_bff_signer_to_real_pg_history_revoke(self):
+        """Use the real Web TypeScript signer, not the Python signing helper.
+
+        CI-only OIDC sessions and disposable PG; no Next browser or cookie
+        proof, no private-staging deployment, no Send or engine.
+        """
+        a, b = self.login("A"), self.login("B")
+        ids = [self.seed(a, "CI_BFF_A_" + uuid.uuid4().hex) for _ in range(3)]
+        bid = self.seed(b, "CI_BFF_B_" + uuid.uuid4().hex)
+        signer_path = self.temp / ("bff_signer_" + uuid.uuid4().hex + ".pem")
+        key_bytes = self.fixture.signer.private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption())
+        fd = os.open(signer_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(fd, "wb") as keyfile:
+                keyfile.write(key_bytes)
+            env = dict(os.environ)
+            for name in ("AUTH_RUNTIME_PROFILE", "AUTH_CI_PRODUCT_CHAT_MODE"):
+                env.pop(name, None)
+            env.update(
+                AUTH_CI_DEMO_MODE="true",
+                AUTH_CI_PRODUCT_ORIGIN=self.url,
+                AUTH_CI_PRODUCT_SIGN_KEY=str(signer_path),
+                AUTH_CI_BOOTSTRAP_CA=str(self.fixture.ca),
+                AUTH_CI_BOOTSTRAP_CERT=str(self.fixture.cert),
+                AUTH_CI_BOOTSTRAP_KEY=str(self.fixture.key),
+                AUTH_CI_PRODUCT_ISSUER=ISSUER,
+                AUTH_CI_PRODUCT_AUDIENCE=AUDIENCE,
+                AUTH_CI_PRODUCT_KID=KID,
+            )
+            script = """
+import {readFileSync} from 'node:fs';
+import {productRequest} from './apps/web/src/auth/server/product-session.ts';
+const {operation, active, query, operationId} = JSON.parse(readFileSync(0, 'utf8'));
+try {
+    const result = await productRequest(operation, active, query, operationId);
+    process.stdout.write(JSON.stringify(result));
+} catch {
+    process.exitCode = 1;
+}
+"""
+            def call(pending, operation, query="", operation_id=""):
+                # Synthetic trusted session values from the real CI OIDC ACK.
+                # Pass through stdin, never CLI args, stdout logs, or repo.
+                payload = {"operation": operation, "query": query,
+                           "operationId": operation_id,
+                           "active": {"ownerId": pending["owner_id"],
+                                      "epoch": pending["epoch"],
+                                      "generation": pending["generation"],
+                                      "sessionVerifier": pending["session_verifier"]}}
+                proc = subprocess.run(
+                    ["node", "--experimental-strip-types", "--input-type=module",
+                     "-e", script],
+                    input=json.dumps(payload), text=True, capture_output=True,
+                    cwd=ROOT, env=env, timeout=18)
+                self.assertEqual(proc.returncode, 0, "ACTUAL_BFF_SIGNER_FAILED")
+                response = json.loads(proc.stdout)
+                return response["status"], json.loads(response["body"])
+
+            status, first = call(a, "history", "?limit=1")
+            self.assertEqual(status, 200)
+            self.assertEqual(first["scope_user_id"], a["owner_id"])
+            self.assertEqual(len(first["items"]), 1)
+            aid = first["items"][0]["conversation_id"]
+            self.assertIn(aid, ids)
+            cursor = first["page"]["next_cursor"]
+            self.assertTrue(cursor)
+            status, second = call(a, "history", "?limit=1&cursor=" + cursor)
+            self.assertEqual(status, 200)
+            self.assertEqual(second["scope_user_id"], a["owner_id"])
+            self.assertEqual(len(second["items"]), 1)
+            sid = second["items"][0]["conversation_id"]
+            self.assertIn(sid, ids)
+            self.assertNotEqual(sid, aid)
+            status, detail = call(a, "messages", "?limit=2", aid)
+            self.assertEqual(status, 200)
+            self.assertEqual(detail["conversation_id"], aid)
+            self.assertEqual(detail["owner_user_id"], a["owner_id"])
+            self.assertEqual(call(b, "messages", "?limit=2", aid)[0], 404)
+            self.assertEqual(call(b, "history", "?limit=1&cursor=" + cursor)[0], 404)
+            status, refreshed = call(a, "history", "?limit=1")
+            self.assertEqual(status, 200)
+            self.assertEqual(refreshed["items"][0]["conversation_id"], aid)
+            status, other = call(b, "history", "?limit=1")
+            self.assertEqual(status, 200)
+            self.assertEqual(other["items"][0]["conversation_id"], bid)
+            with psycopg.connect(os.environ["DB_MIG_DSN"], autocommit=True,
+                                 row_factory=dict_row) as admin:
+                rows = admin.execute(
+                    "SELECT id, owner_id FROM history_l1.conversations "
+                    "WHERE id = ANY(%s)", ([aid, sid, bid],)
+                ).fetchall()
+            self.assertEqual({r["id"]: r["owner_id"] for r in rows},
+                             {aid: a["owner_id"], sid: a["owner_id"], bid: b["owner_id"]})
+            op = str(uuid.uuid4())
+            status, receipt = call(a, "revoke", operation_id=op)
+            self.assertEqual(status, 200)
+            self.assertEqual(receipt, {"state": "REVOKED_COMMITTED", "operation_id": op})
+            self.assertEqual(call(a, "history", "?limit=1")[0], 401)
+            self.assertEqual(call(b, "history", "?limit=1")[0], 200)
+        finally:
+            signer_path.unlink(missing_ok=True)
+        print("API_F3_ACTUAL_WEB_BFF_SIGNER_PG_AB_PAGINATION_REVOKE_PASS", flush=True)
+
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
         """Actual verified HTTPS callback, same pinned redirect for Code exchange."""
         from cryptography.hazmat.primitives import serialization
