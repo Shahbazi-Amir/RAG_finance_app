@@ -247,6 +247,15 @@ def run_server(host, db, scenario):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 sock.settimeout(1)
                 socket_state = str(sock.connect_ex(("127.0.0.1", 18443)))
+            try:
+                ctx_probe = ssl.create_default_context(cafile=str(PRIVATE / "ca.pem"))
+                ctx_probe.load_cert_chain(str(PRIVATE / "bff.pem"), str(PRIVATE / "bff.key"))
+                with socket.create_connection(("127.0.0.1", 18443), timeout=2) as raw:
+                    with ctx_probe.wrap_socket(raw, server_hostname="127.0.0.1") as verified:
+                        tls_probe = "HANDSHAKE_OK_" + verified.version()
+            except (ssl.SSLError, OSError) as exc:
+                tls_probe = type(exc).__name__ + "_" + str(getattr(exc, "reason", "GENERIC"))
+            print("APP_ONLY_HTTP_LAB_DIAGNOSTIC_TLS=" + tls_probe, flush=True)
             print("APP_ONLY_HTTP_LAB_DIAGNOSTIC_EXIT=" + str(p.poll()) +
                   "_TCP_CONNECT_EX=" + socket_state +
                   "_HTTP=" + last_http + "_NETWORK_CLASS=" + last_tls_error +
