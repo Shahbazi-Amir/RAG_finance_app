@@ -68,6 +68,79 @@ class AppOnlyBrowserDemo(Demo):
             env.pop("AUTH_CI_PRODUCT_CHAT_MODE", None)
         return super().add(cmd, env, cwd)
 
+    def restricted_db_snapshot(self, phase, dsns=None, baseline=None, revoked=False):
+        """Independent read-only product-role SQL. No admin for History rows.
+        Real OIDC owner IDs come only from successful browser logins.
+        The inherited source fixture does not yet require TLS; restored OCI
+        database must enforce verify-full on the actual service connection.
+        """
+        assert phase in ("SOURCE","SOURCE_AFTER_SEND","RESTORED","AFTER_OUTAGE","AFTER_BROWSER","AFTER_REVOKE")
+        cfg=dsns if dsns is not None else os.environ
+        tables=("conversations","messages","create_receipts","send_receipts","execution_attempts","answers")
+        result={}
+        with psycopg.connect(cfg["DB_APP_DSN"],autocommit=True) as c:
+            flags=c.execute("""SELECT current_user,rolsuper,rolbypassrls,rolinherit,
+                          rolcreaterole,rolcreatedb FROM pg_roles WHERE rolname=current_user""").fetchone()
+            assert flags==("history_app",False,False,False,False,False)
+            if dsns is not None:
+                assert conninfo_to_dict(cfg["DB_APP_DSN"])["sslmode"]=="verify-full"
+                assert c.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()[0]
+            for label,foreign in (("A","B"),("B","A")):
+                with c.transaction():
+                    c.execute("SET TRANSACTION READ ONLY")
+                    c.execute("SELECT set_config('app.owner_id',%s,true)",(self.owners[label],))
+                    scoped={}
+                    for table in tables:
+                        q=sql.SQL("SELECT owner_id,to_jsonb(t)::text FROM history_l1.{} t ORDER BY to_jsonb(t)::text").format(sql.Identifier(table))
+                        rows=c.execute(q).fetchall()
+                        assert all(row[0]==self.owners[label] for row in rows)
+                        scoped[table]=(len(rows),sha256(json.dumps(rows,ensure_ascii=False).encode()).hexdigest())
+                        n=c.execute(sql.SQL("SELECT count(*) FROM history_l1.{} WHERE owner_id=%s").format(sql.Identifier(table)),(self.owners[foreign],)).fetchone()[0]
+                        assert n==0
+                    assert scoped["conversations"][0]==3 and scoped["messages"][0]>=1
+                    assert all(scoped[t][0]==0 for t in ("send_receipts","execution_attempts","answers"))
+                    result[label]=scoped
+                with c.transaction():
+                    c.execute("SET TRANSACTION READ ONLY")
+                    for table in tables:
+                        assert c.execute(sql.SQL("SELECT count(*) FROM history_l1.{}").format(sql.Identifier(table))).fetchone()[0]==0
+        # Validate actual migration execution ledger, not a reconstructed
+        # schema-only list. Admin connection for private metadata ONLY.
+        admin=dict(conninfo_to_dict(cfg["DB_APP_DSN"]),user="postgres",password=os.environ["PGPASSWORD"])
+        manifest=ROOT/"infra/postgres/dev_f3_isolated/MIGRATIONS_001_010_PINNED.tsv"
+        assert sha256(manifest.read_bytes()).hexdigest()=="9ff95a59570f5f6c6188479d9c37cf684ef836c599e89d9faa2bb0e17a4946f7"
+        expected={}
+        for line in manifest.read_text().splitlines()[1:]:
+            ver,direction,source,path,blob=line.split("\t")
+            if direction=="UP":expected[ver]=(source,blob,sha256((ROOT/path).read_bytes()).hexdigest())
+        with psycopg.connect(**admin,autocommit=True) as c:
+            with c.transaction():
+                c.execute("SET TRANSACTION READ ONLY")
+                ledger=c.execute("""SELECT trim(version),trim(source_commit),trim(git_blob_sha1),trim(sql_sha256),
+                    status,started_at,applied_at,applied_txid,cluster_system_id
+                    FROM db55_audit.migration_runs ORDER BY version""").fetchall()
+                assert len(ledger)==10
+                for ver,source,blob,digest,status,started,applied,tx,cluster in ledger:
+                    assert expected[ver]==(source,blob,digest)
+                    assert status=="APPLIED" and applied>=started and tx is not None
+                assert len({r[-1] for r in ledger})==1
+                physical=c.execute("""SELECT count(*) FROM pg_class k JOIN pg_namespace n ON n.oid=k.relnamespace
+                    WHERE n.nspname IN ('history_l1','auth_l1') AND k.relkind IN ('r','p')
+                    AND k.relrowsecurity AND k.relforcerowsecurity""").fetchone()[0]
+                assert physical==14
+                system_id=str(c.execute("SELECT system_identifier FROM pg_control_system()").fetchone()[0])
+                if dsns is None:assert system_id==ledger[0][-1]
+                else:assert system_id!=ledger[0][-1]
+        result["ledger"]=sha256(json.dumps(ledger,default=str).encode()).hexdigest()
+        if baseline is not None:assert result==baseline,"RESTRICTED_SQL_EXACT_PARITY_DRIFT"
+        try:
+            with psycopg.connect(cfg["DB_APP_DSN"],autocommit=True) as c:
+                c.execute("SELECT count(*) FROM db55_audit.migration_runs")
+        except psycopg.errors.InsufficientPrivilege:pass
+        else:raise AssertionError("PRODUCT_ROLE_LEDGER_READ_ALLOWED")
+        print("DB_OCI_BROWSER_"+phase+"_SIX_TABLES_AB_EXACT_READ_ONLY_LEDGER_PARITY=PASS",flush=True)
+        return result
+
     def counts(self):
         with psycopg.connect(getattr(self, "restore_mig_dsn", os.environ["DB_MIG_DSN"]),
                              autocommit=True, row_factory=dict_row) as db:
@@ -434,7 +507,7 @@ class AppOnlyBrowserDemo(Demo):
     def start_container_api(self, dsns, network):
         """Use the exact SHA non-root API image and private Docker DNS."""
         run = self.ci_command
-        sha = os.environ.get("GITHUB_SHA", "")
+        sha = os.environ.get("F3_EXACT_SHA", "")
         assert re.fullmatch(r"[a-f0-9]{40}", sha)
         assert run("git", "rev-parse", "HEAD").decode().strip() == sha
         image = os.environ.get("API_F3_BROWSER_IMAGE", "")
@@ -655,6 +728,7 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
             expected = {label: self.sql_history(label) for label in ("A", "B")}
             assert all(len(rows) == 3 for rows in expected.values())
             before = self.counts()
+            sql_before=self.restricted_db_snapshot("SOURCE")
             for label, page in (("A", a), ("B", b)):
                 foreign = "B" if label == "A" else "A"
                 async with page.expect_response(
@@ -723,6 +797,7 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
             await a.reload(wait_until="domcontentloaded")
             await expect(a.get_by_test_id("conversation-" + aid)).to_be_visible()
             assert self.counts() == before
+            self.restricted_db_snapshot("SOURCE_AFTER_SEND",baseline=sql_before)
             print("API_F3_BROWSER_DETAIL_REFRESH_SEND_ZERO_SQL_PASS", flush=True)
 
             # Repeat in a truly independent fresh PostgreSQL volume while
@@ -732,7 +807,9 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
                     restored = self.configure_restore_pg_tls(restored_id, restored)
                     self.switch_to_restored(restored, restored_network)
                     assert self.counts() == before
+                    self.restricted_db_snapshot("RESTORED",restored,sql_before)
                     self.check_restored_outage(raw_b, restored_id)
+                    self.restricted_db_snapshot("AFTER_OUTAGE",restored,sql_before)
                     await self.verify_browser_privacy(browser, a, b, raw_a, raw_b, aid, message)
                     # Normal login again, through the restored Bootstrap and
                     # unchanged Next login route. Reuse the demo harness with
@@ -798,6 +875,7 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
                     await a.reload(wait_until="domcontentloaded")
                     await expect(a.get_by_test_id("conversation-" + aid)).to_be_visible()
                     assert self.counts() == before
+                    self.restricted_db_snapshot("AFTER_BROWSER",restored,sql_before)
                     print("API_F3_BROWSER_RESTORED_VOLUME_PG_HTTP_DOM_AB_PASS", flush=True)
                     # Existing live ordinary browser logout; no cookie injected.
                     logout = await ca.new_page()
@@ -816,6 +894,7 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
                     await b.get_by_test_id("refresh-history").click()
                     await expect(b.get_by_test_id("conversation-" + bid)).to_be_visible()
                     assert self.counts() == before
+                    self.restricted_db_snapshot("AFTER_REVOKE",restored,sql_before,revoked=True)
                     print("API_F3_BROWSER_COMMITTED_REVOKE_AB_PASS", flush=True)
                     # The old source remains active; only clone A was revoked.
                     with psycopg.connect(os.environ["AUTH_SESSION_DSN"], autocommit=True,
@@ -823,6 +902,9 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
                         assert auth_session.inspect(original, raw_a["session_ref"]) is not None
                         assert auth_session.inspect(original, raw_b["session_ref"]) is not None
                     print("API_F3_BROWSER_RESTORE_SOURCE_SESSIONS_UNCHANGED_PASS", flush=True)
+                    receipt=ROOT/"ci_receipts/db_oci_browser_restricted_parity.json"
+                    receipt.parent.mkdir(exist_ok=True)
+                    receipt.write_text(json.dumps({"source_sha":os.environ["F3_EXACT_SHA"],"api_image_id":self.api_image_id,"checkpoints":6,"history_tables":6,"real_oidc_owners":2,"exact_row_parity":True,"migration_ledger_rows":10,"data_bearing_up":9,"actual_failed_002_no_autoretry":True,"force_rls_tables":14,"source_tls":"NOT_ATTESTED","restored_tls":"VERIFY_FULL","engine_calls":0,"sql_011":False,"target_verified":False,"accepted":False},indent=2)+"\n")
                 finally:
                     self.stop_container_api()
                     for child in (self.api_process, self.bootstrap_process):
