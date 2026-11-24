@@ -13,9 +13,14 @@ permissions:
 jobs:
   real-next-browser-no-signed-history:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, firefox, webkit]
     env:
       CI: 'true'
+      UI_BASELINE_BROWSER: ${{ matrix.engine }}
       NEXT_TELEMETRY_DISABLED: '1'
     steps:
       - name: Checkout exact UI delivery candidate, never cherry-pick old source
@@ -46,11 +51,11 @@ jobs:
           npm --prefix apps/web run lint
           npm --prefix apps/web run test
           npm --prefix apps/web run build
-      - name: Real Chromium, no mocks, no Auth/session bootstrap
+      - name: Real ${{ matrix.engine }} browser, no mocks and no fake Auth/session
         run: |
           set -euo pipefail
           python -m pip install --disable-pip-version-check 'playwright==1.64.1'
-          python -m playwright install --with-deps chromium
+          python -m playwright install --with-deps "${{ matrix.engine }}"
       - name: Strict signed browser harness compilation and fail-closed prerequisite check
         env:
           PHASE3_APP_MODE: APP_ONLY
@@ -78,6 +83,7 @@ jobs:
           done
           curl -fsS --max-time 3 http://127.0.0.1:3100/api/product-capabilities >/dev/null
           python -u tests/phase3/integration/ui/app_only_entry_baseline_real_browser.py
+          echo "UI_REAL_NEXT_BROWSER_ENGINE=${{ matrix.engine }}"
           echo UI_REAL_NEXT_HISTORY_503_NEGATIVE_BASELINE_ONLY_NOT_L2_A_B
       - name: Bounded evidence no screenshots of account data
         if: always()
