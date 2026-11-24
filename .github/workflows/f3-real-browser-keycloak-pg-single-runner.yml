@@ -4,7 +4,7 @@ on:
   push:
     branches: [integration/f3-foundation-history-two-users-20261124]
   pull_request:
-    branches: [agent/db-f3-common-sha-role-matrix-20261124]
+    branches: [agent/db-f3-real-oidc-tx-common-crash-20261124]
     paths:
       - 'tests/phase3/integration/foundation/browser_history_restore.py'
       - '.github/workflows/f3-real-browser-keycloak-pg-single-runner.yml'
@@ -22,7 +22,7 @@ jobs:
     if: >-
       github.event_name == 'push'
       || (github.event_name == 'pull_request'
-          && github.event.pull_request.head.ref == 'agent/db-f3-real-oidc-tx-common-crash-20261124'
+          && github.event.pull_request.head.ref == 'agent/db-f3-browser-migration-ledger-20261124'
           && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 55
@@ -214,9 +214,11 @@ jobs:
       - name: Apply versioned History base, and 003 on data-bearing product DB
         run: |
           set -euo pipefail
+          source scripts/phase3/f3_browser_pinned_migration_ledger.sh
+          f3_ledger_init
           export PGUSER=history_migrator PGPASSWORD=synthetic_mig_only
-          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
-          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          f3_ledger_apply 001 infra/postgres/migrations/001_history_l1.up.sql
+          f3_ledger_apply 002 infra/postgres/migrations/002_one_attempt.up.sql
           psql -d history_legacy_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
           # Separate synthetic chain seed: 001 first; acceptance test applies 002.
           psql -d history_seeded_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
@@ -231,7 +233,7 @@ jobs:
           COMMIT;
           SQL
           export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
-          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          f3_ledger_apply 003 infra/postgres/migrations/003_auth_session.up.sql
           psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
           psql -d auth_empty_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
           # Data-bearing product DB before 004: synthetic session chain, never a real user.
@@ -246,13 +248,14 @@ jobs:
               clock_timestamp()+interval '15 minutes',
               clock_timestamp()+interval '1 hour',900);
           SQL
-          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/004_session_aware_fence.up.sql
-          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/005_service_assertion_replay.up.sql
-          psql -d history_ci -1 -v ON_ERROR_STOP=1 -f infra/postgres/migrations/006_atomic_reset_c1.up.sql
-          psql -d history_ci -1 -v ON_ERROR_STOP=1 -f infra/postgres/migrations/007_scoped_reset_identity_lookup.up.sql
-          psql -d history_ci -1 -v ON_ERROR_STOP=1 -f infra/postgres/migrations/008_durable_idp_attempt_outcome.up.sql
-          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/009_initial_login_attempt_binding.up.sql
-          psql -d history_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/010_initial_login_claim_material.up.sql
+          f3_ledger_apply 004 infra/postgres/migrations/004_session_aware_fence.up.sql
+          f3_ledger_apply 005 infra/postgres/migrations/005_service_assertion_replay.up.sql
+          f3_ledger_apply 006 infra/postgres/migrations/006_atomic_reset_c1.up.sql -1
+          f3_ledger_apply 007 infra/postgres/migrations/007_scoped_reset_identity_lookup.up.sql -1
+          f3_ledger_apply 008 infra/postgres/migrations/008_durable_idp_attempt_outcome.up.sql -1
+          f3_ledger_apply 009 infra/postgres/migrations/009_initial_login_attempt_binding.up.sql
+          f3_ledger_apply 010 infra/postgres/migrations/010_initial_login_claim_material.up.sql
+          f3_ledger_complete
           # Separate synthetic protected SQL table: CI ONLY, INSERT role, no History grants.
           psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
           CREATE SCHEMA service_replay_ci;
@@ -343,6 +346,9 @@ jobs:
           assert r["db_restricted_sql_checkpoints"]==7
           assert r["db_real_oidc_same_transaction_matrix"]=="SOURCE_RESTORED_ROLLBACK_REVOKED_A_DENIED_B_ADMITTED"
           assert r["db_real_oidc_replay_rollback_and_forged_binding_denied"] is True
+          assert r["db_browser_migration_ledger"]=="ACTUAL_PINNED_001_010_EXECUTION_SOURCE_RESTORE_ROLLBACK_REVOKE_EXACT_PRIVATE"
+          assert r["db_browser_migration_ledger_rows"]==10 and r["db_browser_migration_ledger_checkpoints"]==4
+          assert r["db_browser_db55_bridge"]=="NOT_RUN_IN_BROWSER_FIXTURE"
           assert set(r["db_restricted_owner_counts"])=={"A","B"}
           for counts in r["db_restricted_owner_counts"].values():
               assert set(counts)=={"conversations","messages","create_receipts","send_receipts","execution_attempts","answers"}
