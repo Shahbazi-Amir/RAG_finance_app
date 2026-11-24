@@ -66,7 +66,8 @@ def conn(role: str, host: str, db: str):
     cfg = json.loads((LAB / "role_passwords.json").read_text())
     assert host in ("demo-db", "restore-db")
     assert db in ("rag_finance_f3_http_ab_source", "rag_finance_f3_http_ab_restored",
-                  "rag_finance_f3_m10_process_crash", "rag_finance_f3_http_ab_revoked_copy")
+                  "rag_finance_f3_m10_process_crash", "rag_finance_f3_http_ab_revoked_copy",
+                  "rag_finance_f3_http_ab_keyset")
     assert role in ("auth_mapper", "auth_sessions", "auth_revoker", "history_app")
     dsn = psycopg.conninfo.make_conninfo(
         host=host, port=5432, dbname=db, user=role,
@@ -648,6 +649,84 @@ def verify_revoked_backup_copy_via_server():
     run_server("restore-db","rag_finance_f3_http_ab_restored",verify_revoked_backup_copy)
 
 
+def verify_concurrent_keyset_and_title():
+    """Signed HTTP pages against a disposable clone, real separate SQL writer.
+    Use monotonic later timestamps. Keyset anchor is not a global snapshot
+    guarantee for arbitrary backdated inserts or deletes.
+    """
+    db="rag_finance_f3_http_ab_keyset"
+    state=json.loads((PRIVATE/"session_state.json").read_text())
+    a,b=state["a"]["owner"],state["b"]["owner"]
+    def rows(actor,table):
+        with conn("history_app","demo-db",db) as c:
+            with c.transaction():
+                c.execute("SET TRANSACTION READ ONLY")
+                c.execute("SELECT set_config('app.owner_id',%s,true)",(actor,))
+                return c.execute(f"SELECT to_jsonb(t)::text AS r FROM history_l1.{table} t ORDER BY 1").fetchall()
+    tables=("conversations","messages","create_receipts","send_receipts","execution_attempts","answers")
+    before_b={t:rows(b,t) for t in tables}
+    before_a={t:rows(a,t) for t in tables}
+    list_path="/v1/conversations"
+    detail="/v1/conversations/f3-net-a-1/messages"
+    with tls_client() as client:
+        def page(path,cursor=None,actor="a"):
+            q={"limit":2}
+            if cursor:q["cursor"]=cursor
+            return request(client,actor,path,urlencode(q)).json()
+        def drain(path,first,idfield):
+            result=[r[idfield] for r in first["items"]]
+            seen=set()
+            while first["page"]["has_more"]:
+                cursor=first["page"]["next_cursor"]
+                assert cursor and cursor not in seen
+                seen.add(cursor)
+                assert len(seen)<10
+                first=page(path,cursor)
+                result.extend(r[idfield] for r in first["items"])
+            assert len(result)==len(set(result))
+            return result
+        first_c=page(list_path)
+        first_m=page(detail)
+        assert first_c["page"]["has_more"] and first_m["page"]["has_more"]
+        with conn("history_app","demo-db",db) as writer:
+            with writer.transaction():
+                writer.execute("SELECT set_config('app.owner_id',%s,true)",(a,))
+                writer.execute("""INSERT INTO history_l1.conversations(owner_id,id,title,created_at,updated_at)
+                  VALUES(%s,'f3-keyset-a-new','new after anchor',clock_timestamp(),clock_timestamp())""",(a,))
+                writer.execute("""INSERT INTO history_l1.messages(owner_id,id,conversation_id,role,body,created_at)
+                  VALUES(%s,'f3-keyset-a-new-message','f3-net-a-1','user','synthetic after anchor',clock_timestamp())""",(a,))
+        assert drain(list_path,first_c,"conversation_id")==[f"f3-net-a-{i}" for i in range(5,0,-1)]
+        assert drain(detail,first_m,"message_id")==[f"f3-net-a-msg-{i}" for i in range(1,5)]
+        assert drain(list_path,page(list_path),"conversation_id")==["f3-keyset-a-new"]+[f"f3-net-a-{i}" for i in range(5,0,-1)]
+        assert drain(detail,page(detail),"message_id")==[f"f3-net-a-msg-{i}" for i in range(1,5)]+["f3-keyset-a-new-message"]
+        assert {t:rows(b,t) for t in tables}==before_b
+        print("DB_HTTP_KEYSET_CONCURRENT_LATER_INSERT_OLD_ANCHOR_STABLE_NEW_REFRESH_SEES_WRITE=PASS",flush=True)
+        before_rename={t:rows(a,t) for t in tables if t!="conversations"}
+        with conn("history_app","demo-db",db) as writer:
+            with writer.transaction():
+                writer.execute("SELECT set_config('app.owner_id',%s,true)",(a,))
+                assert writer.execute("UPDATE history_l1.conversations SET title=%s WHERE id='f3-net-a-1'",
+                                      ("renamed synthetic conversation",)).rowcount==1
+                assert writer.execute("UPDATE history_l1.conversations SET title='forbidden' WHERE id='f3-net-b-1'").rowcount==0
+        listing=request(client,"a",list_path,"limit=100").json()
+        renamed=[x for x in listing["items"] if x["conversation_id"]=="f3-net-a-1"]
+        assert len(renamed)==1 and renamed[0]["title"]=="renamed synthetic conversation"
+        assert {t:rows(a,t) for t in tables if t!="conversations"}==before_rename
+        assert {t:rows(b,t) for t in tables}==before_b
+        for t in ("create_receipts","send_receipts","execution_attempts","answers"):
+            assert rows(a,t)==before_a[t]==[]
+        print("DB_TITLE_CHANGE_HTTP_VISIBLE_MESSAGE_BYTES_AND_RECEIPTS_UNCHANGED_FOREIGN_UPDATE_ZERO=PASS",flush=True)
+        # Signed foreign-known and unknown response equivalence excluding
+        # per-request IDs; no timing-equality claim.
+        for actor,foreign in (("a","f3-net-b-1"),("b","f3-net-a-1")):
+            found=request(client,actor,f"/v1/conversations/{foreign}/messages",expect=404)
+            absent=request(client,actor,"/v1/conversations/f3-no-such-keyset/messages",expect=404)
+            assert found.json()["error"]["code"]==absent.json()["error"]["code"]
+            assert found.json()["error"]["category"]==absent.json()["error"]["category"]
+            assert found.headers["cache-control"]==absent.headers["cache-control"]
+        print("DB_SIGNED_KNOWN_FOREIGN_UNKNOWN_404_CODE_CATEGORY_CACHE_PARITY=PASS",flush=True)
+
+
 def signature(label, method: str, raw_path: str, raw_query: str = "", body: bytes = b"",
               owner_override=None, session_override=None) -> str:
     state = json.loads((PRIVATE / "session_state.json").read_text())[label]
@@ -892,7 +971,7 @@ def verify_revoked_backup_copy():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("phase", choices=("seed", "before", "after", "revoke", "snapshot_source", "snapshot_restore", "ready200", "ready503", "m10_process", "m10_child", "authenticated_backup", "catalog_source", "catalog_restore", "snapshot_revoked_copy", "verify_revoked_copy", "concurrent_repository", "reopen_backup", "stale_snapshot", "verify_revoked_restored", "role_matrix_source", "role_matrix_restore", "hold_pg_crash", "verify_pg_crash"))
+    parser.add_argument("phase", choices=("seed", "before", "after", "revoke", "snapshot_source", "snapshot_restore", "ready200", "ready503", "m10_process", "m10_child", "authenticated_backup", "catalog_source", "catalog_restore", "snapshot_revoked_copy", "verify_revoked_copy", "concurrent_repository", "reopen_backup", "stale_snapshot", "verify_revoked_restored", "role_matrix_source", "role_matrix_restore", "hold_pg_crash", "verify_pg_crash", "verify_keyset"))
     parser.add_argument("--crash", choices=("t1_before", "t1_after", "t2_before", "t2_after"))
     args = parser.parse_args()
     require_lab()
@@ -940,6 +1019,9 @@ def main():
         raise RuntimeError("NO_SYNTHETIC_SESSION_FIXTURE")
     if args.phase in ("snapshot_source", "snapshot_restore", "snapshot_revoked_copy"):
         sql_snapshot(args.phase)
+        return
+    if args.phase == "verify_keyset":
+        run_server("demo-db","rag_finance_f3_http_ab_keyset",verify_concurrent_keyset_and_title)
         return
     if args.phase == "verify_revoked_restored":
         run_server("restore-db", "rag_finance_f3_http_ab_restored", verify_revoked_backup_copy)

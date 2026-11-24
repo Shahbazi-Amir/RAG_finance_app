@@ -74,6 +74,15 @@ run_probe concurrent_repository
 admin lab-db -c "DROP DATABASE $m10_db WITH (FORCE)" >/dev/null
 [[ "$(admin lab-db -c "SELECT count(*) FROM pg_database WHERE datname='$m10_db'")" == 0 ]] || exit 70
 run_probe seed
+# Distinct clone: ordinary source/restore baseline remains byte-exact.
+keyset_db=rag_finance_f3_http_ab_keyset
+[[ "$(admin lab-db -c "SELECT count(*) FROM pg_database WHERE datname='$keyset_db'")" == 0 ]] || exit 70
+admin lab-db -c "CREATE DATABASE $keyset_db TEMPLATE $src OWNER postgres" >/dev/null
+admin lab-db -c "REVOKE CONNECT,TEMP ON DATABASE $keyset_db FROM PUBLIC" >/dev/null
+admin lab-db -c "GRANT CONNECT ON DATABASE $keyset_db TO history_app,auth_mapper,auth_sessions,auth_revoker" >/dev/null
+run_probe verify_keyset
+admin lab-db -c "DROP DATABASE $keyset_db WITH (FORCE)" >/dev/null
+[[ "$(admin lab-db -c "SELECT count(*) FROM pg_database WHERE datname='$keyset_db'")" == 0 ]] || exit 70
 run_probe snapshot_source
 run_probe role_matrix_source
 run_probe snapshot_source
@@ -167,6 +176,34 @@ compose exec -T lab-db pg_dump -U postgres -d "$src" -Fc > "$dump"
 shasum -a 256 "$dump" > "$dump.sha256"
 chmod 0600 "$dump" "$dump.sha256"
 shasum -a 256 -c "$dump.sha256" > /dev/null
+# Actual damaged pg_dump, not just cryptographic envelope corruption.
+# No app listener can connect to this scratch target.
+fault_db=rag_finance_f3_http_ab_corrupt_probe
+[[ "$(admin restore-db -c "SELECT count(*) FROM pg_database WHERE datname='$fault_db'")" == 0 ]] || exit 70
+admin restore-db -c "CREATE DATABASE $fault_db OWNER postgres" >/dev/null
+admin restore-db -c "REVOKE CONNECT,TEMP ON DATABASE $fault_db FROM PUBLIC" >/dev/null
+bad_dump="$LAB_WORK/f3_http_ab_truncated.dump"
+[[ ! -e "$bad_dump" ]] || exit 70
+size="$(stat -c %s "$dump")"
+[[ "$size" -gt 4096 ]] || exit 70
+head -c "$((size*3/4))" "$dump" > "$bad_dump"
+chmod 0600 "$bad_dump"
+# A valid TOC followed by missing archive data is the desired late-failure case.
+compose exec -T restore-db pg_restore --list < "$bad_dump" > "$LAB_WORK/f3_corrupt_toc.private" 2>&1
+if compose exec -T restore-db pg_restore --single-transaction --exit-on-error -U postgres -d "$fault_db" < "$bad_dump" > "$LAB_WORK/f3_corrupt_restore.private" 2>&1; then
+ echo STOP_CORRUPT_ARCHIVE_ACCEPTED >&2; exit 70
+fi
+[[ "$(DB_SERVICE=restore-db DB_NAME="$fault_db" dbpsql -Atc "SELECT count(*) FROM pg_namespace WHERE nspname IN ('history_l1','auth_l1','db55_audit')")" == 0 ]] || exit 70
+echo DB_PG_RESTORE_TRUNCATED_VALID_TOC_DENIED_NO_PARTIAL_SCHEMA=PASS
+# The same pristine scratch DB must subsequently accept the authentic archive
+# atomically. This is explicit lab recovery, not auto-retry of migration intent.
+compose exec -T restore-db pg_restore --single-transaction --exit-on-error -U postgres -d "$fault_db" < "$dump" > "$LAB_WORK/f3_clean_retry_restore.private" 2>&1
+[[ "$(DB_SERVICE=restore-db DB_NAME="$fault_db" dbpsql -Atc "SELECT count(*) FROM db55_audit.migration_runs WHERE status='APPLIED'")" == 10 ]] || exit 70
+[[ "$(DB_SERVICE=restore-db DB_NAME="$fault_db" dbpsql -Atc 'SELECT count(*) FROM history_l1.conversations')" == 8 ]] || exit 70
+admin restore-db -c "DROP DATABASE $fault_db WITH (FORCE)" >/dev/null
+[[ "$(admin restore-db -c "SELECT count(*) FROM pg_database WHERE datname='$fault_db'")" == 0 ]] || exit 70
+rm "$bad_dump" "$LAB_WORK/f3_corrupt_toc.private" "$LAB_WORK/f3_corrupt_restore.private" "$LAB_WORK/f3_clean_retry_restore.private"
+echo DB_PG_RESTORE_ATOMIC_CLEAN_RECOVERY_10_LEDGER_8_CONVERSATIONS=PASS
 sudo install -o 11001 -g 11001 -m 0600 "$dump" "$probe_dir/private/aead_input.dump"
 run_probe authenticated_backup
 [[ ! -e "$probe_dir/private/aead_verified_restore.dump" ]] || exit 70
@@ -174,7 +211,7 @@ run_probe reopen_backup
 admin restore-db -c "CREATE DATABASE $dst OWNER postgres" >/dev/null
 admin restore-db -c "REVOKE CONNECT,TEMP ON DATABASE $dst FROM PUBLIC" >/dev/null
 admin restore-db -c "GRANT CONNECT ON DATABASE $dst TO history_app,auth_mapper,auth_sessions,auth_revoker" >/dev/null
-sudo cat "$probe_dir/private/aead_verified_restore.dump" | compose exec -T restore-db pg_restore -U postgres -d "$dst" > "$LAB_WORK/f3_http_ab_restore.log" 2>&1 || {
+sudo cat "$probe_dir/private/aead_verified_restore.dump" | compose exec -T restore-db pg_restore --single-transaction --exit-on-error -U postgres -d "$dst" > "$LAB_WORK/f3_http_ab_restore.log" 2>&1 || {
  echo STOP_AB_HTTP_RESTORE_FAILED >&2; exit 70;
 }
 sudo rm "$probe_dir/private/aead_verified_restore.dump"
@@ -342,6 +379,10 @@ report={
  "backup_plaintext_cleanup":"ORIGINAL_DUMP_AND_VERIFIED_RESTORE_REMOVED_AFTER_SUCCESS",
  "stale_snapshot_witness":"REAL_READ_ONLY_SESSION_DIVERGENCE_NO_STALE_LISTENER_ADMISSION",
  "post_outage_revocation_recheck":"A401_B200_FOREIGN_UNKNOWN404",
+ "atomic_corrupt_restore":"TRUNCATED_VALID_TOC_REJECTED_NO_PARTIAL_SCHEMA_CLEAN_RESTORE_10_LEDGER_8_CONVERSATIONS",
+ "http_keyset_later_insert":"SIGNED_CURSOR_OLD_ANCHOR_STABLE_REFRESH_SEES_LATER_INSERT",
+ "title_immutable_history":"DIRECT_SCOPED_TITLE_UPDATE_SIGNED_HTTP_MESSAGE_BYTES_UNCHANGED_FOREIGN_ZERO",
+ "enumeration_equivalence":"SIGNED_FOREIGN_KNOWN_UNKNOWN_404_CODE_CATEGORY_CACHE_PARITY",
  "role_write_matrix":"26_SOURCE_26_RESTORED_ACTUAL_SQL_DENIALS_ZERO_MUTATION",
  "pg_unclean_crash":"REAL_RESTORE_PG_SIGKILL_EXIT137_UNCOMMITTED_ROW_ROLLED_BACK_SAME_VOLUME_AND_LEDGER_REVOKE_HISTORY_PARITY",
  "catalog_parity":"SIX_TABLES_COLUMNS_CONSTRAINTS_INDEXES_RLS_EXACT_SOURCE_RESTORE",

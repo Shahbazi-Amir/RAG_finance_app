@@ -9,7 +9,7 @@ on:
       - 'tests/phase3/integration/ui/f3_app_only_bff_product_request_pg.mjs'
       - 'apps/api/private_app_only_asgi.py'
   pull_request:
-    branches: [agent/db-f3-browser-migration-ledger-20261124]
+    branches: [agent/db-f3-real-oidc-revoke-lock-20261124]
     paths:
       - 'infra/postgres/dev_f3_isolated/scripts/28_signed_history_https_pg_lab.sh'
       - 'tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py'
@@ -21,7 +21,7 @@ permissions:
   contents: read
 jobs:
   actual-mtls-https-postgres:
-    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/db-f3-real-oidc-revoke-lock-20261124' && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/db-f3-atomic-corrupt-restore-keyset-20261124' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -87,6 +87,10 @@ jobs:
           assert r["backup_plaintext_cleanup"]=="ORIGINAL_DUMP_AND_VERIFIED_RESTORE_REMOVED_AFTER_SUCCESS"
           assert r["stale_snapshot_witness"]=="REAL_READ_ONLY_SESSION_DIVERGENCE_NO_STALE_LISTENER_ADMISSION"
           assert r["post_outage_revocation_recheck"]=="A401_B200_FOREIGN_UNKNOWN404"
+          assert r["atomic_corrupt_restore"]=="TRUNCATED_VALID_TOC_REJECTED_NO_PARTIAL_SCHEMA_CLEAN_RESTORE_10_LEDGER_8_CONVERSATIONS"
+          assert r["http_keyset_later_insert"]=="SIGNED_CURSOR_OLD_ANCHOR_STABLE_REFRESH_SEES_LATER_INSERT"
+          assert r["title_immutable_history"]=="DIRECT_SCOPED_TITLE_UPDATE_SIGNED_HTTP_MESSAGE_BYTES_UNCHANGED_FOREIGN_ZERO"
+          assert r["enumeration_equivalence"]=="SIGNED_FOREIGN_KNOWN_UNKNOWN_404_CODE_CATEGORY_CACHE_PARITY"
           assert r["role_write_matrix"]=="26_SOURCE_26_RESTORED_ACTUAL_SQL_DENIALS_ZERO_MUTATION"
           assert r["pg_unclean_crash"]=="REAL_RESTORE_PG_SIGKILL_EXIT137_UNCOMMITTED_ROW_ROLLED_BACK_SAME_VOLUME_AND_LEDGER_REVOKE_HISTORY_PARITY"
           assert r["catalog_parity"]=="SIX_TABLES_COLUMNS_CONSTRAINTS_INDEXES_RLS_EXACT_SOURCE_RESTORE"
