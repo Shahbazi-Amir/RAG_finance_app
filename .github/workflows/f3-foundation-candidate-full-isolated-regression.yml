@@ -190,6 +190,62 @@ jobs:
           docker compose -f "$file" exec -T web node -e "fetch('http://app-only-api:8080/health/live').then(r=>r.json()).then(j=>process.exit(j.process_alive&&!j.application_ready?0:1)).catch(()=>process.exit(1))"
           docker compose -f "$file" exec -T web node -e "fetch('http://127.0.0.1:3000/api/product-capabilities').then(r=>r.json()).then(j=>process.exit(j.send_mode==='DISABLED'&&!j.generation_available?0:1)).catch(()=>process.exit(1))"
           echo F3_APP_ONLY_REAL_COMPOSE_PRIVATE_WEB_API_NO_ENGINE_PASS
+      - name: Independent clean Compose cold-restart no-public-port smoke and timing
+        env:
+          CI: 'true'
+          F3_PROJECT_NAME: f3-app-only-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          F3_RELEASE_TAG: ci
+          F3_SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=infra/phase3_l1/compose.app-only.internal.yml
+          # Previous step cleaned its own containers. This starts the same
+          # immutable source image without inheriting a running service.
+          test -z "$(docker compose -f "$file" ps -q)"
+          start="$(date +%s)"
+          trap 'docker compose -f "$file" down --remove-orphans >/dev/null 2>&1 || true' EXIT
+          docker compose -f "$file" up -d --no-build --pull never
+          for n in $(seq 1 75); do
+            if docker compose -f "$file" exec -T web node -e "fetch('http://127.0.0.1:3000/api/product-capabilities').then(r=>r.json()).then(x=>process.exit(x.send_mode==='DISABLED'&&!x.engine_available?0:1)).catch(()=>process.exit(1))" >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker compose -f "$file" exec -T web node -e "fetch('http://app-only-api:8080/health/live').then(r=>r.json()).then(x=>process.exit(x.process_alive&&!x.application_ready?0:1)).catch(()=>process.exit(1))"
+          docker compose -f "$file" exec -T web node -e "fetch('http://127.0.0.1:3000/api/history/messages',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}).then(r=>process.exit(r.status===503?0:1)).catch(()=>process.exit(1))"
+          for kind in api web; do
+            cid="$(docker compose -f "$file" ps -q "$kind")"
+            test -n "$cid"
+            test -z "$(docker port "$cid" 2>/dev/null)"
+            test "$(docker inspect -f '{{.HostConfig.ReadonlyRootfs}}' "$cid")" = true
+          done
+          elapsed="$(($(date +%s)-start))"
+          mkdir -p ci_receipts/foundation
+          python3 - "$elapsed" <<'PY'
+          import json,os,sys
+          from pathlib import Path
+          doc={
+            "schema":"foundation.f3.clean_compose_restart_lab.v1",
+            "git_sha":os.environ["GITHUB_SHA"],
+            "elapsed_wall_clock_seconds":int(sys.argv[1]),
+            "clean_app_only_compose_start":True,
+            "no_public_ports":True,
+            "read_only_images":True,
+            "send_503":True,
+            "engine_started":False,
+            "stateful_restore_or_rollback":False,
+            "mac_target_tested":False,
+            "approved_rto_threshold":None}
+          Path("ci_receipts/foundation/app_only_clean_restart.json").write_text(
+             json.dumps(doc,sort_keys=True,indent=2)+chr(10))
+          print("F3_APP_ONLY_CLEAN_COMPOSE_COLD_RESTART_PASS_NO_TARGET_ROLLBACK")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f3-foundation-app-only-clean-cold-restart
+          path: ci_receipts/foundation/app_only_clean_restart.json
+          retention-days: 14
+          if-no-files-found: warn
       - name: Emit exact-source LOCAL OCI image identity and hardening receipt
         if: success()
         run: |
