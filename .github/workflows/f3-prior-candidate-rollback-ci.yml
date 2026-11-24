@@ -1,0 +1,32 @@
+name: Foundation F3 prior-candidate deny-only Web API rollback (CI only)
+on:
+  push:
+    branches: [integration/f3-foundation-history-two-users-20261124]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: f3-prior-candidate-rollback-ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  rollback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Offline guard and orchestration tests (not Docker evidence)
+        run: python -m unittest discover -s tests/phase3/foundation -p 'test_f3_prior_candidate_rollback_ci.py' -v
+      - name: Build both clean SHAs and exercise real prior candidate rollback
+        run: python scripts/phase3/f3_prior_candidate_rollback_ci.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f3-prior-candidate-deny-only-rollback-ci
+          path: ci_receipts/f3_prior_candidate_deny_only_rollback.json
+          if-no-files-found: error
+          retention-days: 14

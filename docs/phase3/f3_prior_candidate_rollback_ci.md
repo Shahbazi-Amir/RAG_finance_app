@@ -1,0 +1,7 @@
+# Prior-candidate rollback — Foundation CI-only
+
+Frozen prior candidate: `9c14c56d847cc3657fc69327e4df59b002273719` (five green workflows, including signed POST and shared browser restore). Last observed branch before this patch: `0647ac903a597aa62d26d5547d764e90d23b0020`. Recheck HEAD and ancestor when GitHub becomes available. This additive patch does not change product files, SQL, source-transfer manifests, or historical owner decisions.
+
+Workflow builds real deny-only Web/API images from clean Git archives at the prior SHA and the patched checkout SHA; verifies distinct image IDs and source labels. It runs prior → current → deliberately stops only the current disposable API → prior, reusing the same internal Compose project without data/secret mounts. Each healthy phase verifies real HTTP live=200, ready=503, Send=503, capability disabled, non-root, exact image IDs, network, resource limits and no public ports. It records fault detection and rollback duration. No threshold is approved. No existing project/volume is reused or removed.
+
+Run only on the specified GitHub-hosted branch. Do not run Docker operations on Mac or target. A passing local unit test is not a real Docker receipt. The deny-only rollback does NOT test signed History, PG/session preservation across different image SHAs, or prior approved production release. That next slice must replay the existing two-owner shared signed journey after a cross-SHA switch on a separately restored PG volume, with exact image IDs and rollback consistency. Release HOLD remains.
