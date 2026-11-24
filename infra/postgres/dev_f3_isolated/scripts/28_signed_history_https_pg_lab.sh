@@ -87,6 +87,7 @@ docker run -d --name "$api_bff_name" --no-healthcheck \
   --mount "type=bind,src=$probe_dir,dst=/run/f3_http_probe" \
   -e API_RUNNER_EXECUTION_MODE=APP_ONLY \
   -e F3_ISOLATED_DB_HTTP=YES \
+  -e PYTHONPATH=/srv/release \
   "$image" /bin/sh -c 'export API_CURSOR_KEY="$(cat /run/f3_http_probe/private/cursor.key)"; export API_CURSOR_TTL_SECONDS=300; exec python3 -m apps.api.private_app_only_asgi --config /run/f3_http_probe/private/server-config.json' >/dev/null
 trap 'docker rm -f "$api_bff_name" >/dev/null 2>&1 || true' EXIT
 api_bff_ready=0
