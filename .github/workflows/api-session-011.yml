@@ -333,6 +333,15 @@ jobs:
           set -euo pipefail
           npm ci --no-audit --no-fund
           npm run build
+      - name: Build exact-SHA non-root API image for restored-browser journey
+        if: github.ref == 'refs/heads/agent/api-f3-pr84-signed-history-20261124'
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          docker build --platform linux/amd64 --file infra/phase3_l1/Dockerfile.api \
+            --build-arg BASE=docker.io/library/python:3.13.5 \
+            --build-arg "SOURCE_SHA=$GITHUB_SHA" -t "api-f3-browser:$GITHUB_SHA" .
+          echo "API_F3_BROWSER_IMAGE=api-f3-browser:$GITHUB_SHA" >> "$GITHUB_ENV"
       - name: Real Chromium ordinary login and signed app-only History journey
         if: github.ref == 'refs/heads/agent/api-f3-pr84-signed-history-20261124'
         env:

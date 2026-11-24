@@ -184,6 +184,7 @@ class AppOnlyBrowserDemo(Demo):
             made_network = True
             result = docker("run", "-d", "--pull", "never", "--name", name,
                             "--label", label, "--network", network,
+                            "--network-alias", "pg-restore",
                             "-p", "127.0.0.1::5432",
                             "--mount", "type=volume,source=" + volume +
                             ",target=/var/lib/postgresql/data",
@@ -226,7 +227,7 @@ class AppOnlyBrowserDemo(Demo):
             clone_dsns = {key: make_conninfo(**{**value, "port": port, "dbname": dbname})
                           for key, value in source_dsns.items()}
             print("API_F3_BROWSER_INDEPENDENT_NEW_PG_VOLUME_RESTORE_PASS", flush=True)
-            yield clone_dsns, new_id
+            yield clone_dsns, new_id, network
         finally:
             # Exact resources generated in this invocation; no prune or
             # deletion of an existing CI/service or legacy volume.
@@ -319,7 +320,194 @@ class AppOnlyBrowserDemo(Demo):
             raise RuntimeError("RESTORED_PG_READINESS_NOT_RECOVERED")
         print("API_F3_BROWSER_RESTORED_VOLUME_WRONG_SIGNER_PEER_OUTAGE_RECOVERY_PASS", flush=True)
 
-    def switch_to_restored(self, dsns):
+    @staticmethod
+    def ci_command(*args, timeout=60, input_data=None):
+        """No secret-bearing command/output in a raised exception or CI log."""
+        result = subprocess.run(list(args), input=input_data, capture_output=True,
+                                timeout=timeout, check=False)
+        if result.returncode:
+            raise RuntimeError("BROWSER_CONTAINER_CI_COMMAND_FAILED")
+        return result.stdout
+
+    def configure_restore_pg_tls(self, pg_id, dsns):
+        """Provision a CI-only CA/leaf on the newly owned restored PG."""
+        run = self.ci_command
+        info = json.loads(run("docker", "inspect", pg_id))[0]
+        assert info["Id"] == pg_id and info["State"]["Running"]
+        assert re.fullmatch(r"[a-f0-9]{32}",
+                            info["Config"]["Labels"]["rag.finance.ci.restore"])
+        certs = self.root / "restore-pg-tls"
+        certs.mkdir(mode=0o700)
+        ca_key, ca = certs / "ca.key", certs / "ca.pem"
+        key, csr, leaf = certs / "server.key", certs / "server.csr", certs / "server.pem"
+        extensions = certs / "leaf.ext"
+        extensions.write_text("basicConstraints=critical,CA:FALSE\n"
+                              "keyUsage=critical,digitalSignature,keyEncipherment\n"
+                              "extendedKeyUsage=serverAuth\n"
+                              "subjectAltName=DNS:pg-restore,IP:127.0.0.1\n")
+        run("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-days", "1", "-subj", "/CN=ephemeral-restore-pg-ca",
+            "-addext", "basicConstraints=critical,CA:TRUE",
+            "-addext", "keyUsage=critical,keyCertSign,cRLSign",
+            "-keyout", str(ca_key), "-out", str(ca))
+        run("openssl", "req", "-new", "-newkey", "rsa:2048", "-nodes",
+            "-subj", "/CN=pg-restore", "-keyout", str(key), "-out", str(csr))
+        run("openssl", "x509", "-req", "-in", str(csr), "-CA", str(ca),
+            "-CAkey", str(ca_key), "-CAcreateserial", "-days", "1",
+            "-extfile", str(extensions), "-out", str(leaf))
+        for p in (ca_key, key):
+            p.chmod(0o600)
+        run("docker", "exec", "-u", "0", pg_id, "mkdir", "-m", "0700", "/tmp/restore-tls")
+        for src, name in ((key, "server.key"), (leaf, "server.pem")):
+            run("docker", "cp", str(src), pg_id + ":/tmp/restore-tls/" + name)
+        run("docker", "exec", "-u", "0", pg_id, "chown", "-R", "postgres:postgres",
+            "/tmp/restore-tls")
+        run("docker", "exec", "-u", "0", pg_id, "chmod", "0600",
+            "/tmp/restore-tls/server.key")
+        for statement in ("ALTER SYSTEM SET ssl = 'on'",
+                          "ALTER SYSTEM SET ssl_cert_file = '/tmp/restore-tls/server.pem'",
+                          "ALTER SYSTEM SET ssl_key_file = '/tmp/restore-tls/server.key'"):
+            run("docker", "exec", pg_id, "psql", "-X", "-v", "ON_ERROR_STOP=1",
+                "-U", "postgres", "-d", "postgres", "-c", statement)
+        run("docker", "restart", "--time", "2", pg_id)
+        secure = {name: make_conninfo(dsn, sslmode="verify-full", sslrootcert=str(ca))
+                  for name, dsn in dsns.items()}
+        for _ in range(60):
+            try:
+                with psycopg.connect(secure["DB_APP_DSN"], autocommit=True,
+                                     row_factory=dict_row) as c:
+                    assert c.execute("SELECT ssl FROM pg_stat_ssl "
+                                     "WHERE pid=pg_backend_pid()").fetchone()["ssl"]
+                break
+            except psycopg.OperationalError:
+                time.sleep(0.5)
+        else:
+            raise RuntimeError("RESTORE_PG_TLS_NOT_READY")
+        # No host/service other than the exact new restored instance is touched.
+        self.restore_pg_ca = ca
+        print("API_F3_RESTORED_PG_REAL_TLS_VERIFY_FULL_PASS", flush=True)
+        return secure
+
+    def start_container_api(self, dsns, network):
+        """Use the exact SHA non-root API image and private Docker DNS."""
+        run = self.ci_command
+        sha = os.environ.get("GITHUB_SHA", "")
+        assert re.fullmatch(r"[a-f0-9]{40}", sha)
+        assert run("git", "rev-parse", "HEAD").decode().strip() == sha
+        image = os.environ.get("API_F3_BROWSER_IMAGE", "")
+        assert image == "api-f3-browser:" + sha
+        info = json.loads(run("docker", "image", "inspect", image))[0]
+        assert info["Config"]["User"] == "11001:11001"
+        assert info["Config"]["Labels"]["org.opencontainers.image.revision"] == sha
+        assert info["Config"]["Cmd"] == ["python3", "-m", "apps.api.private_app_only_asgi",
+                                         "--config", "/run/secrets/phase3-app-only.json"]
+        assert re.fullmatch(r"sha256:[a-f0-9]{64}", info["Id"])
+        self.api_image_id = info["Id"]
+        mount = self.root / "restore-api-container-secrets"
+        mount.mkdir(mode=0o700)
+        self.container_secret_dir = mount
+
+        def protected(src, name):
+            p = mount / name
+            p.write_bytes(Path(src).read_bytes())
+            p.chmod(0o600)
+            return "/run/secrets/" + name
+
+        ca = protected(self.restore_pg_ca, "pg-ca.pem")
+        def inside(dsn):
+            return make_conninfo(dsn, host="pg-restore", port=5432,
+                                 sslmode="verify-full", sslrootcert=ca)
+
+        config = {
+            "contract_version": "api.private_app_only_asgi.v1",
+            "listen_host": "0.0.0.0", "listen_port": 8443,
+            "server_tls_cert_file": protected(self.api_env["APP_ONLY_CI_SERVER_CERT"], "server.pem"),
+            "server_tls_key_file": protected(self.api_env["APP_ONLY_CI_SERVER_KEY"], "server.key"),
+            "trusted_bff_ca_file": protected(self.ca, "bff-ca.pem"),
+            "bff_leaf_cert_sha256": sha256(self.client[2]).hexdigest(),
+            "bff_issuer": SIGN_ISS, "bff_audience": SIGN_AUD, "bff_kid": SIGN_KID,
+            "bff_rs256_public_key_file": protected(self.api_env["API_PRODUCT_PROOF_PUBLIC_KEY_PATH"], "public.pem"),
+            "history_dsn": inside(dsns["DB_APP_DSN"]),
+            "revoke_dsn": inside(dsns["AUTH_REVOKER_DSN"]),
+        }
+        def save(name, data):
+            p = mount / name
+            p.write_text(json.dumps(data), encoding="utf-8")
+            p.chmod(0o600)
+
+        save("phase3-app-only.json", config)
+        # A trusted TLS CA with a wrong hostname must fail startup. Use
+        # hostaddr only to keep the network destination the new PG instance.
+        pg_ip = run("docker", "network", "inspect", network,
+                    "--format", "{{range .Containers}}{{.IPv4Address}}{{end}}").decode().strip().split("/")[0]
+        import ipaddress
+        assert ipaddress.ip_address(pg_ip).is_private
+        invalid = dict(config)
+        invalid["history_dsn"] = make_conninfo(config["history_dsn"],
+                            host="wrong-name.invalid", hostaddr=pg_ip)
+        save("wrong-dns.json", invalid)
+        invalid = dict(config)
+        invalid["history_dsn"] = make_conninfo(config["history_dsn"],
+                            sslrootcert="/run/secrets/bff-ca.pem")
+        save("wrong-ca.json", invalid)
+        envfile = self.root / "restore-api-cursor.env"
+        envfile.write_text("API_CURSOR_KEY=" + self.api_env["API_CURSOR_KEY"] + "\n"
+                           "API_CURSOR_TTL_SECONDS=" + self.api_env["API_CURSOR_TTL_SECONDS"] + "\n")
+        envfile.chmod(0o600)
+        run("sudo", "chown", "-R", "11001:11001", str(mount))
+        common = ["--network", network, "--read-only", "--cap-drop", "ALL",
+                  "--security-opt", "no-new-privileges",
+                  "--mount", "type=bind,source=" + str(mount) +
+                  ",target=/run/secrets,readonly", "--env-file", str(envfile)]
+        for negative in ("wrong-dns.json", "wrong-ca.json"):
+            denied = subprocess.run(["docker", "run", "--rm", *common, image,
+                      "python3", "-m", "apps.api.private_app_only_asgi",
+                      "--config", "/run/secrets/" + negative], capture_output=True,
+                      timeout=25)
+            assert denied.returncode == 78, "PG_TLS_NEGATIVE_MUST_EXIT_78"
+            assert b"APP_ONLY_STARTUP_DENIED" in denied.stderr
+            assert b"password=" not in denied.stderr
+        print("API_F3_CONTAINER_PG_WRONG_CA_AND_DNS_DENIED_PASS", flush=True)
+        port = self.api_env["APP_ONLY_CI_API_PORT"]
+        name = "api-restored-" + uuid.uuid4().hex
+        self.api_container = run("docker", "run", "-d", "--pull", "never", "--name", name,
+                                 *common, "-p", "127.0.0.1:" + port + ":8443", image).decode().strip()
+        inspected = json.loads(run("docker", "inspect", self.api_container))[0]
+        assert inspected["Image"] == self.api_image_id
+        assert inspected["Config"]["User"] == "11001:11001"
+        assert inspected["HostConfig"]["ReadonlyRootfs"] is True
+        assert set(inspected["NetworkSettings"]["Networks"]) == {network}
+        ports = inspected["HostConfig"]["PortBindings"]
+        assert set(ports) == {"8443/tcp"} and ports["8443/tcp"] == [
+            {"HostIp": "127.0.0.1", "HostPort": port}]
+        # Independent read-only role and TLS witness from inside the real image.
+        probe = """
+import json, os, psycopg
+from psycopg.rows import dict_row
+assert os.geteuid() == 11001
+config=json.load(open('/run/secrets/phase3-app-only.json'))
+for key,role in (('history_dsn','history_app'),('revoke_dsn','auth_revoker')):
+    with psycopg.connect(config[key], row_factory=dict_row) as c:
+        row=c.execute('SELECT current_user AS role, ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()').fetchone()
+        assert row == {'role':role, 'ssl':True}
+print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
+"""
+        result = run("docker", "exec", self.api_container, "python3", "-c", probe)
+        assert b"API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS" in result
+        print("API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS", flush=True)
+        print("API_F3_EXACT_OCI_API_IMAGE=" + self.api_image_id, flush=True)
+
+    def stop_container_api(self):
+        if getattr(self, "api_container", None):
+            self.ci_command("docker", "rm", "-f", self.api_container)
+            self.api_container = None
+        if getattr(self, "container_secret_dir", None):
+            self.ci_command("sudo", "chown", "-R",
+                            str(os.getuid()) + ":" + str(os.getgid()),
+                            str(self.container_secret_dir))
+            self.container_secret_dir = None
+
+    def switch_to_restored(self, dsns, network):
         """Retain ordinary Next/BFF origins; restart only isolated private services."""
         self.stop_child(self.api_process)
         self.stop_child(self.bootstrap_process)
@@ -336,34 +524,8 @@ class AppOnlyBrowserDemo(Demo):
         with os.fdopen(fd, "w", encoding="utf-8") as out:
             json.dump(worker, out)
         self.bootstrap_process = self.spawn_restored([*self.bootstrap_command[:-1], str(worker_path)])
-        env = {"PATH": os.environ["PATH"], "HOME": str(self.root), "LANG": "C.UTF-8",
-               "PHASE3_APP_MODE": "APP_ONLY", "API_RUNNER_EXECUTION_MODE": "APP_ONLY",
-               "API_CURSOR_KEY": self.api_env["API_CURSOR_KEY"],
-               "API_CURSOR_TTL_SECONDS": self.api_env["API_CURSOR_TTL_SECONDS"]}
-        def protected(src, name):
-            target = self.root / name
-            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "wb") as out:
-                out.write(Path(src).read_bytes())
-            return str(target)
-        config = {"contract_version": "api.private_app_only_asgi.v1",
-                  "listen_host": "127.0.0.1",
-                  "listen_port": int(self.api_env["APP_ONLY_CI_API_PORT"]),
-                  "server_tls_cert_file": protected(self.api_env["APP_ONLY_CI_SERVER_CERT"], "restore-server.pem"),
-                  "server_tls_key_file": protected(self.api_env["APP_ONLY_CI_SERVER_KEY"], "restore-server.key"),
-                  "trusted_bff_ca_file": protected(self.ca, "restore-ca.pem"),
-                  "bff_leaf_cert_sha256": sha256(self.client[2]).hexdigest(),
-                  "bff_issuer": self.api_env["API_PRODUCT_PROOF_ISSUER"],
-                  "bff_audience": self.api_env["API_PRODUCT_PROOF_AUDIENCE"],
-                  "bff_kid": self.api_env["API_PRODUCT_PROOF_KID"],
-                  "bff_rs256_public_key_file": protected(self.api_env["API_PRODUCT_PROOF_PUBLIC_KEY_PATH"], "restore-public.pem"),
-                  "history_dsn": dsns["DB_APP_DSN"], "revoke_dsn": dsns["AUTH_REVOKER_DSN"]}
-        cfg = self.root / "restore-api.json"
-        fd = os.open(cfg, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as out:
-            json.dump(config, out)
-        self.api_process = self.spawn_restored([sys.executable, "-m",
-                                       "apps.api.private_app_only_asgi", "--config", str(cfg)], env)
+        self.api_process = None
+        self.start_container_api(dsns, network)
         tls = ssl.create_default_context(cafile=self.ca)
         tls.load_cert_chain(self.client[0], self.client[1])
         self.await_url(self.bootstrap_origin + "/__fixture_health", tls)
@@ -456,9 +618,10 @@ class AppOnlyBrowserDemo(Demo):
 
             # Repeat in a truly independent fresh PostgreSQL volume while
             # keeping real browser contexts and the original BFF signer.
-            with self.fresh_volume() as (restored, restored_id):
+            with self.fresh_volume() as (restored, restored_id, restored_network):
                 try:
-                    self.switch_to_restored(restored)
+                    restored = self.configure_restore_pg_tls(restored_id, restored)
+                    self.switch_to_restored(restored, restored_network)
                     assert self.counts() == before
                     self.check_restored_outage(raw_b, restored_id)
                     # Normal login again, through the restored Bootstrap and
@@ -551,8 +714,9 @@ class AppOnlyBrowserDemo(Demo):
                         assert auth_session.inspect(original, raw_b["session_ref"]) is not None
                     print("API_F3_BROWSER_RESTORE_SOURCE_SESSIONS_UNCHANGED_PASS", flush=True)
                 finally:
+                    self.stop_container_api()
                     for child in (self.api_process, self.bootstrap_process):
-                        if any(p is child for p, _ in self.children):
+                        if child is not None and any(p is child for p, _ in self.children):
                             self.stop_child(child)
                     self.__dict__.pop("restore_mig_dsn", None)
         finally:
@@ -573,7 +737,7 @@ async def main():
                 await demo.journey(browser, demo.root / "browser-output")
             finally:
                 await browser.close()
-        print("API_F3_REAL_NEXT_BROWSER_SIGNED_APP_ONLY_PG_JOURNEY_PASS", flush=True)
+        print("API_F3_REAL_NEXT_BROWSER_NONROOT_OCI_API_TLS_PG_JOURNEY_PASS", flush=True)
     finally:
         demo.stop()
 
