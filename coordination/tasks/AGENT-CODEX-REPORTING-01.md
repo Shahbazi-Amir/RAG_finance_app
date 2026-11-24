@@ -260,3 +260,11 @@ Status is review. Supervisor approval is pending.
 - Tested: source digests matched, offline Docker build succeeded after starting existing daemon. run-trial.zsh initially failed reading the top-level question before launch; nested evaluation_content question fixed it. One Worker created E5, tokenizer and ONNX once, produced three real contexts with zero generation, and exited cleanly. Verifier exit 1 because ordered Top-10 and Context hashes differed for all three labels. Runtime 41.810 / 37.400 / 44.632 s. Native lifecycle and restart acceptance pending.
 - Open: parity and performance, ownership-bound API integration, actual OIDC/UI and refresh, source release permission, freeze and supervisor acceptance. Prior frozen stack was found stopped and preserved, Arvan HOLD; no canonical checklist or Gate changes.
 - [Persian timing and evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### MAC-FIRST-START-01 — V4 parity boundaries and restored local UI
+
+- Status: review for UI availability, blocked for V4 product. P3M22-A06 (Module 22, activity 6), P3OP11-R07 (§Launch checklist), P3M11-A02 (Module 11, activity 2). Report base ebff29f, local execution start d6b659d, trace 7fef2d8, preserved engine 91a1a346 and candidate image f49f536f4d82.
+- Implemented: local infra/nb23-v4/trace_parity.py, restored original runtime with docker start, and published MAC_FIRST_START_FA.md/.html, CURRENT_STATUS.md and this ledger. No new build or scorer change.
+- Tested: exact DEMO07 reference lineage, probe-login.py product to Keycloak 303 and password form 200 with TLS, seven services running and UI/CSS 200. Probe corrections: closing wrapper for HTTPConnection and matching same-origin fetch header. Offline run-trace.zsh Q2 Hybrid matched, Context differed, Q3 full trace exit 124. Hybrid-only and raw timing evidence under ignored artifacts/nb23-v4-bundle.
+- Open: exact divergence within post-Hybrid path, score reference evidence, restart supervision and native lifecycle, V4 Product API/OIDC/Refresh, source authorization, Candidate Freeze and supervisor acceptance. No Gate or canonical checklist progress. Arvan HOLD.
+- [Persian evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
