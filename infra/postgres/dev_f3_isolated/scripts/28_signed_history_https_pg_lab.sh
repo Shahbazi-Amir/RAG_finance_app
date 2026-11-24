@@ -24,7 +24,7 @@ mkdir -m 0700 "$probe_dir"
 cp "$LAB_SECRETS/ca.crt" "$probe_dir/pg_ca.crt"
 chmod 0600 "$probe_dir/pg_ca.crt"
 # Pass only ephemeral test role credentials; never emit or upload this private directory.
-F3_HTTP_PROBE="$probe_dir" python3 - <<'PY'
+LAB_WORK="$LAB_WORK" F3_HTTP_PROBE="$probe_dir" python3 - <<'PY'
 import json,os
 from pathlib import Path
 w=Path(os.environ['LAB_WORK'])
