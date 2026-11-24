@@ -49,7 +49,7 @@ class OfflineResourceContractTests(unittest.TestCase):
 
     def test_cache_expiry_exact_boundary_and_tampering(self):
         w = self.cache()
-        for now, expected in ((10,True),(14,True),(15,False),(16,False)):
+        for now, expected in ((9,False),(10,True),(14,True),(15,False),(16,False)):
             self.assertEqual(draft_cache_matches(w, scope=self.scope,
                              question_digest="d"*64, now=now), expected)
         self.assertFalse(draft_cache_matches(replace(w,key="f"*64), scope=self.scope,
@@ -157,6 +157,18 @@ class OfflineResourceContractTests(unittest.TestCase):
         self.assertEqual(report["reserved_or_spent_test_units"],8)
         self.assertEqual(report["unit"],"SYNTHETIC_TEST_UNIT")
         self.assertFalse(report["authorizes_product"])
+
+    def test_daily_report_is_scoped_to_original_reservation_day(self):
+        lab = OfflineAdmissionLab(self.bounds)
+        first = self.admit(lab, now=86399)
+        second = self.admit(lab, now=86400)
+        lab.settle(first.ticket, outcome="success", actual_units=3)
+        lab.settle(second.ticket, outcome="success", actual_units=4)
+        self.assertEqual(lab.witness(0)["successful_test_units"], 3)
+        self.assertEqual(lab.witness(1)["successful_test_units"], 4)
+        self.assertEqual(lab.witness(2)["success_count"], 0)
+        self.assertEqual(lab.witness(0)["success_count"], 1)
+        self.assertEqual(lab.witness(1)["success_count"], 1)
 
 
 if __name__ == "__main__":

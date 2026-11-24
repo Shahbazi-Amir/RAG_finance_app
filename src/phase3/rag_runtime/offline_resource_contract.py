@@ -55,6 +55,7 @@ class CacheWitness:
     key: str
     scope: CacheScope
     question_digest: str
+    issued_at: int
     expires_at: int
     authorizes_product: bool = False
 
@@ -71,7 +72,7 @@ def draft_cache_witness(scope, *, question_digest, kind, outcome,
     encoded = json.dumps(["offline-cache-key.v1", scope.release_digest,
         scope.policy_digest, scope.authority_filter_digest, scope.locale,
         question_digest], separators=(",", ":"), ensure_ascii=True).encode("ascii")
-    return CacheWitness(sha256(encoded).hexdigest(), scope, question_digest, expires)
+    return CacheWitness(sha256(encoded).hexdigest(), scope, question_digest, now, expires)
 
 
 def draft_cache_matches(witness, *, scope, question_digest, now):
@@ -86,7 +87,7 @@ def draft_cache_matches(witness, *, scope, question_digest, now):
                 and witness.scope == scope
                 and witness.question_digest == question_digest
                 and witness.key == expected.key
-                and _uint(now) < _uint(witness.expires_at))
+                and _uint(witness.issued_at) <= _uint(now) < _uint(witness.expires_at))
     except OfflineContractDenied:
         return False
 
@@ -138,7 +139,7 @@ class OfflineAdmissionLab:
         self._queue = deque()
         self._active = set()
         self._next = 0
-        self._successful_units = []
+        self._successful_units = {}
 
     def _time(self, now):
         _uint(now)
@@ -149,6 +150,8 @@ class OfflineAdmissionLab:
     def admit(self, *, owner, peer, tokens, cost_units, now):
         # Reserved documentation addresses and synthetic owner IDs only.
         if not isinstance(owner, str) or not re.fullmatch(r"lab_[A-Za-z0-9_]{1,32}", owner):
+            raise OfflineContractDenied()
+        if not isinstance(peer, str):
             raise OfflineContractDenied()
         try:
             addr = ip_address(peer)
@@ -219,7 +222,7 @@ class OfflineAdmissionLab:
                     raise OfflineContractDenied()
                 self._daily_units[day] -= reserved - actual_units
                 if outcome == "success":
-                    self._successful_units.append(actual_units)
+                    self._successful_units.setdefault(day, []).append(actual_units)
             else:
                 raise OfflineContractDenied()
             row[2] = outcome
@@ -230,8 +233,9 @@ class OfflineAdmissionLab:
         """Only aggregate synthetic accounting, no provider invoice."""
         _uint(day)
         with self._lock:
+            successful = self._successful_units.get(day, ())
             return {"day":day, "reserved_or_spent_test_units":self._daily_units.get(day, 0),
                     "active":len(self._active), "queued":len(self._queue),
-                    "success_count":len(self._successful_units),
-                    "successful_test_units":sum(self._successful_units),
+                    "success_count":len(successful),
+                    "successful_test_units":sum(successful),
                     "unit":"SYNTHETIC_TEST_UNIT", "authorizes_product":False}
