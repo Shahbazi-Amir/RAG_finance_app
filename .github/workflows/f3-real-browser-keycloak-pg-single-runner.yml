@@ -3,6 +3,11 @@ name: FOUNDATION_F3 real Chromium Keycloak Next BFF API and SQL — disposable o
 on:
   push:
     branches: [integration/f3-foundation-history-two-users-20261124]
+  pull_request:
+    branches: [integration/f3-foundation-history-two-users-20261124]
+    paths:
+      - 'tests/phase3/integration/foundation/browser_history_restore.py'
+      - '.github/workflows/f3-real-browser-keycloak-pg-single-runner.yml'
   workflow_dispatch:
 
 permissions:
@@ -17,7 +22,7 @@ jobs:
     if: >-
       github.event_name == 'push'
       || (github.event_name == 'pull_request'
-          && github.event.pull_request.head.ref == 'agent/api-product-session-history-revoke-011'
+          && github.event.pull_request.head.ref == 'agent/db-f3-oidc-role-restore-rollback-20261124'
           && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 55
@@ -66,6 +71,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Audit canonical 393 IDs without acceptance promotion
         run: |
           set -euo pipefail
@@ -305,12 +311,40 @@ jobs:
           npm --prefix apps/web run build
           python -m pip install --no-cache-dir 'playwright==1.64.1'
           python -m playwright install --with-deps chromium
+      - name: Install ephemeral NSS trust helper only on GitHub Actions runner
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libnss3-tools ca-certificates
+          command -v certutil
       - name: Actual Keycloak two subjects browser login to signed BFF and PG history
         shell: bash
         run: |
           set -euo pipefail
           python tests/phase3/integration/foundation/browser_history_restore.py
           echo 'F3_REAL_KEYCLOAK_CHROMIUM_NEXT_PG_RESTORED_TWO_USER_PASS'
+      - name: Validate restricted SQL seven-checkpoint receipt against exact checkout
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          r=json.loads(Path("ci_receipts/f3_history_real_browser_restored_lab.json").read_text())
+          assert r["sha"]==subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
+          assert r["strict_https_browser_ca_loopback_ip_san"] is True
+          assert r["db_restricted_history_role"]=="history_app"
+          assert r["db_restricted_sql_read_only"] is True
+          assert r["db_restricted_six_tables_exact_parity"] is True
+          assert r["db_restricted_cross_owner_unset_context_zero"] is True
+          assert r["db_restricted_sql_checkpoints"]==7
+          assert set(r["db_restricted_owner_counts"])=={"A","B"}
+          for counts in r["db_restricted_owner_counts"].values():
+              assert set(counts)=={"conversations","messages","create_receipts","send_receipts","execution_attempts","answers"}
+              assert counts["conversations"]==3 and counts["messages"]>0
+          assert r["engine_calls"]==0 and r["sql_011"] is False
+          assert r["all_26_gates_accepted"] is False
+          print("DB_RESTRICTED_REAL_OIDC_RESTORE_ROLLBACK_EXACT_SHA_RECEIPT=PASS")
+          PY
       - name: Upload real browser-to-restored-PG lab receipt (not Mac)
         if: always()
         uses: actions/upload-artifact@v4
