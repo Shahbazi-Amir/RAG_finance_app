@@ -28,7 +28,8 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
-from playwright.async_api import async_playwright, expect
+from playwright.async_api import async_playwright, expect, Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path[:0] = [str(ROOT), str(ROOT / "tests/phase3/integration/ui")]
@@ -808,6 +809,102 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
         assert self.signed_private(raw_b).status_code == 200
         assert self.counts() == before
         print("API_F3_REAL_BROWSER_BAD_CSRF_NO_REVOKE_NO_HISTORY_MUTATION_PASS", flush=True)
+
+    async def browser_login(self,browser,label,mobile,output):
+        ctx=await browser.new_context(
+            viewport={"width":390,"height":844} if mobile else {"width":1280,"height":800},
+            is_mobile=mobile,device_scale_factor=1,ignore_https_errors=True)
+        page=await ctx.new_page()
+        # Only the initial idempotent GET, BEFORE any credential submit,
+        # START POST, callback or cookie. Chromium can observe Docker's
+        # freshly attached private network as ERR_NETWORK_CHANGED.
+        for attempt in range(3):
+            try:
+                response=await page.goto(ORIGIN+"/login")
+                assert response is not None and response.status==200
+                break
+            except PlaywrightError as exc:
+                if "net::ERR_NETWORK_CHANGED" not in str(exc) or attempt==2:
+                    raise
+                assert not any(c["name"]=="__Host-rag-session" for c in await ctx.cookies(ORIGIN))
+                print("DB_COMMON_INITIAL_GET_NETWORK_CHANGED_RETRY",flush=True)
+                await asyncio.sleep(.5)
+        await expect(page.get_by_test_id("login-submit")).to_be_visible()
+        observed_posts=[]
+        failures=[]
+        csp_count=[]
+        def capture(response):
+            if response.request.method=="POST" and response.url.endswith("/api/auth/login"):
+                observed_posts.append(response.status)
+        def capture_failure(request):
+            if request.method=="POST" and request.url.endswith("/api/auth/login"):
+                failures.append("START_REQUEST_FAILED")
+        def capture_console(message):
+            if message.type=="error" and ("Content Security Policy" in message.text
+                    or "form-action" in message.text):
+                csp_count.append("CSP")
+        page.on("response",capture)
+        page.on("requestfailed",capture_failure)
+        page.on("console",capture_console)
+        await page.get_by_test_id("login-submit").click(no_wait_after=True)
+        visible=False
+        try:
+            await page.locator('input[name="username"]').wait_for(
+                state="visible",timeout=11000)
+            visible=True
+        except PlaywrightTimeoutError:
+            pass
+        location=urlsplit(page.url)
+        location_class=("KEYCLOAK" if location.port==self.kc.port and
+                        location.hostname=="127.0.0.1"
+                        else "NEXT" if location.port==3443 else "OTHER")
+        print("DEMO_LOGIN_DIAGNOSTIC",json.dumps({
+            "post_statuses":observed_posts,
+            "post_failed":len(failures),
+            "csp_errors":len(csp_count),
+            "site":location_class,
+            "path_kind":"OIDC_AUTH" if location.path.endswith(
+                "/protocol/openid-connect/auth") else
+                "LOGIN_ACTION" if "/login-actions/" in location.path
+                else "OTHER",
+            "idp_form_present":visible,
+        }),flush=True)
+        assert visible,"DEMO_REAL_KEYCLOAK_FORM_NOT_REACHED"
+        await page.locator('input[name="username"]').fill(self.kc.accounts[label]["email"])
+        await page.locator('input[name="password"]').fill(self.kc.accounts[label]["password"])
+        async with page.expect_response(
+            lambda r: "/api/history/conversations?limit=2" in r.url
+            and r.request.method=="GET",timeout=30000) as response_wait:
+            await page.locator("#kc-login").click()
+        response=await response_wait.value
+        assert response.status==200, ("LOGIN_HISTORY",label,response.status)
+        page_body=await response.json()
+        assert page_body["kind"]=="conversation_page"
+        assert page_body["scope_user_id"]==self.owners[label]
+        titles=[item["title"] for item in page_body["items"]]
+        assert set(titles)==set(TITLE[label]),("WRONG_HISTORY",label)
+        foreign=TITLE["B" if label=="A" else "A"]
+        assert not set(titles).intersection(foreign)
+        await expect(page.locator('nav.history-list')).to_contain_text(TITLE[label][0])
+        for title in foreign:
+            assert title not in await page.locator('nav.history-list').inner_text()
+        if mobile:
+            await page.locator(".mobile-menu-trigger").click()
+            await expect(page.get_by_test_id("refresh-history")).to_be_visible()
+        cookies=[c for c in await ctx.cookies(ORIGIN)
+                 if c["name"]=="__Host-rag-session"]
+        assert len(cookies)==1 and cookies[0]["secure"] and cookies[0]["httpOnly"]
+        assert cookies[0]["sameSite"]=="Lax"
+        handle=cookies[0]["value"]
+        raw=self.raw_from_alias(handle)
+        assert raw["owner_id"]==self.owners[label]
+        assert raw["session_ref"]!=handle
+        assert self.signed_private(raw).status_code==200
+        output.mkdir(parents=True,exist_ok=True)
+        await page.screenshot(path=str(output/(
+            ("mobile" if mobile else "desktop")+"-"+label+"-history.png")),
+            full_page=True)
+        return ctx,page,handle,raw
 
     async def journey(self, browser, output):
         contexts = []
