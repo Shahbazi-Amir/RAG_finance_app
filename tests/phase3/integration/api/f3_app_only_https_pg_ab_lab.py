@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import secrets
 import signal
+import socket
 import ssl
 import subprocess
 import sys
@@ -222,6 +223,7 @@ def run_server(host, db, scenario):
         ready = False
         last_http = "NONE"
         last_tls_error = "NONE"
+        last_tls_cause = "NONE"
         with tls_client() as c:
             for _ in range(100):
                 if p.poll() is not None:
@@ -236,12 +238,21 @@ def run_server(host, db, scenario):
                         break
                 except httpx.HTTPError as exc:
                     last_tls_error = type(exc).__name__
+                    cause = exc.__cause__
+                    last_tls_cause = type(cause).__name__ if cause is not None else "NONE"
                 time.sleep(0.15)
         if not ready:
             log.flush()
             log_text = (PRIVATE / "app-only-server.log").read_text(errors="replace")
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(1)
+                socket_state = str(sock.connect_ex(("127.0.0.1", 18443)))
             print("APP_ONLY_HTTP_LAB_DIAGNOSTIC_EXIT=" + str(p.poll()) +
+                  "_TCP_CONNECT_EX=" + socket_state +
                   "_HTTP=" + last_http + "_NETWORK_CLASS=" + last_tls_error +
+                  "_CAUSE_CLASS=" + last_tls_cause +
+                  "_UVICORN_BOUND=" + str("Uvicorn running" in log_text) +
+                  "_SSL_LOG_MARKER=" + str("SSL" in log_text or "ssl" in log_text) +
                   "_STARTUP_DENIED=" + str("APP_ONLY_STARTUP_DENIED" in log_text) +
                   "_MODULE_MISSING=" + str("ModuleNotFoundError" in log_text), flush=True)
         assert ready, "PRIVATE_ASGI_MTLS_DB_READY_NOT_REACHED"
