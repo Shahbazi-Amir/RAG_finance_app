@@ -179,6 +179,32 @@ async def signed_pagination(page,known):
     assert set(all_ids)==set(known) and len(all_ids)==len(set(all_ids))
 
 
+async def cursor_owner_signature_denied(page_a,page_b):
+    """Actual signed cursor is bound to the authenticated owner and HMAC."""
+    results=[]
+    for page in (page_a,page_b):
+        response=await page.request.get(
+            ORIGIN+"/api/history/conversations?limit=1")
+        assert response.status==200,("CURSOR_SOURCE",response.status)
+        doc=await response.json()
+        assert doc["page"]["has_more"],"MISSING_REAL_PAGINATION"
+        cursor=doc["page"]["next_cursor"]
+        assert cursor and len(cursor)<=512
+        results.append(cursor)
+    for original,foreign,cursor in (
+        (page_a,page_b,results[0]),(page_b,page_a,results[1])):
+        foreign_resp=await foreign.request.get(
+            ORIGIN+"/api/history/conversations?limit=1&cursor="+cursor)
+        assert foreign_resp.status==404,("CURSOR_OWNER_FENCE",foreign_resp.status)
+        tampered=("B" if cursor[0]!="B" else "A")+cursor[1:]
+        bad=await original.request.get(
+            ORIGIN+"/api/history/conversations?limit=1&cursor="+tampered)
+        assert bad.status==422,("CURSOR_SIGNATURE_TAMPER",bad.status)
+        wrong_limit=await original.request.get(
+            ORIGIN+"/api/history/conversations?limit=2&cursor="+cursor)
+        assert wrong_limit.status==422,("CURSOR_LIMIT_BIND",wrong_limit.status)
+
+
 async def foreign_owner_denied(page,foreign_ids):
     for foreign_id in sorted(foreign_ids):
         resp=await page.request.get(
@@ -308,6 +334,7 @@ async def execute():
             await mobile_320_keyboard_accessibility(page_b)
             await foreign_owner_denied(page_a,ids_b)
             await foreign_owner_denied(page_b,ids_a)
+            await cursor_owner_signature_denied(page_a,page_b)
             await send_denied(page_a)
             assert inventory(demo)[1]==receipt_before
             print("F3_REAL_BROWSER_KEYCLOAK_NEXT_PG17_AB_PAGING_DETAIL_SEND503_PRE_RESTORE_PASS",
@@ -322,6 +349,7 @@ async def execute():
             await signed_pagination(page_b,ids_b)
             await foreign_owner_denied(page_a,ids_b)
             await foreign_owner_denied(page_b,ids_a)
+            await cursor_owner_signature_denied(page_a,page_b)
             await send_denied(page_a)
             after,receipt_after,new_cluster=inventory(demo)
             assert source==after and receipt_before==receipt_after
@@ -353,6 +381,7 @@ async def execute():
                 "browser_detail_message_id_and_body_sql_equal":True,
                 "all_a_conversations_cross_owner_404":True,
                 "all_b_conversations_cross_owner_404":True,
+                "cursor_owner_404_hmac_tamper_422_limit_422_pre_post_restore":True,
                 "real_authenticated_browser_mobile_320_rtl_keyboard_pre_post_restore":True,
                 "b_direct_a_detail_404":True,
                 "send_bff_503_no_extra_receipts":True,
