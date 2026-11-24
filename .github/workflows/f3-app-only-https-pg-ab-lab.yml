@@ -9,7 +9,7 @@ on:
       - 'tests/phase3/integration/ui/f3_app_only_bff_product_request_pg.mjs'
       - 'apps/api/private_app_only_asgi.py'
   pull_request:
-    branches: [agent/db-f3-backup-authenticated-catalog-20261124]
+    branches: [agent/db-f3-revoked-backup-restore-20261124]
     paths:
       - 'infra/postgres/dev_f3_isolated/scripts/28_signed_history_https_pg_lab.sh'
       - 'tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py'
@@ -83,6 +83,9 @@ jobs:
           assert r["backup_key_custody"]=="EPHEMERAL_MEMORY_ONLY_NOT_PRODUCTION_KMS_OR_RETENTION"
           assert r["catalog_parity"]=="SIX_TABLES_COLUMNS_CONSTRAINTS_INDEXES_RLS_EXACT_SOURCE_RESTORE"
           assert r["keyset_index_paths"]=="FORCED_PLANNER_ELIGIBILITY_NOT_LATENCY_BENCHMARK"
+          assert r["concurrent_repository"]=="CREATE_T1_T2_SIX_REAL_SESSIONS_EACH_EXACTLY_ONE"
+          assert r["repository_negative_matrix"]=="NINE_FOREIGN_UNKNOWN_CONFLICT_DENIALS_ZERO_MUTATION"
+          assert r["repository_terminal_replay"]=="UNKNOWN_CANCELLED_STABLE_ATTEMPT_ZERO_ANSWER_NO_OWNER_LEAK"
           assert r["m10_process_crash"]=="REAL_SIGKILL_T1_T2_PRE_POST_COMMIT_REPLAY_IDS_STABLE"
           assert r["m10_process_crash_scope"]=="TRUSTED_REPOSITORY_FIXTURE_NOT_HTTP_SEND_NO_DISPATCH"
           assert r["bff_restore_replay"]=="BEFORE_AFTER_REFRESH_AND_REVOKED_A401_B200"

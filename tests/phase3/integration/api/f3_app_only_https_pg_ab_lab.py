@@ -413,6 +413,95 @@ def m10_process():
     print("M10_REAL_T1_T2_PROCESS_CRASH_REPLAY_EXACT_DURABLE_IDS_ZERO_ANSWERS=PASS", flush=True)
 
 
+def concurrent_repository_fence():
+    """Real LOGIN sessions, same trusted repository, no HTTP Send or dispatch."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from apps.api import history_api
+    import repository as r
+    owner, other = "f3-race-owner-a", "f3-race-owner-b"
+    create = {"kind":"create_conversation_request","contract_version":"product.v1",
+              "client_conversation_id":"race-conversation","idempotency_key":"race-create-0001",
+              "title":"isolated concurrency"}
+    send = {"kind":"send_message_request","contract_version":"product.v1",
+            "requested_conversation_id":None,"client_message_id":"race-message",
+            "idempotency_key":"race-send-0001","question":"synthetic concurrent repository"}
+    def connect():
+        return conn("history_app","demo-db",M10_DB)
+    def race(op):
+        barrier=Barrier(6,timeout=15)
+        def worker(_):
+            with connect() as c:
+                c.execute("SET statement_timeout='20s'")
+                barrier.wait()
+                value=op(c)
+                assert c.execute("SELECT count(*) AS n FROM history_l1.conversations").fetchone()["n"]==0
+                return value
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            return list(pool.map(worker,range(6)))
+    def create_op(c):
+        return r.create_conversation(c,owner,create,r.uid(),r.uid())
+    cs=race(create_op)
+    assert sorted(x["disposition"] for x in cs)==["created"]+["replayed"]*5
+    cid=cs[0]["conversation"]["conversation_id"]
+    assert all(x["conversation"]["conversation_id"]==cid for x in cs)
+    print("DB_RACE_CREATE_SIX_SESSIONS_ONE_CREATED_FIVE_REPLAYED=PASS",flush=True)
+    def send_op(c):
+        return r.send_t1(c,owner,send,r.uid(),r.uid())
+    ss=race(send_op)
+    assert sorted(x["disposition"] for x in ss)==["created"]+["replayed"]*5
+    mid,scid=ss[0]["message_id"],ss[0]["resolved_conversation_id"]
+    assert all(x["message_id"]==mid and x["resolved_conversation_id"]==scid for x in ss)
+    print("DB_RACE_T1_SIX_SESSIONS_ONE_CREATED_FIVE_REPLAYED=PASS",flush=True)
+    def attempt_op(c):
+        return r.start_t2(c,owner,None,send["client_message_id"],send["idempotency_key"],r.uid(),r.uid())
+    attempts=race(attempt_op)
+    aid=attempts[0]["id"]
+    assert all(x["id"]==aid and x["reserved_answer_id"]==attempts[0]["reserved_answer_id"] for x in attempts)
+    print("DB_RACE_T2_SIX_SESSIONS_EXACT_ONE_ATTEMPT=PASS",flush=True)
+    q={k:v for k,v in send.items() if k!="question"}
+    q["kind"]="message_request_status_query"
+    tables=("conversations","messages","create_receipts","send_receipts","execution_attempts","answers")
+    def snap(c,actor):
+        with c.transaction():
+            c.execute("SET TRANSACTION READ ONLY")
+            c.execute("SELECT set_config('app.owner_id',%s,true)",(actor,))
+            return {t:c.execute(f"SELECT to_jsonb(t)::text AS row FROM history_l1.{t} t ORDER BY 1").fetchall() for t in tables}
+    def denied(fn,exc):
+        try:fn()
+        except exc:return
+        raise AssertionError("EXPECTED_REPOSITORY_DENIAL_MISSING")
+    with connect() as c:
+        a=snap(c,owner)
+        assert tuple(map(len,a.values()))==(2,1,1,1,1,0)
+        assert all(not v for v in snap(c,other).values())
+        # Reuse the SAME physical connection across successful and aborted tx.
+        for target in (scid,"nonexistent-race-conversation"):
+            denied(lambda:r.list_messages(c,other,target),r.NotFound)
+            denied(lambda:r.send_t1(c,other,dict(send,requested_conversation_id=target),r.uid(),r.uid()),r.NotFound)
+        denied(lambda:r.read_status(c,other,q,r.uid(),r.uid()),r.NotFound)
+        denied(lambda:r.mark_attempt(c,other,aid,"cancelled"),r.NotFound)
+        denied(lambda:r.start_t2(c,other,None,send["client_message_id"],send["idempotency_key"],r.uid(),r.uid()),r.NotFound)
+        denied(lambda:r.create_conversation(c,owner,dict(create,title="changed"),r.uid(),r.uid()),r.Conflict)
+        denied(lambda:r.send_t1(c,owner,dict(send,question="changed"),r.uid(),r.uid()),r.Conflict)
+        assert snap(c,owner)==a and all(not v for v in snap(c,other).values())
+        print("DB_REPOSITORY_FOREIGN_UNKNOWN_CONFLICT_NINE_DENIALS_ZERO_MUTATION=PASS",flush=True)
+        for expected in ("attempt_unknown","cancelled"):
+            r.mark_attempt(c,owner,aid,expected)
+            status=r.read_status(c,owner,q,r.uid(),r.uid())
+            assert status["status"]==expected and status["attempt_id"]==aid and status["answer"] is None
+            assert attempt_op(c)["id"]==aid
+        denied(lambda:r.mark_attempt(c,owner,aid,"attempt_unknown"),r.Conflict)
+        assert r.read_status(c,owner,q,r.uid(),r.uid())["status"]=="cancelled"
+        final=snap(c,owner)
+        assert tuple(map(len,final.values()))==(2,1,1,1,1,0)
+        assert all(final[t]==a[t] for t in tables if t!="execution_attempts")
+        assert all(not v for v in snap(c,other).values())
+        assert all(c.execute(f"SELECT count(*) AS n FROM history_l1.{t}").fetchone()["n"]==0 for t in tables)
+        print("DB_REPOSITORY_UNKNOWN_CANCELLED_TERMINAL_REPLAY_SAME_ID_NO_ANSWER=PASS",flush=True)
+        print("DB_REPOSITORY_SAME_CONNECTION_ABORT_UNSET_OWNER_SIX_TABLES_ZERO=PASS",flush=True)
+
+
 def signature(label, method: str, raw_path: str, raw_query: str = "", body: bytes = b"",
               owner_override=None, session_override=None) -> str:
     state = json.loads((PRIVATE / "session_state.json").read_text())[label]
@@ -657,7 +746,7 @@ def verify_revoked_backup_copy():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("phase", choices=("seed", "before", "after", "revoke", "snapshot_source", "snapshot_restore", "ready200", "ready503", "m10_process", "m10_child", "authenticated_backup", "catalog_source", "catalog_restore", "snapshot_revoked_copy", "verify_revoked_copy"))
+    parser.add_argument("phase", choices=("seed", "before", "after", "revoke", "snapshot_source", "snapshot_restore", "ready200", "ready503", "m10_process", "m10_child", "authenticated_backup", "catalog_source", "catalog_restore", "snapshot_revoked_copy", "verify_revoked_copy", "concurrent_repository"))
     parser.add_argument("--crash", choices=("t1_before", "t1_after", "t2_before", "t2_after"))
     args = parser.parse_args()
     require_lab()
@@ -666,6 +755,9 @@ def main():
         return
     if args.phase in ("catalog_source", "catalog_restore"):
         catalog_snapshot(args.phase)
+        return
+    if args.phase == "concurrent_repository":
+        concurrent_repository_fence()
         return
     if args.phase == "m10_process":
         m10_process()

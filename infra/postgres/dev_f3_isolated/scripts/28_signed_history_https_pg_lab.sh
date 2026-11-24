@@ -70,6 +70,7 @@ admin lab-db -c "CREATE DATABASE $m10_db TEMPLATE rag_finance_f3_lab OWNER postg
 admin lab-db -c "REVOKE CONNECT,TEMP ON DATABASE $m10_db FROM PUBLIC" >/dev/null
 admin lab-db -c "GRANT CONNECT ON DATABASE $m10_db TO history_app" >/dev/null
 run_probe m10_process
+run_probe concurrent_repository
 admin lab-db -c "DROP DATABASE $m10_db WITH (FORCE)" >/dev/null
 [[ "$(admin lab-db -c "SELECT count(*) FROM pg_database WHERE datname='$m10_db'")" == 0 ]] || exit 70
 run_probe seed
@@ -267,6 +268,9 @@ report={
  "sql_independent_history_snapshot":"EXACT_PARITY_SOURCE_RESTORE_A5_B3_M4_M2_ZERO_SEND",
  "m10_process_crash":"REAL_SIGKILL_T1_T2_PRE_POST_COMMIT_REPLAY_IDS_STABLE",
  "m10_process_crash_scope":"TRUSTED_REPOSITORY_FIXTURE_NOT_HTTP_SEND_NO_DISPATCH",
+ "concurrent_repository":"CREATE_T1_T2_SIX_REAL_SESSIONS_EACH_EXACTLY_ONE",
+ "repository_negative_matrix":"NINE_FOREIGN_UNKNOWN_CONFLICT_DENIALS_ZERO_MUTATION",
+ "repository_terminal_replay":"UNKNOWN_CANCELLED_STABLE_ATTEMPT_ZERO_ANSWER_NO_OWNER_LEAK",
  "backup_aead":"AES256_GCM_ACTUAL_PG_RESTORE_WRONG_KEY_TAMPER_TRUNCATION_AAD_DENIED",
  "backup_key_custody":"EPHEMERAL_MEMORY_ONLY_NOT_PRODUCTION_KMS_OR_RETENTION",
  "catalog_parity":"SIX_TABLES_COLUMNS_CONSTRAINTS_INDEXES_RLS_EXACT_SOURCE_RESTORE",
