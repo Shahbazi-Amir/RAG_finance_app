@@ -4,7 +4,7 @@ on:
   push:
     branches: [agent/ui-f3-foundation-joined-20261124]
   pull_request:
-    branches: [agent/ui-f3-real-two-owner-history-20261124]
+    branches: [integration/f3-foundation-history-two-users-20261124]
   workflow_dispatch:
 
 permissions:
