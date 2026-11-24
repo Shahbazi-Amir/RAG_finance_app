@@ -83,6 +83,39 @@ class TestStrictBrowserPreflight(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "HTTPS_INGRESS_CA_OR_IP_SAN_NOT_TRUSTED"):
                 target.verify_ingress_ca_and_san()
 
+    def test_rejects_forged_seed_for_other_source_sha(self):
+        changed = json.loads(json.dumps(self.seed))
+        changed["integrated_sha"] = "f" * 40
+        with self.assertRaisesRegex(RuntimeError, "SOURCE_OR_PG_SEED_PROVENANCE_MISMATCH"):
+            self.check(seed=changed)
+
+    def test_rejects_seed_without_actual_page_two(self):
+        changed = json.loads(json.dumps(self.seed))
+        changed["users"]["A"]["conversation_ids"] = ["a1", "a2"]
+        with self.assertRaisesRegex(RuntimeError, "PG_SEED_REQUIRES_A_CONVERSATION_PAGINATION"):
+            self.check(seed=changed)
+
+    def test_rejects_seed_without_actual_long_thread(self):
+        changed = json.loads(json.dumps(self.seed))
+        changed["users"]["A"]["message_ids"]["a1"] = ["msg00"]
+        with self.assertRaisesRegex(RuntimeError, "PG_SEED_REQUIRES_FIRST_A_THREAD_OVER_30_MESSAGES"):
+            self.check(seed=changed)
+
+    def test_rejects_collision_of_conversations_between_owners(self):
+        changed = json.loads(json.dumps(self.seed))
+        changed["users"]["B"]["conversation_ids"] = ["a1"]
+        changed["users"]["B"]["message_ids"] = {"a1": ["onlyb"]}
+        with self.assertRaisesRegex(RuntimeError, "PG_SEED_OWNER_COLLISION"):
+            self.check(seed=changed)
+
+    def test_rejects_malformed_pinned_public_browser_origin(self):
+        with self.assertRaisesRegex(RuntimeError, "ONLY_TEMPORARY_HTTPS_LOCAL_LAB_IS_AUTHORIZED"):
+            self.check(override={"UI_REAL_BROWSER_ORIGIN": "http://127.0.0.1:3443"})
+
+    def test_rejects_non_app_only_mode(self):
+        with self.assertRaisesRegex(RuntimeError, "NO_ENGINE_MODE_NOT_CONFIRMED"):
+            self.check(override={"PHASE3_APP_MODE": "NO_DISPATCH_ONLY"})
+
     def test_valid_synthetic_shape_is_only_a_unit_preflight(self):
         receipt, idp, credentials, source_sha = self.check()
         self.assertEqual(source_sha, self.sha)
