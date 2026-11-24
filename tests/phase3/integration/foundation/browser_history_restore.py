@@ -81,7 +81,7 @@ def prepare_private_database():
     global PG_TLS,DB_NAME
     root=Path(os.environ["RUNNER_TEMP"])/"f3-browser-private-pg-tls"
     root.mkdir(mode=0o700)
-    PG_TLS=ssl_server(root)
+    PG_TLS=ssl_server(root, include_private_dns=os.getenv("F3_BROWSER_SIGNED_IMAGE")=="1")
     install_pg_tls(source_service(),5432)
     updates={}
     roles=set()
@@ -380,6 +380,8 @@ def restore_separate_volume(demo,original_records,source_system_id):
     assert len(service)==1,("PG_SOURCE_HOST_PORT_COLLISION",len(service))
     original_image=command(["docker","inspect","--format","{{.Config.Image}}",service[0]]).strip()
     assert original_image=="postgres:17.11",("NOT_GITHUB_PG17_SERVICE",original_image)
+    if demo.image_lab:
+        demo.image_lab.detach_pg()
     command(["docker","stop",service[0]])
     if demo.private_product:
         demo.assert_private_readiness(503)
@@ -397,12 +399,14 @@ def restore_separate_volume(demo,original_records,source_system_id):
             if restored_id==new_id:break
         except psycopg.Error:time.sleep(.5)
     else:raise AssertionError("RESTORED_VOLUME_NOT_CONNECTED_TO_ORIGINAL_PORT")
+    if demo.image_lab:
+        demo.image_lab.attach_pg(new_name)
     # Preserve the original GitHub-Actions service container for a genuine
     # reversible rollback; never stop or restart any host/demo container.
     return (new_name,volume,new_id,service[0])
 
 
-def rollback_to_original_lab_database(restored, source_system_id):
+def rollback_to_original_lab_database(restored, source_system_id, demo=None):
     """Reverse CI-only DB port switch without writes and measure recovery.
 
     Neither a production/staging volume nor a Mac installation is touched.
@@ -413,8 +417,12 @@ def rollback_to_original_lab_database(restored, source_system_id):
     image=command(["docker","inspect","--format","{{.Config.Image}}",original_cid]).strip()
     assert image=="postgres:17.11","UNSAFE_SOURCE_IMAGE_FOR_ROLLBACK"
     start=time.monotonic()
+    if demo and demo.image_lab:
+        demo.image_lab.detach_pg()
     command(["docker","stop",new_name])
     command(["docker","start",original_cid])
+    if demo and demo.image_lab:
+        demo.image_lab.attach_pg(original_cid)
     for _ in range(100):
         try:
             with connect() as c:
@@ -434,6 +442,10 @@ async def execute():
     if private:
         prepare_private_database()
     demo=Demo(private_product=private)
+    image_mode=os.getenv("F3_BROWSER_SIGNED_IMAGE")=="1"
+    if image_mode:
+        assert private
+        demo.source_pg=source_service()
     restored=None
     browser=None
     ctx_a=ctx_b=None
@@ -471,6 +483,12 @@ async def execute():
             restored=restore_separate_volume(demo,source,source_cluster)
             if private:
                 demo.assert_private_readiness(200)
+            if demo.image_lab:
+                demo.image_lab.reload()
+                tls=__import__("ssl").create_default_context(cafile=demo.ca)
+                tls.load_cert_chain(demo.client[0],demo.client[1])
+                demo.await_url(demo.product_origin+"/internal/ready",tls,200)
+                demo.assert_private_readiness(200)
             # Continue same real two browser contexts, same session cookie,
             # same Keycloak process and Next/BFF/API, now independent PG volume.
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
@@ -492,7 +510,7 @@ async def execute():
             # Exercise a genuine reversal: restored disposable volume -> original
             # *unchanged* GitHub Actions PostgreSQL service. No writes since the
             # initial snapshot: fake or resurrected Answer/receipt is forbidden.
-            rollback_seconds=rollback_to_original_lab_database(restored,source_cluster)
+            rollback_seconds=rollback_to_original_lab_database(restored,source_cluster,demo)
             if private:
                 demo.assert_private_readiness(200)
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
@@ -536,7 +554,11 @@ async def execute():
                 "actual_private_app_only_entrypoint":private,
                 "pg_tls_verify_full_product_roles":private,
                 "private_readiness_source_200_pg_stop_503_restored_200_rollback_200":private,
-                "actual_signed_runtime_image":False,
+                "actual_signed_runtime_image":bool(demo.image_lab),
+                "signed_image_archive_replay":demo.image_lab.roundtrip if demo.image_lab else None,
+                "signed_api_internal_network_no_published_ports":bool(demo.image_lab),
+                "signed_api_nonroot_readonly_only_api_secrets_mount":bool(demo.image_lab),
+                "web_host_process_not_container":True,
                 "ci_bootstrap_and_https_proxy_used":True,
                 "browser_default_history_sql_equal":True,
                 "browser_pagination_and_detail_sql_equal":True,

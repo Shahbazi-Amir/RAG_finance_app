@@ -69,6 +69,8 @@ def save_bytes(path,data):
 class Demo:
     def __init__(self, *, private_product=False):
         self.private_product=private_product
+        self.image_lab=None
+        self.source_pg=None
         self.tmp=TemporaryDirectory(prefix="rag-phase3-demo-")
         self.root=Path(self.tmp.name)
         self.kc=DisposableKeycloak()
@@ -251,8 +253,13 @@ class Demo:
                     "C018_RUNNER_PATH","QDRANT_URL","MODEL_GATEWAY_URL",
                     "API_ENGINE_ENABLED"}}
             product_env["API_RUNNER_EXECUTION_MODE"]="APP_ONLY"
-            self.add([sys.executable,"-m","apps.api.private_app_only_asgi",
-                      "--config",str(config)],product_env)
+            if os.environ.get("F3_BROWSER_SIGNED_IMAGE")=="1":
+                from f3_signed_image_lab import SignedImageLab
+                assert self.source_pg
+                self.image_lab=SignedImageLab(self.root,product_port,json.loads(config.read_text()),self.source_pg)
+            else:
+                self.add([sys.executable,"-m","apps.api.private_app_only_asgi",
+                          "--config",str(config)],product_env)
         else:
             self.add([sys.executable,"-m","uvicorn","apps.api.product_session_api:app",
                 "--host","127.0.0.1","--port",str(product_port),
@@ -487,6 +494,8 @@ class Demo:
             if ctx_b is not None:await ctx_b.close()
 
     def stop(self):
+        if self.image_lab:
+            self.image_lab.close()
         for proc,log in reversed(self.children):
             if proc.poll() is None:
                 proc.terminate()
