@@ -227,6 +227,46 @@ trap - EXIT
 [[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM history_l1.send_receipts")" == 0 ]] || exit 70
 [[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM history_l1.answers")" == 0 ]] || exit 70
 run_probe verify_revoked_restored
+# Deliberate unclean exit of ONLY the isolated restore service. A real client
+# has an uncommitted row before SIGKILL; source service and volume stay intact.
+restore_cid="$(compose --profile restore ps -q restore-db)"
+[[ "$restore_cid" =~ ^[0-9a-f]{64}$ ]] || exit 70
+[[ "$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$restore_cid")" == "$LAB_PROJECT" ]] || exit 70
+[[ "$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.service" }}' "$restore_cid")" == restore-db ]] || exit 70
+[[ "$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' "$restore_cid")" == "$LAB_RESTORE_VOLUME" ]] || exit 70
+[[ "$(docker inspect -f '{{.Config.Image}}' "$restore_cid")" == public.ecr.aws/docker/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a ]] || exit 70
+[[ "$restore_cid" != "$(compose ps -q lab-db)" ]] || exit 70
+crash_client="f3-pg-crash-client-$short_sha"
+docker run -d --name "$crash_client" --network "$network" --read-only \
+  --security-opt no-new-privileges:true --pids-limit 96 --memory 512m \
+  --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --mount "type=bind,src=$probe_dir,dst=/run/f3_http_probe" \
+  -e F3_ISOLATED_DB_HTTP=YES -e PYTHONPATH=/srv/release "$image" \
+  python3 /srv/release/tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py hold_pg_crash >/dev/null
+trap 'docker rm -f "$crash_client" >/dev/null 2>&1 || true' EXIT
+for n in $(seq 1 40); do
+ sudo test -f "$probe_dir/private/pg_crash_tx_open" && break
+ sleep .25
+done
+sudo test -f "$probe_dir/private/pg_crash_tx_open" || exit 70
+# Independent administrator cannot see uncommitted row.
+[[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM history_l1.conversations WHERE id='f3-uncommitted-pg-crash'")" == 0 ]] || exit 70
+docker kill --signal KILL "$restore_cid" >/dev/null
+[[ "$(docker inspect -f '{{.State.ExitCode}}' "$restore_cid")" == 137 ]] || exit 70
+[[ "$(timeout 30 docker wait "$crash_client")" == 0 ]] || exit 70
+sudo test -f "$probe_dir/private/pg_crash_tx_disconnected" || exit 70
+docker rm "$crash_client" >/dev/null
+trap - EXIT
+docker start "$restore_cid" >/dev/null
+for n in $(seq 1 45); do
+ if [[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc 'SELECT 1' 2>/dev/null || true)" == 1 ]]; then break; fi
+ sleep 1
+done
+[[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc 'SELECT system_identifier FROM pg_control_system()')" == "$dst_id" ]] || exit 70
+[[ "$(DB_SERVICE=lab-db DB_NAME="$src" dbpsql -Atc 'SELECT system_identifier FROM pg_control_system()')" == "$src_id" ]] || exit 70
+[[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT count(*) FROM db55_audit.migration_runs WHERE status='APPLIED'")" == 10 ]] || exit 70
+run_probe verify_pg_crash
+echo DB_REAL_PG_SIGKILL_EXIT137_SAME_VOLUME_RECOVERY=PASS
 run_probe stale_snapshot
 # Backup *after* revocation, then restore into a fresh clone on the other
 # independent cluster. No attempt to activate a stale pre-revocation backup.
@@ -284,6 +324,7 @@ report={
  "backup_plaintext_cleanup":"ORIGINAL_DUMP_AND_VERIFIED_RESTORE_REMOVED_AFTER_SUCCESS",
  "stale_snapshot_witness":"REAL_READ_ONLY_SESSION_DIVERGENCE_NO_STALE_LISTENER_ADMISSION",
  "post_outage_revocation_recheck":"A401_B200_FOREIGN_UNKNOWN404",
+ "pg_unclean_crash":"REAL_RESTORE_PG_SIGKILL_EXIT137_UNCOMMITTED_ROW_ROLLED_BACK_SAME_VOLUME_AND_LEDGER_REVOKE_HISTORY_PARITY",
  "catalog_parity":"SIX_TABLES_COLUMNS_CONSTRAINTS_INDEXES_RLS_EXACT_SOURCE_RESTORE",
  "keyset_index_paths":"FORCED_PLANNER_ELIGIBILITY_NOT_LATENCY_BENCHMARK",
  "post_revoke_backup_restore":"NEW_DB_OTHER_CLUSTER_A401_B200_HISTORY_PARITY",

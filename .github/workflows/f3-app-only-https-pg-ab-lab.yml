@@ -9,7 +9,7 @@ on:
       - 'tests/phase3/integration/ui/f3_app_only_bff_product_request_pg.mjs'
       - 'apps/api/private_app_only_asgi.py'
   pull_request:
-    branches: [agent/db-f3-concurrent-replay-scope-20261124]
+    branches: [agent/db-f3-independent-backup-admission-20261124]
     paths:
       - 'infra/postgres/dev_f3_isolated/scripts/28_signed_history_https_pg_lab.sh'
       - 'tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py'
@@ -85,6 +85,7 @@ jobs:
           assert r["backup_plaintext_cleanup"]=="ORIGINAL_DUMP_AND_VERIFIED_RESTORE_REMOVED_AFTER_SUCCESS"
           assert r["stale_snapshot_witness"]=="REAL_READ_ONLY_SESSION_DIVERGENCE_NO_STALE_LISTENER_ADMISSION"
           assert r["post_outage_revocation_recheck"]=="A401_B200_FOREIGN_UNKNOWN404"
+          assert r["pg_unclean_crash"]=="REAL_RESTORE_PG_SIGKILL_EXIT137_UNCOMMITTED_ROW_ROLLED_BACK_SAME_VOLUME_AND_LEDGER_REVOKE_HISTORY_PARITY"
           assert r["catalog_parity"]=="SIX_TABLES_COLUMNS_CONSTRAINTS_INDEXES_RLS_EXACT_SOURCE_RESTORE"
           assert r["keyset_index_paths"]=="FORCED_PLANNER_ELIGIBILITY_NOT_LATENCY_BENCHMARK"
           assert r["concurrent_repository"]=="CREATE_T1_T2_SIX_REAL_SESSIONS_EACH_EXACTLY_ONE"
