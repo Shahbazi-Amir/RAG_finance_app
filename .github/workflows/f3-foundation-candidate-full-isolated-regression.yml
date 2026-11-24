@@ -56,6 +56,10 @@ jobs:
           python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
           python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v
           python -m unittest discover -s tests/phase3/integration/ui -p 'test_l2_no_dispatch_receipt_gate.py' -v
+      - name: Independently reject forged source SHA, SBOM, security or owner acceptance
+        shell: bash
+        run: |
+          python -m unittest discover -s tests/phase3/foundation -p 'test_f3_exact_sha_artifacts.py' -v
       - name: All 393 canonical IDs exact source mapping and no false acceptance
         run: python -m unittest discover -s tests/phase3/integration -p 'test_integrated_393_registry.py' -v
       - name: Emit all 393 canonical owner/criterion/test-state rows, no Gate promotion
