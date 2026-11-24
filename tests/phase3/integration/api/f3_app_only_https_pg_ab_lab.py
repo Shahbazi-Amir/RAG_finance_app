@@ -608,6 +608,46 @@ def role_write_matrix(phase):
     print("DB_ROLE_WRITE_MATRIX_"+phase.upper()+"_26_ACTUAL_NEGATIVES_NO_MUTATION=PASS",flush=True)
 
 
+def hold_uncommitted_pg_crash():
+    """Disposable restore DB only; never commit this synthetic row."""
+    state=json.loads((PRIVATE/"session_state.json").read_text())
+    owner=state["b"]["owner"]
+    try:
+        with conn("history_app","restore-db","rag_finance_f3_http_ab_restored") as c:
+            with c.transaction():
+                c.execute("SELECT set_config('app.owner_id',%s,true)",(owner,))
+                c.execute("INSERT INTO history_l1.conversations(owner_id,id,title) "
+                          "VALUES(%s,'f3-uncommitted-pg-crash','rollback expected')",(owner,))
+                assert c.execute("SELECT count(*) AS n FROM history_l1.conversations "
+                                 "WHERE id='f3-uncommitted-pg-crash'").fetchone()["n"]==1
+                write_secret(PRIVATE/"pg_crash_tx_open",b"OPEN")
+                c.execute("SELECT pg_sleep(90)")
+                raise AssertionError("PG_CRASH_CONNECTION_NOT_INTERRUPTED")
+    except psycopg.OperationalError:
+        assert (PRIVATE/"pg_crash_tx_open").is_file()
+        write_secret(PRIVATE/"pg_crash_tx_disconnected",b"DISCONNECTED")
+        print("DB_PG_UNCOMMITTED_CLIENT_INTERRUPTED=PASS",flush=True)
+
+
+def verify_pg_crash_recovery():
+    state=json.loads((PRIVATE/"session_state.json").read_text())
+    with conn("history_app","restore-db","rag_finance_f3_http_ab_restored") as c:
+        with c.transaction():
+            c.execute("SET TRANSACTION READ ONLY")
+            c.execute("SELECT set_config('app.owner_id',%s,true)",(state["b"]["owner"],))
+            assert not c.execute("SELECT pg_is_in_recovery() AS r").fetchone()["r"]
+            assert c.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()["ssl"]
+            assert c.execute("SELECT count(*) AS n FROM history_l1.conversations "
+                             "WHERE id='f3-uncommitted-pg-crash'").fetchone()["n"]==0
+    sql_snapshot("snapshot_restore")
+    verify_revoked_backup_copy_via_server()
+    print("DB_PG_UNCLEAN_RESTART_UNCOMMITTED_ROLLBACK_HISTORY_REVOKE_PARITY=PASS",flush=True)
+
+
+def verify_revoked_backup_copy_via_server():
+    run_server("restore-db","rag_finance_f3_http_ab_restored",verify_revoked_backup_copy)
+
+
 def signature(label, method: str, raw_path: str, raw_query: str = "", body: bytes = b"",
               owner_override=None, session_override=None) -> str:
     state = json.loads((PRIVATE / "session_state.json").read_text())[label]
@@ -852,12 +892,18 @@ def verify_revoked_backup_copy():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("phase", choices=("seed", "before", "after", "revoke", "snapshot_source", "snapshot_restore", "ready200", "ready503", "m10_process", "m10_child", "authenticated_backup", "catalog_source", "catalog_restore", "snapshot_revoked_copy", "verify_revoked_copy", "concurrent_repository", "reopen_backup", "stale_snapshot", "verify_revoked_restored", "role_matrix_source", "role_matrix_restore"))
+    parser.add_argument("phase", choices=("seed", "before", "after", "revoke", "snapshot_source", "snapshot_restore", "ready200", "ready503", "m10_process", "m10_child", "authenticated_backup", "catalog_source", "catalog_restore", "snapshot_revoked_copy", "verify_revoked_copy", "concurrent_repository", "reopen_backup", "stale_snapshot", "verify_revoked_restored", "role_matrix_source", "role_matrix_restore", "hold_pg_crash", "verify_pg_crash"))
     parser.add_argument("--crash", choices=("t1_before", "t1_after", "t2_before", "t2_after"))
     args = parser.parse_args()
     require_lab()
     if args.phase in ("role_matrix_source","role_matrix_restore"):
         role_write_matrix(args.phase)
+        return
+    if args.phase == "hold_pg_crash":
+        hold_uncommitted_pg_crash()
+        return
+    if args.phase == "verify_pg_crash":
+        verify_pg_crash_recovery()
         return
     if args.phase == "reopen_backup":
         reopen_backup()

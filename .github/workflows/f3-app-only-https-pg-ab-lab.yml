@@ -9,7 +9,7 @@ on:
       - 'tests/phase3/integration/ui/f3_app_only_bff_product_request_pg.mjs'
       - 'apps/api/private_app_only_asgi.py'
   pull_request:
-    branches: [integration/f3-foundation-history-two-users-20261124]
+    branches: [agent/db-f3-common-sha-role-matrix-20261124]
     paths:
       - 'infra/postgres/dev_f3_isolated/scripts/28_signed_history_https_pg_lab.sh'
       - 'tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py'
@@ -20,7 +20,7 @@ permissions:
   contents: read
 jobs:
   actual-mtls-https-postgres:
-    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/db-f3-common-sha-role-matrix-20261124' && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/db-f3-real-oidc-tx-common-crash-20261124' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -87,6 +87,7 @@ jobs:
           assert r["stale_snapshot_witness"]=="REAL_READ_ONLY_SESSION_DIVERGENCE_NO_STALE_LISTENER_ADMISSION"
           assert r["post_outage_revocation_recheck"]=="A401_B200_FOREIGN_UNKNOWN404"
           assert r["role_write_matrix"]=="26_SOURCE_26_RESTORED_ACTUAL_SQL_DENIALS_ZERO_MUTATION"
+          assert r["pg_unclean_crash"]=="REAL_RESTORE_PG_SIGKILL_EXIT137_UNCOMMITTED_ROW_ROLLED_BACK_SAME_VOLUME_AND_LEDGER_REVOKE_HISTORY_PARITY"
           assert r["catalog_parity"]=="SIX_TABLES_COLUMNS_CONSTRAINTS_INDEXES_RLS_EXACT_SOURCE_RESTORE"
           assert r["keyset_index_paths"]=="FORCED_PLANNER_ELIGIBILITY_NOT_LATENCY_BENCHMARK"
           assert r["concurrent_repository"]=="CREATE_T1_T2_SIX_REAL_SESSIONS_EACH_EXACTLY_ONE"
