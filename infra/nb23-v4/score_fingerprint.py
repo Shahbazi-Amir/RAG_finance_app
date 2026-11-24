@@ -15,6 +15,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("engine", "contract", "golden", "repo", "artifacts", "output"):
         parser.add_argument(name, type=Path)
+    parser.add_argument("--journal", type=Path)
     args = parser.parse_args()
     contract = json.loads(args.contract.read_text())
     engine_bytes, golden = args.engine.read_bytes(), args.golden.read_bytes()
@@ -36,12 +37,16 @@ def main():
 
         def observed(outputs, feed):
             result = original(outputs, feed)
-            calls.append({
+            batch = {
                 "inputs": {key: {"shape": list(value.shape), "dtype": str(value.dtype),
                                  "sha256": sha(value.astype("<i8", copy=False).tobytes())}
                            for key, value in sorted(feed.items())},
                 "scores": result[0].reshape(-1).tolist(),
-            })
+            }
+            if args.journal:
+                with args.journal.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(batch, allow_nan=False) + "\n")
+            calls.append(batch)
             return result
 
         session.run = observed
