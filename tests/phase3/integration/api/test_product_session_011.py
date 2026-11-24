@@ -1008,6 +1008,50 @@ class RealProductSession011(unittest.TestCase):
         print("API_F3_REAL_SIGNED_PG_PARALLEL_REPLAY_ONLY_ONE_ADMISSION_PASS",
               flush=True)
 
+    def test_API011_13_invalid_signed_bff_claims_never_consume_pg_replay(self):
+        """Real mTLS HTTPS/RS256 negative issuer/expiry/path/method matrix.
+
+        These INVALID claims must fail BEFORE the PG durable JTI insert.
+        Same active A remains readable with a completely fresh signed token.
+        """
+        a = self.login("A")
+        cid = self.seed(a, "CI_NEGATIVE_PROOF_" + uuid.uuid4().hex)
+        now = int(time.time())
+        negative = (
+            {"aud": "urn:wrong-signed-history-audience"},
+            {"iss": "urn:wrong-signed-history-issuer"},
+            {"exp": now - 10},
+            {"nbf": now + 60},
+            {"method": "POST"},
+            {"raw_path_sha256": sha256(b"/v1/conversations/fake").hexdigest()},
+            {"raw_query_sha256": sha256(b"limit=7").hexdigest()},
+            {"body_sha256": sha256(b"not-empty").hexdigest()},
+            {"body_len": 3},
+        )
+        with psycopg.connect(os.environ["AUTH_MIG_DSN"], autocommit=True,
+                             row_factory=dict_row) as admin:
+            for claims_changed in negative:
+                token, proof = self.signed(a, override=claims_changed)
+                rejected = self.list(a, token=token)
+                self.assertEqual(rejected.status_code, 401,
+                                 (claims_changed, rejected.text))
+                self.assertEqual(rejected.headers.get("cache-control"),
+                                 "no-store")
+                self.assertNotIn(cid, rejected.text)
+                key = sha256((proof["iss"] + "\x00" + proof["jti"]).encode(
+                    "utf-8")).hexdigest()
+                self.assertEqual(admin.execute(
+                    "SELECT count(*) AS n "
+                    "FROM auth_l1.service_assertion_replays "
+                    "WHERE issuer_jti_sha256=%s",
+                    (key,)).fetchone()["n"], 0)
+        fresh = self.list(a)
+        self.assertEqual(fresh.status_code, 200, fresh.text)
+        self.assertIn(cid, [x["conversation_id"]
+                            for x in fresh.json()["items"]])
+        print("API_F3_REAL_HTTPS_INVALID_BFF_PROOF_DENIED_BEFORE_PG_REPLAY_PASS",
+              flush=True)
+
     def test_API011_99_pinned_https_callback_real_keycloak_and_redirect_denies(self):
         """Actual verified HTTPS callback, same pinned redirect for Code exchange."""
         from cryptography.hazmat.primitives import serialization
