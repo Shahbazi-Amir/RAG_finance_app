@@ -41,11 +41,16 @@ def main():
     encoded = tokenizer([question]*4, [by_id[cid] for cid in batch], padding=True,
                         truncation=True, max_length=512, return_tensors="np")
     native, docker = json.load(sys.stdin)
-    for label, level in [("reference", None), ("no_graph_optimizer", ort.GraphOptimizationLevel.ORT_DISABLE_ALL)]:
+    print(json.dumps({"ort_version": ort.__version__, "ort_build": ort.get_build_info(),
+                      "available_providers": ort.get_available_providers(),
+                      "model_sha256": pin["model_sha256"]}), flush=True)
+    for label, level in [("x64_quant_precision", None),
+                         ("x64_quant_precision_no_optimizer", ort.GraphOptimizationLevel.ORT_DISABLE_ALL)]:
         options = ort.SessionOptions()
         options.intra_op_num_threads = 4
         options.inter_op_num_threads = 1
         options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        options.add_session_config_entry("session.x64quantprecision", "1")
         if level is not None:
             options.graph_optimization_level = level
         session = ort.InferenceSession(str(model), sess_options=options, providers=["CPUExecutionProvider"])
@@ -55,9 +60,12 @@ def main():
                         for key, value in feed.items()}
         assert fingerprints == native["inputs"] == docker["inputs"]
         scores = session.run(None, feed)[0].reshape(-1).tolist()
+        outputs = [{"name": node.name, "shape": node.shape, "type": node.type}
+                   for node in session.get_outputs()]
         del session
         print(json.dumps({"option": label, "matches_native": scores == native["scores"],
                           "matches_docker": scores == docker["scores"],
+                          "outputs": outputs,
                           "max_abs_delta_from_native": max(abs(x-y) for x,y in zip(scores,native["scores"]))}),
               flush=True)
 
