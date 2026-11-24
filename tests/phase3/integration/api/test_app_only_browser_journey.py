@@ -14,6 +14,7 @@ import time
 import os
 from pathlib import Path
 import secrets
+import socket
 import ssl
 import subprocess
 import sys
@@ -182,11 +183,17 @@ class AppOnlyBrowserDemo(Demo):
             made_volume = True
             docker("network", "create", "--label", label, network)
             made_network = True
+            # Docker may allocate a different ephemeral published port on
+            # stop/start. Pin the loopback port for both restart exercises.
+            with socket.socket() as reservation:
+                reservation.bind(("127.0.0.1", 0))
+                expected_port = reservation.getsockname()[1]
+            assert expected_port != 5432
             result = docker("run", "-d", "--pull", "never", "--name", name,
                             "--label", label, "--network", network,
                             "--network-alias", "pg-restore",
                             "--network-alias", "wrong-pg-name",
-                            "-p", "127.0.0.1::5432",
+                            "-p", f"127.0.0.1:{expected_port}:5432",
                             "--mount", "type=volume,source=" + volume +
                             ",target=/var/lib/postgresql/data",
                             "-e", "POSTGRES_PASSWORD=" + os.environ["PGPASSWORD"], image)
@@ -202,7 +209,8 @@ class AppOnlyBrowserDemo(Demo):
             port_map = info["NetworkSettings"]["Ports"]["5432/tcp"]
             assert len(port_map) == 1 and port_map[0]["HostIp"] == "127.0.0.1"
             port = int(port_map[0]["HostPort"])
-            assert port != 5432
+            assert port == expected_port
+            self.restore_pg_port = port
             admin_opts = dict(host="127.0.0.1", port=port, dbname="postgres",
                               user="postgres", password=os.environ["PGPASSWORD"],
                               connect_timeout=2)
@@ -280,6 +288,32 @@ class AppOnlyBrowserDemo(Demo):
                 return None
             raise
 
+    def assert_restore_pg_binding(self, pg_id):
+        info = json.loads(self.ci_command("docker", "inspect", pg_id))[0]
+        assert info["Id"] == pg_id
+        assert info["State"]["Running"]
+        assert info["NetworkSettings"]["Ports"]["5432/tcp"] == [
+            {"HostIp":"127.0.0.1", "HostPort":str(self.restore_pg_port)}
+        ], "RESTORE_PG_PORT_CHANGED"
+        print("API_F3_RESTORE_PG_STABLE_LOOPBACK_BINDING_PASS", flush=True)
+
+    def restore_pg_diagnostic(self, pg_id):
+        # Only status and SQLSTATE class, never DSN, logs, or error text.
+        info = json.loads(self.ci_command("docker", "inspect", pg_id))[0]
+        result = subprocess.run(["docker", "exec", pg_id, "pg_isready",
+                                 "-U", "postgres"], capture_output=True, timeout=5)
+        report = {"running":info["State"]["Running"],
+                  "pg_isready_exit":result.returncode,
+                  "binding_same":info["NetworkSettings"]["Ports"].get("5432/tcp") == [
+                      {"HostIp":"127.0.0.1","HostPort":str(self.restore_pg_port)}]}
+        try:
+            with psycopg.connect(self.restore_probe_dsn, autocommit=True) as conn:
+                report["verified_db_connection"] = True
+        except psycopg.Error as exc:
+            report["verified_db_connection"] = False
+            report["sqlstate"] = exc.sqlstate or "none"
+        print("API_F3_RESTORE_PG_DIAGNOSTIC", json.dumps(report), flush=True)
+
     def check_restored_outage(self, actor, new_id):
         assert re.fullmatch(r"[a-f0-9]{64}", new_id)
         assert not new_id.startswith(os.environ["API_F3_ISOLATED_PG_CID"])
@@ -310,6 +344,7 @@ class AppOnlyBrowserDemo(Demo):
         finally:
             if stopped:
                 command("start", new_id)
+                self.assert_restore_pg_binding(new_id)
         for _ in range(60):
             try:
                 if self.readiness(actor).status_code == 200:
@@ -318,6 +353,7 @@ class AppOnlyBrowserDemo(Demo):
                 pass
             time.sleep(0.5)
         else:
+            self.restore_pg_diagnostic(new_id)
             raise RuntimeError("RESTORED_PG_READINESS_NOT_RECOVERED")
         print("API_F3_BROWSER_RESTORED_VOLUME_WRONG_SIGNER_PEER_OUTAGE_RECOVERY_PASS", flush=True)
 
@@ -358,21 +394,26 @@ class AppOnlyBrowserDemo(Demo):
             "-extfile", str(extensions), "-out", str(leaf))
         for p in (ca_key, key):
             p.chmod(0o600)
-        run("docker", "exec", "-u", "0", pg_id, "mkdir", "-m", "0700", "/tmp/restore-tls")
+        tls_dir = "/var/lib/postgresql/data/restore-tls"
+        run("docker", "exec", "-u", "0", pg_id, "mkdir", "-m", "0700", tls_dir)
         for src, name in ((key, "server.key"), (leaf, "server.pem")):
-            run("docker", "cp", str(src), pg_id + ":/tmp/restore-tls/" + name)
+            run("docker", "cp", str(src), pg_id + ":" + tls_dir + "/" + name)
         run("docker", "exec", "-u", "0", pg_id, "chown", "-R", "postgres:postgres",
-            "/tmp/restore-tls")
+            tls_dir)
         run("docker", "exec", "-u", "0", pg_id, "chmod", "0600",
-            "/tmp/restore-tls/server.key")
+            tls_dir + "/server.key")
         for statement in ("ALTER SYSTEM SET ssl = 'on'",
-                          "ALTER SYSTEM SET ssl_cert_file = '/tmp/restore-tls/server.pem'",
-                          "ALTER SYSTEM SET ssl_key_file = '/tmp/restore-tls/server.key'"):
+                          "ALTER SYSTEM SET ssl_cert_file = 'restore-tls/server.pem'",
+                          "ALTER SYSTEM SET ssl_key_file = 'restore-tls/server.key'"):
             run("docker", "exec", pg_id, "psql", "-X", "-v", "ON_ERROR_STOP=1",
                 "-U", "postgres", "-d", "postgres", "-c", statement)
         run("docker", "restart", "--time", "2", pg_id)
+        self.assert_restore_pg_binding(pg_id)
         secure = {name: make_conninfo(dsn, sslmode="verify-full", sslrootcert=str(ca))
                   for name, dsn in dsns.items()}
+        secure = {name: make_conninfo(dsn, gssencmode="disable")
+                  for name, dsn in secure.items()}
+        self.restore_probe_dsn = secure["DB_APP_DSN"]
         for _ in range(60):
             try:
                 with psycopg.connect(secure["DB_APP_DSN"], autocommit=True,
@@ -383,6 +424,7 @@ class AppOnlyBrowserDemo(Demo):
             except psycopg.OperationalError:
                 time.sleep(0.5)
         else:
+            self.restore_pg_diagnostic(pg_id)
             raise RuntimeError("RESTORE_PG_TLS_NOT_READY")
         # No host/service other than the exact new restored instance is touched.
         self.restore_pg_ca = ca
@@ -492,6 +534,9 @@ for key,role in (('history_dsn','history_app'),('revoke_dsn','auth_revoker')):
         assert row == {'role':role, 'ssl':True}
 print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
 """
+        tls = ssl.create_default_context(cafile=self.ca)
+        tls.load_cert_chain(self.client[0], self.client[1])
+        self.await_url(self.product_origin + "/internal/ready", tls)
         result = run("docker", "exec", self.api_container, "python3", "-c", probe)
         assert b"API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS" in result
         print("API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS", flush=True)
