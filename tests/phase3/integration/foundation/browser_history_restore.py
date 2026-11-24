@@ -431,7 +431,34 @@ def restore_separate_volume(demo,original_records,source_system_id):
             if restored_id==new_id:break
         except psycopg.Error:time.sleep(.5)
     else:raise AssertionError("RESTORED_VOLUME_NOT_CONNECTED_TO_ORIGINAL_PORT")
-    return (new_name,volume,new_id)
+    # Keep the already-verified original disposable Actions service ID
+    # for a measured, reversible, never-production PG rollback.
+    return (new_name,volume,new_id,service[0])
+
+
+def rollback_to_original_lab_database(restored, source_system_id):
+    """Reverse CI-only DB port switch without writes and measure recovery.
+
+    Neither a production/staging volume nor a Mac installation is touched.
+    Rollback before revoke: a stale backup must NOT resurrect revoked users.
+    """
+    new_name,_,restored_id,original_cid=restored
+    assert source_system_id!=restored_id
+    image=command(["docker","inspect","--format","{{.Config.Image}}",original_cid]).strip()
+    assert image=="postgres:17.11","UNSAFE_SOURCE_IMAGE_FOR_ROLLBACK"
+    start=time.monotonic()
+    command(["docker","stop",new_name])
+    command(["docker","start",original_cid])
+    for _ in range(100):
+        try:
+            with connect() as c:
+                live=c.execute("SELECT system_identifier FROM pg_control_system()").fetchone()[0]
+                if live==source_system_id:
+                    return round(time.monotonic()-start,3)
+        except psycopg.Error:
+            pass
+        time.sleep(.5)
+    raise AssertionError("ORIGINAL_PG_CLUSTER_NOT_RESTORED_TO_HOST_PORT")
 
 
 async def execute():
@@ -494,6 +521,27 @@ async def execute():
             assert message_inventory(demo)==messages_before,("RESTORED_MESSAGES_SQL_DRIFT",)
             assert new_cluster==restored[2] and new_cluster!=source_cluster
 
+            # Return to the original isolated Actions PG service after actual
+            # independent-volume Restore; no writes or engine between switches.
+            rollback_seconds=rollback_to_original_lab_database(
+                restored,source_cluster)
+            await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
+            await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
+            await browser_long_thread_dom(page_a,demo.owners["A"],a_id)
+            await signed_pagination(page_a,ids_a)
+            await signed_pagination(page_b,ids_b)
+            await foreign_owner_denied(page_a,ids_b)
+            await foreign_owner_denied(page_b,ids_a)
+            await cursor_owner_signature_denied(page_a,page_b)
+            await send_denied(page_a)
+            await send_denied(page_b)
+            reverted,reverted_receipts,reverted_cluster=inventory(demo)
+            assert reverted_cluster==source_cluster,("ROLLBACK_DIFFERENT_PG_CLUSTER",)
+            assert reverted==source and reverted_receipts==receipt_before
+            assert message_inventory(demo)==messages_before,("ROLLBACK_MESSAGE_DRIFT",)
+            print("F3_REAL_REACT_31_MESSAGES_CI_PG_RESTORE_ROLLBACK_AB_PASS",
+                  flush=True)
+
             # Genuine Logout form and old cookie on original Chromium context.
             tab=await ctx_a.new_page()
             await tab.goto(ORIGIN+"/login")
@@ -541,6 +589,13 @@ async def execute():
                 "send_bff_503_no_extra_receipts":True,
                 "both_real_owners_repeated_invalid_and_retried_send_503_no_durable_effect":True,
                 "fresh_pg_volume_independent_cluster":True,
+                "same_browser_cookie_after_pg_rollback":True,
+                "rollback_returns_to_original_ci_pg_cluster":True,
+                "rollback_source_rows_and_messages_exact_sql_equal":True,
+                "rollback_react_31_original_ids_stable":True,
+                "rollback_without_intervening_durable_send":True,
+                "rollback_wall_clock_seconds":rollback_seconds,
+                "approved_rto_threshold":None,
                 "same_browser_cookie_after_pg_restore":True,
                 "signed_history_a_after_restore":200,
                 "signed_history_b_after_restore":200,
