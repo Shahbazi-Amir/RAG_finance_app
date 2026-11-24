@@ -54,3 +54,27 @@
 - معیار باقی‌مانده برای پذیرش این مسیر: شواهد پنج گام، SHA نهاییِ یکسان، image digests، RunID، صورت‌جلسهٔ Ops و ردیف‌های canonical. هیچ پیش‌فرض هزینه/Privacy/RPO/RTO امضا نشده است.
 
 **حد اختیار:** PR آزمایشی، GitHub Actions مجاز؛ هیچ اقدام روی مقصد و هیچ تشخیص خودکار رسمی `ACCEPTED` انجام نشده است.
+
+
+## تکمیل اجرایی افزوده‌شدهٔ ۲۴ نوامبر — آزمایش HTTP واقعی، نه مرورگر یا IdP مقصد
+
+**منبع:** انتقال بدون ویرایش فایل `apps/api/private_app_only_asgi.py` از PR #80، Git blob `96a72b5167d473c88aeb3ddb5a67a284c105d4dd`؛ این فایل در مبنای PR #84 موجود نبود. پیکربندی موتور فعال نشده و مسیر پیش‌فرض عمومیِ کاندیدای #84 عوض نشده است.
+
+**آخرین SHA اجرایی دقیق:** `afbd07e3f6d0f4d3feb850f8df3e9f9f3b37de4c`.
+
+**CI قطعی روی همان SHA:** [Run 45300381508](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45300381508) / `SUCCESS` / یک job با PostgreSQL17.11، نصب کامل 001–010، DB55، TLS نقش‌ها و دو کلاستر جدا. **رسید JSON پاک‌سازی‌شده**: Artifact ID `14877269748`، فایل `ci_receipts/app_only_https_pg_ab_restore.json`. از API Docker image واقعی non-root و listener Uvicorn 0.48.0/H11 در یک namespace خصوصی، TLS1.3/mTLS با CA/SAN و گواهی آزمایشگاهی موقت، RSA/RS256 و جلسات PG 004/005 استفاده شد؛ نه mock ASGI، نه TestClient، نه تزریق route browser. کلیدها، رمز نقش‌ها و pg_dump خصوصی منتشر نشده‌اند.
+
+**تست‌های موفق قابل‌ردیابی در لاگ CI:**
+- دو **subject مصنوعی و تأییدنشدهٔ IdP** به دو `owner_id` متفاوت از `auth_l1.map_identity` در PostgreSQL نگاشت، opaque session با همان DB صادر شد؛ دادهٔ مصنوعی A=۵ مکالمه/۴ پیام و B=۳ مکالمه/۲ پیام.
+- `/internal/ready` با PG سالم روی همان HTTPS/mTLS برابر `200` است ولی `bootstrap_idp=not_probed`؛ این **readiness واقعی API History/PG در آزمایشگاه** است، نه readiness کل Web+BFF+Bootstrap+IdP.
+- `GET /v1/conversations` با اثبات BFF RS256 و 004/005 در DB، لیست، صفحات و شناسه‌های A/B را می‌دهد؛ detail پیام‌ها درست است، B→A و A→B با 404 رد می‌شوند.
+- replay همان JTI به 401 می‌خورد؛ اختلاف raw query با JWT و تزریق `X-Owner-Id` به 401؛ cursor امضاشدهٔ A برای B به 404؛ بدون گواهی یا با گواهی leaf اشتباه، ارتباط تأییدشده شکل نمی‌گیرد.
+- `POST /v1/messages` در app-only با 503 قبل از ایجاد Send/Attempt/Answer، اثر durable صفر؛ پس از backup/hash و restore به مستقل‌ترین کلاستر، کل History و negative HTTP تکرار شدند.
+- Revoke نشست A روی دیتابیس restore با role `auth_revoker`، همان HTTP A=401 و B=200 را داد.
+- در **همان listener فعال‌شده**: PG restore سالم `ready=200`، توقف موقت و بی‌تخریب فقط restore-db این آزمایش `ready=503`، راه‌اندازی مجدد همان PostgreSQL `ready=200`؛ هیچ volume موجود و demo لمس نشده است.
+
+**فایل‌های افزوده:** `tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py`، `infra/postgres/dev_f3_isolated/scripts/28_signed_history_https_pg_lab.sh`، `.github/workflows/f3-app-only-https-pg-ab-lab.yml`، و listener پین‌شدهٔ PR #80. آزمون‌های SQL مستقل 26/27/19/21/24 همچنان در [Run 45291109728](https://github.com/Shahbazi-Amir/RAG_finance_app/actions/runs/45291109728) روی SHA `f0331f1ba76921c8d0582c1d59ea00965a934ae5` سبز و بدون تغییر در سورس این اسکریپت‌ها باقی‌اند.
+
+**مرزهای بازِ واقعی:** هیچ IdP استاندارد OIDC با دو حساب واقعاً login نشده؛ هیچ callback/کوکی/Next BFF عادی یا Chromium/Safari تا PG اجرا نشده؛ تست signing از کلید **آزمایشگاهی** و نگاشت synthetic است؛ readiness کل محصول، نصب Mac/Arvan، SLO/DR امضاشده، rollback محصول، API lost-ACK/process-crash و RPO/RTO هنوز نیاز به شواهد مستقل دارند. **P0-1…P0-6 به‌طور کامل پذیرفته نشده، DB 5/57 DONE محدود و 0/26 Gates پذیرفته باقی می‌ماند.**
+
+**تحویل نقش‌ها:** Foundation باید SHA کاندیدای #84 را با PR #86 مقایسه و فایل‌های مرتبط را بدون overwrite اعتبارسنجی‌شده روی همان شاخهٔ مشترک منتقل و E2E تک‌Runner Web/BFF/API/Bootstrap/IdP/PG را اجرا کند؛ API باید واقعی‌بودن OIDC و session/epoch در همان تراکنش و خطای 401/404/503 را حفظ کند؛ UI باید دو browser context مستقل و DOM/cookie/revoke را با data IDهای PostgreSQL مرتبط کند؛ DB فقط رسید SQL/mTLS lab و restore ارائه داده است. **هیچ Merge/Release/Deployed/ACCEPTED اعلام نشده است.**
