@@ -322,6 +322,81 @@ async def prove_real_logout_waits_for_admitted_transaction(demo,tab,raw,ids):
         await asyncio.gather(worker,*([] if click is None else [click]),return_exceptions=True)
 
 
+def physical_owner_graph(demo,raw_a,raw_b,phase,baseline=None,revoked=False):
+    """Actual 001–010 ownership classification and live OIDC lineage.
+    No grants/migration change; admin reads metadata and exact two test actors
+    only. The direct service-role negatives use actual TLS logins.
+    """
+    history=("answers","conversations","create_receipts","execution_attempts","messages","send_receipts")
+    auth=("identity_links","initial_login_attempts","owners","reset_c1_authorizations",
+          "reset_c1_operations","reset_idp_attempts","service_assertion_replays","sessions")
+    expected={("history_l1",t):(True,True) for t in history}
+    expected.update({("auth_l1",t):(True,True) for t in auth})
+    expected[("auth_l1","initial_login_attempts")]=(True,False)
+    expected[("auth_l1","service_assertion_replays")]=(False,False)
+    with connect() as c:
+        with c.transaction():
+            c.execute("SET TRANSACTION READ ONLY")
+            catalog=c.execute("""SELECT n.nspname,k.relname,k.relrowsecurity,k.relforcerowsecurity,
+                a.attnum IS NOT NULL,coalesce(a.attnotnull,false)
+                FROM pg_class k JOIN pg_namespace n ON n.oid=k.relnamespace
+                LEFT JOIN pg_attribute a ON a.attrelid=k.oid AND a.attname='owner_id' AND NOT a.attisdropped
+                WHERE n.nspname IN ('history_l1','auth_l1') AND k.relkind IN ('r','p')
+                ORDER BY n.nspname,k.relname""").fetchall()
+            assert len(catalog)==14
+            assert {(schema,table):(has_owner,not_null) for schema,table,rls,force,has_owner,not_null in catalog}==expected
+            assert all(rls and force for _,_,rls,force,_,_ in catalog)
+            constraints=c.execute("""SELECT n.nspname,k.relname,con.contype,con.conname,
+                pg_get_constraintdef(con.oid),con.convalidated
+                FROM pg_constraint con JOIN pg_class k ON k.oid=con.conrelid
+                JOIN pg_namespace n ON n.oid=k.relnamespace
+                WHERE n.nspname IN ('history_l1','auth_l1') AND con.contype IN ('p','u','f')
+                ORDER BY n.nspname,k.relname,con.conname""").fetchall()
+            assert constraints and all(row[-1] for row in constraints)
+            assert all("owner_id" in row[4] for row in constraints if row[0]=="history_l1")
+            policies=c.execute("""SELECT schemaname,tablename,policyname,permissive,roles::text,cmd,qual,with_check
+                FROM pg_policies WHERE schemaname IN ('history_l1','auth_l1')
+                ORDER BY schemaname,tablename,policyname""").fetchall()
+            assert len(policies)==14
+            assert all(row[4]=="{history_app}" and "app.owner_id" in row[6] and "app.owner_id" in row[7]
+                       for row in policies if row[0]=="history_l1")
+            assert all(row[4]=="{public}" and row[6]=="false" and row[7]=="false"
+                       for row in policies if row[0]=="auth_l1")
+            for label,raw in (("A",raw_a),("B",raw_b)):
+                owner=demo.owners[label]
+                assert owner==raw["owner_id"]
+                identity=c.execute("""SELECT owner_id FROM auth_l1.identity_links
+                   WHERE issuer=%s AND subject=%s""",(demo.kc.oidc["issuer"],demo.kc.accounts[label]["sub"])).fetchall()
+                assert identity==[(owner,)]
+                digest=sha256(raw["session_ref"].encode("ascii")).hexdigest()
+                joined=c.execute("""SELECT s.owner_id,s.session_epoch,s.generation,s.status,
+                      o.session_epoch,a.owner_id,a.issued_epoch
+                    FROM auth_l1.sessions s JOIN auth_l1.owners o ON o.owner_id=s.owner_id
+                    JOIN auth_l1.initial_login_attempts a ON a.session_digest=s.digest_sha256
+                    WHERE s.digest_sha256=%s""",(digest,)).fetchall()
+                expected_status="revoked" if revoked and label=="A" else "active"
+                assert joined==[(owner,raw["epoch"],raw["generation"],expected_status,raw["epoch"],owner,raw["epoch"])]
+                # No assertion about global legacy history FK; 001 deliberately
+                # predates Auth 003. Only actual A/B lineage here is established.
+                counts=c.execute("""SELECT count(*) FROM history_l1.conversations h
+                    JOIN auth_l1.owners o ON o.owner_id=h.owner_id WHERE h.owner_id=%s""",(owner,)).fetchone()[0]
+                assert counts==3
+    graph=sha256(json.dumps([catalog,constraints,policies],sort_keys=True,default=str).encode()).hexdigest()
+    if baseline is not None:assert graph==baseline,"PHYSICAL_OWNER_GRAPH_DRIFT"
+    def denied(dsn,schema,tables):
+        with psycopg.connect(dsn,autocommit=True) as c:
+            assert c.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()[0]
+            for table in tables:
+                try:c.execute(sql.SQL("SELECT * FROM {}.{} LIMIT 0").format(sql.Identifier(schema),sql.Identifier(table)))
+                except psycopg.errors.InsufficientPrivilege:pass
+                else:raise AssertionError("UNEXPECTED_CROSS_SCHEMA_SELECT")
+    denied(os.environ["DB_APP_DSN"],"auth_l1",auth)
+    for key in ("AUTH_MAP_DSN","AUTH_SESSION_DSN","AUTH_REVOKER_DSN"):
+        denied(os.environ[key],"history_l1",history)
+    print("DB_PHYSICAL_OWNER_GRAPH_"+phase+"_12_REQUIRED_1_CONDITIONAL_1_SERVICE_26_CROSS_SCHEMA_DENIALS=PASS",flush=True)
+    return graph
+
+
 def migration_ledger_snapshot(phase,source_cluster,baseline=None):
     manifest=ROOT/"infra/postgres/dev_f3_isolated/MIGRATIONS_001_010_PINNED.tsv"
     assert sha256(manifest.read_bytes()).hexdigest()=="9ff95a59570f5f6c6188479d9c37cf684ef836c599e89d9faa2bb0e17a4946f7"
@@ -733,6 +808,7 @@ async def execute():
             b_id=create_extra_question(demo,"B")
             source,receipt_before,source_cluster=inventory(demo)
             ledger_before=migration_ledger_snapshot("SOURCE",source_cluster)
+            graph_before=physical_owner_graph(demo,raw_a,raw_b,"SOURCE")
             messages_before=message_inventory(demo)
             restricted_before=restricted_history_snapshot(demo,"SOURCE")
             ids_a={r[1] for r in source if r[0]==demo.owners["A"]}
@@ -760,6 +836,7 @@ async def execute():
             restored=restore_separate_volume(demo,source,source_cluster,pg_tls)
             restricted_history_snapshot(demo,"RESTORED_BEFORE_BROWSER",restricted_before)
             migration_ledger_snapshot("RESTORED",source_cluster,ledger_before)
+            physical_owner_graph(demo,raw_a,raw_b,"RESTORED",graph_before)
             oidc_same_transaction_matrix(demo,raw_a,raw_b,"RESTORED",ids_a,ids_b)
             # Continue same real two browser contexts, same session cookie,
             # same Keycloak process and Next/BFF/API, now independent PG volume.
@@ -786,6 +863,7 @@ async def execute():
             rollback_seconds=rollback_to_original_lab_database(restored,source_cluster)
             restricted_history_snapshot(demo,"ROLLBACK_BEFORE_BROWSER",restricted_before)
             migration_ledger_snapshot("ROLLBACK",source_cluster,ledger_before)
+            physical_owner_graph(demo,raw_a,raw_b,"ROLLBACK",graph_before)
             oidc_same_transaction_matrix(demo,raw_a,raw_b,"ROLLBACK",ids_a,ids_b)
             await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
             await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
@@ -820,6 +898,7 @@ async def execute():
             await foreign_owner_denied(page_b,ids_a)
             restricted_history_snapshot(demo,"AFTER_REVOKE",restricted_before)
             migration_ledger_snapshot("AFTER_REVOKE",source_cluster,ledger_before)
+            physical_owner_graph(demo,raw_a,raw_b,"AFTER_REVOKE",graph_before,revoked=True)
             oidc_same_transaction_matrix(demo,raw_a,raw_b,"AFTER_REVOKE",ids_a,ids_b,revoked=True)
             result={
                 "schema":"foundation.f3.real_browser_pg_restored_same_context.v1",
@@ -862,6 +941,11 @@ async def execute():
                 "db_browser_migration_ledger_rows":10,
                 "db_browser_migration_ledger_checkpoints":4,
                 "db_browser_db55_bridge":"NOT_RUN_IN_BROWSER_FIXTURE",
+                "db_physical_owner_graph":"12_REQUIRED_1_CONDITIONAL_1_SERVICE_REAL_OIDC_LINEAGE_AND_SCHEMA_PARITY",
+                "db_physical_owner_graph_checkpoints":4,
+                "db_cross_schema_select_denials":104,
+                "db_global_history_auth_fk":"NOT_PRESENT_LEGACY_HISTORY_PRECEDES_AUTH",
+                "db_owner_id_user_id_policy":"REQUIRES_OWNER_APPROVAL",
                 "approved_rto_threshold":None,
                 "signed_history_a_after_restore":200,
                 "signed_history_b_after_restore":200,
