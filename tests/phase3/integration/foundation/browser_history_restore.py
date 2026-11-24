@@ -78,6 +78,17 @@ def trust_ephemeral_browser_ca(demo):
         with ssl.create_default_context().wrap_socket(
                 sock,server_hostname="127.0.0.1") as verified:
             assert verified.version() in ("TLSv1.2","TLSv1.3")
+    # Negative SAN test: same server and same trusted CA, but a hostname not
+    # listed in the ephemeral certificate. It MUST be rejected by OpenSSL.
+    try:
+        with socket.create_connection(("127.0.0.1",3443),timeout=8) as sock:
+            with ssl.create_default_context().wrap_socket(
+                    sock,server_hostname="localhost"):
+                pass
+    except ssl.SSLCertVerificationError:
+        pass
+    else:
+        raise AssertionError("NEGATIVE_SAN_VERIFICATION_MUST_REJECT_LOCALHOST")
     print("F3_LAB_OS_CA_CHROMIUM_NSS_TRUST_AND_LOOPBACK_IP_SAN_PASS",flush=True)
 
 
