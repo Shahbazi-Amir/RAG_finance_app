@@ -2,7 +2,7 @@ name: UI F3 Foundation transfer signed three-engine History / Restore
 
 on:
   push:
-    branches: [agent/ui-f3-foundation-88-verified-131-transfer-20261125, integration/f3-foundation-history-two-users-20261124]
+    branches: [agent/ui-f3-foundation-88-verified-131-transfer-20261125, agent/ui-f3-135-strict-browser-ca-20261125, integration/f3-foundation-history-two-users-20261124]
   pull_request:
     branches: [integration/f3-foundation-history-two-users-20261124]
   workflow_dispatch:
@@ -312,6 +312,8 @@ jobs:
           API_RUNNER_EXECUTION_MODE: APP_ONLY
         run: |
           set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libnss3-tools ca-certificates
           bash scripts/phase3/install_ci_playwright_browser.sh "${{ matrix.engine }}"
           python -u tests/phase3/integration/api/signed_history_browser_matrix.py "${{ matrix.engine }}" \
             | tee "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log"
@@ -337,6 +339,9 @@ jobs:
           grep -Fx F3_SIGNED_SYMMETRIC_FOREIGN_CONTENT_DENIED_NO_WRITES_PASS "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log"
           grep -Fx F3_SIGNED_FULL_RELOAD_31_LITERAL_IDS_ZERO_MUTATION_PASS "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log"
           grep -Ex "F3_SIGNED_RELOAD_DOCUMENT_STATUS=(200|304)" "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log"
+          for marker in F3_BROWSER_UNTRUSTED_LAB_CA_DENIED_PASS F3_BROWSER_PUBLIC_CA_OPENSSL_WRONG_SAN_DENIED_PASS F3_BROWSER_STRICT_TRUST_LOGIN_AND_NODE_REQUEST_PASS F3_BROWSER_ALL_JOURNEY_CONTEXTS_STRICT_TLS_PASS; do
+            grep -Fx "$marker" "$RUNNER_TEMP/f3-84-one-sha-browser-sql-restore.log"
+          done
           echo F3_84_ACTUAL_BROWSER_SQL_BEFORE_AFTER_RESTORE_SAME_SHA_PASS
       - name: Write minimal exact-source journey receipt (not Compose or target acceptance)
         env:
@@ -356,6 +361,7 @@ jobs:
               "api_image_id":data["Id"],"source":"clean git archive",
               "browser_engine":os.environ["SIGNED_BROWSER_ENGINE"],"exact_dom_order_checks":2,"real_ui_pg_outage_recovery":True,"keyboard_wrap_resize_focus":True,"account_readonly_return_owner":True,"literal_content_guard_checkpoints":3,"symmetric_foreign_content_denied":True,"full_reload_31_no_mutations":True,
               "api_owner_source_sha":"23db3da6367e6a8279072ee96b56a2bd4b7f0fbc","scope":"CI_RUNNER_BROWSER_HOST_WEB_BOOTSTRAP_REAL_OCI_API_RESTORED_TLS_PG",
+              "public_browser_tls_strict":True,"untrusted_ca_denied":True,"wrong_san_openssl_denied":True,"node_request_tls_strict":True,"isolated_idp_https_verified":False,
               "full_compose_verified":False,"target_verified":False,"accepted":False},indent=2)+"\n")
           PY
       - uses: actions/upload-artifact@v4

@@ -12,7 +12,8 @@ import httpx
 import sys
 from urllib.parse import urljoin
 from playwright.async_api import async_playwright, expect
-from ui_signed_31_journey import AppOnlyBrowserDemo
+from ui_signed_31_journey import AppOnlyBrowserDemo, ORIGIN
+from strict_browser_tls import StrictBrowser, reject_untrusted_login, trust_job_ca, verify_trusted_login
 from signed_history_content_guard import SignedContentGuardMixin, assert_content_dom, TITLE, BODY
 
 ENGINES=("chromium","firefox","webkit")
@@ -207,14 +208,27 @@ async def run(engine):
     demo=OrderedSignedBrowserDemo()
     try:
         demo.start()
+        # Negative BEFORE CA installation, using the actual Next endpoint.
         async with async_playwright() as p:
-            browser_type=getattr(p,engine)
-            browser=await browser_type.launch()
+            untrusted=await getattr(p,engine).launch()
             try:
-                assert browser.browser_type.name==engine
-                await demo.journey(browser,demo.root/"browser-output")
+                await reject_untrusted_login(untrusted, ORIGIN)
             finally:
-                await browser.close()
+                await untrusted.close()
+        # Start a NEW driver after trust installation (Node reads CA at start).
+        with trust_job_ca(demo, engine):
+            async with async_playwright() as p:
+                browser_type=getattr(p,engine)
+                browser=await browser_type.launch()
+                try:
+                    assert browser.browser_type.name==engine
+                    await verify_trusted_login(browser, ORIGIN)
+                    strict=StrictBrowser(browser)
+                    await demo.journey(strict,demo.root/"browser-output")
+                    assert strict.contexts_created>=3, "SIGNED_CONTEXTS_NOT_STRICT"
+                    print("F3_BROWSER_ALL_JOURNEY_CONTEXTS_STRICT_TLS_PASS",flush=True)
+                finally:
+                    await browser.close()
         assert demo.exact_order_witnesses==2
         assert demo.content_guard_witnesses==3, 'SIGNED_CONTENT_GUARD_CHECKPOINT_COUNT'
         print("API_F3_REAL_NEXT_BROWSER_NONROOT_OCI_API_TLS_PG_JOURNEY_PASS",flush=True)
