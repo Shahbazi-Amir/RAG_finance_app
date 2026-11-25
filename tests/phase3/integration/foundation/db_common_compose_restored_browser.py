@@ -638,19 +638,46 @@ class BothSidesComposeBrowserDemo(ComposeRestoredBrowserDemo):
                             raise AssertionError("UNRELATED_ROLE_REPOSITORY_READ_ALLOWED")
                     assert c.execute("SELECT 1 AS n").fetchone()["n"]==1
         assert denied==16
-        # Product-role access to the session admission function remains
-        # forbidden; do not conflate this with arbitrary owner GUC isolation.
+        # The pinned DB55 bridge explicitly grants this narrowly scoped
+        # function to history_app. It grants NO raw Auth table access.
+        # Verify its actual same-transaction positive and negative behavior,
+        # rather than incorrectly requiring the function itself to be denied.
         with psycopg.connect(dsns["DB_APP_DSN"],autocommit=True,row_factory=dict_row) as c:
             tls(c,"DB_APP_DSN")
-            try:
-                admit(c,raw_b,raw_b["owner_id"],raw_b["epoch"],raw_b["generation"])
-            except psycopg.errors.InsufficientPrivilege:
-                pass
-            else:
-                raise AssertionError("PRODUCT_ROLE_SESSION_ADMISSION_ALLOWED")
+            assert c.execute("SELECT current_user AS role").fetchone()["role"]=="history_app"
+            assert c.execute("""SELECT has_function_privilege(current_user,
+                'auth_l1.admit_session_fenced(text,text,bigint,integer)','EXECUTE') AS allowed""").fetchone()["allowed"] is True
+            with c.transaction():
+                assert auth_session.admit_session_fenced(c,raw_b["session_ref"],raw_b["owner_id"],raw_b["epoch"],raw_b["generation"]) is True
+                tx=c.execute("SELECT pg_backend_pid() AS pid,txid_current() AS tx").fetchone()
+                page=repository.list_conversations(c,raw_b["owner_id"],limit=2)
+                assert [item["conversation_id"] for item in page["items"]]==[row["id"] for row in expected["B"][:2]]
+                assert all(item["owner_user_id"]==raw_b["owner_id"] for item in page["items"])
+                assert c.execute("SELECT pg_backend_pid() AS pid,txid_current() AS tx").fetchone()==tx
+            assert c.execute("SELECT nullif(current_setting('app.owner_id',true),'') AS owner").fetchone()["owner"] is None
+            for raw,owner,epoch,generation in (
+                (raw_a,raw_a["owner_id"],raw_a["epoch"],raw_a["generation"]),
+                (raw_b,raw_a["owner_id"],raw_b["epoch"],raw_b["generation"]),
+                (raw_b,raw_b["owner_id"],raw_b["epoch"]+1,raw_b["generation"]),
+                (raw_b,raw_b["owner_id"],raw_b["epoch"],raw_b["generation"]+1)):
+                assert admit(c,raw,owner,epoch,generation) is False
+            raw_auth_denials=0
+            for table in ("owners","sessions","service_assertion_replays"):
+                for privilege in ("SELECT","INSERT","UPDATE","DELETE"):
+                    assert c.execute("SELECT has_table_privilege(current_user,%s,%s) AS allowed",
+                        ("auth_l1."+table,privilege)).fetchone()["allowed"] is False
+                try:
+                    c.execute(sql.SQL("SELECT count(*) FROM auth_l1.{}").format(sql.Identifier(table)))
+                except psycopg.errors.InsufficientPrivilege:
+                    raw_auth_denials+=1
+                else:
+                    raise AssertionError("PRODUCT_ROLE_RAW_AUTH_READ_ALLOWED")
+            assert raw_auth_denials==3
         return {"valid_admission_controls":2,"invalid_admission_denials":5,
                 "no_transaction_denied":True,"unrelated_role_repository_denials":16,
-                "product_role_admission_denied":True,"raw_guc_spoof_resolved":False}
+                "product_role_pinned_bridge_admission":True,"product_role_same_tx_repository":True,
+                "product_role_invalid_admission_denials":4,"product_role_raw_auth_read_denials":3,
+                "product_role_raw_auth_privilege_denials":12,"raw_guc_spoof_resolved":False}
 
     async def third_cursor_request(self,page,cursor=None):
         return await asyncio.wait_for(page.evaluate("""async cursor => {
