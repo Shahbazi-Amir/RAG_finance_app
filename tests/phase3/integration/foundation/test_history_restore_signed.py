@@ -318,6 +318,50 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
         self.assertEqual(signed_ready(a).status_code,200)
         self.assertEqual(signed_ready(b).status_code,200)
         self.assertEqual(h.request("GET","/health/ready").status_code,503)
+        # Real restored PG + actual production listener, not an ASGI mock.
+        # Only the ephemeral public verifier file in this test's temp dir
+        # is modified. A newly signed request under the original key must
+        # remain unconsumed when the server refuses signer configuration.
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization
+        original_key = h.pubkey.read_bytes()
+        replacement_key = rsa.generate_private_key(public_exponent=65537, key_size=2048).public_key().public_bytes(
+            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        list_token, list_claims = h.signed(a, method="GET", path=LIST)
+        ready_token, ready_claims = h.signed(b, method="GET", path="/health/ready")
+        deny_revoke_body = json.dumps({"operation_id":str(uuid.uuid4())},separators=(",",":")).encode()
+        revoke_token, revoke_claims = h.signed(a, "POST", REVOKE, deny_revoke_body)
+        digests = [hashlib.sha256((x["iss"]+"\0"+x["jti"]).encode()).hexdigest()
+                   for x in (list_claims, ready_claims, revoke_claims)]
+        def replay_rows():
+            with connect(5433, db="history_restore_f3_ci", extra=trusted) as c:
+                return c.execute("SELECT count(*) FROM auth_l1.service_assertion_replays WHERE issuer_jti_sha256=ANY(%s)", (digests,)).fetchone()[0]
+        self.assertEqual(replay_rows(),0)
+        try:
+            h.pubkey.write_bytes(replacement_key)
+            for response in (h.request("GET",LIST,list_token),
+                             h.request("GET","/health/ready",ready_token),
+                             h.request("GET","/internal/ready"),
+                             h.request("POST",REVOKE,revoke_token,body=deny_revoke_body)):
+                self.assertEqual(response.status_code,503)
+                self.assertEqual(response.headers.get("cache-control"),"no-store")
+                self.assertNotIn("PRIVATE KEY",response.text)
+            for alias in ("/v1/messages/", "/v1/%6dessages/"):
+                response=h.request("POST",alias,body=b"not-json")
+                self.assertEqual(response.status_code,503)
+                self.assertIn("ENGINE_NOT_CONFIGURED",response.text)
+            self.assertEqual(replay_rows(),0)
+        finally:
+            h.pubkey.write_bytes(original_key)
+        self.assertEqual(h.request("GET",LIST,list_token).status_code,200)
+        self.assertEqual(h.request("GET","/health/ready",ready_token).status_code,200)
+        self.assertEqual(replay_rows(),2)
+        self.assertEqual(h.list(a).status_code,200)
+        self.assertEqual(h.list(b).status_code,200)
+        self.assertEqual(h.request("GET",LIST,list_token).status_code,401)
+        with connect(5433,db="history_restore_f3_ci",extra=trusted) as c:
+            self.assertEqual(c.execute("SELECT count(*) FROM history_l1.send_receipts").fetchone()[0],receipts_before)
+        print("F3_API_RESTORED_REAL_PG_SIGNER_DRIFT_NO_ADMISSION_REPLAY_RECOVERY_PASS",flush=True)
         # Restart should never mask an unavailable Postgres dependency.
         command(["docker","stop",name])
         down=h.request("GET","/internal/ready")
@@ -347,7 +391,7 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
         output.parent.mkdir(parents=True,exist_ok=True)
         output.write_text(json.dumps({
             "schema":"foundation.f3.signed_history_restored_lab.v1",
-            "source_sha":os.environ["GITHUB_SHA"],
+            "source_sha":os.environ.get("F3_API_EXACT_SHA",os.environ["GITHUB_SHA"]),
             "environment":"disposable_GHA_PG17_to_independent_Docker_volume",
             "owners_distinct":True,
             "source_and_restored_ids_equal_A":len(original_a),
@@ -361,6 +405,9 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
             "revoke_A":200,"stale_A":401,"B_after_revoke":200,
             "pg_stop_readiness":503,
             "pg_restart_readiness":200,
+            "signer_drift_real_pg_no_admission":True,
+            "signer_original_recovery_same_proofs":True,
+            "signer_drift_no_send_or_revoke":True,
             "signed_readiness_valid_A_B":200,
             "signed_readiness_missing_proof":503,
             "signed_readiness_pg_down":503,
