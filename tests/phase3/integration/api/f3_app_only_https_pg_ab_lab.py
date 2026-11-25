@@ -742,6 +742,40 @@ def verify_transport_capacity_recovery(phase, state):
     print(f"API_F3_{phase.upper()}_TRANSPORT_CAP_503_SAME_PROOF_RECOVERY_ZERO_SQL=PASS", flush=True)
 
 
+def verify_bodyless_signed_read_recovery(phase, state):
+    """Real TLS and exact proof reuse: body framing cannot consume a JTI.
+
+    The three product read routes and signed readiness already bind b"".
+    A malformed request must fail before PG admission; the same proof with
+    correct framing must work once and then fail on replay.
+    """
+    for label in ("a", "b"):
+        for path, query, expected in (
+            ("/v1/conversations", "limit=2", 200),
+            (f"/v1/conversations/f3-net-{label}-1/messages", "limit=2", 200),
+            ("/health/ready", "", 200),
+        ):
+            proof = signature(label, "GET", path, query)
+            headers = {"Authorization": "BFF-Assertion " + proof}
+            url = BASE + path + (("?" + query) if query else "")
+            with tls_client() as client:
+                response = client.request("GET", url, content=b"synthetic-body", headers=headers)
+                assert response.status_code == (503 if path == "/health/ready" else 401)
+                assert response.headers["cache-control"] == "no-store"
+                assert "synthetic-body" not in response.text
+                assert proof not in response.text
+                response = client.get(url, headers=headers)
+                assert response.status_code == expected
+                assert response.headers["cache-control"] == "no-store"
+                if path == "/health/ready":
+                    assert response.json()["state"] == "ready"
+                else:
+                    assert response.json()["scope_user_id"] == state[label]["owner"]
+                replay = client.get(url, headers=headers)
+                assert replay.status_code == (503 if path == "/health/ready" else 401)
+    print(f"API_F3_{phase.upper()}_BODYLESS_GET_SAME_PROOF_RECOVERY_REPLAY_DENY=PASS", flush=True)
+
+
 def verify_history(phase: str):
     state = json.loads((PRIVATE / "session_state.json").read_text())
     with tls_client() as client:
@@ -813,6 +847,7 @@ def verify_history(phase: str):
             except httpx.HTTPError:
                 pass
     verify_http_contract_negatives(phase)
+    verify_bodyless_signed_read_recovery(phase, state)
     verify_status_and_security_log(phase)
     verify_fa_disabled_send_corpus(phase, state)
     verify_transport_capacity_recovery(phase, state)

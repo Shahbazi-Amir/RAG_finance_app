@@ -264,6 +264,7 @@ class AppOnlyASGI:
                 await run_in_threadpool(
                     product_session_api._signed_history,
                     request, b"", b"/health/ready", probe_history,
+                    coherent_read=True,
                 )
                 # An active History role alone cannot certify the separate
                 # revoke role. Probe its actual restricted function grants

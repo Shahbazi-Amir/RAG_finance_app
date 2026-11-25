@@ -488,6 +488,28 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         asyncio.run(scenario())
 
 
+    def test_all_signed_history_read_routes_select_one_coherent_transaction(self):
+        from apps.api import product_session_api
+        from starlette.requests import Request
+        from starlette.responses import JSONResponse
+        for path, action in (
+            ("/v1/conversations", lambda r: product_session_api.session_conversations(r)),
+            ("/v1/conversations/example/messages",
+             lambda r: product_session_api.session_messages("example", r)),
+            ("/v1/message-requests/status",
+             lambda r: product_session_api.session_message_status(r)),
+        ):
+            with self.subTest(path=path):
+                req = Request({"type":"http","method":"GET","path":path,
+                               "raw_path":path.encode(),"headers":[],"query_string":b""})
+                response = JSONResponse({"fixture":True})
+                with patch.object(product_session_api, "_signed_history",
+                                  return_value=(None, response)) as signed:
+                    self.assertIs(action(req), response)
+                self.assertEqual(signed.call_args.args[:3], (req, b"", path.encode()))
+                self.assertIs(signed.call_args.kwargs.get("coherent_read"), True)
+                self.assertEqual(response.headers["cache-control"], "no-store")
+
     def test_signed_get_rejects_ambiguous_body_before_history_or_pg(self):
         """ASGI framing fence is independent of the signed session/DB."""
         calls = []

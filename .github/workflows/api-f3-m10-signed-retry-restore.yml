@@ -61,6 +61,7 @@ jobs:
             grep -Fx "API_F3_${phase}_STATUS_NEGATIVE_SECURITY_LOG_NO_SECRETS=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
             grep -Fx "API_F3_${phase}_24_FA_CASES_DISABLED_SEND_ZERO_SQL_NO_REFLECTION=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
             grep -Fx "API_F3_${phase}_TRANSPORT_CAP_503_SAME_PROOF_RECOVERY_ZERO_SQL=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
+            grep -Fx "API_F3_${phase}_BODYLESS_GET_SAME_PROOF_RECOVERY_REPLAY_DENY=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
           done
           test "$(grep -Fxc 'API_F3_SPLIT_DB_STARTUP_DENIED_78_NO_LISTENER=PASS' "$RUNNER_TEMP/f3-api-retry-markers.log")" = 2
           grep -Fx 'API_F3_SOURCE_CURSOR_PAGE2_RECORDED=PASS' "$RUNNER_TEMP/f3-api-retry-markers.log"
