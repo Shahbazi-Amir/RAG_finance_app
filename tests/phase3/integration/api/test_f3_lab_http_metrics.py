@@ -1,5 +1,6 @@
 """Pure unit tests and deterministic response doubles, NOT actual HTTP evidence."""
 import contextlib
+import hashlib
 import io
 import json
 import unittest
@@ -22,7 +23,7 @@ class Request:
     def __init__(self, owner, bad_cache=False, leak=False, wrong_owner=False):
         self.owner, self.bad_cache, self.leak, self.wrong_owner = owner, bad_cache, leak, wrong_owner
         self.responses = []
-    def get(self, url, timeout):
+    def get(self, url, timeout, headers=None):
         a = self.owner == "synthetic-owner-a"
         if "browser-a-1/messages" in url:
             body = {"owner_user_id": self.owner, "items": [{"message_id": "browser-msg-a", "text": "lab browser A"}]} if a else {"error": "lab browser A" if self.leak else "NOT_FOUND"}
@@ -33,6 +34,8 @@ class Request:
             status = 200
         body.update(request_id="synthetic-request-" + str(len(self.responses)), trace_id="synthetic-trace-" + str(len(self.responses)))
         r = Response(status, body, "public" if self.bad_cache else "no-store")
+        for k in ("request","trace"):
+            r.headers["x-"+k+"-id"]=hashlib.sha256((self.owner+k+str(len(self.responses))).encode()).hexdigest()[:32]
         self.responses.append(r)
         return r
 
@@ -60,7 +63,7 @@ class Tests(unittest.TestCase):
         r, log, a, b = self.measure()
         self.assertEqual(r['requests'], 8)
         self.assertEqual(r['routes']['owner_a_list']['samples'], 2)
-        self.assertEqual(r['correlation_fields']['request_id']['present_valid'], 6)
+        self.assertEqual(r['correlation_fields']['request_id']['present_valid'], 8)
         for secret in ('synthetic-owner-a','synthetic-owner-b','synthetic-request-','lab browser A','invalid.example'):
             self.assertNotIn(secret, log)
         self.assertTrue(all(x.disposed for x in a.request.responses + b.request.responses))
@@ -79,6 +82,16 @@ class Tests(unittest.TestCase):
         for rounds in (0,13):
             with self.assertRaises(ValueError): self.measure(rounds=rounds)
         with self.assertRaises(ValueError): self.measure(stage="production")
+    def test_missing_or_spoofed_header_denied(self):
+        for value in (None, "f"*32, "not-hex"):
+            a=Actor("synthetic-owner-a")
+            get=a.request.get
+            def bad(*args,**kwargs):
+                r=get(*args,**kwargs)
+                r.headers["x-request-id"]=value
+                return r
+            a.request.get=bad
+            with self.assertRaises(AssertionError):self.measure(a=a)
     def test_restore_measurement(self):
         self.assertEqual(self.measure(stage="restore")[0]['stage'],'restore')
 

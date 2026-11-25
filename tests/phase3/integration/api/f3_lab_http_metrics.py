@@ -1,11 +1,12 @@
 """Bounded read-only timing on the actual authenticated browser request clients.
 No provider call, load/soak claim, approved SLO, or new authentication mechanism.
 """
+import hashlib
 import json
 import re
 import time
 
-OPAQUE = re.compile(r"[A-Za-z0-9_-]{8,128}\Z")
+OPAQUE = re.compile(r"[0-9a-f]{32}$")
 ROUNDS = 12
 
 
@@ -29,10 +30,12 @@ def measure_read_baseline(pa, pb, list_url, owner_a, owner_b, stage, rounds=ROUN
             ("owner_b_foreign_detail", pb, detail_url, 404, None))
     samples = {name: [] for name, *_ in plan}
     ids = {"request_id": [], "trace_id": []}
+    pairs = []
+    spoof = "f" * 32
     for _ in range(rounds):
         for name, actor, url, expected, owner in plan:
             start = time.perf_counter_ns()
-            r = actor.request.get(url, timeout=5000)
+            r = actor.request.get(url, timeout=5000, headers={"X-Request-ID":spoof,"X-Trace-ID":spoof})
             elapsed = time.perf_counter_ns() - start
             try:
                 assert r.status == expected, "baseline unexpected HTTP status"
@@ -46,12 +49,17 @@ def measure_read_baseline(pa, pb, list_url, owner_a, owner_b, stage, rounds=ROUN
                     else:
                         assert d["owner_user_id"] == owner, "baseline detail owner mismatch"
                         assert [(x["message_id"], x["text"]) for x in d["items"]] == [("browser-msg-a", "lab browser A")], "baseline detail changed"
-                    for key in ids:
-                        v = d.get(key)
-                        if isinstance(v, str) and OPAQUE.fullmatch(v):
-                            ids[key].append(v)
                 else:
                     assert "lab browser A" not in r.text(), "baseline foreign detail leaked"
+                pair = []
+                for key in ids:
+                    v = r.headers.get("x-"+key.replace("_","-"))
+                    assert isinstance(v,str) and OPAQUE.fullmatch(v) and v != spoof, "missing or client-selected correlation"
+                    assert v not in ids[key], "reused correlation"
+                    ids[key].append(v)
+                    pair.append(v)
+                assert pair[0] != pair[1], "request and trace must differ"
+                pairs.append(hashlib.sha256(("|".join(pair)+"|"+str(r.status)).encode()).hexdigest())
                 samples[name].append(elapsed)
             finally:
                 r.dispose()
@@ -60,8 +68,9 @@ def measure_read_baseline(pa, pb, list_url, owner_a, owner_b, stage, rounds=ROUN
                "rounds": rounds, "requests": rounds * len(plan),
                "routes": {name: percentiles(values) for name, values in samples.items()},
                "correlation_fields": {key: {"present_valid": len(values), "distinct": len(set(values)),
-                                              "expected_success_responses": rounds * 3}
+                                              "expected_responses": rounds * 4}
                                       for key, values in ids.items()},
                "retrieval_generation": "NOT_AVAILABLE", "target_acceptance": "NOT_ACCEPTED"}
+    print("F3_LAB_CORRELATION_HASHES", json.dumps({"stage":stage,"hashes":sorted(pairs)},sort_keys=True), flush=True)
     print("F3_LAB_HTTP_BASELINE", json.dumps(receipt, sort_keys=True), flush=True)
     return receipt
