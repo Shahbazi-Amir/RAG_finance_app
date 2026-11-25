@@ -620,7 +620,8 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             scope["trusted_transport_test"] = True
             return await wrapper(scope, receive, send)
 
-        def invoke_action(request, body, path, action):
+        def invoke_action(request, body, path, action, *, coherent_read=False):
+            self.assertIs(coherent_read, True)
             self.assertEqual(body, b"")
             self.assertEqual(path, b"/health/ready")
             return None, action(context)
