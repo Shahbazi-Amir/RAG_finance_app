@@ -230,11 +230,12 @@ class AppOnlyASGI:
             return await history_api._safe_error(
                 401, "AUTH_REQUIRED", "authorization", "Authentication required.",
             )(scope, receive, private_send)
-        if scope.get("raw_path") == b"/health/ready":
+        if scope.get("path") == "/health/ready":
             # Strict readiness checks the *same* signed 004/005 session
             # admission and owner-bound PostgreSQL transaction as History.
             # PG-role-only /internal/ready is NOT proof the BFF signer works.
-            if (scope.get("method") != "GET"
+            if (scope.get("raw_path") != b"/health/ready"
+                    or scope.get("method") != "GET"
                     or scope.get("query_string")):
                 return await JSONResponse(
                     {"kind": "api_app_only_readiness", "state": "unavailable"},
@@ -281,9 +282,13 @@ class AppOnlyASGI:
                 "bootstrap_idp": "not_probed",
                 "retrieval": "unavailable", "generation": "unavailable",
             })(scope, receive, private_send)
-        if (scope.get("raw_path") == b"/internal/ready"
-                and scope.get("method") == "GET"
-                and not scope.get("query_string")):
+        if scope.get("path") == "/internal/ready":
+            if (scope.get("raw_path") != b"/internal/ready"
+                    or scope.get("method") != "GET" or scope.get("query_string")):
+                return await JSONResponse(
+                    {"kind": "app_only_readiness", "state": "unavailable",
+                     "retrieval": "unavailable", "generation": "unavailable"},
+                    status_code=503)(scope, receive, private_send)
             try:
                 # Real role/004+005 metadata queries are synchronous.
                 # Keep /internal/ready from blocking unrelated ASGI traffic.

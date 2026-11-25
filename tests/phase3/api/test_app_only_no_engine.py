@@ -993,5 +993,27 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         self.assertEqual(events.output, [
             "INFO:uvicorn.error:APP_ONLY_SECURITY_EVENT outcome=denied status=404"])
 
+    def test_noncanonical_readiness_is_unavailable_without_pg_or_handler(self):
+        async def forbidden(*args):
+            raise AssertionError("MUST_NOT_ROUTE")
+        wrapper = AppOnlyASGI(forbidden, FakeProfile())
+        async def scenario():
+            async def trusted(scope, receive, send):
+                scope["trusted_transport_test"] = True
+                return await wrapper(scope, receive, send)
+            async with AsyncClient(transport=ASGITransport(app=trusted),
+                                   base_url="https://test.invalid") as client:
+                for path in ("/health/%72eady", "/internal/%72eady",
+                             "/health/ready?probe=synthetic", "/internal/ready?probe=synthetic"):
+                    response = await client.get(path)
+                    self.assertEqual(response.status_code, 503)
+                    self.assertEqual(response.json()["state"], "unavailable")
+                    self.assertEqual(response.headers["cache-control"], "no-store")
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE":"APP_ONLY"}), patch(
+                "apps.api.private_app_only_asgi.verify_staging_database_authority",
+                side_effect=AssertionError("MUST_NOT_CONNECT")) as pg:
+            asyncio.run(scenario())
+            pg.assert_not_called()
+
 if __name__ == "__main__":
     unittest.main()

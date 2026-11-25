@@ -629,6 +629,57 @@ def verify_status_and_security_log(phase):
     print(f"API_F3_{phase.upper()}_STATUS_NEGATIVE_SECURITY_LOG_NO_SECRETS=PASS", flush=True)
 
 
+def verify_fa_disabled_send_corpus(phase, state):
+    """Real private mTLS/PG test; no inference, classifier, or actual Send."""
+    root = Path(__file__).resolve().parents[4]
+    corpus = json.loads((root / "packages/contracts/fixtures/app-only.fa.redteam.v1.json").read_text())
+    assert corpus["policy_status"] == "PROPOSED_NOT_APPROVED"
+    assert len(corpus["cases"]) == 12
+    host = "demo-db" if phase == "before" else "restore-db"
+    db = ("rag_finance_f3_http_ab_source" if phase == "before"
+          else "rag_finance_f3_http_ab_restored")
+    def snapshot():
+        fingerprints = []
+        with conn("history_app", host, db) as sql:
+            for label in ("a", "b"):
+                with sql.transaction():
+                    sql.execute("SELECT set_config('app.owner_id', %s, true)",
+                                (state[label]["owner"],))
+                    for table in ("conversations","messages","create_receipts",
+                                  "send_receipts","execution_attempts","answers"):
+                        rows = sql.execute(
+                            f"SELECT to_jsonb(t)::text AS row_value FROM history_l1.{table} AS t"
+                        ).fetchall()
+                        fingerprints.append(row_fingerprint([r["row_value"] for r in rows]))
+        assert tuple(x[0] for x in fingerprints) == (5,4,0,0,0,0,3,2,0,0,0,0)
+        return tuple(fingerprints)
+    before = snapshot()
+    with tls_client() as client:
+        for label in ("a", "b"):
+            for case in corpus["cases"]:
+                body = json.dumps({"kind":"send_message_request","contract_version":"product.v1",
+                    "requested_conversation_id":f"f3-net-{label}-1",
+                    "client_message_id":f"redteam-{label}-{case['id']}",
+                    "question":case["question"],
+                    "idempotency_key":f"redteam-key-{label}-{case['id']}"},
+                    ensure_ascii=False,separators=(",",":")).encode()
+                result = request(client, label, "/v1/messages", method="POST", body=body,
+                                 expect=case["expected_http_status"])
+                assert result.json()["error"]["code"] == case["expected_http_code"]
+                assert result.headers["cache-control"] == "no-store"
+                assert case["question"] not in result.text
+            request(client, label, "/v1/conversations")
+        for path in ("/health/%72eady", "/internal/%72eady",
+                     "/health/ready?probe=synthetic", "/internal/ready?probe=synthetic"):
+            result = client.get(BASE + path)
+            assert result.status_code == 503 and result.json()["state"] == "unavailable"
+    assert snapshot() == before
+    log = (PRIVATE / "app-only-server.log").read_text()
+    for case in corpus["cases"]:
+        assert case["question"] not in log
+    print(f"API_F3_{phase.upper()}_24_FA_CASES_DISABLED_SEND_ZERO_SQL_NO_REFLECTION=PASS", flush=True)
+
+
 def verify_history(phase: str):
     state = json.loads((PRIVATE / "session_state.json").read_text())
     with tls_client() as client:
@@ -701,6 +752,7 @@ def verify_history(phase: str):
                 pass
     verify_http_contract_negatives(phase)
     verify_status_and_security_log(phase)
+    verify_fa_disabled_send_corpus(phase, state)
     verify_disabled_send_retries(phase, state)
     verify_runtime_signer_drift(phase)
     verify_session_lifecycle(phase, state)
