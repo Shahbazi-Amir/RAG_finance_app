@@ -1,5 +1,6 @@
 import unittest
-from app_only_retry_probe import assert_disabled_retries
+from threading import get_ident
+from app_only_retry_probe import assert_disabled_retries, row_fingerprint
 
 
 class RetryProbeTests(unittest.TestCase):
@@ -40,6 +41,30 @@ class RetryProbeTests(unittest.TestCase):
             raise RuntimeError("synthetic SQL failure")
         with self.assertRaises(RuntimeError):
             assert_disabled_retries(lambda i: (503, "ENGINE_NOT_CONFIGURED"), snapshot)
+
+    def test_six_distinct_retry_threads(self):
+        workers = set()
+        def send(i):
+            workers.add(get_ident())
+            return 503, "ENGINE_NOT_CONFIGURED"
+        self.assertEqual(assert_disabled_retries(send, lambda: (0,)), 6)
+        self.assertEqual(len(workers), 6)
+
+    def test_digest_order_independent(self):
+        self.assertEqual(row_fingerprint(["a", "b"]), row_fingerprint(["b", "a"]))
+
+    def test_digest_detects_same_count_content_change(self):
+        self.assertNotEqual(row_fingerprint(["a", "b"]), row_fingerprint(["a", "c"]))
+
+    def test_digest_preserves_duplicate_rows(self):
+        self.assertNotEqual(row_fingerprint(["a", "a"]), row_fingerprint(["a"]))
+
+    def test_digest_prevents_row_boundary_ambiguity(self):
+        self.assertNotEqual(row_fingerprint(["ab", "c"]), row_fingerprint(["a", "bc"]))
+
+    def test_digest_rejects_invalid_rows(self):
+        with self.assertRaises(TypeError):
+            row_fingerprint([None])
 
 
 if __name__ == "__main__":

@@ -869,6 +869,34 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             admit.assert_not_called()
         self.assertEqual(calls, ["history", "history"])
 
+    def test_engine_and_fixture_gets_denied_before_admission(self):
+        from apps.api import product_session_api
+        wrapper = AppOnlyASGI(product_session_api.app, FakeProfile())
+
+        async def invoke():
+            async def trusted(scope, receive, send):
+                scope["trusted_transport_test"] = True
+                return await wrapper(scope, receive, send)
+            async with AsyncClient(transport=ASGITransport(app=trusted),
+                                   base_url="https://test.invalid") as client:
+                for suffix, code in (
+                    ("engine-status", "ENGINE_STATUS_UNAVAILABLE"),
+                    ("retrieved-sources", "ENGINE_STATUS_UNAVAILABLE"),
+                    ("claim-test-status", "TEMPORARILY_UNAVAILABLE"),
+                    ("invited-live-result", "TEMPORARILY_UNAVAILABLE"),
+                ):
+                    response = await client.get("/v1/message-requests/" + suffix)
+                    self.assertEqual(response.status_code, 503)
+                    self.assertEqual(response.json()["error"]["code"], code)
+                    self.assertEqual(response.headers["cache-control"], "no-store")
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}), \
+                patch.object(product_session_api, "_signed_history",
+                             side_effect=AssertionError("MUST_NOT_ADMIT")) as admit, \
+                patch("psycopg.connect", side_effect=AssertionError("MUST_NOT_CONNECT")) as pg:
+            asyncio.run(invoke())
+            admit.assert_not_called()
+            pg.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

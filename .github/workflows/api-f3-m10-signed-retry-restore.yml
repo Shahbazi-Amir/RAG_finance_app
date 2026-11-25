@@ -2,23 +2,30 @@ name: API F3 M10-A10 disabled retry and signer drift — real isolated PG restor
 on:
   push:
     branches: [agent/api-f3-signer-continuity-pr116-20261125]
+  pull_request:
+    branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   actual-mtls-https-postgres:
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/api-f3-signer-continuity-pr116-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
+    env:
+      API_TEST_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Verify exact source and negative protection before PG
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$API_TEST_SOURCE_SHA"
           echo "F3_APP_ONLY_HTTPS_GIT_SHA=$(git rev-parse HEAD)"
           python3 -m unittest discover -s tests/phase3/integration/api -p test_app_only_retry_probe.py -v
           bash -n infra/postgres/dev_f3_isolated/scripts/28_signed_history_https_pg_lab.sh
@@ -46,6 +53,7 @@ jobs:
           for phase in BEFORE AFTER; do
             grep -Fx "API_F3_${phase}_12_REAL_SIGNED_SEND_RETRIES_ZERO_SCOPED_SQL=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
             grep -Fx "API_F3_${phase}_REAL_SIGNER_DRIFT_503_RECOVERY_200=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
+            grep -Fx "API_F3_${phase}_DISABLED_ROUTES_AND_FULL_ROW_PARITY=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
           done
           echo 'F3_APP_ONLY_NO_ENGINE_NO_011_NO_DEMO_NO_IDP_CLAIM=PASS'
       - name: Verify sanitized signed HTTP and restore witness
@@ -57,7 +65,7 @@ jobs:
           from pathlib import Path
           r=json.loads(Path("ci_receipts/app_only_https_pg_ab_restore.json").read_text())
           assert r["contract_version"]=="f3.app_only.real_mtls_signed_history_pg_ab_lab.v1"
-          assert r["source_git_sha"]==os.environ["GITHUB_SHA"]
+          assert r["source_git_sha"]==os.environ["API_TEST_SOURCE_SHA"]
           assert r["idp"]=="NOT_RUN_SYNTHETIC_DB_MAPPED_SUBJECTS"
           assert r["browser"]=="NOT_RUN"
           assert r["private_api_listener"]=="REAL_UVICORN_H11_MTLS"

@@ -18,6 +18,7 @@ from pathlib import Path
 from starlette.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from apps.api.app_only_signer_pin import SignerPin
+from apps.api.app_only_disabled_routes import deny_disabled_route
 
 from apps.api.private_staging_asgi import (
     _harden_tls_context, _protected_file, _test_tls_material,
@@ -177,17 +178,14 @@ class AppOnlyASGI:
             return await JSONResponse(
                 {"error": "SERVICE_UNAVAILABLE"}, status_code=503,
                 headers={"Cache-Control": "no-store"})(scope, receive, private_send)
-        if (scope.get("path") == "/v1/messages"
-                and scope.get("method") == "POST"):
-            # Routing uses the percent-decoded ASGI path. A raw-path-only
-            # comparison could let /v1/%6dessages bypass the pre-body fence.
-            # No body parsing, trusted-user mutation, PG T1/T2, runner queue,
-            # synthetic Answer, citation, or Gateway network call.
+        # Deny disabled engine and fixture endpoints before any signed
+        # admission or replay transaction, preserving the canonical Send DTO.
+        def disabled_error(*args):
             from apps.api import history_api
-            return await history_api._safe_error(
-                503, "ENGINE_NOT_CONFIGURED", "technical",
-                "Message sending is unavailable until the engine is enabled.",
-            )(scope, receive, private_send)
+            return history_api._safe_error(*args)
+
+        if await deny_disabled_route(scope, receive, private_send, disabled_error):
+            return
         # The production composition pins the very key installed in the
         # verifier. A broken/replaced Ops file is not a valid configuration.
         # Keep the no-engine Send denial ahead of this check.

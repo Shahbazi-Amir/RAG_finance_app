@@ -32,7 +32,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from src.phase3.storage.postgres import auth_session
-from app_only_retry_probe import assert_disabled_retries
+from app_only_retry_probe import assert_disabled_retries, row_fingerprint
 
 LAB = Path("/run/f3_http_probe")
 PRIVATE = LAB / "private"
@@ -318,9 +318,14 @@ def verify_disabled_send_retries(phase, state):
                 with sql.transaction():
                     sql.execute("SELECT set_config('app.owner_id', %s, true)",
                                 (state[label]["owner"],))
-                    rows.extend(sql.execute(
-                        f"SELECT count(*) AS n FROM history_l1.{table}").fetchone()["n"]
-                        for table in tables)
+                    for table in tables:
+                        contents = sql.execute(
+                            f"SELECT to_jsonb(t)::text AS row_value FROM history_l1.{table} AS t"
+                        ).fetchall()
+                        rows.append(row_fingerprint([item["row_value"] for item in contents]))
+        # Nonvacuous known synthetic owner inventory. A wrong RLS context
+        # must not make an all-zero snapshot appear successful.
+        assert tuple(item[0] for item in rows) == (5,4,0,0,0,0,3,2,0,0,0,0)
         return tuple(rows)
 
     for label in ("a", "b"):
@@ -346,6 +351,27 @@ def verify_disabled_send_retries(phase, state):
                 return result.status_code, result.json()["error"]["code"]
         assert assert_disabled_retries(send, snapshot) == 6
     print(f"API_F3_{phase.upper()}_12_REAL_SIGNED_SEND_RETRIES_ZERO_SCOPED_SQL=PASS", flush=True)
+    # All four engine/fixture read routes must fail without entering product
+    # admission. With valid mTLS, missing JWT must not reach signed handlers.
+    before = snapshot()
+    with tls_client() as client:
+        for suffix, code in (
+            ("engine-status", "ENGINE_STATUS_UNAVAILABLE"),
+            ("retrieved-sources", "ENGINE_STATUS_UNAVAILABLE"),
+            ("claim-test-status", "TEMPORARILY_UNAVAILABLE"),
+            ("invited-live-result", "TEMPORARILY_UNAVAILABLE"),
+        ):
+            path = "/v1/message-requests/" + suffix
+            for label in ("a", "b"):
+                result = request(client, label, path, expect=503)
+                assert result.json()["error"]["code"] == code
+                assert result.headers["cache-control"] == "no-store"
+            result = client.get(BASE + path)
+            assert result.status_code == 503 and result.json()["error"]["code"] == code
+        request(client, "a", "/v1/conversations", expect=200)
+        request(client, "b", "/v1/conversations", expect=200)
+    assert snapshot() == before
+    print(f"API_F3_{phase.upper()}_DISABLED_ROUTES_AND_FULL_ROW_PARITY=PASS", flush=True)
 
 
 def verify_runtime_signer_drift(phase):
