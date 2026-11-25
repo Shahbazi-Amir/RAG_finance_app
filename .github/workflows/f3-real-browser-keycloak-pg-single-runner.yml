@@ -322,7 +322,8 @@ jobs:
           set -euo pipefail
           export GITHUB_SHA="$(git rev-parse HEAD)"
           python -m py_compile tests/phase3/integration/foundation/browser_lab_trust.py tests/phase3/integration/foundation/browser_history_restore.py tests/phase3/integration/ui/phase3_auth_demo.py
-          python -m py_compile tests/phase3/integration/foundation/browser_cross_engine_signed.py
+          python -m py_compile tests/phase3/integration/foundation/browser_cross_engine_signed.py tests/phase3/integration/foundation/browser_privacy_paging.py
+          python -m unittest discover -s tests/phase3/integration/foundation -p 'test_browser_privacy_paging.py' -v
           if [ '${{ matrix.browser }}' = chromium ]; then
             python tests/phase3/integration/foundation/browser_history_restore.py
             echo 'F3_REAL_KEYCLOAK_CHROMIUM_NEXT_PG_RESTORED_TWO_USER_PASS'

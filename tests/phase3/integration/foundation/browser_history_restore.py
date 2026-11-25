@@ -76,12 +76,14 @@ def create_extra_question(demo,label):
         result=history_api.create_conversation(
             c,owner,request,history_api.uid(),history_api.uid())
         cid=result["conversation"]["conversation_id"]
-        req={"kind":"send_message_request","contract_version":"product.v1",
-             "requested_conversation_id":cid,
-             "client_message_id":history_api.uid(),
-             "idempotency_key":"f3history_"+uuid.uuid4().hex,
-             "question":"F3_REAL_POSTGRES_"+label}
-        history_api.send_t1(c,owner,req,history_api.uid(),history_api.uid())
+        # Disposable SQL fixture only; actual browser Send remains disabled.
+        for index in range(31):
+            req={"kind":"send_message_request","contract_version":"product.v1",
+                 "requested_conversation_id":cid,
+                 "client_message_id":history_api.uid(),
+                 "idempotency_key":"f3history_"+uuid.uuid4().hex,
+                 "question":"F3_REAL_POSTGRES_"+label+"_"+str(index)}
+            history_api.send_t1(c,owner,req,history_api.uid(),history_api.uid())
     return cid
 
 
@@ -102,6 +104,8 @@ async def reload_history_document(page, *, recovery_phase=None):
         recovery=await page.goto(target)
         assert recovery is not None and recovery.status==200 and page.url==target, (
             "HISTORY_DOCUMENT_RECOVERY_FAILED",recovery_phase)
+        # The recovery goto itself must not satisfy the second reload proof.
+        await page.evaluate("window.__f3OldDocument = true")
         response=await page.reload()
     status=response.status if response is not None else None
     same_url=page.url==target
@@ -116,12 +120,14 @@ async def reload_history_document(page, *, recovery_phase=None):
     assert status in (200,304) and same_url and navigation and new_document,(
         "HISTORY_DOCUMENT_RELOAD_FAILED",recovery_phase,status,same_url,navigation,new_document)
     if status==304:
+        assert target in (ORIGIN+"/",ORIGIN+"/history"),"CONDITIONAL_RELOAD_NOT_HISTORY_SHELL"
         assert response.request.method=="GET"
         assert response.url==target,"CONDITIONAL_RELOAD_WRONG_RESOURCE"
         print("F3_HISTORY_STATIC_SHELL_304_REVALIDATED",flush=True)
 
 
 async def browser_history(page,label,expected_ids,expected_owner,expected_messages,*,recovery_phase=None):
+    from browser_privacy_paging import no_store, collect_signed_messages, assert_clicked_message_pages
     await reload_history_document(page,recovery_phase=recovery_phase)
     await expect(page.locator('[data-testid^="conversation-"]').first).to_be_visible(
         timeout=20000)
@@ -129,7 +135,7 @@ async def browser_history(page,label,expected_ids,expected_owner,expected_messag
         # Validate the real BFF response first; only then wait for hydration.
         server=await page.request.get(ORIGIN+"/api/history/conversations?limit=2")
         assert server.status==200,("BFF_LIST",label,server.status)
-        assert "no-store" in server.headers.get("cache-control","").lower(),"PRIVATE_LIST_CACHE"
+        assert no_store(server.headers),"PRIVATE_LIST_CACHE"
         assert (await server.json())["page"]["has_more"],("SERVER_CURSOR_MISSING",label)
         async with page.expect_response(
             lambda r:"/api/history/conversations?limit=2" in r.url
@@ -137,7 +143,7 @@ async def browser_history(page,label,expected_ids,expected_owner,expected_messag
             await page.get_by_test_id("refresh-history").click()
         observed=await observing.value
         assert observed.status==200
-        assert "no-store" in observed.headers.get("cache-control","").lower(),"PRIVATE_BROWSER_LIST_CACHE"
+        assert no_store(observed.headers),"PRIVATE_BROWSER_LIST_CACHE"
         more=page.get_by_role("button",name="نمایش گفت‌وگوهای بیشتر")
         await expect(more).to_be_visible(timeout=15000)
         await more.click()
@@ -150,31 +156,15 @@ async def browser_history(page,label,expected_ids,expected_owner,expected_messag
     await expect(page.get_by_test_id("history-question")).to_be_disabled()
     await expect(page.get_by_role("textbox",name="پرسش فارسی")).to_be_disabled()
     await expect(page.get_by_test_id("app-runtime-capability")).to_contain_text("ارسال پرسش و تولید پاسخ غیرفعال است")
+    owner_messages=[m for m in expected_messages if m[0]==expected_owner]
+    assert any(sum(m[1]==cid for m in owner_messages)>30 for cid in expected_ids),"MULTIPAGE_SQL_FIXTURE_MISSING"
     for cid in sorted(expected_ids):
-        response=await page.request.get(
-            ORIGIN+"/api/history/conversations/"+cid+"/messages?limit=20")
-        assert response.status==200,("SELF_DETAIL",label,response.status)
-        assert "no-store" in response.headers.get("cache-control","").lower(),"PRIVATE_DETAIL_CACHE"
-        body=await response.json()
-        assert body["owner_user_id"]==expected_owner,("DETAIL_OWNER_MISMATCH",label,cid)
-        expected={(m[2],m[3]) for m in expected_messages
-                  if m[0]==expected_owner and m[1]==cid}
-        actual=[(item["message_id"],item["text"]) for item in body["items"]]
-        assert len(actual)==len(set(actual)) and set(actual)==expected, (
-            "BROWSER_SQL_MESSAGE_ID_BODY_PARITY",label,cid,len(actual),len(expected))
-        # Exercise the ordinary UI detail transition, not just APIRequestContext.
-        button=page.get_by_test_id("conversation-"+cid)
-        await button.click()
-        await expect(button).to_have_attribute("aria-current","page")
-        rendered=page.locator('[data-testid^="history-message-"]')
-        await expect(rendered).to_have_count(len(expected),timeout=20000)
-        for message_id,body_text in sorted(expected):
-            await expect(page.get_by_test_id("history-message-"+message_id)
-                .locator(".history-message-text")).to_have_text(body_text)
-        dom_ids=set(await rendered.evaluate_all(
-            "(nodes)=>nodes.map(n=>n.getAttribute('data-testid').replace('history-message-',''))"))
-        assert dom_ids=={m[0] for m in expected},("DOM_SQL_MESSAGE_IDS",label,cid)
-        assert await page.locator('[data-testid^="answer-"]').count()==0
+        rows=[(m[2],m[3]) for m in owner_messages if m[1]==cid]
+        expected=dict(rows)
+        assert len(expected)==len(rows),"SQL_DUPLICATE_MESSAGE_ID"
+        ordered=await collect_signed_messages(page,ORIGIN,cid,expected_owner,expected)
+        await assert_clicked_message_pages(page,cid,expected,ordered)
+    print("F3_BROWSER_MULTIPAGE_DETAIL_HTTP_DOM_SQL_PARITY_PASS",flush=True)
     return ids
 
 
@@ -318,6 +308,10 @@ async def cursor_owner_signature_denied(page_a,page_b):
         wrong_limit=await original.request.get(
             ORIGIN+"/api/history/conversations?limit=2&cursor="+cursor)
         assert wrong_limit.status==422,("CURSOR_LIMIT_BIND",wrong_limit.status)
+    from browser_privacy_paging import assert_foreign_message_cursor_denied
+    await assert_foreign_message_cursor_denied(page_a,page_b,ORIGIN)
+    await assert_foreign_message_cursor_denied(page_b,page_a,ORIGIN)
+    print("F3_BROWSER_AB_FOREIGN_MESSAGE_CURSOR_DENIED_PASS",flush=True)
 
 
 async def foreign_owner_denied(page,foreign_ids):
@@ -664,6 +658,9 @@ async def execute():
                 await browser_history(page,label,ids,demo.owners[label],messages_before)
             assert inventory(demo)[0]==source and inventory(demo)[1]==receipt_before
             assert message_inventory(demo)==messages_before
+            from browser_privacy_paging import prepare_back_probe, verify_revoked_back, verify_foreign_before_revoke
+            back_probe=await prepare_back_probe(ctx_a,ORIGIN,source,demo.owners["A"],demo.owners["B"],messages_before)
+            await verify_foreign_before_revoke(back_probe,page_b)
             # Genuine Logout form and old cookie on original Chromium context.
             tab=await ctx_a.new_page()
             await tab.goto(ORIGIN+"/login")
@@ -684,12 +681,14 @@ async def execute():
             surviving=await page_b.request.get(
                 ORIGIN+"/api/history/conversations?limit=2")
             assert surviving.status==200
-            await page_a.get_by_test_id("refresh-history").click()
+            if await page_a.get_by_test_id("refresh-history").is_enabled():
+                await page_a.get_by_test_id("refresh-history").click()
             await expect(page_a.get_by_test_id("history-login-required")).to_be_visible()
             assert await page_a.locator('[data-testid^="conversation-"]').count()==0
             await page_b.get_by_test_id("refresh-history").click()
             await expect(page_b.locator('[data-testid^="conversation-"]').first).to_be_visible()
             await foreign_owner_denied(page_b,ids_a)
+            await verify_revoked_back(back_probe,page_b)
             print("F3_LEGACY_BROWSER_COMMITTED_REVOKE_AND_DOM_CLEAR_PASS",flush=True)
             result={
                 "schema":"foundation.f3.real_browser_pg_restored_same_context.v1",
@@ -729,6 +728,9 @@ async def execute():
                 "original_signed_a_session_after_revoke":401,
                 "original_signed_b_session_after_a_revoke":200,
                 "a_history_dom_cleared_after_revoke":True,
+                "multi_page_message_detail_sql_http_dom":True,
+                "native_direct_owner_denial_and_revoked_back":True,
+                "bfcache_persisted_event":"see actual run marker; no automatic PASS",
                 "b_alive_after_a_revoke":200,
                 "engine_calls":0,
                 "sql_011":False,

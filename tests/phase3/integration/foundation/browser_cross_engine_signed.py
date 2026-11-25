@@ -136,6 +136,9 @@ async def execute(name):
                     await cursor_owner_signature_denied(page_a,page_b)
                     assert inventory(demo)==(rows,receipts,cluster)
                     assert message_inventory(demo)==messages
+                    from browser_privacy_paging import prepare_back_probe, verify_revoked_back, verify_foreign_before_revoke
+                    back_probe=await prepare_back_probe(ctx_a,ORIGIN,rows,demo.owners["A"],demo.owners["B"],messages)
+                    await verify_foreign_before_revoke(back_probe,page_b)
                     # Genuine logout, then original raw signed A/B session checks.
                     tab=await ctx_a.new_page()
                     await tab.goto(ORIGIN+"/login")
@@ -157,6 +160,7 @@ async def execute(name):
                     await page_b.get_by_test_id("refresh-history").click()
                     await expect(page_b.locator('[data-testid^="conversation-"]').first).to_be_visible()
                     await foreign_owner_denied(page_b,ids_a)
+                    await verify_revoked_back(back_probe,page_b)
                     assert inventory(demo)==(rows,receipts,cluster)
                     assert message_inventory(demo)==messages
                     receipt={"sha":os.environ["GITHUB_SHA"],"browser":name,
@@ -168,6 +172,9 @@ async def execute(name):
                              "skip_link_and_selected_normal_text_contrast":True,
                              "send_503_no_history_mutation":True,
                              "original_session_a_401_b_200":True,"revoked_dom_empty":True,
+                             "multi_page_message_detail_sql_http_dom":True,
+                             "native_direct_owner_denial_and_revoked_back":True,
+                             "bfcache_persisted_event":"see actual run marker; no automatic PASS",
                              "restore_tested":False,"target_accepted":False,
                              "engine_calls":0,"sql_011":False}
                     output=ROOT/"ci_receipts"/"f3_cross_engine_signed.json"
