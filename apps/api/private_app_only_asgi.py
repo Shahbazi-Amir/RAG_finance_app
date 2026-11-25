@@ -18,6 +18,7 @@ from pathlib import Path
 
 from starlette.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
+from apps.api.app_only_route_policy import classify_route
 
 from apps.api.private_staging_asgi import (
     _harden_tls_context, _protected_file, _test_tls_material,
@@ -195,14 +196,12 @@ class AppOnlyASGI:
             return await JSONResponse(
                 {"error": "SERVICE_UNAVAILABLE"}, status_code=503,
                 headers={"Cache-Control": "no-store"})(scope, receive, private_send)
-        if (scope.get("raw_path") == b"/v1/messages"
-                and scope.get("method") == "POST"):
+        route = classify_route(scope)
+        if route == "send_disabled":
             # No body parsing, trusted-user mutation, PG T1/T2, runner queue,
             # synthetic Answer, citation, or Gateway network call.
             return await JSONResponse({"error": "ENGINE_NOT_AVAILABLE"}, status_code=503)(scope, receive, private_send)
-        if (scope.get("raw_path") == b"/internal/ready"
-                and scope.get("method") == "GET"
-                and not scope.get("query_string")):
+        if route == "pg_ready":
             try:
                 if self._signing_key_sha256 is not None:
                     if not self._signing_key_current():
@@ -227,8 +226,7 @@ class AppOnlyASGI:
         # Exact raw paths only: never delegate an alternate encoding, slash
         # redirect, future mutation, engine route, or fixture to the inner app.
         raw = scope.get("raw_path", b"")
-        method = scope.get("method")
-        if method == "GET" and raw in (b"/health/live", b"/health/ready", b"/v1/capabilities") and not scope.get("query_string"):
+        if route == "health":
             # Full product readiness remains false until Bootstrap and IdP
             # are probed by the integrated candidate. PG-only /internal/ready
             # is a separate, explicitly scoped API signal.
@@ -237,10 +235,7 @@ class AppOnlyASGI:
                         b"/v1/capabilities": capabilities}
             response = await handlers[raw]()
             return await response(scope, receive, private_send)
-        read_path = (raw in (b"/v1/conversations", b"/v1/message-requests/status")
-                     or re.fullmatch(rb"/v1/conversations/[A-Za-z0-9][A-Za-z0-9_-]{0,63}/messages", raw))
-        if ((method == "GET" and read_path)
-                or (method == "POST" and raw == b"/internal/auth/session/v1/revoke-one")):
+        if route in {"history", "revoke"}:
             if not self._signing_key_current():
                 return await JSONResponse({"error": "SERVICE_UNAVAILABLE"}, status_code=503)(scope, receive, private_send)
             return await self._app(scope, receive, private_send)
