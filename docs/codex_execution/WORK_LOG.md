@@ -90,3 +90,7 @@
 ## NB23-SESSION-RESUME-27
 
 - بازیابی ترتیبی پشته با Swap کمتر، HTTPS و Worker معتبر، یک Send واقعی CONTEXT_READY و آزمون replay/Logout امضاشده خروج ۰. پنجرهٔ اختصاصی Chrome راه‌اندازی شد و فرایندها روشن ماندند.
+
+## NB23-SESSION-RESUME-28
+
+- ثبت شاهد نخستین آزمون مالک، مهلت‌های نسخهٔ B، اصلاح draft و وضعیت/polling، Build آفلاین و جایگزینی محدود BFF/Bootstrap. آزمون واقعی HTTPS موفق و آزمون Chrome در Logout ابزار ناموفق بود.

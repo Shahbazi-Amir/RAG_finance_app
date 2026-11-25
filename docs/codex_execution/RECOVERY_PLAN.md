@@ -35,3 +35,7 @@ The isolated API now starts independently of Worker warmup. Before an owner Send
 ### NB23-SESSION-RESUME-27
 
 For a stopped Version B, restore its isolated PostgreSQL, start Keycloak first and wait for its private 8443 listener, then start the remaining project services. This order was exercised with one verified real retrieval. Preserve both stacks and existing volumes. Formal Freeze remains pending.
+
+### NB23-SESSION-RESUME-28
+
+Use the experimental-local-v4-product-fixes BFF tag for Version B. For this rollout only Bootstrap and BFF were recreated. Preserve the live Keycloak, PostgreSQL, API and Worker. Existing Chrome tabs require one sign-in after replacement so the new cookie and owner-bound correlation can be recovered.
