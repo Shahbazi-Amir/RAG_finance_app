@@ -15,7 +15,9 @@ def match(browser, api, stage):
     if stage not in ("source","restore") or len(browser)>LIMIT or len(api)>LIMIT:
         raise ValueError("correlation scope")
     witness=[line.split("F3_LAB_CORRELATION_HASHES ",1)[1] for line in browser.splitlines() if line.startswith("F3_LAB_CORRELATION_HASHES ")]
-    if len(witness)!=1: raise ValueError("missing browser witness")
+    if len(witness)!=1:
+        print("F3_LAB_BROWSER_WITNESS_COUNT",len(witness),file=sys.stderr)
+        raise ValueError("missing browser witness")
     doc=json.loads(witness[0]); hashes=doc.get("hashes")
     if set(doc)!={"stage","hashes"} or doc["stage"]!=stage or not isinstance(hashes,list) or len(hashes)!=48 or not all(isinstance(x,str) and HASH.fullmatch(x) for x in hashes) or len(set(hashes))!=48:
         raise ValueError("invalid browser witness")
@@ -29,7 +31,11 @@ def match(browser, api, stage):
         if not all(isinstance(x,str) and HEX.fullmatch(x) for x in (a,b)) or a==b:
             raise ValueError("invalid identifiers")
         counts[hashlib.sha256(f"{a}|{b}|{event['status']}".encode()).hexdigest()]+=1
-    if any(counts[x]!=1 for x in hashes): raise ValueError("correlation missing or repeated")
+    missing=sum(counts[x]==0 for x in hashes)
+    repeated=sum(counts[x]>1 for x in hashes)
+    if missing or repeated:
+        print("F3_LAB_TRACE_COUNTS",len(hashes),sum(counts.values()),missing,repeated,file=sys.stderr)
+        raise ValueError("correlation missing or repeated")
     return len(hashes)
 
 def main():
@@ -38,8 +44,8 @@ def main():
         with Path(path).open("rb") as f: browser=f.read(LIMIT+1)
         api=sys.stdin.buffer.read(LIMIT+1)
         count=match(browser.decode("utf-8"),api.decode("utf-8"),stage)
-    except Exception:
-        print("F3_LAB_TRACE_CORRELATION_DENIED",file=sys.stderr)
+    except Exception as exc:
+        print("F3_LAB_TRACE_CORRELATION_DENIED",type(exc).__name__,file=sys.stderr)
         return 70
     print(f"F3_LAB_TRACE_CORRELATION_PASS stage={stage} matched={count}")
     return 0
