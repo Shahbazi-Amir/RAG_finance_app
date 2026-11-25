@@ -155,3 +155,8 @@ DeepSeek contract و شش آزمون Mock تأیید شد. انتشار Context 
 ### NB23-SESSION-RESUME-32
 
 پل خصوصی Context همان Attempt و ذخیره و نمایش پاسخ Mock در Worktree پیاده‌سازی شد. آزمون کانتینری ۱/۱، آزمون مصرف‌کننده Web ۱/۱ و بررسی TypeScript موفق بودند. امضای واقعی BFF، PostgreSQL، Chrome و Gateway در این آزمون اجرا نشدند. نسخه B و Worker روشن دست‌نخورده ماندند. درخواست خارجی صفر. آمادگی آزمون زنده هنوز احراز نشده است.
+
+
+### NB23-SESSION-RESUME-33
+
+آداپتر HTTPS آزمون آفلاین ۳/۳ را گذراند و پشته Chrome ساختگی ساخته شد. PostgreSQL، API و Worker سبک آماده شدند. آزمون Chrome در مهلت بعدی آمادگی Keycloak ادامه دارد. درخواست خارجی صفر.

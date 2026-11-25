@@ -456,3 +456,8 @@ Status is review. Supervisor approval is pending.
 ### NB23-SESSION-RESUME-32
 
 P3M10 (Module 10 Attempt و منع تکرار)، P3M13 (Module 13 API)، P3M14-A03/A09 (Module 14 نمایش و خطا)، P3M15-A01/A07 (Module 15 ذخیره و مالکیت). مبنا، مسیرهای دقیق، فرمان‌ها و نتیجه آزمون، شکست TS2307، تصمیم‌های اجرایی و وابستگی‌های بعدی در [شواهد تجمعی](../../docs/codex_execution/MAC_FIRST_START_FA.md) ثبت شده‌اند. پیاده‌سازی و آزمون مؤلفه Mock ثبت شد. پذیرش ناظر و آزمون واقعی بازند.
+
+
+### NB23-SESSION-RESUME-33
+
+آداپتر HTTPS آزمون آفلاین ۳/۳ را گذراند و پشته Chrome ساختگی ساخته شد. PostgreSQL، API و Worker سبک آماده شدند. آزمون Chrome در مهلت بعدی آمادگی Keycloak ادامه دارد. درخواست خارجی صفر. P3M10، P3M13، P3M14-A03/A09 و P3M15-A01/A07. [نسخه مبنا، مسیرهای تغییر، فرمان آزمون و نتیجه به‌همراه اقدام بعدی](../../docs/codex_execution/MAC_FIRST_START_FA.md).
