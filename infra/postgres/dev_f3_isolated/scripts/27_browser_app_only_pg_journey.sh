@@ -173,21 +173,27 @@ const https=require("node:https"),fs=require("node:fs");
 const ca=fs.readFileSync("/run/web/ca.crt");
 const cert=fs.readFileSync("/run/web/bff.crt"),key=fs.readFileSync("/run/web/bff.key");
 function get(url,opt={}){return new Promise((resolve,reject)=>{
-  const q=https.get(url,{ca,rejectUnauthorized:true,timeout:5000,...opt},r=>{r.resume();r.on("end",()=>resolve(r.statusCode));});
+  const q=https.get(url,{ca,rejectUnauthorized:true,servername:new URL(url).hostname,timeout:5000,...opt},r=>{r.resume();r.on("end",()=>resolve(r.statusCode));});
   q.on("timeout",()=>q.destroy(new Error("timeout")));q.on("error",reject);
 });}
 (async()=>{
-  if(await get("https://ragfinance.ir/login")!==200)throw Error("ingress");
+  let live=false; for(let i=0;i<60;i++){try{live=(await get("https://ragfinance.ir/login"))===200}catch{} if(live)break;await new Promise(r=>setTimeout(r,1000));}
+  if(!live)throw Error("ingress");
+  console.log("BOUNDARY_INGRESS_TLS_PASS");
   if(await get("https://ragfinance.ir/login",{headers:{host:"wrong.invalid"}})!==421)throw Error("host");
+  console.log("BOUNDARY_HOST_REJECT_PASS");
   if(await get("https://lab-idp.test/realms/f3-lab/.well-known/openid-configuration")!==200)throw Error("idp");
+  console.log("BOUNDARY_IDP_TLS_PASS");
   if(await get("https://signed-api:8443/v1/conversations",{cert,key,headers:{Authorization:"BFF-Assertion invalid"}})!==401)throw Error("proof");
+  console.log("BOUNDARY_INVALID_PROOF_401_PASS");
   let denied=false;
   try{denied=(await get("https://signed-api:8443/internal/ready"))!==200}catch{denied=true}
   if(!denied)throw Error("peer");
+  console.log("BOUNDARY_NO_PEER_DENIED_PASS");
   const r=await fetch("http://127.0.0.1:3000/login",{headers:{"x-forwarded-host":"ragfinance.ir","x-forwarded-proto":"https","x-auth-staging-proxy-proof":"invalid"}});
   if(r.status!==503)throw Error("direct-web");
   console.log("SAME_STACK_TLS_HOST_IDP_INVALID_PROOF_NO_CERT_DIRECT_WEB_PASS");
-})().catch(e=>{console.error("BOUNDARY_FAILED",["ingress","host","idp","proof","peer","direct-web"].includes(e.message)?e.message:"transport");process.exit(1)});'
+})().catch(e=>{console.error("BOUNDARY_FAILED",["ingress","host","idp","proof","peer","direct-web"].includes(e.message)?e.message:typeof e.code==="string"&&/^[A-Z0-9_]+$/.test(e.code)?e.code:"transport");process.exit(1)});'
 }
 probe_boundary
 stack run --rm --no-deps browser python /opt/probe.py map
