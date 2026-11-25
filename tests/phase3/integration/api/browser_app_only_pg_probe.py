@@ -35,16 +35,26 @@ def login(browser, user):
         time.sleep(1)
     else:
         raise AssertionError("ingress-not-ready")
-    page.get_by_test_id("login-submit").click()
+    # Report only phase and HTTP status, never callback URL, tokens or credentials.
+    print("BROWSER_LOGIN_FORM_READY",flush=True)
+    with page.expect_response(lambda r: r.url == ORIGIN+"/api/auth/login" and r.request.method=="POST",timeout=20000) as submitted:
+        page.get_by_test_id("login-submit").click()
+    assert submitted.value.status == 303, "login-start-not-303"
+    print("BROWSER_BOOTSTRAP_START_303",flush=True)
     page.wait_for_url(IDP+"/**", timeout=20000)
+    print("BROWSER_IDP_FORM_READY",flush=True)
     page.locator("#username").fill(user["username"])
     page.locator("#password").fill(user["password"])
-    page.locator("#kc-login").click()
+    with page.expect_response(lambda r: r.url.startswith(ORIGIN+"/api/auth/callback?"),timeout=30000) as callback:
+        page.locator("#kc-login").click()
+    assert callback.value.status == 303, "callback-not-303"
+    print("BROWSER_BOOTSTRAP_CALLBACK_303",flush=True)
     page.wait_for_url(ORIGIN+"/", timeout=30000)
     session = [c for c in ctx.cookies() if c["name"] == COOKIE]
     assert len(session)==1 and session[0]["secure"] and session[0]["httpOnly"]
     assert session[0]["path"]=="/" and session[0]["sameSite"]=="Lax"
     assert page.request.get(LIST+"?limit=2").status==200
+    print("BROWSER_SESSION_AND_SIGNED_HISTORY_200",flush=True)
     return ctx,page,session[0]["value"]
 
 
@@ -59,6 +69,7 @@ def run(mode):
     trust_ca()
     with sync_playwright() as pw:
         browser=pw.chromium.launch(headless=True, args=["--disable-background-networking"])
+        print("BROWSER_STAGE",mode,flush=True)
         a,pa,old=login(browser,users["a"])
         b,pb,_=login(browser,users["b"])
         la=expect_json(pa.request.get(LIST+"?limit=2"),200)
