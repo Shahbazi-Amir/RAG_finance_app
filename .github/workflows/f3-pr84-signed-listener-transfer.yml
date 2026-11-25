@@ -38,6 +38,7 @@ jobs:
           python -m compileall -q apps/api src/phase3
           python -m unittest discover -s tests/phase3/api -p 'test_app_only_no_engine.py' -v
           python -m unittest discover -s tests/phase3/api -p 'test_staging_private_asgi.py' -v
+          python -m unittest discover -s tests/phase3/api -p 'test_app_only_privacy_contract_boundary.py' -v
           python -m unittest discover -s tests/phase3/integration/api -p 'test_app_only_mtls_network.py' -v
       - name: Build opt-in signed API image and verify unconfigured denial
         run: |
