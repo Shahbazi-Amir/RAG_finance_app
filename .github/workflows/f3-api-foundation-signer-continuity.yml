@@ -4,13 +4,13 @@ on:
   pull_request:
     branches: [integration/f3-foundation-history-two-users-20261124]
   push:
-    branches: [agent/api-f3-foundation-signer-continuity-20261125]
+    branches: [agent/api-f3-foundation-single-db-fence-20261125]
 
 permissions:
   contents: read
 jobs:
   signer-and-listener:
-    if: github.event_name == 'push' || (github.event.pull_request.head.ref == 'agent/api-f3-foundation-signer-continuity-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name == 'push' || (github.event.pull_request.head.ref == 'agent/api-f3-foundation-single-db-fence-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:

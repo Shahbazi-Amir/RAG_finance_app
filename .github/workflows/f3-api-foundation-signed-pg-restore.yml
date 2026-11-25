@@ -2,7 +2,7 @@ name: API Foundation exact-tree signed PG restore and signer continuity
 
 on:
   push:
-    branches: [agent/api-f3-foundation-signer-continuity-20261125]
+    branches: [agent/api-f3-foundation-single-db-fence-20261125]
   pull_request:
     branches: [integration/f3-foundation-history-two-users-20261124]
 
@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   api-session-011:
-    if: github.event_name == 'push' || (github.event.pull_request.head.ref == 'agent/api-f3-foundation-signer-continuity-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name == 'push' || (github.event.pull_request.head.ref == 'agent/api-f3-foundation-single-db-fence-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     services:
@@ -299,6 +299,7 @@ jobs:
           assert r["source_sha"]==os.environ["F3_API_EXACT_SHA"]
           assert r["signer_drift_real_pg_no_admission"] and r["signer_original_recovery_same_proofs"] and r["signer_drift_no_send_or_revoke"]
           assert r["app_only_pg_strict_tls_startup_denials"]==6
+          assert r["valid_split_revoke_database_startup_denied"] is True
           assert r["app_only_denied_route_proofs"]==18 and r["app_only_denied_route_replay_rows"]==0
           assert r["app_only_denied_route_history_unchanged"] is True
           assert r["module_gate_accepted"] is False and r["engine_calls"]==0

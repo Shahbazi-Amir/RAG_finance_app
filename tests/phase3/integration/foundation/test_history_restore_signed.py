@@ -307,6 +307,35 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
             finally:
                 denied_config.unlink(missing_ok=True)
         print("F3_API_RESTORED_PG_STRICT_TLS_BOTH_DSNS_SIX_STARTUP_DENIALS_PASS",flush=True)
+        # Both databases really exist with identical cloned auth state and
+        # privileges. Each DSN is valid separately, but a split is unsafe.
+        # Clone only inside this fresh disposable restored PG container.
+        split_name = "history_restore_split_ci"
+        with connect(5433, db="postgres", extra=trusted) as admin:
+            admin.execute(sql.SQL("CREATE DATABASE {} TEMPLATE {}").format(
+                sql.Identifier(split_name), sql.Identifier("history_restore_f3_ci")))
+        split_config = h.temp/"f3-restore-split-pg-config.json"
+        try:
+            with connect(5433, username="auth_revoker", password="synthetic_revoker_only",
+                         db=split_name, extra=trusted) as conn:
+                identity = conn.execute("SELECT current_database(),current_user,"
+                    "(SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()),"
+                    "has_function_privilege(current_user,'auth_l1.revoke_one(text,bigint)','EXECUTE')").fetchone()
+                self.assertEqual(identity, (split_name,"auth_revoker",True,True))
+            mismatch = dict(cfg)
+            mismatch["revoke_dsn"] = make_conninfo(cfg["revoke_dsn"], dbname=split_name)
+            split_config.write_text(json.dumps(mismatch));split_config.chmod(0o600)
+            denied = subprocess.run(
+                [sys.executable,"-m","apps.api.private_app_only_asgi","--config",str(split_config)],
+                cwd=ROOT,env=env,capture_output=True,text=True,timeout=25)
+            self.assertEqual(denied.returncode,78,"SPLIT_HISTORY_REVOKE_DATABASE_MUST_DENY")
+            self.assertEqual(denied.stderr.strip(),"APP_ONLY_STARTUP_DENIED")
+            self.assertEqual(denied.stdout.strip(),"")
+        finally:
+            split_config.unlink(missing_ok=True)
+            with connect(5433, db="postgres", extra=trusted) as admin:
+                admin.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(split_name)))
+        print("F3_API_RESTORED_VALID_SPLIT_REVOKE_DATABASE_STARTUP_DENIED_PASS",flush=True)
         proc=subprocess.Popen(
             [sys.executable,"-m","apps.api.private_app_only_asgi","--config",str(config)],
             cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
@@ -475,6 +504,7 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
             "pg_stop_readiness":503,
             "pg_restart_readiness":200,
             "app_only_pg_strict_tls_startup_denials":6,
+            "valid_split_revoke_database_startup_denied":True,
             "app_only_denied_route_proofs":18,
             "app_only_denied_route_replay_rows":0,
             "app_only_denied_route_history_unchanged":True,
