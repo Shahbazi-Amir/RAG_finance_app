@@ -9,6 +9,7 @@ import argparse
 import socket
 from pathlib import Path
 from apps.api.private_app_only_asgi import load_app_only_config
+from src.phase3.auth.staging_service_profile import StagingConfigDenied
 
 
 def main(argv=None):
@@ -20,7 +21,7 @@ def main(argv=None):
         with socket.create_connection(("127.0.0.1", cfg.port), timeout=2):
             pass
         return 0
-    except (OSError, ValueError, RuntimeError):
+    except (StagingConfigDenied, OSError, ValueError, RuntimeError):
         return 1
 
 

@@ -162,6 +162,14 @@ class AppOnlyASGI:
         self._profile = profile
         self._signing_key_sha256 = signing_key_sha256
 
+    def _signing_key_current(self):
+        if self._signing_key_sha256 is None:
+            return True
+        try:
+            return hashlib.sha256(self._profile.load_public_key()).hexdigest() == self._signing_key_sha256
+        except (StagingConfigDenied, OSError, ValueError, TypeError):
+            return False
+
     async def __call__(self, scope, receive, send):
         async def private_send(event):
             if event["type"] == "http.response.start":
@@ -197,8 +205,7 @@ class AppOnlyASGI:
                 and not scope.get("query_string")):
             try:
                 if self._signing_key_sha256 is not None:
-                    current = hashlib.sha256(self._profile.load_public_key()).hexdigest()
-                    if current != self._signing_key_sha256:
+                    if not self._signing_key_current():
                         raise StagingConfigDenied()
                     from apps.api import history_api
                     try:
@@ -234,6 +241,8 @@ class AppOnlyASGI:
                      or re.fullmatch(rb"/v1/conversations/[A-Za-z0-9][A-Za-z0-9_-]{0,63}/messages", raw))
         if ((method == "GET" and read_path)
                 or (method == "POST" and raw == b"/internal/auth/session/v1/revoke-one")):
+            if not self._signing_key_current():
+                return await JSONResponse({"error": "SERVICE_UNAVAILABLE"}, status_code=503)(scope, receive, private_send)
             return await self._app(scope, receive, private_send)
         return await JSONResponse({"error": "PRODUCT_ROUTE_NOT_AVAILABLE"}, status_code=404)(scope, receive, private_send)
 
@@ -270,6 +279,7 @@ def prepare_app_only(cfg: AppOnlyConfig, environ=None):
 
 
 def run_app_only(config_file: Path) -> None:
+    assert_app_only_environment(os.environ)
     cfg = load_app_only_config(config_file)
     # The existing canonical History cursor implementation reads these from
     # this process only. The trusted file wins over inherited env settings.

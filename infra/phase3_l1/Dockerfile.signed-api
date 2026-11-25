@@ -1,4 +1,4 @@
-# CI-only real API image build; NOT production mTLS listener
+# Isolated signed app-only API image; NOT an approved production deployment
 ARG BASE=public.ecr.aws/docker/library/python@sha256:f3dac913ab53b78c64f26d5518fcd7043d5a1a46522d6a493b598c3ed12f62a6
 FROM ${BASE}
 ARG SOURCE_SHA
@@ -19,5 +19,5 @@ RUN python3 -c "from apps.api.private_app_only_asgi import AppOnlyASGI; print('S
 ENV PHASE3_APP_MODE=APP_ONLY API_RUNNER_EXECUTION_MODE=APP_ONLY
 EXPOSE 8443
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD python3 -c "import socket; socket.create_connection(('127.0.0.1',8443),2).close()"
+  CMD ["python3","-m","apps.api.app_only_socket_probe","--config","/run/secrets/phase3-app-only.json"]
 CMD ["python3","-m","apps.api.private_app_only_asgi","--config","/run/secrets/phase3-app-only.json"]

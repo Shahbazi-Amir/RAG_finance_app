@@ -1,5 +1,7 @@
 name: API PR84 signed app-only transfer
 on:
+  push:
+    branches: [agent/api-pr84-signed-history-20261125]
   pull_request:
     types: [opened, synchronize, reopened]
     branches: [integration/f3-app-only-four-pr-candidate-20261124]
@@ -8,12 +10,13 @@ permissions:
   contents: read
 jobs:
   listener:
-    if: github.event.pull_request.head.ref == 'agent/api-pr84-signed-history-20261125' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'push' || (github.event.pull_request.head.ref == 'agent/api-pr84-signed-history-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
