@@ -3,6 +3,9 @@ name: FOUNDATION_F3 real Chromium Keycloak Next BFF API and SQL — disposable o
 on:
   push:
     branches: [integration/f3-foundation-history-two-users-20261124]
+  pull_request:
+    branches: [integration/f3-foundation-history-two-users-20261124]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
@@ -17,7 +20,7 @@ jobs:
     if: >-
       github.event_name == 'push'
       || (github.event_name == 'pull_request'
-          && github.event.pull_request.head.ref == 'agent/api-product-session-history-revoke-011'
+          && github.event.pull_request.head.ref == 'agent/f3-ui-restore-refresh-revoke-20261125'
           && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 55
@@ -66,6 +69,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Audit canonical 393 IDs without acceptance promotion
         run: |
           set -euo pipefail
@@ -305,10 +309,13 @@ jobs:
           npm --prefix apps/web run build
           python -m pip install --no-cache-dir 'playwright==1.64.1'
           python -m playwright install --with-deps chromium
+          sudo apt-get install -y libnss3-tools
       - name: Actual Keycloak two subjects browser login to signed BFF and PG history
         shell: bash
         run: |
           set -euo pipefail
+          export GITHUB_SHA="$(git rev-parse HEAD)"
+          python -m py_compile tests/phase3/integration/foundation/browser_lab_trust.py tests/phase3/integration/foundation/browser_history_restore.py tests/phase3/integration/ui/phase3_auth_demo.py
           python tests/phase3/integration/foundation/browser_history_restore.py
           echo 'F3_REAL_KEYCLOAK_CHROMIUM_NEXT_PG_RESTORED_TWO_USER_PASS'
       - name: Upload real browser-to-restored-PG lab receipt (not Mac)
