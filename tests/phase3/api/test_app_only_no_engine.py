@@ -47,8 +47,8 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             "bff_audience": "urn:test:api",
             "bff_kid": "test-kid",
             "bff_rs256_public_key_file": str(self.root / "pub.pem"),
-            "history_dsn": "host=127.0.0.1 dbname=stage user=history_app",
-            "revoke_dsn": "host=127.0.0.1 dbname=stage user=auth_revoker",
+            "history_dsn": "host=127.0.0.1 port=5432 dbname=stage user=history_app sslmode=verify-full sslrootcert=/run/secrets/pg-ca.pem",
+            "revoke_dsn": "host=127.0.0.1 port=5432 dbname=stage user=auth_revoker sslmode=verify-full sslrootcert=/run/secrets/pg-ca.pem",
         }
         self.save()
 
@@ -722,6 +722,21 @@ class AppOnlyNoEngineTests(unittest.TestCase):
                     commit.assert_not_called()
 
 
+    def test_app_only_split_db_denied_before_connection(self):
+        from dataclasses import replace
+        from apps.api.private_app_only_asgi import verify_app_only_db_pair
+        cfg = load_app_only_config(self.config_file)
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("psycopg.connect", side_effect=AssertionError("MUST_NOT_CONNECT")) as connect:
+                verify_app_only_db_pair(cfg)
+                for changed in ("dbname=other", "port=5433", "host=other", "sslmode=verify-ca"):
+                    field = changed.split("=")[0]
+                    dsn = " ".join(changed if part.startswith(field + "=") else part
+                                   for part in cfg.revoke_dsn.split())
+                    with self.assertRaises(StagingConfigDenied):
+                        verify_app_only_db_pair(replace(cfg, revoke_dsn=dsn))
+                connect.assert_not_called()
+
     def test_private_db_destination_cannot_be_overridden(self):
         from src.phase3.auth.staging_service_profile import (
             private_db_connection_options,
@@ -827,6 +842,75 @@ class AppOnlyNoEngineTests(unittest.TestCase):
                 asyncio.run(invoke())
                 for spy in spies:
                     spy.assert_not_called()
+
+    def test_runtime_signer_drift_denies_before_pg_or_handler_and_recovers(self):
+        from apps.api.app_only_signer_pin import SignerPin
+        from apps.api import product_session_api
+        profile = FakeProfile()
+        profile.load_public_key = lambda: b"original"
+        downstream = FastAPI()
+        calls = []
+        @downstream.get("/v1/conversations")
+        async def history():
+            calls.append("history")
+            return {"ok": True}
+        wrapper = AppOnlyASGI(downstream, profile, signer_pin=SignerPin.capture(b"original"))
+
+        async def invoke():
+            async def trusted(scope, receive, send):
+                scope["trusted_transport_test"] = True
+                return await wrapper(scope, receive, send)
+            async with AsyncClient(transport=ASGITransport(app=trusted),
+                                   base_url="https://test.invalid") as client:
+                self.assertEqual((await client.get("/v1/conversations")).status_code, 200)
+                profile.load_public_key = lambda: b"replacement"
+                for path in ("/v1/conversations", "/health/ready", "/internal/ready"):
+                    response = await client.get(path)
+                    self.assertEqual(response.status_code, 503)
+                    self.assertEqual(response.headers["cache-control"], "no-store")
+                    self.assertNotIn("replacement", response.text)
+                response = await client.post("/internal/auth/session/v1/revoke-one", content=b"bad")
+                self.assertEqual(response.status_code, 503)
+                self.assertEqual((await client.post("/v1/%6dessages", content=b"bad")).status_code, 503)
+                profile.load_public_key = lambda: b"original"
+                self.assertEqual((await client.get("/v1/conversations")).status_code, 200)
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}), \
+                patch("apps.api.private_app_only_asgi.verify_staging_database_authority",
+                      side_effect=AssertionError("MUST_NOT_PROBE_PG")) as pg, \
+                patch.object(product_session_api, "_signed_history",
+                             side_effect=AssertionError("MUST_NOT_ADMIT")) as admit:
+            asyncio.run(invoke())
+            pg.assert_not_called()
+            admit.assert_not_called()
+        self.assertEqual(calls, ["history", "history"])
+
+    def test_engine_and_fixture_gets_denied_before_admission(self):
+        from apps.api import product_session_api
+        wrapper = AppOnlyASGI(product_session_api.app, FakeProfile())
+
+        async def invoke():
+            async def trusted(scope, receive, send):
+                scope["trusted_transport_test"] = True
+                return await wrapper(scope, receive, send)
+            async with AsyncClient(transport=ASGITransport(app=trusted),
+                                   base_url="https://test.invalid") as client:
+                for suffix, code in (
+                    ("engine-status", "ENGINE_STATUS_UNAVAILABLE"),
+                    ("retrieved-sources", "ENGINE_STATUS_UNAVAILABLE"),
+                    ("claim-test-status", "TEMPORARILY_UNAVAILABLE"),
+                    ("invited-live-result", "TEMPORARILY_UNAVAILABLE"),
+                ):
+                    response = await client.get("/v1/message-requests/" + suffix)
+                    self.assertEqual(response.status_code, 503)
+                    self.assertEqual(response.json()["error"]["code"], code)
+                    self.assertEqual(response.headers["cache-control"], "no-store")
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}), \
+                patch.object(product_session_api, "_signed_history",
+                             side_effect=AssertionError("MUST_NOT_ADMIT")) as admit, \
+                patch("psycopg.connect", side_effect=AssertionError("MUST_NOT_CONNECT")) as pg:
+            asyncio.run(invoke())
+            admit.assert_not_called()
+            pg.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -8,7 +8,9 @@ OS processes, communicating over genuine TLS localhost. No engine/011/target.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from threading import Barrier
 from hashlib import sha256
 import json
 import os
@@ -21,6 +23,7 @@ import subprocess
 import sys
 import time
 from urllib.parse import urlencode
+from uuid import uuid4
 
 import httpx
 import jwt
@@ -32,6 +35,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from src.phase3.storage.postgres import auth_session
+from app_only_retry_probe import assert_disabled_retries, row_fingerprint
 
 LAB = Path("/run/f3_http_probe")
 PRIVATE = LAB / "private"
@@ -172,7 +176,7 @@ def create_fixture():
 
 
 def signature(label, method: str, raw_path: str, raw_query: str = "", body: bytes = b"",
-              owner_override=None, session_override=None) -> str:
+              owner_override=None, session_override=None, generation_override=None) -> str:
     state = json.loads((PRIVATE / "session_state.json").read_text())[label]
     now = int(time.time())
     claims = dict(
@@ -183,7 +187,8 @@ def signature(label, method: str, raw_path: str, raw_query: str = "", body: byte
         body_sha256=sha256(body).hexdigest(), body_len=len(body),
         session_ref=session_override or state["token"],
         owner_id=owner_override or state["owner"],
-        epoch=state["epoch"], generation=state["generation"])
+        epoch=state["epoch"], generation=(state["generation"] if generation_override is None
+                                         else generation_override))
     key = serialization.load_pem_private_key((PRIVATE / "signer.key").read_bytes(), password=None)
     return jwt.encode(claims, key, algorithm="RS256", headers={"kid": KID, "typ": "JWT"})
 
@@ -227,6 +232,27 @@ def run_server(host, db, scenario):
     environ["API_RUNNER_EXECUTION_MODE"] = "APP_ONLY"
     environ["API_CURSOR_KEY"] = (PRIVATE / "cursor.key").read_text()
     environ["API_CURSOR_TTL_SECONDS"] = "300"
+    # This negative launch is on the same disposable lab network. The
+    # proposed revoke destination is intentionally NOT the History database.
+    # The new static pair fence must reject it before binding any listener.
+    negative_path = PRIVATE / "split-db-config.json"
+    invalid = dict(config, revoke_dsn=psycopg.conninfo.make_conninfo(
+        config["revoke_dsn"], dbname="f3_deliberately_invalid_split_database"))
+    write_secret(negative_path, json.dumps(invalid).encode())
+    try:
+        denied = subprocess.run(
+            [sys.executable, "-m", "apps.api.private_app_only_asgi",
+             "--config", str(negative_path)],
+            env=environ, stdin=subprocess.DEVNULL, capture_output=True, timeout=15)
+        assert denied.returncode == 78, "SPLIT_DB_MUST_EXIT_78"
+        assert denied.stderr.strip() == b"APP_ONLY_STARTUP_DENIED"
+        assert b"Uvicorn running" not in denied.stdout + denied.stderr
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1)
+            assert sock.connect_ex(("127.0.0.1", 18443)) != 0
+    finally:
+        negative_path.unlink(missing_ok=True)
+    print("API_F3_SPLIT_DB_STARTUP_DENIED_78_NO_LISTENER=PASS", flush=True)
     log = open(PRIVATE / "app-only-server.log", "ab")
     p = subprocess.Popen(
         [sys.executable, "-m", "apps.api.private_app_only_asgi",
@@ -302,6 +328,242 @@ def request(c, label: str, path: str, query: str = "", *, expect: int = 200, met
     return r
 
 
+def verify_disabled_send_retries(phase, state):
+    """Actual signed HTTPS POST retries with independent scoped PG snapshots."""
+    host = "demo-db" if phase == "before" else "restore-db"
+    db = ("rag_finance_f3_http_ab_source" if phase == "before"
+          else "rag_finance_f3_http_ab_restored")
+    tables = ("conversations", "messages", "create_receipts",
+              "send_receipts", "execution_attempts", "answers")
+
+    def snapshot():
+        rows = []
+        with conn("history_app", host, db) as sql:
+            for label in ("a", "b"):
+                with sql.transaction():
+                    sql.execute("SELECT set_config('app.owner_id', %s, true)",
+                                (state[label]["owner"],))
+                    for table in tables:
+                        contents = sql.execute(
+                            f"SELECT to_jsonb(t)::text AS row_value FROM history_l1.{table} AS t"
+                        ).fetchall()
+                        rows.append(row_fingerprint([item["row_value"] for item in contents]))
+        # Nonvacuous known synthetic owner inventory. A wrong RLS context
+        # must not make an all-zero snapshot appear successful.
+        assert tuple(item[0] for item in rows) == (5,4,0,0,0,0,3,2,0,0,0,0)
+        return tuple(rows)
+
+    for label in ("a", "b"):
+        raw = json.dumps({
+            "kind": "send_message_request", "contract_version": "product.v1",
+            "requested_conversation_id": f"f3-net-{label}-1",
+            "client_message_id": f"app-only-retry-{label}",
+            "question": "synthetic app-only retry must not dispatch",
+            "idempotency_key": f"app-only-retry-key-{label}",
+        }, separators=(",", ":")).encode()
+        path = "/v1/messages"
+        # Prepare proofs before starting the wave; three retransmit the exact
+        # original proof and three represent retries signed anew by the BFF.
+        original = signature(label, "POST", path, body=raw)
+        proofs = [original] * 3 + [
+            signature(label, "POST", path, body=raw) for _ in range(3)]
+        def send(index):
+            with tls_client() as retry_client:
+                result = retry_client.post(BASE + path, content=raw, headers={
+                    "Authorization": "BFF-Assertion " + proofs[index],
+                    "Content-Type": "application/json"})
+                assert result.headers.get("cache-control") == "no-store"
+                return result.status_code, result.json()["error"]["code"]
+        assert assert_disabled_retries(send, snapshot) == 6
+    print(f"API_F3_{phase.upper()}_12_REAL_SIGNED_SEND_RETRIES_ZERO_SCOPED_SQL=PASS", flush=True)
+    # All four engine/fixture read routes must fail without entering product
+    # admission. With valid mTLS, missing JWT must not reach signed handlers.
+    before = snapshot()
+    with tls_client() as client:
+        for suffix, code in (
+            ("engine-status", "ENGINE_STATUS_UNAVAILABLE"),
+            ("retrieved-sources", "ENGINE_STATUS_UNAVAILABLE"),
+            ("claim-test-status", "TEMPORARILY_UNAVAILABLE"),
+            ("invited-live-result", "TEMPORARILY_UNAVAILABLE"),
+        ):
+            path = "/v1/message-requests/" + suffix
+            for label in ("a", "b"):
+                result = request(client, label, path, expect=503)
+                assert result.json()["error"]["code"] == code
+                assert result.headers["cache-control"] == "no-store"
+            result = client.get(BASE + path)
+            assert result.status_code == 503 and result.json()["error"]["code"] == code
+        request(client, "a", "/v1/conversations", expect=200)
+        request(client, "b", "/v1/conversations", expect=200)
+    assert snapshot() == before
+    print(f"API_F3_{phase.upper()}_DISABLED_ROUTES_AND_FULL_ROW_PARITY=PASS", flush=True)
+
+
+def verify_runtime_signer_drift(phase):
+    """Only mutate the synthetic lab public key, restore it even on failure."""
+    path = PRIVATE / "signer.pub"
+    original = path.read_bytes()
+    with tls_client() as client:
+        try:
+            path.write_bytes(b"synthetic invalid signer configuration")
+            for endpoint in ("/internal/ready", "/health/ready", "/v1/conversations"):
+                headers = {"Authorization": "BFF-Assertion " +
+                           signature("a", "GET", endpoint)}
+                result = client.get(BASE + endpoint, headers=headers)
+                assert result.status_code == 503
+                assert result.headers.get("cache-control") == "no-store"
+                assert b"synthetic invalid signer configuration" not in result.content
+        finally:
+            path.write_bytes(original)
+        assert client.get(BASE + "/internal/ready").status_code == 200
+        request(client, "a", "/v1/conversations", expect=200)
+        request(client, "b", "/v1/conversations", expect=200)
+    print(f"API_F3_{phase.upper()}_REAL_SIGNER_DRIFT_503_RECOVERY_200=PASS", flush=True)
+
+
+def verify_session_lifecycle(phase, state):
+    """Use only additional, disposable sessions; do not rotate the main A/B sessions."""
+    host = "demo-db" if phase == "before" else "restore-db"
+    db = ("rag_finance_f3_http_ab_source" if phase == "before"
+          else "rag_finance_f3_http_ab_restored")
+    actor = state["a"]
+    endpoint = "/v1/conversations"
+    with conn("auth_sessions", host, db) as sessions, tls_client() as client:
+        def get_session(session, generation=None, path=endpoint):
+            proof = signature("a", "GET", path, session_override=session.opaque,
+                              generation_override=(session.generation if generation is None
+                                                   else generation))
+            response = client.get(BASE + path, headers={"Authorization": "BFF-Assertion " + proof})
+            assert response.headers["cache-control"] == "no-store"
+            return response
+
+        first = auth_session.issue(sessions, actor["owner"], actor["epoch"],
+                                   idle_seconds=60, absolute_seconds=300)
+        assert get_session(first).status_code == 200
+        # A normal History GET must not implicitly extend the DB session deadline.
+        observed = auth_session.inspect(sessions, first.opaque)
+        assert observed is not None
+        assert observed["idle_expires_at"] == first.idle_expires_at
+        assert observed["absolute_expires_at"] == first.absolute_expires_at
+        rotated = auth_session.rotate(sessions, first.opaque, first.epoch, first.generation)
+        assert rotated.generation == first.generation + 1
+        assert rotated.absolute_expires_at == first.absolute_expires_at
+        assert get_session(first).status_code == 401
+        assert get_session(rotated, generation=first.generation).status_code == 401
+        response = get_session(rotated)
+        assert response.status_code == 200
+        assert response.json()["scope_user_id"] == actor["owner"]
+        assert get_session(rotated, path="/health/ready").status_code == 200
+        # Revoke through the actual signed HTTP endpoint, not directly with
+        # the revoker role. Malformed requests must not consume a valid proof.
+        revoke_path = "/internal/auth/session/v1/revoke-one"
+        operation = str(uuid4())
+        raw = json.dumps({"operation_id": operation}, separators=(",", ":")).encode()
+        revoke_proof = signature("a", "POST", revoke_path, body=raw,
+                                 session_override=rotated.opaque,
+                                 generation_override=rotated.generation)
+        headers = {"Authorization": "BFF-Assertion " + revoke_proof}
+        denied = client.post(BASE + revoke_path, content=raw,
+                             headers=dict(headers, **{"Content-Type": "text/plain"}))
+        assert denied.status_code == 422
+        assert auth_session.inspect(sessions, rotated.opaque) is not None
+        assert get_session(rotated).status_code == 200
+        # Reusing the identical valid assertion after pre-body rejection
+        # must commit one revoke, then subsequent replay must be denied.
+        headers["Content-Type"] = "application/json"
+        committed = client.post(BASE + revoke_path, content=raw, headers=headers)
+        assert committed.status_code == 200
+        assert committed.json() == {"state": "REVOKED_COMMITTED", "operation_id": operation}
+        assert committed.headers["cache-control"] == "no-store"
+        assert auth_session.inspect(sessions, rotated.opaque) is None
+        assert get_session(rotated).status_code == 401
+        assert client.post(BASE + revoke_path, content=raw, headers=headers).status_code == 401
+        print(f"API_F3_{phase.upper()}_SIGNED_REVOKE_COMMIT_REPLAY_AND_PREBODY_DENIAL=PASS", flush=True)
+
+        # Independently exercise idle and absolute expiry with tiny lab-only
+        # TTLs. Use the DB's own admission clock, not a guessed wall-clock sleep.
+        idle = auth_session.issue(sessions, actor["owner"], actor["epoch"],
+                                  idle_seconds=8, absolute_seconds=60)
+        absolute = auth_session.issue(sessions, actor["owner"], actor["epoch"],
+                                      idle_seconds=8, absolute_seconds=8)
+        assert get_session(idle).status_code == 200
+        assert get_session(absolute).status_code == 200
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if (auth_session.inspect(sessions, idle.opaque) is None and
+                    auth_session.inspect(sessions, absolute.opaque) is None):
+                break
+            time.sleep(.1)
+        else:
+            raise AssertionError("DB_SESSION_EXPIRY_NOT_OBSERVED")
+        # A NEW cryptographically valid assertion is not a new DB session.
+        for session in (idle, absolute):
+            assert get_session(session).status_code == 401
+            assert get_session(session, path="/health/ready").status_code == 503
+        assert request(client, "a", endpoint).json()["scope_user_id"] == actor["owner"]
+        assert request(client, "b", endpoint).json()["scope_user_id"] == state["b"]["owner"]
+    print(f"API_F3_{phase.upper()}_SESSION_ROTATION_EXPIRY_NO_IMPLICIT_REFRESH=PASS", flush=True)
+
+
+def verify_parallel_history_replay(phase, state):
+    """One admission for one signed assertion across six simultaneous TLS requests."""
+    endpoint = "/v1/conversations"
+    for label in ("a", "b"):
+        proof = signature(label, "GET", endpoint)
+        barrier = Barrier(6, timeout=10)
+        def one(_):
+            with tls_client() as client:
+                barrier.wait()
+                response = client.get(BASE + endpoint, headers={
+                    "Authorization": "BFF-Assertion " + proof})
+                assert response.headers["cache-control"] == "no-store"
+                if response.status_code == 200:
+                    assert response.json()["scope_user_id"] == state[label]["owner"]
+                else:
+                    assert response.status_code in (401, 503)
+                    assert "items" not in response.json()
+                return response.status_code
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            results = tuple(pool.map(one, range(6)))
+        assert results.count(200) == 1, "SINGLE_ASSERTION_PARALLEL_ADMISSION_MISMATCH"
+        with tls_client() as client:
+            # A separate fresh proof must still read the unchanged owner data.
+            request(client, label, endpoint, expect=200)
+            assert client.get(BASE + endpoint, headers={
+                "Authorization": "BFF-Assertion " + proof}).status_code == 401
+    print(f"API_F3_{phase.upper()}_PARALLEL_HISTORY_REPLAY_ONE_ADMISSION_PER_OWNER=PASS", flush=True)
+
+
+def verify_cursor_restore(phase, state):
+    """Bind a real source cursor to its exact page2 IDs across independent restore."""
+    cursor_file = PRIVATE / "source_page2.json"
+    endpoint = "/v1/conversations"
+    with tls_client() as client:
+        if phase == "before":
+            expected = {}
+            for label in ("a", "b"):
+                page = request(client, label, endpoint, "limit=2").json()
+                cursor = page["page"]["next_cursor"]
+                assert cursor
+                second = request(client, label, endpoint,
+                                 urlencode({"limit": "2", "cursor": cursor})).json()
+                expected[label] = {"cursor": cursor, "ids": [
+                    item["conversation_id"] for item in second["items"]]}
+            write_secret(cursor_file, json.dumps(expected).encode())
+            assert expected["a"]["ids"] == ["f3-net-a-3", "f3-net-a-2"]
+            assert expected["b"]["ids"] == ["f3-net-b-1"]
+            print("API_F3_SOURCE_CURSOR_PAGE2_RECORDED=PASS", flush=True)
+        else:
+            expected = json.loads(cursor_file.read_text())
+            for label, foreign in (("a", "b"), ("b", "a")):
+                query = urlencode({"limit": "2", "cursor": expected[label]["cursor"]})
+                page = request(client, label, endpoint, query).json()
+                assert page["scope_user_id"] == state[label]["owner"]
+                assert [item["conversation_id"] for item in page["items"]] == expected[label]["ids"]
+                request(client, foreign, endpoint, query, expect=404)
+            print("API_F3_RESTORED_SOURCE_CURSOR_PAGE2_OWNER_PARITY=PASS", flush=True)
+
+
 def verify_history(phase: str):
     state = json.loads((PRIVATE / "session_state.json").read_text())
     with tls_client() as client:
@@ -372,6 +634,11 @@ def verify_history(phase: str):
                     assert result.status_code in (401, 403), "WRONG_PEER_AUTHENTICATED"
             except httpx.HTTPError:
                 pass
+    verify_disabled_send_retries(phase, state)
+    verify_runtime_signer_drift(phase)
+    verify_session_lifecycle(phase, state)
+    verify_parallel_history_replay(phase, state)
+    verify_cursor_restore(phase, state)
     print(f"HTTPS_APP_ONLY_{phase.upper()}_A_B_OWNER_PAGES_DETAILS_404_SEND503_MTLS_NEGATIVE=PASS", flush=True)
     print(f"HTTPS_APP_ONLY_{phase.upper()}_005_JTI_REPLAY_QUERY_BINDING_CROSS_OWNER_CURSOR_NEGATIVE=PASS", flush=True)
 

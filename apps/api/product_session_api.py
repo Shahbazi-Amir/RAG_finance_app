@@ -234,7 +234,8 @@ def session_message_status(request: Request):
                         lambda ctx: history.status(request, ctx), coherent_read=True)
 
 
-def install_private_staging_auth(profile: PrivateStagingProfile) -> None:
+def install_private_staging_auth(profile: PrivateStagingProfile, *,
+                                 expected_public_key: bytes | None = None) -> None:
     """Ops-only explicit injection; real BFF public key and DB roles required.
 
     No CI flags, injected headers, local fixture, or browser requests authorize
@@ -249,9 +250,14 @@ def install_private_staging_auth(profile: PrivateStagingProfile) -> None:
         raise StagingConfigDenied()
     for operation in ("history", "revoke"):
         private_db_connection_options(profile.dsn(operation), operation)
+    public_key = profile.load_public_key()
+    # App-only preflight supplies the exact bytes it inspected. Install those
+    # same bytes or fail startup; never silently accept a changed signer.
+    if expected_public_key is not None and public_key != expected_public_key:
+        raise StagingConfigDenied()
     verifier = BFFServiceVerifier(
         issuer=profile.issuer, audience=profile.audience,
-        public_keys={profile.kid: profile.load_public_key()})
+        public_keys={profile.kid: public_key})
     if (_SERVER_NO_DISPATCH_TASK is not None
             and _SERVER_NO_DISPATCH_TASK.profile.runner_file_sha256
                 != profile.runner_sha256):
