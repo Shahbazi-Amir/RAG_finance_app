@@ -74,3 +74,7 @@
 ## NB23-SESSION-RESUME-23
 
 - آخرین rollout عملی exit 1 با TimeoutError readiness. Send تازه و Chrome نهایی اجرا نشدند. جدول T01–T20 و روش شروع/بازگشت به‌روز شدند. HTTP 404 بازبینی ثبت شد.
+
+## NB23-SESSION-RESUME-24
+
+- شروع af57f26، گزارش b67d6a4. بازبینی منابع و Cache و بازیابی محدود پشته. خروجی قدیمی timeout با زمان startup جاری تفکیک شد. Chrome دو سؤال در جریان.

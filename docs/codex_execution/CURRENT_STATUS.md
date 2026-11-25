@@ -119,3 +119,7 @@ History و replay همان FAILED بدون تمدید و Attempt جدید PASS �
 ### NB23-SESSION-RESUME-23
 
 نسخهٔ B آزمایشی. Worker آخرین بار در startup ۲۴۰ ثانیه TimeoutError داد. Login، History و replay PASS؛ تحویل نهایی Chrome BLOCKED. رسمی ۵/۲۰، خصوصی ۱۳/۲۰، Freeze در انتظار.
+
+### NB23-SESSION-RESUME-24
+
+نسخهٔ B پس از قطع هم‌زمان بازیابی شد. HTTPS و سوکت Worker برقرارند. آزمون Chrome در جریان؛ رسمی ۵/۲۰ و خصوصی ۱۳/۲۰.

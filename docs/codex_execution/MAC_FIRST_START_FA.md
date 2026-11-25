@@ -818,3 +818,11 @@ checkpoint `NB23-SESSION-RESUME-23`. اجرای مصوب با exit 1 و `WORKER_
 `EXPERIMENTAL_LOCAL_V4 — GOLDEN PARITY NOT VERIFIED` و `GENERATION DISABLED — GOLDEN PARITY UNRESOLVED`. URL فقط با پروفایل محلی معتبر `https://ragfinance.ir/login` است. پس از readiness واقعی، از worktree اجرایی `python3 -B -u infra/nb23-v4/check_session_browser.py ../nb23-session-product-local --owner-window` پروفایل Chrome محدود به loopback را باز می‌کند. از fixture محلی استفاده شود. راهنمای توقف نسخهٔ B و مسیر بازگشت نسخهٔ A در `infra/nb23-v4/STAGING_RETRIEVAL.md` و گزارش تاریخی Freeze است.
 
 بازبینی خودکار Push مربوط به checkpoint ۲۲ و بررسی جداگانهٔ وضعیت Docker HTTP 404 گرفتند. آخرین ref تأییدشده پیش از انتشار این بسته `d07f216086456c01ec0b3dc06a6fea8337a590ba` بود. ادامه از checkpoint ۲۳، پس از رفع مانع startup یا تغییر شرایط عملیاتی، انتظار برای Worker readiness و سپس `--chrome-v4` است. تکرار کورکورانهٔ restart یا تحقیق داخلی موتور جزو این مرحله نیست.
+
+## Docker_3 — بازیابی پس از توقف Docker و وضعیت فعلی Worker
+
+checkpoint `NB23-SESSION-RESUME-24`. هنگام ورود شش سرویس آزمایشی و PostgreSQL موقت هم‌زمان با exit 255 متوقف شده بودند. هفت سرویس فریزشدهٔ C018 خاموش و دست‌نخورده ماندند. Docker پس از قطع پاسخ داد. مک ۱۶ GiB RAM و حدود ۱۱۵ GiB فضای آزاد داشت. Docker چهار CPU و حدود ۵٫۷۹ GiB RAM داشت و swap میزبان حدود ۶٫۹ GiB بود. هیچ فرایند یا تنظیم خارج از پروژه تغییر نکرد.
+
+دو snapshot پین‌شده حاضر و بدون لینک شکسته بودند. خواندن mountها از UID Worker موفق بود. شمارندهٔ OOM/kill و throttling صفر بودند. یک نمونه disk sleep و مصرف زیاد هم‌زمان Keycloak مشاهده شد. علت قطعی timeout قدیمی اثبات نشد. فقط PostgreSQL موقت، شش سرویس نسخهٔ B و TLS/نقش‌های مستقل بازیابی شدند. Login و discovery هر دو ۲۰۰ با TLS معتبر داشتند و پورت‌های داخلی ۳۰۰۰، ۸۴۴۳ و ۸۴۴۴ پاسخ دادند. اتصال یونیکس API و Worker برقرار بود. یک فرایند گرم حدود ۱٫۲۷ GiB در انتظار درخواست بود. لاگ Docker برای API فقط پیام قدیمی timeout را نشان داد؛ زمان Startup جدید ثبت نمی‌شود و مسیر Send همچنان readiness را کنترل می‌کند.
+
+`infra/nb23-v4/check_session_browser.py` مشاهدهٔ وضعیت RUNNING را ثبت می‌کند و نرخ polling خود ابزار کاهش یافت. آزمون دو سؤال Chrome در حال اجراست. رسمی ۵/۲۰ → ۵/۲۰ [#####---------------]، خصوصی ۱۳/۲۰ → ۱۳/۲۰ [#############-------] تا رسیدن نتیجهٔ جدید. پذیرش و Freeze در انتظار، Generation غیرفعال و Golden حل‌نشده.

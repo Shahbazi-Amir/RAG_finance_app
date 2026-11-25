@@ -401,3 +401,9 @@ Status is review. Supervisor approval is pending.
 - Report baseline d07f216, execution af57f26, pinned V4 f49f536f4d82 and owner recovery UI 8b72e5b40a65. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
 - Tested: current approved trial exit 1 with Worker startup TimeoutError; earlier signed History and safe replay passed on the same new stack. New Send and Chrome completion not run. No reranking or ONNX changes.
 - Implemented cumulative reporting and local checkpoint; complete private T01–T20 status and safe owner/rollback procedure are in the Persian report. One publication approval and one separate status read returned HTTP 404. Formal 5/20, private 13/20, official acceptance/Freeze pending. [Evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### Docker_3 / NB23-SESSION-RESUME-24 — scoped recovery and transport readiness
+
+- Report baseline b67d6a4, execution af57f26, pinned V4 f49f536f4d82. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
+- Tested: read-only Docker/host/cache/cgroup checks, PG provision and scoped Compose startup, two verified HTTPS 200s and three private listeners. Current worker child and connected socket remained active while archived timeout logs were excluded. New startup timing unavailable.
+- Implemented: running witness and lower observation frequency in check_session_browser.py, corrective checkpoint local and reports. Formal 5/20, private 13/20, Chrome and acceptance pending. [Evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
