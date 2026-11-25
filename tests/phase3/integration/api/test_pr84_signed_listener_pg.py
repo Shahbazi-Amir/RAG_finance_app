@@ -150,6 +150,26 @@ class PR84SignedHistory(original.RealProductSession011):
                     proof, _ = self.signed(actor, path=path, query=raw.encode("ascii"))
                     return self.request("GET", path, proof, query=("?" + raw if raw else ""))
 
+                for actor in (a, b):
+                    ready = get(actor, "/health/ready")
+                    self.assertEqual(ready.status_code, 200)
+                    self.assertEqual(ready.json(), {
+                        "kind":"api_app_only_readiness","state":"ready",
+                        "signed_actor_pg":"verified","bootstrap_idp":"not_probed",
+                        "retrieval":"unavailable","generation":"unavailable"})
+                    self.assertEqual(ready.headers.get("cache-control"), "no-store")
+                    self.assertNotIn(actor["owner_id"], ready.text)
+                invalid_ready, _ = self.signed(a, path="/health/ready",
+                                               override={"aud":"urn:invalid:audience"})
+                self.assertEqual(self.request("GET", "/health/ready", invalid_ready).status_code, 503)
+                # An otherwise valid empty-body proof cannot authorize an
+                # actual body-bearing GET. The same proof remains usable
+                # because the rejected request never consumed its JTI.
+                empty_proof, _ = self.signed(a)
+                self.assertEqual(self.request("GET", original.LIST, empty_proof,
+                                              body=b"{}").status_code, 401)
+                self.assertEqual(self.request("GET", original.LIST, empty_proof).status_code, 200)
+                print("PR84_SIGNED_ACTOR_READY_AND_GET_BODY_BEFORE_REPLAY_PASS", flush=True)
                 page = get(a, params={"limit": 100})
                 self.assertEqual(page.status_code, 200)
                 self.assertEqual(page.headers.get("cache-control"), "no-store")
@@ -216,14 +236,17 @@ class PR84SignedHistory(original.RealProductSession011):
                 try:
                     self.assertEqual(self.request("GET", "/internal/ready").status_code, 503)
                     self.assertEqual(get(a).status_code, 503)
+                    self.assertEqual(get(a, "/health/ready").status_code, 503)
                 finally:
                     relay.resume()
                 self.assertEqual(self.request("GET", "/internal/ready").status_code, 200)
                 self.assertEqual(get(a).status_code, 200)
+                self.assertEqual(get(a, "/health/ready").status_code, 200)
                 public_bytes = public_file.read_bytes()
                 public_file.write_bytes(b"invalid")
                 self.assertEqual(self.request("GET", "/internal/ready").status_code, 503)
                 self.assertEqual(get(a).status_code, 503)
+                self.assertEqual(get(a, "/health/ready").status_code, 503)
                 public_file.write_bytes(public_bytes)
                 self.assertEqual(self.request("GET", "/internal/ready").status_code, 200)
                 raw = json.dumps({"operation_id": str(uuid.uuid4())}, separators=(",", ":")).encode()
@@ -231,6 +254,8 @@ class PR84SignedHistory(original.RealProductSession011):
                 self.assertEqual(self.request("POST", original.REVOKE, proof, body=raw).status_code, 200)
                 self.assertEqual(get(a).status_code, 401)
                 self.assertEqual(get(b).status_code, 200)
+                self.assertEqual(get(a, "/health/ready").status_code, 503)
+                self.assertEqual(get(b, "/health/ready").status_code, 200)
                 self.assertEqual(counts(), before)
                 print("PR84_SIGNED_LISTENER_PG_TLS_AB_PAGINATION_REPLAY_REVOKE_ZERO_SEND_PASS", flush=True)
         finally:
