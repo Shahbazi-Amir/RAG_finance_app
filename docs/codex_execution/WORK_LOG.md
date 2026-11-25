@@ -82,3 +82,7 @@
 ## NB23-SESSION-RESUME-25
 
 - ورود و History امضاشده PASS، یک Send واقعی RUNNING→UNKNOWN، بازیابی خودکار یک Worker. Chrome pipe/WebSocket/DOM پیش از Send متوقف شدند. پیشرفت ۱۳/۲۰ خصوصی بدون افزایش.
+
+## NB23-SESSION-RESUME-26
+
+- نمونهٔ میزبان و همهٔ سرویس‌ها، نبود فرایند اضافی، و مرز دقیق ۱۸۰ ثانیه با یک Send تازه. بدون تغییر Docker، بدون تکرار Chrome، چک‌لیست دستی پیوست شد.

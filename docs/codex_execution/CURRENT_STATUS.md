@@ -127,3 +127,7 @@ History و replay همان FAILED بدون تمدید و Attempt جدید PASS �
 ### NB23-SESSION-RESUME-25
 
 HTTPS و dispatch واقعی تأیید شد؛ نتیجهٔ جاری UNKNOWN. بازیابی خودکار Worker برقرار است. Chrome پیش از Send متوقف شد. خصوصی ۱۳/۲۰، رسمی ۵/۲۰، تحویل نهایی احراز نشده.
+
+### NB23-SESSION-RESUME-26
+
+یک Send واقعی تازه در همان ۱۸۰ ثانیه UNKNOWN شد. HTTPS معتبر، کاربر و History برقرار. هیچ Chrome خودکار تکرار نشد و پنجرهٔ مالک باز نشد. خصوصی ۱۳/۲۰، رسمی ۵/۲۰.

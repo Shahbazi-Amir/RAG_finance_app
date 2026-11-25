@@ -413,3 +413,9 @@ Status is review. Supervisor approval is pending.
 - Report baseline f492c64, execution af57f26, pinned V4 f49f536f4d82. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
 - Tested: authenticated signed OIDC/History and current fresh dispatch RUNNING, then operational ledger UNKNOWN without a new POST. Automatic recovery left one engine child connected. Current HTTPS and internal readiness were observed. Chrome pipe, direct page WebSocket and standalone dump-dom stopped before Send; exact symptoms are in the report.
 - Implemented: browser transport alternative and safe diagnostics in check_session_browser.py and cumulative reporting. Formal 5/20, private 13/20, Chrome owner window and readiness pending. [Evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### Docker_3 / NB23-SESSION-RESUME-26 — fresh-attempt deadline and resource evidence
+
+- Report baseline 40a41f2; execution af57f26; V4 f49f536f4d82. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
+- Tested: host memory/CPU/iostat, Docker per-service usage and cgroups, no active excess test process. Verified HTTPS, fresh authenticated Send, old 179.230-s T2-to-UNKNOWN and current 180-s RUNNING-to-UNKNOWN. No result metrics or owner window; no Chrome automation repeated.
+- Implemented: changed the question in the existing staging HTTP harness and updated cumulative local/report evidence with a short manual checklist. No resource changes. Formal 5/20, private 13/20, Freeze and acceptance pending. [Detailed evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
