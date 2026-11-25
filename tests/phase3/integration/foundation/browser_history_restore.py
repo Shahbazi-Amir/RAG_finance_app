@@ -19,7 +19,7 @@ import uuid
 import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
-from playwright.async_api import async_playwright,expect
+from playwright.async_api import Error as PlaywrightError,async_playwright,expect
 
 ROOT=Path(__file__).resolve().parents[4]
 sys.path[:0]=[
@@ -83,8 +83,27 @@ def create_extra_question(demo,label):
     return cid
 
 
-async def browser_history(page,label,expected_ids,expected_owner,expected_messages):
-    await page.reload()
+async def reload_history_document(page, *, recovery_phase=None):
+    """Only recover one browser network-change after a verified lab PG switch."""
+    target=page.url
+    try:
+        response=await page.reload()
+    except PlaywrightError as exc:
+        if recovery_phase not in ("restore","rollback") or "net::ERR_NETWORK_CHANGED" not in str(exc):
+            raise
+        print("F3_BROWSER_NETWORK_CHANGE_RECOVERY",recovery_phase,flush=True)
+        # Chromium can leave the tab on an error document. Recover the original
+        # URL in the same context, then require an actual successful refresh.
+        recovery=await page.goto(target)
+        assert recovery is not None and recovery.status==200 and page.url==target, (
+            "HISTORY_DOCUMENT_RECOVERY_FAILED",recovery_phase)
+        response=await page.reload()
+    assert response is not None and response.status==200 and page.url==target, (
+        "HISTORY_DOCUMENT_RELOAD_FAILED",recovery_phase)
+
+
+async def browser_history(page,label,expected_ids,expected_owner,expected_messages,*,recovery_phase=None):
+    await reload_history_document(page,recovery_phase=recovery_phase)
     await expect(page.locator('[data-testid^="conversation-"]').first).to_be_visible(
         timeout=20000)
     if len(expected_ids)>2:
@@ -354,8 +373,8 @@ async def execute():
         output=Path(os.environ["RUNNER_TEMP"])/"f3-browser-source-restored"
         async with async_playwright() as pw:
             browser=await pw.chromium.launch(headless=True)
-            ctx_a,page_a,_,_=await demo.browser_login(browser,"A",False,output)
-            ctx_b,page_b,_,_=await demo.browser_login(browser,"B",False,output)
+            ctx_a,page_a,_,raw_a=await demo.browser_login(browser,"A",False,output)
+            ctx_b,page_b,_,raw_b=await demo.browser_login(browser,"B",False,output)
             a_id=create_extra_question(demo,"A")
             b_id=create_extra_question(demo,"B")
             source,receipt_before,source_cluster=inventory(demo)
@@ -383,8 +402,8 @@ async def execute():
             restored=restore_separate_volume(demo,source,source_cluster)
             # Continue same real two browser contexts, same session cookie,
             # same Keycloak process and Next/BFF/API, now independent PG volume.
-            await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
-            await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
+            await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before,recovery_phase="restore")
+            await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before,recovery_phase="restore")
             await mobile_320_keyboard_accessibility(page_a)
             await mobile_320_keyboard_accessibility(page_b)
             await signed_pagination(page_a,ids_a)
@@ -403,8 +422,8 @@ async def execute():
             # *unchanged* GitHub Actions PostgreSQL service. No writes since the
             # initial snapshot: fake or resurrected Answer/receipt is forbidden.
             rollback_seconds=rollback_to_original_lab_database(restored,source_cluster)
-            await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
-            await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
+            await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before,recovery_phase="rollback")
+            await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before,recovery_phase="rollback")
             await mobile_320_keyboard_accessibility(page_a)
             await mobile_320_keyboard_accessibility(page_b)
             await signed_pagination(page_a,ids_a)
@@ -429,13 +448,25 @@ async def execute():
                 and x.request.method=="POST",timeout=25000) as waiting:
                 await tab.get_by_test_id("logout-submit").click()
             assert (await waiting.value).status==303
+            await expect(tab.get_by_test_id("logout-success")).to_be_visible()
+            # The ordinary logout clears the browser cookie. Independently
+            # probe the original real session through the existing signed API;
+            # a missing cookie alone would not prove durable revocation.
+            assert demo.signed_private(raw_a).status_code==401,"ORIGINAL_A_SESSION_NOT_REVOKED"
+            assert demo.signed_private(raw_b).status_code==200,"B_SESSION_REVOKED_BY_A_LOGOUT"
             stale=await page_a.request.get(
                 ORIGIN+"/api/history/conversations?limit=2")
             assert stale.status==401,("REVOKED_A_STILL_READS",stale.status)
             surviving=await page_b.request.get(
                 ORIGIN+"/api/history/conversations?limit=2")
             assert surviving.status==200
+            await page_a.get_by_test_id("refresh-history").click()
+            await expect(page_a.get_by_test_id("history-login-required")).to_be_visible()
+            assert await page_a.locator('[data-testid^="conversation-"]').count()==0
+            await page_b.get_by_test_id("refresh-history").click()
+            await expect(page_b.locator('[data-testid^="conversation-"]').first).to_be_visible()
             await foreign_owner_denied(page_b,ids_a)
+            print("F3_LEGACY_BROWSER_COMMITTED_REVOKE_AND_DOM_CLEAR_PASS",flush=True)
             result={
                 "schema":"foundation.f3.real_browser_pg_restored_same_context.v1",
                 "sha":os.environ["GITHUB_SHA"],
@@ -463,6 +494,9 @@ async def execute():
                 "signed_history_a_after_restore":200,
                 "signed_history_b_after_restore":200,
                 "old_a_after_revoke":401,
+                "original_signed_a_session_after_revoke":401,
+                "original_signed_b_session_after_a_revoke":200,
+                "a_history_dom_cleared_after_revoke":True,
                 "b_alive_after_a_revoke":200,
                 "engine_calls":0,
                 "sql_011":False,
