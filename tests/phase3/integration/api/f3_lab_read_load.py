@@ -3,13 +3,14 @@ Runs inside the already authenticated page. No cookie injection, no route mocks,
 no mutation, no engine. Only aggregate durations and counts leave the page.
 """
 import json
+import time
 from f3_lab_http_metrics import percentiles
 
 LIST_PATH = '/api/history/conversations'
 TIERS = (1, 2, 4)
 ROUNDS = 3
 # Keep an explicit same-origin path; no caller-selected endpoint or redirect.
-JS = r'''async ({role, owner, width, rounds, checkCursor, extraChecks=false}) => {
+JS = r'''async ({role, owner, width, rounds, checkCursor, extraChecks=false, timedWindows=false}) => {
   const list = '/api/history/conversations';
   const detail = list + '/browser-a-1/messages?limit=30';
   const detailB = list + '/browser-b-1/messages?limit=30';
@@ -18,6 +19,7 @@ JS = r'''async ({role, owner, width, rounds, checkCursor, extraChecks=false}) =>
   const ids = role === 'a' ? ['browser-a-3','browser-a-2'] : ['browser-b-1'];
   const samples = [];
   const statuses = {};
+  const windows = [];
   let cursor = null;
   async function boundedText(response) {
     if (!response.body || typeof response.body.getReader !== 'function') throw Error('body-stream');
@@ -42,6 +44,7 @@ JS = r'''async ({role, owner, width, rounds, checkCursor, extraChecks=false}) =>
   }
   async function read(path, kind) {
     const start = performance.now();
+    const absoluteStart = timedWindows ? Math.round((performance.timeOrigin+start)*1000) : 0;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
     try {
@@ -72,7 +75,9 @@ JS = r'''async ({role, owner, width, rounds, checkCursor, extraChecks=false}) =>
           if (d.owner_user_id !== owner || JSON.stringify(d.items.map(x=>[x.message_id,x.text])) !== JSON.stringify(expected)) throw Error('detail-owner');
         }
       }
-      const duration = Math.round((performance.now()-start)*1e6);
+      const end = performance.now();
+      const duration = Math.round((end-start)*1e6);
+      if (timedWindows) windows.push([absoluteStart, Math.round((performance.timeOrigin+end)*1000)]);
       if (!Number.isSafeInteger(duration) || duration < 0) throw Error('timing');
       statuses[String(r.status)] = (statuses[String(r.status)] || 0)+1;
       return duration;
@@ -104,7 +109,7 @@ JS = r'''async ({role, owner, width, rounds, checkCursor, extraChecks=false}) =>
   if (checkCursor !== null) {
     for (const path of [list+'?limit=2&cursor='+encodeURIComponent(checkCursor),list+'?limit=2&cursor=invalid-lab-cursor',list+'?limit=2&limit=2']) await read(path,'negative');
   }
-  return {samples, statuses, cursor};
+  return timedWindows ? {samples, statuses, cursor, windows} : {samples, statuses, cursor};
 }'''
 
 
@@ -167,3 +172,94 @@ def _measure(pa,pb,owner_a,owner_b,stage):
             'target_acceptance':'NOT_ACCEPTED'}
     print('F3_LAB_BOUNDED_READ_LOAD',json.dumps(result,sort_keys=True),flush=True)
     return result
+
+
+# Schedule independent browser pages before either starts fetching. The shared
+# clock is the same browser host; never infer server-side overlap from this.
+# Only counts leave the helper, never cursors, owners, timestamps or payloads.
+_START = r"""({args, startAt}) => {
+  if (globalThis.__f3LabOverlap !== undefined) throw Error('probe-already-active');
+  const delay = startAt-Date.now();
+  if (delay < 50 || delay > 2000) throw Error('probe-clock-or-scheduling');
+  globalThis.__f3LabOverlap = new Promise(resolve => setTimeout(resolve,delay))
+    .then(() => (""" + JS + r""")(args))
+    .then(value => ({ok:true,value}), () => ({ok:false}));
+  return true;
+}"""
+_COLLECT = r"""async () => {
+  const pending=globalThis.__f3LabOverlap;
+  if (!pending) throw Error('probe-not-active');
+  try { return await pending; }
+  finally { delete globalThis.__f3LabOverlap; }
+}"""
+
+
+def _windows(result, count):
+    if not isinstance(result, dict) or set(result) != {'samples','statuses','cursor','windows'}:
+        raise AssertionError('overlap result shape')
+    windows = result['windows']
+    if not isinstance(windows, list) or len(windows) != count:
+        raise AssertionError('missing overlap windows')
+    for pair in windows:
+        if (not isinstance(pair, list) or len(pair)!=2 or
+            any(type(t) is not int or not 0<t<2**53 for t in pair) or
+            pair[1]<pair[0] or pair[1]-pair[0]>6_000_000):
+            raise AssertionError('invalid overlap window')
+    return windows
+
+
+def _overlap_count(a,b):
+    # Strict intersection: adjacent intervals and rounded zero-duration
+    # intervals do not prove overlap. Counts pairs, not simultaneous peak.
+    return sum(min(x[1],y[1])>max(x[0],y[0]) for x in a for y in b)
+
+
+def measure_cross_context_overlap(pa,pb,owner_a,owner_b,stage):
+    if (pa is pb or stage not in ('source','restore') or
+        any(not isinstance(x,str) or not x for x in (owner_a,owner_b)) or owner_a==owner_b):
+        raise ValueError('invalid overlap scope')
+    if any(page.url!='https://ragfinance.ir/' for page in (pa,pb)):
+        raise ValueError('unexpected lab page')
+    # Two attempts at most, each 4 GETs per owner. Scheduling failure is
+    # fail-closed. A completed attempt with no overlap may be retried once.
+    requests=0
+    for attempt in (1,2):
+        start_at=time.time_ns()//1_000_000+750
+        started=[]
+        values=[]
+        failed=False
+        try:
+            for page,role,owner in ((pa,'a',owner_a),(pb,'b',owner_b)):
+                args=dict(role=role,owner=owner,width=4,rounds=1,checkCursor=None,timedWindows=True)
+                if page.evaluate(_START,dict(args=args,startAt=start_at)) is not True:
+                    raise AssertionError('overlap scheduling failed')
+                started.append(page)
+        finally:
+            # Drain both promises even when one actor failed; no asynchronous
+            # traffic survives the test or is left running during logout.
+            for page in started:
+                try:
+                    item=page.evaluate(_COLLECT)
+                    if not isinstance(item,dict) or set(item)!={'ok','value'} or item['ok'] is not True:
+                        failed=True
+                    else: values.append(item['value'])
+                except Exception:
+                    failed=True
+        if failed or len(values)!=2:
+            raise AssertionError('cross-context read failed')
+        a,b=values
+        wa,wb=_windows(a,4),_windows(b,4)
+        ar=_receipt({k:v for k,v in a.items() if k!='windows'},4,'a',expected_200=4,expected_404=0)
+        br=_receipt({k:v for k,v in b.items() if k!='windows'},4,'b',expected_200=2,expected_404=2)
+        if not isinstance(a['cursor'],str) or not 1<=len(a['cursor'])<=512 or b['cursor'] is not None:
+            raise AssertionError('cross-context cursor shape')
+        requests+=8
+        overlap=_overlap_count(wa,wb)
+        if overlap:
+            receipt={'stage':stage,'requests':requests,'attempts':attempt,
+                     'overlapping_request_pairs':overlap,'a':ar,'b':br,
+                     'scope':'browser-observed cross-context overlap; not server concurrency, stress or approved SLO',
+                     'target_acceptance':'NOT_ACCEPTED'}
+            print('F3_LAB_CROSS_CONTEXT_OVERLAP',json.dumps(receipt,sort_keys=True),flush=True)
+            return receipt
+    raise AssertionError('no cross-context overlap observed')
