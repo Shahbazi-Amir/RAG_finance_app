@@ -21,7 +21,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test ! -f infra/postgres/migrations/011_product_answer_claims.up.sql
       - name: Install exact API lock
-        run: python -m pip install --require-hashes --only-binary=:all: -r locks/requirements-api.lock
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r locks/requirements-api.lock
       - name: Compile and check original plus transferred listener boundaries
         run: |
           python -m compileall -q apps/api/private_app_only_asgi.py

@@ -75,7 +75,8 @@ jobs:
         with:
           python-version: '3.13'
       - name: Install actual signed listener locked dependencies
-        run: python -m pip install --require-hashes --only-binary=:all: -r locks/requirements-api.lock
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r locks/requirements-api.lock
       - name: Enable TLS only on this disposable PostgreSQL service
         env:
           PG_CID: ${{ job.services.postgres.id }}
