@@ -21,6 +21,86 @@ from compose_restored_browser import BothSidesComposeBrowserDemo, ROOT, ORIGIN
 PRIOR = "f2b743a1588cac76fddafc36e3b489deb59d42ac"
 BRANCH = "refs/heads/integration/f3-foundation-send-fence-restore-20261124"
 
+def verify_pre_switch_dump_in_third_volume(demo,dump,dbname):
+    """Restore this specific pre-switch archive, not merely its catalog.
+
+    Third empty volume, same exact local PG17 image, network none, no host
+    port, no product service, no role passwords exported. All SQL data
+    stays inside the runner; only counts/hashes are reported.
+    """
+    run=demo.ci_command
+    source=demo.restored_pg_id
+    inspected=json.loads(run("docker","inspect",source))[0]
+    assert source==inspected["Id"] and source!=demo.source_pg_id
+    assert any(m.get("Name")==demo.restored_pg_volume for m in inspected["Mounts"])
+    assert inspected["State"]["Running"]
+    image=inspected["Image"]
+    assert re.fullmatch(r"sha256:[a-f0-9]{64}",image)
+    roles=run("docker","exec",source,"pg_dumpall","-U","postgres","--roles-only","--no-role-passwords")
+    roles=b"\n".join(x for x in roles.splitlines() if x.strip()!=b"CREATE ROLE postgres;")+b"\n"
+    def snapshot(cid,db):
+        result={}
+        for table in ("conversations","messages","send_receipts","execution_attempts","answers"):
+            # No arbitrary identifiers or external data; fixed original
+            # table names and disposable synthetic DB names only.
+            sql="SELECT row_to_json(t)::text FROM history_l1."+table+" AS t ORDER BY owner_id,id"
+            raw=run("docker","exec",cid,"psql","-X","-U","postgres","-d",db,"-Atc",sql)
+            result[table]={"rows":len(raw.splitlines()),"sha256":hashlib.sha256(raw).hexdigest()}
+        return result
+    expected=snapshot(source,dbname)
+    suffix=uuid.uuid4().hex
+    name="f3-pre-switch-verify-"+suffix
+    volume=name+"-data"
+    label="rag.finance.ci.preswitch="+suffix
+    target=None;created=False
+    started=time.monotonic_ns()
+    try:
+        assert run("docker","volume","create","--label",label,volume).decode().strip()==volume
+        created=True
+        target=run("docker","run","-d","--pull","never","--name",name,"--label",label,
+                   "--network","none","--mount","type=volume,source="+volume+",target=/var/lib/postgresql/data",
+                   "-e","POSTGRES_PASSWORD="+os.environ["PGPASSWORD"],image).decode().strip()
+        assert re.fullmatch(r"[a-f0-9]{64}",target) and target not in (source,demo.source_pg_id)
+        info=json.loads(run("docker","inspect",target))[0]
+        assert info["Image"]==image and info["HostConfig"]["NetworkMode"]=="none"
+        assert not info["HostConfig"]["PortBindings"] and info["Config"]["Labels"]["rag.finance.ci.preswitch"]==suffix
+        assert any(m.get("Name")==volume for m in info["Mounts"])
+        assert volume not in (demo.source_volume,demo.restored_pg_volume)
+        for _ in range(60):
+            try:
+                run("docker","exec",target,"pg_isready","-U","postgres",timeout=5)
+                time.sleep(1.5)
+                run("docker","exec",target,"psql","-X","-U","postgres","-d","postgres","-Atc","SELECT 1",timeout=5)
+                break
+            except RuntimeError:time.sleep(.5)
+        else:raise RuntimeError("THIRD_VOLUME_POSTGRES_UNAVAILABLE")
+        run("docker","exec","-i",target,"psql","-X","-U","postgres","-d","postgres","-v","ON_ERROR_STOP=1",input_data=roles)
+        target_db="history_browser_restore_ci_"+suffix[:16]
+        run("docker","exec",target,"createdb","-U","postgres","-T","template0",target_db)
+        run("docker","exec","-i",target,"pg_restore","-U","postgres","--exit-on-error","-d",target_db,
+            input_data=dump.read_bytes(),timeout=90)
+        actual=snapshot(target,target_db)
+        assert actual==expected
+        def sysid(cid,db):
+            return run("docker","exec",cid,"psql","-X","-U","postgres","-d",db,"-Atc","SELECT system_identifier FROM pg_control_system()").strip()
+        assert sysid(target,target_db)!=sysid(source,dbname)
+        # 14 FORCE RLS tables in original 001-010, exact count not guessed
+        # from the dump: compare source and new catalog independently.
+        rls="SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('auth_l1','history_l1') AND c.relforcerowsecurity"
+        def force_count(cid,db):
+            return int(run("docker","exec",cid,"psql","-X","-U","postgres","-d",db,"-Atc",rls).strip())
+        source_rls=force_count(source,dbname)
+        assert source_rls>0 and force_count(target,target_db)==source_rls
+        return {"restored_exact_pre_switch_archive":True,"third_independent_pg_volume":True,
+                "network_none":True,"local_pg_image_id":image,
+                "history_rows_and_byte_fingerprints_equal":actual,
+                "force_rls_catalog_equal":True,"force_rls_table_count":source_rls,
+                "duration_ms":(time.monotonic_ns()-started)//1_000_000,
+                "raw_backup_or_rows_uploaded":False,"target_verified":False}
+    finally:
+        if target:run("docker","rm","-f",target)
+        if created:run("docker","volume","rm",volume)
+
 class SignedPriorRollback(BothSidesComposeBrowserDemo):
     async def verify_browser_privacy(self, browser, a, b, raw_a, raw_b, aid, message):
         # The unchanged same-SHA restored environment has already passed
@@ -92,10 +172,11 @@ class SignedPriorRollback(BothSidesComposeBrowserDemo):
         proc=subprocess.run(["docker","exec","-i",self.restored_pg_id,"pg_restore","--list"],input=dump.read_bytes(),capture_output=True,timeout=30)
         assert proc.returncode==0 and b"history_l1" in proc.stdout and b"auth_l1" in proc.stdout
         assert hashlib.sha256(dump.read_bytes()).hexdigest()==backup["plaintext_sha256"]
+        backup["independent_restore"]=verify_pre_switch_dump_in_third_volume(self,dump,dbs[0])
         dump.unlink();backup_dir.rmdir()
         backup["catalog_verified"]=True
         backup["created_before_version_switch"]=True
-        backup["restore_of_this_new_dump_tested"]=False
+        backup["restore_of_this_new_dump_tested"]=True
         assert self.counts()==before
         start=time.monotonic_ns()
         self.compose("down","--remove-orphans",timeout=90)
