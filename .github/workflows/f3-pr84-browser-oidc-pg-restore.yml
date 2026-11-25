@@ -12,7 +12,9 @@ jobs:
   browser-pg-restore:
     if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'integration/f3-pr84-foundation-signed-history-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 65
+    outputs:
+      image_scan: ${{ steps.image-scan.outcome }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,11 +38,32 @@ jobs:
           bash scripts/04_bridge_and_db55.sh
           bash scripts/05_test_roles_tls_rls.sh
           bash scripts/27_browser_app_only_pg_journey.sh
+      - name: Actual tested image manifest, CycloneDX and vulnerability reports
+        id: image-scan
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/phase3/f3_lab_image_supply_chain.sh
+          python3 -m py_compile scripts/phase3/f3_lab_image_manifest.py
+          bash scripts/phase3/f3_lab_image_supply_chain.sh
+      - name: Upload only allowlisted manifest, image SBOM and sanitized advisory summaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3-tested-image-supply-chain
+          path: |
+            ci_receipts/lab_image_supply_chain/ci_candidate_manifest.json
+            ci_receipts/lab_image_supply_chain/*.cdx.json
+            ci_receipts/lab_image_supply_chain/*.vulnerability_summary.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Evidence boundary
         if: always()
         run: |
           echo "CHECKED_OUT_SHA=$(git rev-parse HEAD)"
           echo 'CI-only standard Keycloak, no external traffic or Mac/CENTRAL acceptance.'
+          echo 'IMAGE_SCAN_OUTCOME=${{ steps.image-scan.outcome }}'
 
   clean-install-rollback:
     name: Post-journey clean install, DB replay, rollback and crash recovery
@@ -93,4 +116,57 @@ jobs:
           name: f3-post-journey-db-sanitized
           path: ci_receipts/*
           if-no-files-found: error
+          retention-days: 14
+
+  image-scan-verdict:
+    name: Explicit tested-image scan completion verdict (not release approval)
+    needs: browser-pg-restore
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fail independently if scanner failed or was unavailable
+        env:
+          SCAN_OUTCOME: ${{ needs.browser-pg-restore.outputs.image_scan }}
+        run: |
+          echo "IMAGE_SCAN_OUTCOME=$SCAN_OUTCOME"
+          test "$SCAN_OUTCOME" = success
+
+  source-supply-chain:
+    name: Exact-source lock SBOM, secret scan and production npm advisory review
+    needs: browser-pg-restore
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Existing source scan, lock inventory and parser self-test
+        run: |
+          set -euo pipefail
+          python3 scripts/f3_source_supply_chain.py --self-test
+          python3 scripts/f3_source_supply_chain.py --repo . --out ci_receipts/supply_chain
+      - name: Existing production npm audit policy
+        shell: bash
+        run: |
+          set -uo pipefail
+          npm audit --prefix apps/web --package-lock-only --omit=dev --json > "$RUNNER_TEMP/f3-npm-audit.json"
+          echo "NPM_AUDIT_EXIT=$?"
+          python3 scripts/f3_source_supply_chain.py --npm-audit-json "$RUNNER_TEMP/f3-npm-audit.json" --out ci_receipts/supply_chain
+          status=$?
+          rm -f "$RUNNER_TEMP/f3-npm-audit.json"
+          exit "$status"
+      - name: Upload only sanitized source evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3-post-journey-source-supply-chain
+          path: |
+            ci_receipts/supply_chain/source_web_api_cyclonedx.json
+            ci_receipts/supply_chain/source_secret_scan.json
+            ci_receipts/supply_chain/source_supply_chain_status.json
+            ci_receipts/supply_chain/npm_production_audit_summary.json
+          if-no-files-found: warn
           retention-days: 14
