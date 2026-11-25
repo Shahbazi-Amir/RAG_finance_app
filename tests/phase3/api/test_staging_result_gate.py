@@ -2,6 +2,7 @@
 import hashlib
 import json
 import unittest
+from unittest.mock import patch
 
 from src.phase3.rag_runtime.result_contract_gate import (
     ApprovedResultProfile, canonical_schema_digest,
@@ -105,6 +106,87 @@ class ResultSchemaGate(unittest.TestCase):
             self.parse({"schema":"rag_finance.mvp_engine_result.v1",
                         "request_id":self.binding.engine_request_id})
 
+
+    def _schema_fixture(self):
+        schema = {"$schema":"https://json-schema.org/draft/2020-12/schema",
+                  "type":"object","additionalProperties":False,
+                  "required":["schema","request_id","score"],
+                  "properties":{
+                      "schema":{"const":"rag_finance.mvp_engine_result.v1"},
+                      "request_id":{"type":"string"},
+                      "score":{"$ref":"#/$defs/score"}},
+                  "$defs":{"score":{"type":"number"}}}
+        raw = json.dumps({"schema":"rag_finance.mvp_engine_result.v1",
+                          "request_id":self.binding.engine_request_id,"score":0.5}).encode()
+        return schema, raw
+
+    def _validate_fixture(self, schema, raw, digest=None):
+        return validate_schema_pinned_result(
+            raw, schema=schema, profile=ApprovedResultProfile(
+                canonical_schema_digest(schema) if digest is None else digest),
+            binding=self.binding)
+
+    def test_local_pinned_schema_reference_resolves_without_network(self):
+        schema, raw = self._schema_fixture()
+        with patch("urllib.request.urlopen", side_effect=AssertionError("NO_NETWORK")), \
+             patch("socket.create_connection", side_effect=AssertionError("NO_NETWORK")):
+            result = self._validate_fixture(schema, raw)
+        self.assertEqual(result["score"], 0.5)
+
+    def test_external_schema_references_denied_without_network_or_file(self):
+        for url in ("https://example.invalid/PRIVATE_SCHEMA_CANARY",
+                    "file:///PRIVATE_SCHEMA_CANARY", "urn:synthetic:missing"):
+            schema, raw = self._schema_fixture()
+            schema["properties"]["score"] = {"$ref":url}
+            with patch("urllib.request.urlopen", side_effect=AssertionError("NO_NETWORK")) as network, \
+                 patch("socket.create_connection", side_effect=AssertionError("NO_NETWORK")) as sock:
+                with self.assertRaises(PreflightDenied) as err:
+                    self._validate_fixture(schema, raw)
+                self.assertEqual(str(err.exception), "STAGING_PREFLIGHT_DENIED")
+                network.assert_not_called()
+                sock.assert_not_called()
+
+    def test_modified_schema_digest_denied_even_when_payload_would_validate(self):
+        schema, raw = self._schema_fixture()
+        digest = canonical_schema_digest(schema)
+        schema["$defs"]["score"]["minimum"] = 0
+        with self.assertRaises(PreflightDenied):
+            self._validate_fixture(schema, raw, digest)
+
+    def test_exponent_overflow_denied_in_both_result_shapes(self):
+        schema, raw = self._schema_fixture()
+        for literal in (b"1e999", b"-1e999"):
+            with self.assertRaises(PreflightDenied):
+                self._validate_fixture(schema, raw.replace(b"0.5", literal))
+            context = json.dumps(dict(self.ready, top10=[{"score":0.5}])).encode()
+            with self.assertRaises(PreflightDenied):
+                validate_no_dispatch_context_ready(
+                    context.replace(b"0.5", literal), question=self.question,
+                    binding=self.binding)
+
+    def test_missing_and_recursive_local_refs_sanitized(self):
+        for ref in ("#/$defs/missing", "#/$defs/score"):
+            schema, raw = self._schema_fixture()
+            schema["$defs"]["score"] = {"$ref":ref}
+            with self.assertRaises(PreflightDenied) as err:
+                self._validate_fixture(schema, raw)
+            self.assertEqual(str(err.exception), "STAGING_PREFLIGHT_DENIED")
+
+    def test_deeply_nested_json_denied_with_fixed_error(self):
+        schema, _ = self._schema_fixture()
+        raw = b"[" * 3000 + b"0" + b"]" * 3000
+        for parser in (lambda: self._validate_fixture(schema, raw),
+                       lambda: validate_no_dispatch_context_ready(raw,
+                           question=self.question,binding=self.binding)):
+            with self.assertRaises(PreflightDenied) as err:
+                parser()
+            self.assertEqual(str(err.exception), "STAGING_PREFLIGHT_DENIED")
+
+    def test_invalid_unicode_question_rejected_without_reflection(self):
+        with self.assertRaises(PreflightDenied) as err:
+            validate_no_dispatch_context_ready(json.dumps(self.ready).encode(),
+                question="\ud800",binding=self.binding)
+        self.assertEqual(str(err.exception), "STAGING_PREFLIGHT_DENIED")
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -564,6 +564,230 @@ def verify_cursor_restore(phase, state):
             print("API_F3_RESTORED_SOURCE_CURSOR_PAGE2_OWNER_PARITY=PASS", flush=True)
 
 
+def verify_http_contract_negatives(phase):
+    """Actual wire paths, signed query validation, no redirect or reflected IDs."""
+    with tls_client() as client:
+        ids = set()
+        for method, path, code, status in (
+            ("POST", "/v1/messages/", "ENGINE_NOT_CONFIGURED", 503),
+            ("POST", "/v1/%6dessages/", "ENGINE_NOT_CONFIGURED", 503),
+            ("GET", "/v1/message-requests/retrieved-sources/", "ENGINE_STATUS_UNAVAILABLE", 503),
+            ("GET", "/v1/conversations/", "NOT_FOUND", 404),
+            ("POST", "/v1/conversations", "NOT_FOUND", 404),
+            ("DELETE", "/v1/conversations/f3-net-a-1/messages", "NOT_FOUND", 404),
+            ("GET", "/v1/future-private-operation", "NOT_FOUND", 404),
+        ):
+            response = client.request(method, BASE + path, follow_redirects=False,
+                                      headers={"X-Request-ID": "caller-chosen-id",
+                                               "X-Trace-ID": "caller-chosen-trace"})
+            assert response.status_code == status
+            assert response.headers["cache-control"] == "no-store"
+            assert "location" not in response.headers
+            document = response.json()
+            assert document["kind"] == "error_response"
+            assert document["contract_version"] == "product.v1"
+            assert document["error"]["code"] == code
+            for field in ("request_id", "trace_id"):
+                value = document[field]
+                assert isinstance(value, str) and value and value not in ids
+                assert not value.startswith("caller-chosen")
+                ids.add(value)
+        for query in ("limit=0", "limit=101", "limit=1&limit=2",
+                      "limit=bad", "owner_id=foreign", "cursor=invalid"):
+            response = request(client, "a", "/v1/conversations", query, expect=422)
+            assert response.json()["error"]["code"] in {"INVALID_REQUEST", "INVALID_CURSOR"}
+            assert response.headers["cache-control"] == "no-store"
+        request(client, "a", "/v1/conversations")
+        request(client, "b", "/v1/conversations")
+    print(f"API_F3_{phase.upper()}_HTTP_ROUTE_QUERY_TRACE_CONTRACT_NEGATIVES=PASS", flush=True)
+
+
+def verify_status_and_security_log(phase):
+    """Real signed status negative and privacy-safe event on the running listener."""
+    canary = "F3_SYNTHETIC_LOG_CANARY"
+    token = signature("a", "GET", "/v1/conversations")
+    with tls_client() as client:
+        denied = client.get(BASE + "/v1/conversations", headers={
+            "Authorization": "BFF-Assertion " + token,
+            "X-Owner-Id": canary, "X-Trace-ID": canary})
+        assert denied.status_code == 401
+        query = urlencode({"client_message_id":"absent-fixture",
+                           "idempotency_key":"absent-fixture-key"})
+        for label in ("a", "b"):
+            r = request(client, label, "/v1/message-requests/status", query, expect=404)
+            assert r.json()["error"]["code"] == "NOT_FOUND"
+            assert r.headers["cache-control"] == "no-store"
+            bad = request(client, label, "/v1/message-requests/status", "client_message_id=missing", expect=422)
+            assert bad.json()["error"]["code"] == "INVALID_REQUEST"
+        request(client, "a", "/v1/conversations")
+        request(client, "b", "/v1/conversations")
+    log = (PRIVATE / "app-only-server.log").read_bytes()
+    assert b"APP_ONLY_SECURITY_EVENT outcome=denied status=401" in log
+    assert b"APP_ONLY_SECURITY_EVENT outcome=denied status=404" in log
+    for secret in (canary, token, *(json.loads((LAB / "role_passwords.json").read_text()).values())):
+        assert secret.encode() not in log, "PRIVATE_LOG_LEAK"
+    print(f"API_F3_{phase.upper()}_STATUS_NEGATIVE_SECURITY_LOG_NO_SECRETS=PASS", flush=True)
+
+
+def verify_fa_disabled_send_corpus(phase, state):
+    """Real private mTLS/PG test; no inference, classifier, or actual Send."""
+    root = Path(__file__).resolve().parents[4]
+    corpus = json.loads((root / "packages/contracts/fixtures/app-only.fa.redteam.v1.json").read_text())
+    assert corpus["policy_status"] == "PROPOSED_NOT_APPROVED"
+    assert len(corpus["cases"]) == 12
+    host = "demo-db" if phase == "before" else "restore-db"
+    db = ("rag_finance_f3_http_ab_source" if phase == "before"
+          else "rag_finance_f3_http_ab_restored")
+    def snapshot():
+        fingerprints = []
+        with conn("history_app", host, db) as sql:
+            for label in ("a", "b"):
+                with sql.transaction():
+                    sql.execute("SELECT set_config('app.owner_id', %s, true)",
+                                (state[label]["owner"],))
+                    for table in ("conversations","messages","create_receipts",
+                                  "send_receipts","execution_attempts","answers"):
+                        rows = sql.execute(
+                            f"SELECT to_jsonb(t)::text AS row_value FROM history_l1.{table} AS t"
+                        ).fetchall()
+                        fingerprints.append(row_fingerprint([r["row_value"] for r in rows]))
+        assert tuple(x[0] for x in fingerprints) == (5,4,0,0,0,0,3,2,0,0,0,0)
+        return tuple(fingerprints)
+    before = snapshot()
+    with tls_client() as client:
+        for label in ("a", "b"):
+            for case in corpus["cases"]:
+                body = json.dumps({"kind":"send_message_request","contract_version":"product.v1",
+                    "requested_conversation_id":f"f3-net-{label}-1",
+                    "client_message_id":f"redteam-{label}-{case['id']}",
+                    "question":case["question"],
+                    "idempotency_key":f"redteam-key-{label}-{case['id']}"},
+                    ensure_ascii=False,separators=(",",":")).encode()
+                result = request(client, label, "/v1/messages", method="POST", body=body,
+                                 expect=case["expected_http_status"])
+                assert result.json()["error"]["code"] == case["expected_http_code"]
+                assert result.headers["cache-control"] == "no-store"
+                assert case["question"] not in result.text
+            request(client, label, "/v1/conversations")
+        for path in ("/health/%72eady", "/internal/%72eady",
+                     "/health/ready?probe=synthetic", "/internal/ready?probe=synthetic"):
+            result = client.get(BASE + path)
+            assert result.status_code == 503 and result.json()["state"] == "unavailable"
+    assert snapshot() == before
+    log = (PRIVATE / "app-only-server.log").read_text()
+    for case in corpus["cases"]:
+        assert case["question"] not in log
+    print(f"API_F3_{phase.upper()}_24_FA_CASES_DISABLED_SEND_ZERO_SQL_NO_REFLECTION=PASS", flush=True)
+
+
+def verify_transport_capacity_recovery(phase, state):
+    """Existing 32-connection cap in isolated mTLS lab, not a target SLO."""
+    host = "demo-db" if phase == "before" else "restore-db"
+    db = ("rag_finance_f3_http_ab_source" if phase == "before"
+          else "rag_finance_f3_http_ab_restored")
+    def snapshot():
+        hashes = []
+        with conn("history_app", host, db) as sql:
+            for label in ("a", "b"):
+                with sql.transaction():
+                    sql.execute("SELECT set_config('app.owner_id', %s, true)",
+                                (state[label]["owner"],))
+                    for table in ("conversations","messages","create_receipts",
+                                  "send_receipts","execution_attempts","answers"):
+                        rows = sql.execute(
+                            f"SELECT to_jsonb(t)::text AS row_value FROM history_l1.{table} AS t"
+                        ).fetchall()
+                        hashes.append(row_fingerprint([r["row_value"] for r in rows]))
+        assert tuple(x[0] for x in hashes) == (5,4,0,0,0,0,3,2,0,0,0,0)
+        return tuple(hashes)
+    before = snapshot()
+    endpoint = "/v1/conversations"
+    context = ssl.create_default_context(cafile=str(PRIVATE / "ca.pem"))
+    context.load_cert_chain(str(PRIVATE / "bff.pem"), str(PRIVATE / "bff.key"))
+    held = []
+    proofs = {}
+    try:
+        # Hold TLS connections without requests; H11 checks existing capacity
+        # before ASGI admission. No new limit or policy is introduced.
+        for _ in range(36):
+            with socket.create_connection(("127.0.0.1", 18443), timeout=2) as raw:
+                held.append(context.wrap_socket(raw, server_hostname="127.0.0.1"))
+        for label in ("a", "b"):
+            token = signature(label, "GET", endpoint)
+            proofs[label] = token
+            with tls_client() as client:
+                response = client.get(BASE + endpoint, headers={
+                    "Authorization":"BFF-Assertion " + token})
+                assert response.status_code == 503, "EXISTING_TRANSPORT_CAP_NOT_OBSERVED"
+                assert state[label]["owner"] not in response.text
+                assert "scope_user_id" not in response.text
+                assert token not in response.text
+    finally:
+        for sock in held:
+            sock.close()
+    for label in ("a", "b"):
+        with tls_client() as client:
+            headers = {"Authorization":"BFF-Assertion " + proofs[label]}
+            # Allow bounded socket cleanup, never mint a replacement proof.
+            for _ in range(20):
+                response = client.get(BASE + endpoint, headers=headers)
+                if response.status_code != 503:
+                    break
+                time.sleep(0.05)
+            assert response.status_code == 200, "OVERLOAD_RECOVERY_OR_PROOF_REPLAY"
+            assert response.json()["scope_user_id"] == state[label]["owner"]
+            assert response.headers["cache-control"] == "no-store"
+            assert client.get(BASE + endpoint, headers=headers).status_code == 401
+    assert snapshot() == before
+    print(f"API_F3_{phase.upper()}_TRANSPORT_CAP_503_SAME_PROOF_RECOVERY_ZERO_SQL=PASS", flush=True)
+
+
+def verify_bodyless_signed_read_recovery(phase, state):
+    """Real TLS and exact proof reuse: body framing cannot consume a JTI.
+
+    The three product read routes and signed readiness already bind b"".
+    A malformed request must fail before PG admission; the same proof with
+    correct framing must work once and then fail on replay.
+    """
+    for label in ("a", "b"):
+        for path, query, expected in (
+            ("/v1/conversations", "limit=2", 200),
+            (f"/v1/conversations/f3-net-{label}-1/messages", "limit=2", 200),
+            ("/health/ready", "", 200),
+        ):
+            proof = signature(label, "GET", path, query)
+            headers = {"Authorization": "BFF-Assertion " + proof}
+            url = BASE + path + (("?" + query) if query else "")
+            with tls_client() as client:
+                response = client.request("GET", url, content=b"synthetic-body", headers=headers)
+                assert response.status_code == (503 if path == "/health/ready" else 401)
+                assert response.headers["cache-control"] == "no-store"
+                assert "synthetic-body" not in response.text
+                assert proof not in response.text
+                response = client.get(url, headers=headers)
+                assert response.status_code == expected
+                assert response.headers["cache-control"] == "no-store"
+                if path == "/health/ready":
+                    assert response.json()["state"] == "ready"
+                elif path == "/v1/conversations":
+                    page = response.json()
+                    assert page["kind"] == "conversation_page"
+                    assert page["scope_user_id"] == state[label]["owner"]
+                    assert len(page["items"]) == 2
+                    assert all(item["owner_user_id"] == state[label]["owner"] for item in page["items"])
+                else:
+                    page = response.json()
+                    assert page["kind"] == "conversation_messages_page"
+                    assert page["owner_user_id"] == state[label]["owner"]
+                    assert page["conversation_id"] == f"f3-net-{label}-1"
+                    assert len(page["items"]) == 2
+                    assert all(item["owner_user_id"] == state[label]["owner"] and
+                               item["conversation_id"] == page["conversation_id"] for item in page["items"])
+                replay = client.get(url, headers=headers)
+                assert replay.status_code == (503 if path == "/health/ready" else 401)
+    print(f"API_F3_{phase.upper()}_BODYLESS_GET_SAME_PROOF_RECOVERY_REPLAY_DENY=PASS", flush=True)
+
+
 def verify_history(phase: str):
     state = json.loads((PRIVATE / "session_state.json").read_text())
     with tls_client() as client:
@@ -634,6 +858,11 @@ def verify_history(phase: str):
                     assert result.status_code in (401, 403), "WRONG_PEER_AUTHENTICATED"
             except httpx.HTTPError:
                 pass
+    verify_http_contract_negatives(phase)
+    verify_bodyless_signed_read_recovery(phase, state)
+    verify_status_and_security_log(phase)
+    verify_fa_disabled_send_corpus(phase, state)
+    verify_transport_capacity_recovery(phase, state)
     verify_disabled_send_retries(phase, state)
     verify_runtime_signer_drift(phase)
     verify_session_lifecycle(phase, state)
@@ -656,7 +885,7 @@ def revoke_and_check():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("phase", choices=("seed", "before", "after", "ready200", "ready503"))
+    parser.add_argument("phase", choices=("seed", "before", "after", "ready200", "ready503", "role200", "role503"))
     args = parser.parse_args()
     require_lab()
     if args.phase in ("ready200", "ready503"):
@@ -665,6 +894,17 @@ def main():
             res = c.get(BASE + "/internal/ready", timeout=12.0)
         assert res.status_code == expected, "PG_DEPENDENCY_READINESS_STATUS_MISMATCH"
         print("HTTPS_APP_ONLY_PG_DEPENDENCY_READY_" + str(expected) + "=PASS", flush=True)
+        return
+    if args.phase in ("role200", "role503"):
+        expected = 200 if args.phase == "role200" else 503
+        with tls_client() as c:
+            assert c.get(BASE + "/internal/ready").status_code == expected
+            result = request(c, "b", "/health/ready", expect=expected)
+            assert result.json()["state"] == ("ready" if expected == 200 else "unavailable")
+            # Loss of the revoker grant must lower readiness but not leak or
+            # corrupt existing owner-scoped History. The B session is active.
+            request(c, "b", "/v1/conversations")
+        print("API_F3_REAL_REVOKER_GRANT_READINESS_" + str(expected) + "=PASS", flush=True)
         return
     if args.phase == "seed":
         create_fixture()

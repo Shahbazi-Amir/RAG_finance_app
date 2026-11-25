@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ragfinance:draft:synthetic-release-binding:v0",
+  "$comment": "Review-only synthetic contract; not knowledge_release.lock, not an approved release format, not a runtime startup gate.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "origin", "approval", "release_id", "artifacts"],
+  "properties": {
+    "contract_version": {"const": "synthetic-release-binding.v0"},
+    "origin": {"const": "SYNTHETIC"},
+    "approval": {"const": "NOT_APPROVED"},
+    "release_id": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["data", "chunks", "embeddings", "index", "config"],
+      "properties": {
+        "data": {"$ref": "#/$defs/digest"},
+        "chunks": {"$ref": "#/$defs/digest"},
+        "embeddings": {"$ref": "#/$defs/digest"},
+        "index": {"$ref": "#/$defs/digest"},
+        "config": {"$ref": "#/$defs/digest"}
+      }
+    }
+  },
+  "$defs": {"digest": {"type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[0-9a-f]{64}$"}}
+}

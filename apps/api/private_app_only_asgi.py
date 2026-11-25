@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import re
 import ssl
@@ -19,7 +20,7 @@ from starlette.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from apps.api.app_only_signer_pin import SignerPin
 from apps.api.app_only_db_pair import same_tls_database
-from apps.api.app_only_disabled_routes import deny_disabled_route
+from apps.api.app_only_disabled_routes import app_only_route_allowed, deny_disabled_route
 
 from apps.api.private_staging_asgi import (
     _harden_tls_context, _protected_file, _test_tls_material,
@@ -157,6 +158,11 @@ class AppOnlyASGI:
     async def __call__(self, scope, receive, send):
         async def private_send(event):
             if event["type"] == "http.response.start":
+                # Fixed labels only: never log URL, query, proof, owner, peer,
+                # body, exception or caller-supplied correlation IDs.
+                if event["status"] in (401, 403, 404):
+                    logging.getLogger("uvicorn.error").info(
+                        "APP_ONLY_SECURITY_EVENT outcome=denied status=%d", event["status"])
                 headers = [(k, v) for k, v in event.get("headers", ())
                            if k.lower() not in {b"cache-control",
                                                b"x-content-type-options"}]
@@ -187,6 +193,8 @@ class AppOnlyASGI:
 
         if await deny_disabled_route(scope, receive, private_send, disabled_error):
             return
+        if not app_only_route_allowed(scope):
+            return await disabled_error(404, "NOT_FOUND", "authorization", "History unavailable.")(scope, receive, private_send)
         # The production composition pins the very key installed in the
         # verifier. A broken/replaced Ops file is not a valid configuration.
         # Keep the no-engine Send denial ahead of this check.
@@ -222,11 +230,12 @@ class AppOnlyASGI:
             return await history_api._safe_error(
                 401, "AUTH_REQUIRED", "authorization", "Authentication required.",
             )(scope, receive, private_send)
-        if scope.get("raw_path") == b"/health/ready":
+        if scope.get("path") == "/health/ready":
             # Strict readiness checks the *same* signed 004/005 session
             # admission and owner-bound PostgreSQL transaction as History.
             # PG-role-only /internal/ready is NOT proof the BFF signer works.
-            if (scope.get("method") != "GET"
+            if (scope.get("raw_path") != b"/health/ready"
+                    or scope.get("method") != "GET"
                     or scope.get("query_string")):
                 return await JSONResponse(
                     {"kind": "api_app_only_readiness", "state": "unavailable"},
@@ -255,7 +264,12 @@ class AppOnlyASGI:
                 await run_in_threadpool(
                     product_session_api._signed_history,
                     request, b"", b"/health/ready", probe_history,
+                    coherent_read=True,
                 )
+                # An active History role alone cannot certify the separate
+                # revoke role. Probe its actual restricted function grants
+                # as well, after the signed actor has been admitted.
+                await run_in_threadpool(verify_staging_database_authority, self._profile)
             except Exception:
                 # Signature, role, session, revoked user, PG outage and
                 # uncertain transaction results are all fail-closed.
@@ -269,9 +283,13 @@ class AppOnlyASGI:
                 "bootstrap_idp": "not_probed",
                 "retrieval": "unavailable", "generation": "unavailable",
             })(scope, receive, private_send)
-        if (scope.get("raw_path") == b"/internal/ready"
-                and scope.get("method") == "GET"
-                and not scope.get("query_string")):
+        if scope.get("path") == "/internal/ready":
+            if (scope.get("raw_path") != b"/internal/ready"
+                    or scope.get("method") != "GET" or scope.get("query_string")):
+                return await JSONResponse(
+                    {"kind": "app_only_readiness", "state": "unavailable",
+                     "retrieval": "unavailable", "generation": "unavailable"},
+                    status_code=503)(scope, receive, private_send)
             try:
                 # Real role/004+005 metadata queries are synchronous.
                 # Keep /internal/ready from blocking unrelated ASGI traffic.

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ragfinance:draft:synthetic-cache-identity:v0",
+  "$comment": "Review-only synthetic key material. No cache eligibility, approved policy version, TTL, or production runtime is implied.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "origin", "approval", "release_id", "release_manifest_sha256", "policy_version", "authority_filter_sha256", "locale", "question_sha256", "scope"],
+  "properties": {
+    "contract_version": {"const": "synthetic-cache-identity.v0"},
+    "origin": {"const": "SYNTHETIC"},
+    "approval": {"const": "NOT_APPROVED"},
+    "release_id": {"$ref": "#/$defs/opaque_version"},
+    "release_manifest_sha256": {"$ref": "#/$defs/digest"},
+    "policy_version": {"$ref": "#/$defs/opaque_version"},
+    "authority_filter_sha256": {"$ref": "#/$defs/digest"},
+    "locale": {"$ref": "#/$defs/opaque_version"},
+    "question_sha256": {"$ref": "#/$defs/digest"},
+    "scope": {"enum": ["synthetic_public_candidate", "personal", "history"]}
+  },
+  "$defs": {
+    "digest": {"type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[0-9a-f]{64}$"},
+    "opaque_version": {"type": "string", "minLength": 1, "pattern": "\\S"}
+  }
+}

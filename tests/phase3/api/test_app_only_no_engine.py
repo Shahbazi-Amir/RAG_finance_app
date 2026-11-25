@@ -337,7 +337,8 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         asyncio.run(run())
 
 
-    def test_health_ready_requires_real_bff_signed_session_pg_transaction(self):
+    @patch("apps.api.private_app_only_asgi.verify_staging_database_authority", return_value=None)
+    def test_health_ready_requires_real_bff_signed_session_pg_transaction(self, _role_check):
         """Only the original signed admission may issue a 200 readiness.
 
         _signed_history is mocked here to inspect composition; actual
@@ -381,7 +382,8 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         asyncio.run(scenario())
 
 
-    def test_slow_pg_readiness_does_not_block_app_only_send_fence(self):
+    @patch("apps.api.private_app_only_asgi.verify_staging_database_authority", return_value=None)
+    def test_slow_pg_readiness_does_not_block_app_only_send_fence(self, _role_check):
         """A slow signed DB admission must not monopolize the ASGI loop.
 
         The signed DB call is mocked *only* for deterministic unit control;
@@ -486,6 +488,28 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         asyncio.run(scenario())
 
 
+    def test_all_signed_history_read_routes_select_one_coherent_transaction(self):
+        from apps.api import product_session_api
+        from starlette.requests import Request
+        from starlette.responses import JSONResponse
+        for path, action in (
+            ("/v1/conversations", lambda r: product_session_api.session_conversations(r)),
+            ("/v1/conversations/example/messages",
+             lambda r: product_session_api.session_messages("example", r)),
+            ("/v1/message-requests/status",
+             lambda r: product_session_api.session_message_status(r)),
+        ):
+            with self.subTest(path=path):
+                req = Request({"type":"http","method":"GET","path":path,
+                               "raw_path":path.encode(),"headers":[],"query_string":b""})
+                response = JSONResponse({"fixture":True})
+                with patch.object(product_session_api, "_signed_history",
+                                  return_value=(None, response)) as signed:
+                    self.assertIs(action(req), response)
+                self.assertEqual(signed.call_args.args[:3], (req, b"", path.encode()))
+                self.assertIs(signed.call_args.kwargs.get("coherent_read"), True)
+                self.assertEqual(response.headers["cache-control"], "no-store")
+
     def test_signed_get_rejects_ambiguous_body_before_history_or_pg(self):
         """ASGI framing fence is independent of the signed session/DB."""
         calls = []
@@ -584,7 +608,8 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         asyncio.run(scenario())
 
 
-    def test_signed_readiness_checks_actual_history_action_without_leaking_page(self):
+    @patch("apps.api.private_app_only_asgi.verify_staging_database_authority", return_value=None)
+    def test_signed_readiness_checks_actual_history_action_without_leaking_page(self, _role_check):
         from starlette.responses import JSONResponse
         from apps.api import history_api, product_session_api
         wrapper = AppOnlyASGI(FastAPI(), FakeProfile())
@@ -595,7 +620,8 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             scope["trusted_transport_test"] = True
             return await wrapper(scope, receive, send)
 
-        def invoke_action(request, body, path, action):
+        def invoke_action(request, body, path, action, *, coherent_read=False):
+            self.assertIs(coherent_read, True)
             self.assertEqual(body, b"")
             self.assertEqual(path, b"/health/ready")
             return None, action(context)
@@ -912,6 +938,105 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             admit.assert_not_called()
             pg.assert_not_called()
 
+
+    def test_app_only_future_mutations_and_aliases_never_reach_router(self):
+        from apps.api.app_only_signer_pin import SignerPin
+        profile = FakeProfile()
+        profile.load_public_key = lambda: b"original"
+        async def forbidden(*args):
+            raise AssertionError("UNLISTED_ROUTE_MUST_NOT_REACH_PRODUCT")
+        wrapper = AppOnlyASGI(forbidden, profile, signer_pin=SignerPin.capture(b"original"))
+        async def scenario():
+            async def trusted(scope, receive, send):
+                scope["trusted_transport_test"] = True
+                return await wrapper(scope, receive, send)
+            async with AsyncClient(transport=ASGITransport(app=trusted),
+                                   base_url="https://test.invalid", follow_redirects=False) as client:
+                for method, path, expected in (
+                    ("POST", "/v1/messages/", 503),
+                    ("POST", "/v1/%6dessages/", 503),
+                    ("GET", "/v1/message-requests/engine-status/", 503),
+                    ("GET", "/v1/conversations/", 404),
+                    ("POST", "/v1/conversations", 404),
+                    ("DELETE", "/v1/conversations/a/messages", 404),
+                    ("GET", "/v1/future-private-operation", 404),
+                    ("GET", "/internal/auth/session/v1/revoke-one", 404),
+                ):
+                    response = await client.request(method, path)
+                    self.assertEqual(response.status_code, expected)
+                    self.assertEqual(response.headers["cache-control"], "no-store")
+                    self.assertNotIn("location", response.headers)
+                    self.assertEqual(response.json()["contract_version"], "product.v1")
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE":"APP_ONLY"}), patch(
+                "psycopg.connect", side_effect=AssertionError("MUST_NOT_CONNECT")) as pg:
+            asyncio.run(scenario())
+            pg.assert_not_called()
+
+    def test_signed_readiness_requires_both_role_authorities(self):
+        from apps.api import product_session_api
+        wrapper = AppOnlyASGI(FastAPI(), FakeProfile())
+        async def scenario():
+            async def trusted(scope, receive, send):
+                scope["trusted_transport_test"] = True
+                return await wrapper(scope, receive, send)
+            async with AsyncClient(transport=ASGITransport(app=trusted),
+                                   base_url="https://test.invalid") as client:
+                with patch.object(product_session_api, "_signed_history", return_value=(None, None)):
+                    with patch("apps.api.private_app_only_asgi.verify_staging_database_authority",
+                               side_effect=StagingConfigDenied()) as roles:
+                        response = await client.get("/health/ready")
+                        self.assertEqual(response.status_code, 503)
+                        self.assertEqual(response.json()["state"], "unavailable")
+                        roles.assert_called_once()
+                    with patch("apps.api.private_app_only_asgi.verify_staging_database_authority",
+                               return_value=None) as roles:
+                        response = await client.get("/health/ready")
+                        self.assertEqual(response.status_code, 200)
+                        roles.assert_called_once()
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE":"APP_ONLY"}):
+            asyncio.run(scenario())
+
+
+    def test_security_denial_log_is_fixed_label_only(self):
+        wrapper = AppOnlyASGI(FastAPI(), FakeProfile())
+        async def scenario():
+            async def trusted(scope, receive, send):
+                scope["trusted_transport_test"] = True
+                return await wrapper(scope, receive, send)
+            async with AsyncClient(transport=ASGITransport(app=trusted),
+                                   base_url="https://test.invalid") as client:
+                response = await client.get("/v1/private-log-canary?secret=QUERY_CANARY",
+                    headers={"Authorization":"BFF-Assertion TOKEN_CANARY",
+                             "X-Owner-Id":"OWNER_CANARY","X-Trace-ID":"TRACE_CANARY"})
+                self.assertEqual(response.status_code, 404)
+                self.assertEqual(response.headers["cache-control"], "no-store")
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE":"APP_ONLY"}):
+            with self.assertLogs("uvicorn.error", level="INFO") as events:
+                asyncio.run(scenario())
+        self.assertEqual(events.output, [
+            "INFO:uvicorn.error:APP_ONLY_SECURITY_EVENT outcome=denied status=404"])
+
+    def test_noncanonical_readiness_is_unavailable_without_pg_or_handler(self):
+        async def forbidden(*args):
+            raise AssertionError("MUST_NOT_ROUTE")
+        wrapper = AppOnlyASGI(forbidden, FakeProfile())
+        async def scenario():
+            async def trusted(scope, receive, send):
+                scope["trusted_transport_test"] = True
+                return await wrapper(scope, receive, send)
+            async with AsyncClient(transport=ASGITransport(app=trusted),
+                                   base_url="https://test.invalid") as client:
+                for path in ("/health/%72eady", "/internal/%72eady",
+                             "/health/ready?probe=synthetic", "/internal/ready?probe=synthetic"):
+                    response = await client.get(path)
+                    self.assertEqual(response.status_code, 503)
+                    self.assertEqual(response.json()["state"], "unavailable")
+                    self.assertEqual(response.headers["cache-control"], "no-store")
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE":"APP_ONLY"}), patch(
+                "apps.api.private_app_only_asgi.verify_staging_database_authority",
+                side_effect=AssertionError("MUST_NOT_CONNECT")) as pg:
+            asyncio.run(scenario())
+            pg.assert_not_called()
 
 if __name__ == "__main__":
     unittest.main()

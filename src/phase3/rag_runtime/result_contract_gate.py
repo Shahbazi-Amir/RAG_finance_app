@@ -10,11 +10,14 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 from dataclasses import dataclass
 from typing import Mapping
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
+from referencing import Registry
+from referencing.exceptions import Unresolvable
 
 from src.phase3.rag_runtime.staging_preflight import (
     CONTRACT_EXPECTED, AttemptBinding, PreflightDenied,
@@ -59,7 +62,7 @@ def canonical_schema_digest(schema: Mapping) -> str:
     try:
         encoded = json.dumps(schema, sort_keys=True, separators=(",", ":"),
                              ensure_ascii=True, allow_nan=False).encode("ascii")
-    except (ValueError, TypeError, UnicodeError):
+    except (ValueError, TypeError, UnicodeError, RecursionError, OverflowError):
         raise PreflightDenied() from None
     return hashlib.sha256(encoded).hexdigest()
 
@@ -75,6 +78,13 @@ def _unique_object(pairs):
 
 def _reject_constant(_):
     raise PreflightDenied()
+
+
+def _finite_float(value):
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise PreflightDenied()
+    return parsed
 
 
 def _decode_and_validate(raw_result: bytes, schema: Mapping, digest: str) -> dict:
@@ -93,12 +103,15 @@ def _decode_and_validate(raw_result: bytes, schema: Mapping, digest: str) -> dic
         result = json.loads(
             raw_result.decode("utf-8"),
             object_pairs_hook=_unique_object,
-            parse_constant=_reject_constant,
+            parse_constant=_reject_constant, parse_float=_finite_float,
         )
         if not isinstance(result, dict):
             raise PreflightDenied()
-        Draft202012Validator(schema).validate(result)
-    except (SchemaError, ValidationError, ValueError, UnicodeError, TypeError):
+        # Explicit empty registry: resolve self-contained local references,
+        # never retrieve an unpinned remote Schema, file or network resource.
+        Draft202012Validator(schema, registry=Registry()).validate(result)
+    except (SchemaError, ValidationError, ValueError, UnicodeError, TypeError,
+            Unresolvable, RecursionError, OverflowError):
         raise PreflightDenied() from None
     return result
 
@@ -150,8 +163,9 @@ def validate_no_dispatch_context_ready(
     try:
         value = json.loads(
             raw_result.decode("utf-8"),
-            object_pairs_hook=_unique_object, parse_constant=_reject_constant)
-    except (ValueError, UnicodeError, TypeError):
+            object_pairs_hook=_unique_object, parse_constant=_reject_constant,
+            parse_float=_finite_float)
+    except (ValueError, UnicodeError, TypeError, RecursionError, OverflowError):
         raise PreflightDenied() from None
     if (not isinstance(value, dict)
             or set(value) != {
@@ -168,7 +182,10 @@ def validate_no_dispatch_context_ready(
     if (not hex_digest(value["question_sha256"])
             or not hex_digest(value["context_sha256"])):
         raise PreflightDenied()
-    actual = hashlib.sha256(question.encode("utf-8")).hexdigest()
+    try:
+        actual = hashlib.sha256(question.encode("utf-8")).hexdigest()
+    except UnicodeError:
+        raise PreflightDenied() from None
     if not hmac.compare_digest(actual, value["question_sha256"]):
         raise PreflightDenied()
     top10 = value["top10"]

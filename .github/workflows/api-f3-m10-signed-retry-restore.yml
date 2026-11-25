@@ -1,16 +1,16 @@
 name: API F3 M10-A10 disabled retry and signer drift — real isolated PG restore
 on:
   push:
-    branches: [agent/api-f3-signer-continuity-pr116-20261125]
+    branches: [agent/api-f3-signer-continuity-pr116-20261125, agent/api-f3-route-readiness-hardening-20261125]
   pull_request:
-    branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124]
+    branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124, agent/api-f3-signer-continuity-pr116-20261125]
     types: [opened, synchronize, reopened]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   actual-mtls-https-postgres:
-    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/api-f3-signer-continuity-pr116-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name != 'pull_request' || ((github.event.pull_request.head.ref == 'agent/api-f3-signer-continuity-pr116-20261125' || github.event.pull_request.head.ref == 'agent/api-f3-route-readiness-hardening-20261125') && github.event.pull_request.head.repo.full_name == github.repository)
     env:
       API_TEST_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     runs-on: ubuntu-24.04
@@ -57,10 +57,16 @@ jobs:
             grep -Fx "API_F3_${phase}_SESSION_ROTATION_EXPIRY_NO_IMPLICIT_REFRESH=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
             grep -Fx "API_F3_${phase}_PARALLEL_HISTORY_REPLAY_ONE_ADMISSION_PER_OWNER=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
             grep -Fx "API_F3_${phase}_SIGNED_REVOKE_COMMIT_REPLAY_AND_PREBODY_DENIAL=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
+            grep -Fx "API_F3_${phase}_HTTP_ROUTE_QUERY_TRACE_CONTRACT_NEGATIVES=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
+            grep -Fx "API_F3_${phase}_STATUS_NEGATIVE_SECURITY_LOG_NO_SECRETS=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
+            grep -Fx "API_F3_${phase}_24_FA_CASES_DISABLED_SEND_ZERO_SQL_NO_REFLECTION=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
+            grep -Fx "API_F3_${phase}_TRANSPORT_CAP_503_SAME_PROOF_RECOVERY_ZERO_SQL=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
+            grep -Fx "API_F3_${phase}_BODYLESS_GET_SAME_PROOF_RECOVERY_REPLAY_DENY=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
           done
           test "$(grep -Fxc 'API_F3_SPLIT_DB_STARTUP_DENIED_78_NO_LISTENER=PASS' "$RUNNER_TEMP/f3-api-retry-markers.log")" = 2
           grep -Fx 'API_F3_SOURCE_CURSOR_PAGE2_RECORDED=PASS' "$RUNNER_TEMP/f3-api-retry-markers.log"
           grep -Fx 'API_F3_RESTORED_SOURCE_CURSOR_PAGE2_OWNER_PARITY=PASS' "$RUNNER_TEMP/f3-api-retry-markers.log"
+          grep -Fx 'API_F3_RESTORED_REVOKER_GRANT_DRIFT_200_503_200=PASS' "$RUNNER_TEMP/f3-api-retry-markers.log"
           echo 'F3_APP_ONLY_NO_ENGINE_NO_011_NO_DEMO_NO_IDP_CLAIM=PASS'
       - name: Verify sanitized signed HTTP and restore witness
         shell: bash

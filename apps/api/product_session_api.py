@@ -214,8 +214,12 @@ def _signed_read(request, path, action, *, coherent_read=False):
 
 @app.get("/v1/conversations")
 def session_conversations(request: Request):
+    # The first-page anchor and repository query must observe the same
+    # snapshot, including an initially empty History. Keep the existing
+    # writable 004/005 transaction, not a second transaction or read-only TX.
     return _signed_read(request, _HISTORY_PATH,
-                        lambda ctx: history.conversations(request, ctx))
+                        lambda ctx: history.conversations(request, ctx),
+                        coherent_read=True)
 
 
 @app.get("/v1/conversations/{conversation_id}/messages")

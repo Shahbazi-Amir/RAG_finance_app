@@ -1,16 +1,16 @@
 name: API F3 signer continuity — isolated source regression
 on:
   push:
-    branches: [agent/api-f3-signer-continuity-pr116-20261125]
+    branches: [agent/api-f3-signer-continuity-pr116-20261125, agent/api-f3-route-readiness-hardening-20261125]
   pull_request:
-    branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124]
+    branches: [agent/foundation-f3-84-one-sha-browser-sql-restore-20261124, agent/api-f3-signer-continuity-pr116-20261125]
     types: [opened, synchronize, reopened]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   guard:
-    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'agent/api-f3-signer-continuity-pr116-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name != 'pull_request' || ((github.event.pull_request.head.ref == 'agent/api-f3-signer-continuity-pr116-20261125' || github.event.pull_request.head.ref == 'agent/api-f3-route-readiness-hardening-20261125') && github.event.pull_request.head.repo.full_name == github.repository)
     env:
       API_TEST_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     runs-on: ubuntu-24.04
@@ -34,5 +34,9 @@ jobs:
           python -m unittest discover -s tests/phase3/api -p test_app_only_disabled_routes.py -v
           python -m unittest discover -s tests/phase3/api -p test_app_only_db_pair.py -v
           python -m unittest discover -s tests/phase3/api -p test_app_only_no_engine.py -v
+          python -m unittest discover -s tests/phase3/api -p test_app_only_offline_contract.py -v
+          python -m unittest discover -s tests/phase3/api -p test_app_only_fa_boundary.py -v
+          python -m unittest discover -s tests/phase3/api -p test_staging_result_gate.py -v
+          PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests/phase3/api -p 'test_f3_synthetic_*oracle.py' -v
       - name: Scope
         run: echo 'SOURCE REGRESSION ONLY; NO REAL PG OR TARGET ACCEPTANCE'
