@@ -42,7 +42,7 @@ from psycopg.rows import dict_row
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / "tests/phase3/integration/api"))
 from db_common_compose_browser_journey import AppOnlyBrowserDemo, ORIGIN
-from src.phase3.storage.postgres import auth_session
+from src.phase3.storage.postgres import auth_session, repository
 
 
 
@@ -596,6 +596,88 @@ class BothSidesComposeBrowserDemo(ComposeRestoredBrowserDemo):
                 "disabled_send_503":6,"restricted_sql_controls":True,"no_store":True,
                 "positive_send_idempotency":False,"timing_leak_proven_absent":False}
 
+    def verify_third_restore_role_admission(self, raw_a, raw_b, expected, dsns):
+        """Actual TLS roles and transaction fencing; not a raw GUC security fix."""
+        def admit(c, raw, owner, epoch, generation):
+            with c.transaction():
+                return auth_session.admit_session_fenced(c,raw["session_ref"],owner,epoch,generation)
+        def tls(c, key):
+            assert conninfo_to_dict(dsns[key])["sslmode"]=="verify-full"
+            assert c.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()["ssl"] is True
+        with psycopg.connect(dsns["AUTH_SESSION_DSN"],autocommit=True,row_factory=dict_row) as c:
+            tls(c,"AUTH_SESSION_DSN")
+            assert c.execute("SELECT current_user AS role").fetchone()["role"]=="auth_sessions"
+            assert admit(c,raw_b,raw_b["owner_id"],raw_b["epoch"],raw_b["generation"]) is True
+            assert admit(c,raw_a,raw_a["owner_id"],raw_a["epoch"],raw_a["generation"]) is False
+            assert admit(c,raw_b,raw_a["owner_id"],raw_b["epoch"],raw_b["generation"]) is False
+            assert admit(c,raw_a,raw_b["owner_id"],raw_a["epoch"],raw_a["generation"]) is False
+            assert admit(c,raw_b,raw_b["owner_id"],raw_b["epoch"]+1,raw_b["generation"]) is False
+            assert admit(c,raw_b,raw_b["owner_id"],raw_b["epoch"],raw_b["generation"]+1) is False
+            try:
+                auth_session.admit_session_fenced(c,raw_b["session_ref"],raw_b["owner_id"],raw_b["epoch"],raw_b["generation"])
+            except RuntimeError as e:
+                assert str(e)=="SESSION_ADMISSION_REQUIRES_OUTER_TRANSACTION"
+            else:
+                raise AssertionError("ADMISSION_WITHOUT_TRANSACTION_ALLOWED")
+            assert admit(c,raw_b,raw_b["owner_id"],raw_b["epoch"],raw_b["generation"]) is True
+        # Roles that are unrelated to History must not obtain a direct
+        # Repository read by supplying even a genuine owner identifier.
+        denied=0
+        for key in ("AUTH_SESSION_DSN","AUTH_MAP_DSN","AUTH_REVOKER_DSN","LOGIN_READER_DSN"):
+            with psycopg.connect(dsns[key],autocommit=True,row_factory=dict_row) as c:
+                tls(c,key)
+                for label in ("A","B"):
+                    owner=self.owners[label]
+                    for call in (lambda:repository.list_conversations(c,owner,limit=2),
+                                 lambda:repository.list_messages(c,owner,expected[label][0]["id"],limit=2)):
+                        try:
+                            call()
+                        except psycopg.errors.InsufficientPrivilege:
+                            denied+=1
+                        else:
+                            raise AssertionError("UNRELATED_ROLE_REPOSITORY_READ_ALLOWED")
+                    assert c.execute("SELECT 1 AS n").fetchone()["n"]==1
+        assert denied==16
+        # Product-role access to the session admission function remains
+        # forbidden; do not conflate this with arbitrary owner GUC isolation.
+        with psycopg.connect(dsns["DB_APP_DSN"],autocommit=True,row_factory=dict_row) as c:
+            tls(c,"DB_APP_DSN")
+            try:
+                admit(c,raw_b,raw_b["owner_id"],raw_b["epoch"],raw_b["generation"])
+            except psycopg.errors.InsufficientPrivilege:
+                pass
+            else:
+                raise AssertionError("PRODUCT_ROLE_SESSION_ADMISSION_ALLOWED")
+        return {"valid_admission_controls":2,"invalid_admission_denials":5,
+                "no_transaction_denied":True,"unrelated_role_repository_denials":16,
+                "product_role_admission_denied":True,"raw_guc_spoof_resolved":False}
+
+    async def third_cursor_request(self,page,cursor=None):
+        return await asyncio.wait_for(page.evaluate("""async cursor => {
+            const uri='/api/history/conversations?limit=2'+(cursor===null?'':'&cursor='+encodeURIComponent(cursor));
+            const r=await fetch(uri,{cache:'no-store',credentials:'same-origin',
+                redirect:'manual',signal:AbortSignal.timeout(5000)});
+            return {status:r.status,cache:r.headers.get('cache-control'),body:await r.text()};
+        }""",cursor),timeout=7)
+
+    async def verify_third_cursor_replay(self,a,b,cursor,expected):
+        reply=await self.third_cursor_request(b,cursor)
+        assert reply["status"]==200 and reply["cache"]=="no-store"
+        page=json.loads(reply["body"])
+        assert page["scope_user_id"]==self.owners["B"]
+        assert [x["conversation_id"] for x in page["items"]]==[x["id"] for x in expected["B"][2:]]
+        assert page["page"]["has_more"] is False
+        # Invalid input deliberately uses the known malformed cursor control.
+        bad=await self.third_cursor_request(b,"invalid cursor")
+        assert bad["status"]==422 and bad["cache"]=="no-store"
+        revoked=await self.third_cursor_request(a,cursor)
+        assert revoked["status"]==401 and revoked["cache"]=="no-store"
+        for denied in (bad,revoked):
+            assert not any(v.lower() in denied["body"].lower() for v in
+                {row["id"] for rows in expected.values() for row in rows}|set(self.owners.values()))
+        return {"pre_cutover_cursor_replayed":True,"page2_exact":True,
+                "malformed_422":True,"revoked_401":True,"no_store":True}
+
     async def prove_post_revoke_compose_restore(self,a,b,raw_a,raw_b,aid,bid,bmid,bmessage,expected,sql_before,before,restored,restored_id):
         """Restore only the committed-revocation snapshot, not a stale backup."""
         assert restored_id==self.restored_pg_id
@@ -605,6 +687,13 @@ class BothSidesComposeBrowserDemo(ComposeRestoredBrowserDemo):
         with psycopg.connect(restored["AUTH_SESSION_DSN"],autocommit=True,row_factory=dict_row) as auth:
             assert auth_session.inspect(auth,raw_a["session_ref"]) is None
             assert auth_session.inspect(auth,raw_b["session_ref"]) is not None
+        prior=await self.third_cursor_request(b)
+        assert prior["status"]==200 and prior["cache"]=="no-store"
+        prior_page=json.loads(prior["body"])
+        assert prior_page["scope_user_id"]==self.owners["B"]
+        assert [x["conversation_id"] for x in prior_page["items"]]==[x["id"] for x in expected["B"][:2]]
+        prior_cursor=prior_page["page"]["next_cursor"]
+        assert isinstance(prior_cursor,str) and prior_cursor
         began=time.monotonic()
         with self.clone_owned_source(post_revoke_dsns=restored) as (third,pg,network):
             backup_restore_ms=round((time.monotonic()-began)*1000)
@@ -668,15 +757,19 @@ class BothSidesComposeBrowserDemo(ComposeRestoredBrowserDemo):
                 assert status==404
                 assert (await b.evaluate("""async () => (await fetch('/api/history/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status"""))==503
                 boundary_witness=await self.verify_third_restore_boundaries(a,b,expected,third)
+                role_witness=self.verify_third_restore_role_admission(raw_a,raw_b,expected,third)
+                cursor_witness=await self.verify_third_cursor_replay(a,b,prior_cursor,expected)
                 assert self.counts()==before
                 self.restricted_db_snapshot("POST_REVOKE_BROWSER",third,sql_before,revoked=True)
                 print("DB_COMMON_THIRD_RESTORE_FOREIGN_UNKNOWN_RETRY_ZERO_SQL_PARITY=PASS",flush=True)
+                print("DB_COMMON_THIRD_RESTORE_ROLE_SESSION_CURSOR_EXACT_SQL_PARITY=PASS",flush=True)
                 measured=round((time.monotonic()-outage_start)*1000)
                 self.post_revoke_witness={"three_distinct_volumes":len({self.source_volume,self.restored_pg_volume,self.post_revoke_pg_volume})==3,
                     "three_distinct_pg_containers":len({self.source_pg_id,self.restored_pg_id,self.post_revoke_pg_id})==3,
                     "source_sha":os.environ["F3_EXACT_SHA"],"api_image_id":self.compose_witness["api_image_id"],
                     "web_image_id":self.compose_witness["web_image_id"],"committed_revoke_a_denied_b_replayed":True,
                     "third_restore_boundary_witness":boundary_witness,
+                    "third_restore_role_witness":role_witness,"third_restore_cursor_witness":cursor_witness,
                     "measured_backup_restore_ms":backup_restore_ms,"measured_cutover_to_browser_replay_ms":measured,
                     "approved_operational_rpo_rto":False,"accepted":False}
                 assert self.post_revoke_witness["three_distinct_volumes"] and self.post_revoke_witness["three_distinct_pg_containers"]
