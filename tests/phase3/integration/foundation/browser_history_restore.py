@@ -30,7 +30,7 @@ sys.path[:0]=[
  str(ROOT),
 ]
 from phase3_auth_demo import Demo,ORIGIN
-from f3_operational_probe import observe,outage_browser,phase4_negative,write_dashboard
+from f3_operational_probe import observe,outage_browser,phase4_negative,write_dashboard,owner_lock_timeout_probe
 from f3_app_only_redteam import observe_redteam
 from test_history_restore_signed import command,pg17,connect as pg_connect,ssl_server
 from apps.api import history_api
@@ -680,6 +680,9 @@ async def execute():
                   flush=True)
 
             ops=await observe(demo,page_a,page_b,ORIGIN,ids_a,ids_b,connect) if demo.image_lab and demo.web_lab else None
+            if ops:
+                ops["owner_lock_timeout"]=await owner_lock_timeout_probe(demo,page_a,page_b,ORIGIN,ids_a,ids_b,connect)
+                assert inventory(demo)[1]==receipt_before and message_inventory(demo)==messages_before
             if ops:
                 # Protect an actual disposable config and exact app source
                 # pointer, without publishing config contents or a knowledge release.

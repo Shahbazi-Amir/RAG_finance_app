@@ -144,3 +144,56 @@ def write_dashboard(receipt,path):
           "<p>SHA "+html.escape(receipt["sha"])+"</p><p>Dependency readiness: 200 → 503 → 200; same browser sessions recovered.</p>"
           "<table><thead><tr>"+headers+"</tr></thead><tbody>"+table+"</tbody></table></html>")
     path.write_text(page,encoding="utf-8")
+
+
+async def owner_lock_timeout_probe(demo,page_a,page_b,origin,ids_a,ids_b,connect):
+    """Actual signed GET under owner-A DB lock; never a provider or queue SLA test."""
+    assert os.environ.get("GITHUB_ACTIONS")==os.environ.get("CI")=="true"
+    assert demo.image_lab and demo.web_lab
+    endpoint=origin+"/api/history/conversations?limit=2"
+    async def get(page,expected,ids):
+        r=await page.request.get(endpoint,timeout=25000)
+        assert r.headers.get("cache-control")=="no-store"
+        if r.status==200:
+            body=await r.json();assert body["scope_user_id"]==expected
+            assert {x["conversation_id"] for x in body["items"]}<=ids
+        else:
+            assert r.status==503 and expected not in await r.text()
+        return r.status
+    conn=connect()
+    pending=None
+    try:
+        conn.execute("SET LOCAL lock_timeout='2s'")
+        pid=conn.execute("SELECT pg_backend_pid()").fetchone()[0]
+        # A single row in the synthetic source; no DDL, no writes.
+        assert conn.execute("SELECT 1 FROM auth_l1.owners WHERE owner_id=%s FOR UPDATE",(demo.owners["A"],)).fetchone()==(1,)
+        start=time.monotonic()
+        pending=asyncio.create_task(get(page_a,demo.owners["A"],ids_a))
+        blocked=False
+        deadline=time.monotonic()+4
+        while time.monotonic()<deadline:
+            with connect() as observer:
+                waiting=observer.execute("SELECT count(*) FROM pg_stat_activity WHERE %s=ANY(pg_blocking_pids(pid))",(pid,)).fetchone()[0]
+            if waiting>0:
+                blocked=True;break
+            if pending.done():break
+            await asyncio.sleep(.05)
+        assert blocked,"OWNER_A_REAL_DB_LOCK_WAIT_NOT_OBSERVED"
+        other=await get(page_b,demo.owners["B"],ids_b)
+        assert other==200,"UNRELATED_OWNER_BLOCKED"
+        # Hold A until existing request timeout/failure boundary. Do not
+        # retry POST or modify application timeout. Absolute harness bound.
+        blocked_status=await asyncio.wait_for(asyncio.shield(pending),timeout=20)
+        elapsed=round((time.monotonic()-start)*1000,3)
+        assert blocked_status==503,"LOCK_TIMEOUT_DID_NOT_FAIL_CLOSED"
+    finally:
+        conn.rollback();conn.close()
+        if pending is not None and not pending.done():
+            pending.cancel();await asyncio.gather(pending,return_exceptions=True)
+    assert await get(page_a,demo.owners["A"],ids_a)==200
+    assert await get(page_b,demo.owners["B"],ids_b)==200
+    return {"scope":"ACTUAL_SIGNED_HISTORY_DB_ROW_LOCK_TIMEOUT_CI_ONLY",
+            "owner_A_sql_wait_observed":True,"owner_B_unaffected_200":True,
+            "owner_A_blocked_status":503,"elapsed_ms":elapsed,
+            "both_recovered_200":True,"no_store":True,
+            "production_queue_limit_approved":False,"engine_queue_tested":False}
