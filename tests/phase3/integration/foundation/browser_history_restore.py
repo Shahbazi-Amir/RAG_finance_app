@@ -128,6 +128,8 @@ async def browser_history(page,label,expected_ids,expected_owner,expected_messag
     assert ids==set(expected_ids),("BROWSER_HISTORY_ID_PARITY",label,len(ids))
     await expect(page.get_by_test_id("history-send")).to_be_disabled()
     await expect(page.get_by_test_id("history-question")).to_be_disabled()
+    await expect(page.get_by_role("textbox",name="پرسش فارسی")).to_be_disabled()
+    await expect(page.get_by_test_id("app-runtime-capability")).to_contain_text("ارسال پرسش و تولید پاسخ غیرفعال است")
     for cid in sorted(expected_ids):
         response=await page.request.get(
             ORIGIN+"/api/history/conversations/"+cid+"/messages?limit=20")
@@ -139,6 +141,19 @@ async def browser_history(page,label,expected_ids,expected_owner,expected_messag
         actual=[(item["message_id"],item["text"]) for item in body["items"]]
         assert len(actual)==len(set(actual)) and set(actual)==expected, (
             "BROWSER_SQL_MESSAGE_ID_BODY_PARITY",label,cid,len(actual),len(expected))
+        # Exercise the ordinary UI detail transition, not just APIRequestContext.
+        button=page.get_by_test_id("conversation-"+cid)
+        await button.click()
+        await expect(button).to_have_attribute("aria-current","page")
+        rendered=page.locator('[data-testid^="history-message-"]')
+        await expect(rendered).to_have_count(len(expected),timeout=20000)
+        for message_id,body_text in sorted(expected):
+            await expect(page.get_by_test_id("history-message-"+message_id)
+                .locator(".history-message-text")).to_have_text(body_text)
+        dom_ids=set(await rendered.evaluate_all(
+            "(nodes)=>nodes.map(n=>n.getAttribute('data-testid').replace('history-message-',''))"))
+        assert dom_ids=={m[0] for m in expected},("DOM_SQL_MESSAGE_IDS",label,cid)
+        assert await page.locator('[data-testid^="answer-"]').count()==0
     return ids
 
 
@@ -169,6 +184,12 @@ async def mobile_320_keyboard_accessibility(page):
         await expect(close).to_be_focused()
         await expect(page.locator("section.history-main")).to_have_attribute("inert","")
         await expect(page.locator(".history-skip")).to_have_attribute("inert","")
+        dialog=page.get_by_role("dialog",name="فهرست گفتگوها")
+        last=dialog.get_by_role("link",name="حساب کاربری و خروج امن")
+        await page.keyboard.press("Shift+Tab")
+        await expect(last).to_be_focused()
+        await page.keyboard.press("Tab")
+        await expect(close).to_be_focused()
         await page.keyboard.press("Escape")
         await expect(menu).to_have_attribute("aria-expanded","false")
         await expect(menu).to_be_focused()
@@ -179,6 +200,10 @@ async def mobile_320_keyboard_accessibility(page):
         await page.set_viewport_size({"width":1280,"height":800})
         await expect(page.locator("aside[aria-modal='true']")).to_have_count(0)
         assert await page.locator("section.history-main").get_attribute("inert") is None
+        await expect(page.locator("#product-main")).to_be_focused()
+        await page.set_viewport_size({"width":390,"height":844})
+        assert await page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2"),"MOBILE_390_OVERFLOW"
+        await expect(menu).to_be_visible()
     finally:
         await page.set_viewport_size({"width":1280,"height":800})
 
@@ -363,6 +388,47 @@ def rollback_to_original_lab_database(restored, source_system_id):
     raise AssertionError("ORIGINAL_PG_CLUSTER_NOT_RESTORED_TO_HOST_PORT")
 
 
+async def unavailable_history_hides_private_data(demo, restored, source_cluster, pages):
+    """Stop only the verified disposable PG source; recover it in finally."""
+    source=restored[3]
+    assert command(["docker","inspect","--format","{{.Config.Image}}",source]).strip()=="postgres:17.11"
+    for page,owner_ids,message_id in pages:
+        await page.get_by_test_id("conversation-"+message_id[0]).click()
+        await expect(page.get_by_test_id("history-message-"+message_id[1])).to_be_visible()
+    command(["docker","stop",source])
+    try:
+        for page,owner_ids,_ in pages:
+            # Ordinary browser click, no mocked network or forced owner.
+            async with page.expect_response(lambda r:
+                "/api/history/conversations?limit=2" in r.url
+                and r.request.method=="GET",timeout=40000) as waiting:
+                await page.get_by_test_id("refresh-history").click()
+            response=await waiting.value
+            assert response.status==503,("PG_OUTAGE_HISTORY_STATUS",response.status)
+            await expect(page.get_by_test_id("history-owner-revalidation-required")).to_be_visible()
+            await expect(page.locator('[data-testid^="history-message-"]')).to_have_count(0)
+            await expect(page.locator('[data-testid^="conversation-"]')).to_have_count(0)
+            await expect(page.get_by_test_id("history-send")).to_be_disabled()
+    finally:
+        command(["docker","start",source])
+        for _ in range(100):
+            try:
+                if inventory(demo)[2]==source_cluster:break
+            except psycopg.Error:pass
+            await asyncio.sleep(.5)
+        else:raise AssertionError("PG_OUTAGE_RECOVERY_FAILED")
+    for page,owner_ids,_ in pages:
+        async with page.expect_response(lambda r:
+            "/api/history/conversations?limit=2" in r.url and r.request.method=="GET",
+            timeout=40000) as waiting:
+            await page.get_by_test_id("refresh-history").click()
+        assert (await waiting.value).status==200
+        await expect(page.locator('[data-testid^="conversation-"]').first).to_be_visible()
+        await expect(page.get_by_test_id("history-owner-revalidation-required")).to_have_count(0)
+        await expect(page.get_by_test_id("history-send")).to_be_disabled()
+    print("F3_BROWSER_REAL_PG_OUTAGE_PRIVATE_DOM_HIDE_RECOVERY_PASS",flush=True)
+
+
 async def assert_browser_tls_denied(browser, target, expected_error):
     ctx=await browser.new_context(ignore_https_errors=False)
     try:
@@ -467,6 +533,16 @@ async def execute():
             print("F3_REAL_BROWSER_CI_PG_BACKUP_RESTORE_ROLLBACK_REAL_AB_HISTORY_PASS",
                   flush=True)
 
+            # Actual dependent PG outage on original CI service after rollback.
+            message_a=next(m for m in messages_before if m[1]==a_id)
+            message_b=next(m for m in messages_before if m[1]==b_id)
+            await unavailable_history_hides_private_data(demo,restored,source_cluster,[
+                (page_a,ids_a,(a_id,message_a[2])),(page_b,ids_b,(b_id,message_b[2]))])
+            await browser_history(page_a,"A",ids_a,demo.owners["A"],messages_before)
+            await browser_history(page_b,"B",ids_b,demo.owners["B"],messages_before)
+            assert inventory(demo)[0]==source and inventory(demo)[1]==receipt_before
+            assert message_inventory(demo)==messages_before
+            print("F3_BROWSER_SQL_DOM_DETAIL_AND_KEYBOARD_FOCUS_WRAP_PASS",flush=True)
             # Genuine Logout form and old cookie on original Chromium context.
             tab=await ctx_a.new_page()
             await tab.goto(ORIGIN+"/login")
@@ -505,6 +581,9 @@ async def execute():
                 "browser_default_history_sql_equal":True,
                 "browser_pagination_and_detail_sql_equal":True,
                 "browser_detail_message_id_and_body_sql_equal":True,
+                "clicked_detail_dom_message_id_and_body_sql_equal":True,
+                "mobile_focus_wrap_and_resize_return":True,
+                "real_pg_outage_private_dom_hidden_then_revalidated":True,
                 "all_a_conversations_cross_owner_404":True,
                 "all_b_conversations_cross_owner_404":True,
                 "cursor_owner_404_hmac_tamper_422_limit_422_pre_post_restore":True,
