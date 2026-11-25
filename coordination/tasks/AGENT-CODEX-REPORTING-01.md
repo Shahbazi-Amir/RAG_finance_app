@@ -496,3 +496,8 @@ READY FOR HUMAN LIVE GENERATION TEST — SYNTHETIC CONTEXT ONLY. ماندگار�
 ### NB23-SESSION-RESUME-40
 
 توقف Chrome در بارگذاری کلید کوکی تشخیص داده شد. پنجره خصوصی با ورود واقعی و UI قابل استفاده تأیید شد. پاسخ مالی در Chrome دیده شد. سقف بسته ۳/۳ است و عامل هیچ درخواست DeepSeek ارسال نکرد. P3M10، P3M13، P3M14-A03/A09 و P3M15-A01/A07. [نسخه مبنا، مسیرهای تغییر، فرمان آزمون و نتیجه به‌همراه اقدام بعدی](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+
+### NB23-SESSION-RESUME-41
+
+پاسخ گل و مالی از سرور زیر Message مربوط بازیابی شدند. Chrome خروج، ۴۰۱، ورود مجدد و History را گذراند. بسته ۳/۳ بسته است؛ شمار Gateway ثابت. نقطه بازیابی CP41 و نقشه اتصال RAG ثبت شدند. P3M10، P3M13، P3M14-A03/A09 و P3M15-A01/A07. [نسخه مبنا، مسیرهای تغییر، فرمان آزمون و نتیجه به‌همراه اقدام بعدی](../../docs/codex_execution/MAC_FIRST_START_FA.md).

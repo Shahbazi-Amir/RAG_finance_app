@@ -18,3 +18,9 @@
 ### تأیید انسانی checkpoint ۳۰
 
 مالک Refresh، عنوان فارسی، اتصال سؤال/نتیجه، حذف دکمه‌های اضافی، اسکرول و انتخاب History را روی Build checkpoint ۲۹ موفق اعلام کرد. این شاهد دستی جدا از نتیجهٔ ابزار پیشین و از انتقال به فاز سوم است.
+
+### Checkpoint 41 — saved synthetic Generation and closed package
+
+- UI-03/UI-05/UI-06, Module 14 and 15. The saved card is now read through a signed owner-scoped History projection keyed to Message, Attempt and Trace. Existing client-only correlators no longer determine whether a saved response is visible. Both legacy flower and financial answers survived refresh and sign-in in Chrome.
+- UI-10/UI-11, Module 14 and P3M10. The synthetic profile labels stored Generation and its initial latency, shows a persisted failure when applicable and stops new submissions after the package cap. The signed API also refuses before T1/T2. No Gateway request was made in the regression checks.
+- Local paths: `apps/api/product_session_api.py`, `apps/web/src/history/client.ts`, `apps/web/src/ui/product-chat.tsx`, and the dedicated Chrome scripts under `infra/nb23-v4/`. For a future specialist handoff, move only the owner-bound read projection or UX change after API/UI review. Keep the synthetic cap policy and temporary test profile local. [Evidence](MAC_FIRST_START_FA.md).
