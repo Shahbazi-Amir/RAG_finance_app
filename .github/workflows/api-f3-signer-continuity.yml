@@ -1,0 +1,27 @@
+name: API F3 signer continuity — isolated source regression
+on:
+  push:
+    branches: [agent/api-f3-signer-continuity-pr116-20261125]
+permissions:
+  contents: read
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Exact source and locked API dependencies
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python -m pip install --require-hashes --only-binary=:all: -r locks/requirements-api.lock
+      - name: Signer continuity and app-only regressions
+        run: |
+          python -m unittest discover -s tests/phase3/api -p test_app_only_signer_pin.py -v
+          python -m unittest discover -s tests/phase3/api -p test_app_only_no_engine.py -v
+      - name: Scope
+        run: echo 'SOURCE REGRESSION ONLY; NO REAL PG OR TARGET ACCEPTANCE'

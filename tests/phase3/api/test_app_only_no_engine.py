@@ -828,6 +828,47 @@ class AppOnlyNoEngineTests(unittest.TestCase):
                 for spy in spies:
                     spy.assert_not_called()
 
+    def test_runtime_signer_drift_denies_before_pg_or_handler_and_recovers(self):
+        from apps.api.app_only_signer_pin import SignerPin
+        from apps.api import product_session_api
+        profile = FakeProfile()
+        profile.load_public_key = lambda: b"original"
+        downstream = FastAPI()
+        calls = []
+        @downstream.get("/v1/conversations")
+        async def history():
+            calls.append("history")
+            return {"ok": True}
+        wrapper = AppOnlyASGI(downstream, profile, signer_pin=SignerPin.capture(b"original"))
+
+        async def invoke():
+            async def trusted(scope, receive, send):
+                scope["trusted_transport_test"] = True
+                return await wrapper(scope, receive, send)
+            async with AsyncClient(transport=ASGITransport(app=trusted),
+                                   base_url="https://test.invalid") as client:
+                self.assertEqual((await client.get("/v1/conversations")).status_code, 200)
+                profile.load_public_key = lambda: b"replacement"
+                for path in ("/v1/conversations", "/health/ready", "/internal/ready"):
+                    response = await client.get(path)
+                    self.assertEqual(response.status_code, 503)
+                    self.assertEqual(response.headers["cache-control"], "no-store")
+                    self.assertNotIn("replacement", response.text)
+                response = await client.post("/internal/auth/session/v1/revoke-one", content=b"bad")
+                self.assertEqual(response.status_code, 503)
+                self.assertEqual((await client.post("/v1/%6dessages", content=b"bad")).status_code, 503)
+                profile.load_public_key = lambda: b"original"
+                self.assertEqual((await client.get("/v1/conversations")).status_code, 200)
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}), \
+                patch("apps.api.private_app_only_asgi.verify_staging_database_authority",
+                      side_effect=AssertionError("MUST_NOT_PROBE_PG")) as pg, \
+                patch.object(product_session_api, "_signed_history",
+                             side_effect=AssertionError("MUST_NOT_ADMIT")) as admit:
+            asyncio.run(invoke())
+            pg.assert_not_called()
+            admit.assert_not_called()
+        self.assertEqual(calls, ["history", "history"])
+
 
 if __name__ == "__main__":
     unittest.main()
