@@ -104,6 +104,22 @@ class LedgerTest(unittest.TestCase):
         # owner decision or turn it into acceptance.
         transfer_path=ROOT/"coordination/integration/F3_SIGNED_API_SOURCE_TRANSFER_20261124.json"
         overrides={}
+        wave7_path=ROOT/"coordination/integration/F3_WAVE7_API137_TRANSFER.json"
+        supersession={}
+        if wave7_path.is_file():
+            w=json.loads(wave7_path.read_text())
+            self.assertEqual(w["schema"],"foundation.f3.api137_selective_transfer.v1")
+            self.assertEqual(w["base_sha"],"f2b743a1588cac76fddafc36e3b489deb59d42ac")
+            self.assertEqual(w["source_sha"],"20567ad525933f7168e8ea04b8599bd450c297bb")
+            self.assertFalse(w["accepted"])
+            self.assertFalse(w["approved"])
+            self.assertEqual(len(w["rows"]),7)
+            self.assertEqual(len({r["path"] for r in w["rows"]}),7)
+            for r in w["rows"]:
+                self.assertEqual(r["source_blob"],r["selected_blob"])
+                self.assertRegex(r["selected_blob"],r"^[0-9a-f]{40}$")
+                self.assertEqual(subprocess.check_output(["git","hash-object",r["path"]],cwd=ROOT,text=True).strip(),r["selected_blob"])
+            supersession={r["path"]:r for r in w["rows"]}
         if transfer_path.is_file():
             transfer=json.loads(transfer_path.read_text(encoding="utf-8"))
             self.assertEqual(transfer["schema"],"foundation.f3.explicit_signed_api_transfer.v1")
@@ -124,7 +140,13 @@ class LedgerTest(unittest.TestCase):
                     capture_output=True,text=True,check=True).stdout.strip()
                 if item["path"] in derived:
                     self.assertEqual(derived[item["path"]]["source_blob_sha"],item["source_blob_sha"])
-                    self.assertEqual(actual,derived[item["path"]]["derived_blob_sha"])
+                    old_blob=derived[item["path"]]["derived_blob_sha"]
+                    if item["path"]=="apps/api/private_app_only_asgi.py" and item["path"] in supersession:
+                        newer=supersession[item["path"]]
+                        self.assertEqual(newer["prior_blob"],old_blob)
+                        self.assertEqual(actual,newer["selected_blob"])
+                    else:
+                        self.assertEqual(actual,old_blob)
                 else:
                     self.assertEqual(actual,item["source_blob_sha"],item["path"])
                 self.assertEqual(item["historical_58_path"],
