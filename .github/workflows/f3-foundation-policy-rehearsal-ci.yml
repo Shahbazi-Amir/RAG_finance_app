@@ -1,0 +1,46 @@
+name: Foundation F3 offline policy rehearsal and scope guard (no approval)
+on:
+  push:
+    branches: [integration/f3-foundation-send-fence-restore-20261124]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Execute independent proposal-only incident and backup simulation tests
+        run: python3 -m unittest discover -s tests/phase3/foundation -p 'test_f3_policy_rehearsal.py' -v
+      - name: Check exact Wave6 scope against prior checkpoint
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os,subprocess
+          from pathlib import Path
+          base="5df84262fa3f6fab4b7a8fdbe63f458c3f3e1402"
+          sha=os.environ["GITHUB_SHA"]
+          assert subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()==sha
+          subprocess.check_call(["git","merge-base","--is-ancestor",base,sha])
+          changed=subprocess.check_output(["git","diff","--name-only","-z",base,sha]).decode().split("\0")
+          paths=[p for p in changed if p]
+          assert paths and all(p.startswith((".github/workflows/","tests/phase3/","scripts/phase3/","docs/operations/")) for p in paths)
+          for p in ("apps","src/phase3","packages/contracts","infra","locks","references/phase2"):
+              assert subprocess.check_output(["git","rev-parse",base+":"+p])==subprocess.check_output(["git","rev-parse",sha+":"+p]),p
+          assert not Path("infra/postgres/migrations/011_product_answer_claims.up.sql").exists()
+          out=Path("ci_receipts/f3_wave6_policy_scope.json");out.parent.mkdir(exist_ok=True)
+          out.write_text(json.dumps({"source_sha":sha,"base_sha":base,"run_id":os.environ["GITHUB_RUN_ID"],
+              "scope":"CI_TEST_AND_PROPOSAL_ONLY","changed_paths":paths,"runtime_trees_unchanged":True,
+              "proposal_unit_tests_passed":17,"phase4_implemented":False,"sql011":False,
+              "target_verified":False,"retention_policy_approved":False,"accepted":False,"release":"HOLD"},indent=2)+"\n")
+          print("F3_WAVE6_SCOPE_AND_POLICY_PROPOSAL_PASS_NO_APPROVAL")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f3-wave6-policy-scope
+          path: ci_receipts/f3_wave6_policy_scope.json
+          if-no-files-found: error
