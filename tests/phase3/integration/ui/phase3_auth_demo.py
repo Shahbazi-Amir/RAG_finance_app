@@ -303,10 +303,10 @@ class Demo:
             return client.get(self.product_origin+"/v1/conversations?"+query,
                 headers={"Authorization":"BFF-Assertion "+token})
 
-    async def browser_login(self,browser,label,mobile,output):
+    async def browser_login(self,browser,label,mobile,output,*,strict_https=False):
         ctx=await browser.new_context(
             viewport={"width":390,"height":844} if mobile else {"width":1280,"height":800},
-            is_mobile=mobile,device_scale_factor=1,ignore_https_errors=True)
+            is_mobile=mobile,device_scale_factor=1,ignore_https_errors=not strict_https)
         page=await ctx.new_page()
         await page.goto(ORIGIN+"/login")
         await expect(page.get_by_test_id("login-submit")).to_be_visible()

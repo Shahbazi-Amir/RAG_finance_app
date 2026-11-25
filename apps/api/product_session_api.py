@@ -243,7 +243,7 @@ def _signed_read(request, path, action, *, coherent_read=False):
 @app.get("/v1/conversations")
 def session_conversations(request: Request):
     return _signed_read(request, _HISTORY_PATH,
-                        lambda ctx: history.conversations(request, ctx))
+                        lambda ctx: history.conversations(request, ctx), coherent_read=True)
 
 
 @app.get("/v1/conversations/{conversation_id}/messages")

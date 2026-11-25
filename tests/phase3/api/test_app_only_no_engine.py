@@ -47,8 +47,8 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             "bff_audience": "urn:test:api",
             "bff_kid": "test-kid",
             "bff_rs256_public_key_file": str(self.root / "pub.pem"),
-            "history_dsn": "host=127.0.0.1 dbname=stage user=history_app",
-            "revoke_dsn": "host=127.0.0.1 dbname=stage user=auth_revoker",
+            "history_dsn": "host=127.0.0.1 port=5432 dbname=stage user=history_app sslmode=verify-full sslrootcert=/run/secrets/postgres-ca.crt",
+            "revoke_dsn": "host=127.0.0.1 port=5432 dbname=stage user=auth_revoker sslmode=verify-full sslrootcert=/run/secrets/postgres-ca.crt",
         }
         self.save()
 
