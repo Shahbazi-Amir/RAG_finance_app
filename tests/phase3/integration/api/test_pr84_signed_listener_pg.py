@@ -24,6 +24,7 @@ import psycopg
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 import test_product_session_011 as original
+from loopback_pg_relay import LoopbackPGRelay
 
 
 class PR84SignedHistory(original.RealProductSession011):
@@ -89,6 +90,8 @@ class PR84SignedHistory(original.RealProductSession011):
                 self.assertTrue(conn.execute(
                     "SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()[0])
 
+        relay = LoopbackPGRelay(5432)
+        self.addCleanup(relay.close)
         old_url = self.url
         child = None
         try:
@@ -112,7 +115,8 @@ class PR84SignedHistory(original.RealProductSession011):
                         Path(self.fixture.cert).read_text())).hexdigest(),
                     "bff_issuer": original.ISSUER, "bff_audience": original.AUDIENCE,
                     "bff_kid": original.KID, "bff_rs256_public_key_file": str(public_file),
-                    "history_dsn": dsn("DB_APP_DSN"), "revoke_dsn": dsn("AUTH_REVOKER_DSN"),
+                    "history_dsn": make_conninfo(dsn("DB_APP_DSN"), port=relay.port),
+                    "revoke_dsn": make_conninfo(dsn("AUTH_REVOKER_DSN"), port=relay.port),
                     "cursor_key_file": str(cursor), "cursor_ttl_seconds": 300,
                 }))
                 config.chmod(0o600)
@@ -187,6 +191,14 @@ class PR84SignedHistory(original.RealProductSession011):
                 self.assertEqual(blocked.json(), {"error": "ENGINE_NOT_AVAILABLE"})
                 self.assertEqual(counts(), before)
 
+                relay.pause()
+                try:
+                    self.assertEqual(self.request("GET", "/internal/ready").status_code, 503)
+                    self.assertEqual(get(a).status_code, 503)
+                finally:
+                    relay.resume()
+                self.assertEqual(self.request("GET", "/internal/ready").status_code, 200)
+                self.assertEqual(get(a).status_code, 200)
                 public_bytes = public_file.read_bytes()
                 public_file.write_bytes(b"invalid")
                 self.assertEqual(self.request("GET", "/internal/ready").status_code, 503)

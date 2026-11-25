@@ -26,6 +26,7 @@ jobs:
       - name: Compile and check original plus transferred listener boundaries
         run: |
           python -m compileall -q apps/api/private_app_only_asgi.py
+          python -m unittest discover -s tests/phase3/integration/api -p test_loopback_pg_relay.py -v
           python -m unittest discover -s tests/phase3/api -p test_app_only_route_policy.py -v
           python -m unittest discover -s tests/phase3/api -p test_app_only_asgi.py -v
           python -m unittest discover -s tests/phase3/api -p test_app_only_no_engine.py -v
