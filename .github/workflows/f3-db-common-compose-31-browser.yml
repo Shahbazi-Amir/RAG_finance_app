@@ -418,6 +418,15 @@ jobs:
           assert third["three_distinct_volumes"] and third["three_distinct_pg_containers"] and third["committed_revoke_a_denied_b_replayed"]
           assert third["source_sha"]==sha and third["api_image_id"]==r["api_image_id"] and third["web_image_id"]==r["web_image_id"]
           assert third["approved_operational_rpo_rto"] is False and third["accepted"] is False
+          boundary=third["third_restore_boundary_witness"]
+          expected_counts={"own_200":3,"foreign_404":3,"unknown_404":3,"revoked_401":9,"disabled_send_503":6}
+          expected_flags={"restricted_sql_controls":True,"no_store":True,"positive_send_idempotency":False,"timing_leak_proven_absent":False}
+          assert set(boundary)==set(expected_counts)|set(expected_flags)
+          for key,value in expected_counts.items():
+              assert type(boundary[key]) is int and boundary[key]==value,key
+          for key,value in expected_flags.items():
+              assert boundary[key] is value,key
+          print("DB_COMMON_THIRD_RESTORE_BOUNDARY_EXACT_SHA_RECEIPT=PASS")
           assert r["strict_browser_tls"] is True
           print("DB_COMMON_STRICT_TLS_POST_REVOKE_THIRD_COMPOSE_RECEIPT=PASS")
           db=json.loads(Path("ci_receipts/db_oci_browser_restricted_parity.json").read_text())
