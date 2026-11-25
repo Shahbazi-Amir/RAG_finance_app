@@ -38,6 +38,7 @@ def main():
     paths=["locks/requirements-api.lock","apps/web/package-lock.json",
            "infra/phase3_l1/Dockerfile.api.signed","infra/phase3_l1/Dockerfile.api.slim-lab","infra/phase3_l1/Dockerfile.web",
            "infra/phase3_l1/lab/resolve_python_slim_base.sh","infra/phase3_l1/lab/Dockerfile.browser",
+           "infra/phase3_l1/lab/patch_slim_os_ci.sh",
            "infra/phase3_l1/compose.app-only.browser-lab.yml",
            "infra/postgres/dev_f3_isolated/scripts/27_browser_app_only_pg_journey.sh"]
     manifest={"schema":"f3.app_only.ci_candidate_manifest.v1","commit":commit,

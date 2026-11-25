@@ -6,6 +6,8 @@ RUN python3 -m venv /opt/api-venv && /opt/api-venv/bin/python -m pip install --r
 FROM ${BASE}
 ARG BASE
 LABEL org.opencontainers.image.base.name="${BASE}"
+COPY infra/phase3_l1/lab/patch_slim_os_ci.sh /tmp/f3-patch-os.sh
+RUN sh /tmp/f3-patch-os.sh && rm /tmp/f3-patch-os.sh
 COPY --from=deps /opt/api-venv /opt/api-venv
 ENV PATH="/opt/api-venv/bin:${PATH}"
 ARG SOURCE_SHA
