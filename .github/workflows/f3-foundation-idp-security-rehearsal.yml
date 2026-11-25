@@ -1,0 +1,40 @@
+name: Foundation F3 separate disposable Keycloak security rehearsal (no approved policy)
+on:
+  push:
+    branches: [integration/f3-foundation-send-fence-restore-20261124]
+    paths:
+      - 'tests/phase3/integration/foundation/f3_disposable_idp_security.py'
+      - '.github/workflows/f3-foundation-idp-security-rehearsal.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolated-keycloak:
+    if: github.repository == 'Shahbazi-Amir/RAG_finance_app' && github.ref == 'refs/heads/integration/f3-foundation-send-fence-restore-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Stage exact existing reviewed CI Keycloak harness (no product overlay in runtime image)
+        run: |
+          set -euo pipefail
+          sha=1998b31c86155a972b11ea745d6bb37e09549392
+          git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git "$sha"
+          test "$(git rev-parse FETCH_HEAD)" = "$sha"
+          for path in src/phase3/auth/initial_oidc_login.py tests/phase3/integration/api/initial_oidc_harness.py; do
+            git show "$sha:$path" > "$path"
+          done
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install same pinned isolated CI adapters
+        run: python -m pip install --no-cache-dir --index-url https://pypi.org/simple -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.48.0'
+      - name: Actual disposable Keycloak hash metadata, temporary lockout, isolated B and audit
+        run: python -u tests/phase3/integration/foundation/f3_disposable_idp_security.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f3-disposable-idp-security
+          path: ci_receipts/f3_disposable_idp_security.json
+          if-no-files-found: error
