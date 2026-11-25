@@ -156,6 +156,12 @@ def run(mode):
                 assert result.status==403
                 expect_json(pb.request.get(LIST+"?limit=2"),200)
             print("BROWSER_REAL_CSRF_DENY_SESSION_REMAINS_ACTIVE_PASS",flush=True)
+            # Test-only helper copied from the exact checkout, never used by the product.
+            sys.path.insert(0, str(ROOT))
+            from f3_lab_http_metrics import measure_read_baseline
+            measure_read_baseline(pa, pb, LIST, la["scope_user_id"], lb["scope_user_id"], mode)
+            from f3_lab_read_load import measure_bounded_load
+            measure_bounded_load(pa, pb, la["scope_user_id"], lb["scope_user_id"], mode)
             # Normal logout via real form; replay the exact previously issued cookie
             # only for the negative assertion, never to establish a session.
             pa.goto(ORIGIN+"/login",wait_until="domcontentloaded")

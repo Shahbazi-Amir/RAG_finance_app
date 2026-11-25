@@ -30,6 +30,7 @@ jobs:
           cd infra/postgres/dev_f3_isolated
           bash -n scripts/27_browser_app_only_pg_journey.sh
           python3 -m py_compile "$SOURCE_REPO/tests/phase3/integration/api/browser_app_only_pg_probe.py"
+          python3 -m unittest discover -s "$SOURCE_REPO/tests/phase3/integration/api" -p 'test_f3_lab_*.py' -v
           bash tests/run_static.sh
           bash scripts/00_prepare_source.sh
           bash scripts/01_create_isolated_lab.sh

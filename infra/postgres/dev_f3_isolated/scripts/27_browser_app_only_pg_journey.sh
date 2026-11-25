@@ -43,6 +43,9 @@ cp pki/{bff.crt,bff.key,ca.crt} web/
 cp pki/{ingress.crt,ingress.key} ingress/
 cp pki/{idp.crt,idp.key} idp/
 cp pki/ca.crt browser/
+# Test-only Python helper on the existing read-only browser probe mount.
+cp "$SOURCE_REPO/tests/phase3/integration/api/f3_lab_http_metrics.py" browser/
+cp "$SOURCE_REPO/tests/phase3/integration/api/f3_lab_read_load.py" browser/
 cp "$LAB_SECRETS/ca.crt" api/pg-ca.crt
 cp "$LAB_SECRETS/ca.crt" bootstrap/pg-ca.crt
 cp "$SOURCE_REPO/infra/phase3_l1/lab/https-ingress.mjs" ingress/
@@ -232,6 +235,20 @@ function get(url,opt={}){return new Promise((resolve,reject)=>{
   console.log("SAME_STACK_TLS_HOST_IDP_INVALID_PROOF_NO_CERT_DIRECT_WEB_PASS");
 })().catch(e=>{console.error("BOUNDARY_FAILED",["ingress","host","idp","proof","peer","direct-web"].includes(e.message)?e.message:typeof e.code==="string"&&/^[A-Z0-9_]+$/.test(e.code)?e.code:"transport");process.exit(1)});'
 }
+scan_lab_logs(){
+  # Raw service logs stay inside the pipe; output is only bounded aggregate counts.
+  stack logs --no-color api web bootstrap ingress idp 2>&1 |
+    sudo env CI="$CI" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" \
+      python3 "$SOURCE_REPO/scripts/phase3/f3_lab_log_guard.py" \
+        --root "$F3_BROWSER_ROOT" --work "$LAB_WORK" --stage "$1" --service-group app
+  # Separate PG log witness: do not allow app logs to mask empty/oversize PG logs.
+  local pg_service=lab-db
+  [[ "$1" == restore ]] && pg_service=restore-db
+  compose logs --no-color "$pg_service" 2>&1 |
+    sudo env CI="$CI" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" \
+      python3 "$SOURCE_REPO/scripts/phase3/f3_lab_log_guard.py" \
+        --root "$F3_BROWSER_ROOT" --work "$LAB_WORK" --stage "$1" --service-group postgres
+}
 probe_boundary
 stack run --rm --no-deps browser python /opt/probe.py map
 # Identity links must have been created by real verified OIDC, not pre-seeded.
@@ -275,6 +292,7 @@ echo SAME_STACK_PG_OUTAGE_503_PASS
 compose start lab-db >/dev/null
 wait_stack
 [[ "$(snapshot)" == '4|2|0|0|0' && "$(lineage)" == "$before" ]] || exit 70
+scan_lab_logs source
 # Stop live clients, restore populated database into independent cluster, then
 # recreate listeners with new DB hostname and fresh Web alias store.
 restore_started="$(python3 -c 'import time;print(time.monotonic_ns())')"
@@ -291,6 +309,7 @@ inspect_runtime
 probe_boundary
 stack run --rm --no-deps browser python /opt/probe.py restore
 [[ "$(snapshot)" == '4|2|0|0|0' && "$(lineage)" == "$before" && "$(revoked)" == 2 ]] || exit 70
+scan_lab_logs restore
 python3 - "$restore_started" <<'PY'
 import sys,time
 print("LAB_BACKUP_RESTORE_AND_BROWSER_REPLAY_ELAPSED_MS="+str((time.monotonic_ns()-int(sys.argv[1]))//1000000))
