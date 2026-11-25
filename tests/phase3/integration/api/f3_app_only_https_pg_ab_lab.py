@@ -32,6 +32,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from src.phase3.storage.postgres import auth_session
+from app_only_retry_probe import assert_disabled_retries
 
 LAB = Path("/run/f3_http_probe")
 PRIVATE = LAB / "private"
@@ -302,6 +303,73 @@ def request(c, label: str, path: str, query: str = "", *, expect: int = 200, met
     return r
 
 
+def verify_disabled_send_retries(phase, state):
+    """Actual signed HTTPS POST retries with independent scoped PG snapshots."""
+    host = "demo-db" if phase == "before" else "restore-db"
+    db = ("rag_finance_f3_http_ab_source" if phase == "before"
+          else "rag_finance_f3_http_ab_restored")
+    tables = ("conversations", "messages", "create_receipts",
+              "send_receipts", "execution_attempts", "answers")
+
+    def snapshot():
+        rows = []
+        with conn("history_app", host, db) as sql:
+            for label in ("a", "b"):
+                with sql.transaction():
+                    sql.execute("SELECT set_config('app.owner_id', %s, true)",
+                                (state[label]["owner"],))
+                    rows.extend(sql.execute(
+                        f"SELECT count(*) AS n FROM history_l1.{table}").fetchone()["n"]
+                        for table in tables)
+        return tuple(rows)
+
+    for label in ("a", "b"):
+        raw = json.dumps({
+            "kind": "send_message_request", "contract_version": "product.v1",
+            "requested_conversation_id": f"f3-net-{label}-1",
+            "client_message_id": f"app-only-retry-{label}",
+            "question": "synthetic app-only retry must not dispatch",
+            "idempotency_key": f"app-only-retry-key-{label}",
+        }, separators=(",", ":")).encode()
+        path = "/v1/messages"
+        # Prepare proofs before starting the wave; three retransmit the exact
+        # original proof and three represent retries signed anew by the BFF.
+        original = signature(label, "POST", path, body=raw)
+        proofs = [original] * 3 + [
+            signature(label, "POST", path, body=raw) for _ in range(3)]
+        def send(index):
+            with tls_client() as retry_client:
+                result = retry_client.post(BASE + path, content=raw, headers={
+                    "Authorization": "BFF-Assertion " + proofs[index],
+                    "Content-Type": "application/json"})
+                assert result.headers.get("cache-control") == "no-store"
+                return result.status_code, result.json()["error"]["code"]
+        assert assert_disabled_retries(send, snapshot) == 6
+    print(f"API_F3_{phase.upper()}_12_REAL_SIGNED_SEND_RETRIES_ZERO_SCOPED_SQL=PASS", flush=True)
+
+
+def verify_runtime_signer_drift(phase):
+    """Only mutate the synthetic lab public key, restore it even on failure."""
+    path = PRIVATE / "signer.pub"
+    original = path.read_bytes()
+    with tls_client() as client:
+        try:
+            path.write_bytes(b"synthetic invalid signer configuration")
+            for endpoint in ("/internal/ready", "/health/ready", "/v1/conversations"):
+                headers = {"Authorization": "BFF-Assertion " +
+                           signature("a", "GET", endpoint)}
+                result = client.get(BASE + endpoint, headers=headers)
+                assert result.status_code == 503
+                assert result.headers.get("cache-control") == "no-store"
+                assert b"synthetic invalid signer configuration" not in result.content
+        finally:
+            path.write_bytes(original)
+        assert client.get(BASE + "/internal/ready").status_code == 200
+        request(client, "a", "/v1/conversations", expect=200)
+        request(client, "b", "/v1/conversations", expect=200)
+    print(f"API_F3_{phase.upper()}_REAL_SIGNER_DRIFT_503_RECOVERY_200=PASS", flush=True)
+
+
 def verify_history(phase: str):
     state = json.loads((PRIVATE / "session_state.json").read_text())
     with tls_client() as client:
@@ -372,6 +440,8 @@ def verify_history(phase: str):
                     assert result.status_code in (401, 403), "WRONG_PEER_AUTHENTICATED"
             except httpx.HTTPError:
                 pass
+    verify_disabled_send_retries(phase, state)
+    verify_runtime_signer_drift(phase)
     print(f"HTTPS_APP_ONLY_{phase.upper()}_A_B_OWNER_PAGES_DETAILS_404_SEND503_MTLS_NEGATIVE=PASS", flush=True)
     print(f"HTTPS_APP_ONLY_{phase.upper()}_005_JTI_REPLAY_QUERY_BINDING_CROSS_OWNER_CURSOR_NEGATIVE=PASS", flush=True)
 

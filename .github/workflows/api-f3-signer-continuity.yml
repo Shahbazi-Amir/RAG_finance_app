@@ -21,6 +21,7 @@ jobs:
           python -m pip install --require-hashes --only-binary=:all: -r locks/requirements-api.lock
       - name: Signer continuity and app-only regressions
         run: |
+          python -m unittest discover -s tests/phase3/integration/api -p test_app_only_retry_probe.py -v
           python -m unittest discover -s tests/phase3/api -p test_app_only_signer_pin.py -v
           python -m unittest discover -s tests/phase3/api -p test_app_only_no_engine.py -v
       - name: Scope
