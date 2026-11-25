@@ -140,7 +140,9 @@ class PR84SignedHistory(original.RealProductSession011):
                     time.sleep(.1)
                 else:
                     self.fail("SIGNED_LISTENER_NOT_READY")
+                self.assertEqual(self.request("GET", "/health/live").status_code, 200)
                 self.assertEqual(self.request("GET", "/health/ready").status_code, 503)
+                self.assertEqual(self.request("GET", "/internal/ready").headers.get("cache-control"), "no-store")
                 before = counts()
 
                 def get(actor, path=original.LIST, params=None):
@@ -150,6 +152,8 @@ class PR84SignedHistory(original.RealProductSession011):
 
                 page = get(a, params={"limit": 100})
                 self.assertEqual(page.status_code, 200)
+                self.assertEqual(page.headers.get("cache-control"), "no-store")
+                self.assertEqual(page.json()["scope_user_id"], a["owner_id"])
                 titles = {row["title"] for row in page.json()["items"]}
                 self.assertIn(title + "_A", titles)
                 self.assertIn(title + "_A2", titles)
@@ -179,8 +183,25 @@ class PR84SignedHistory(original.RealProductSession011):
                 self.assertEqual(second.status_code, 200)
                 self.assertNotEqual(first.json()["items"][0]["conversation_id"],
                                     second.json()["items"][0]["conversation_id"])
-                self.assertEqual(get(b, params={"limit": 1, "cursor": next_cursor}).status_code, 422)
+                # The existing product.v1 owner-bound cursor contract masks a
+                # valid cursor of another owner as 404, not malformed 422.
+                foreign_cursor = get(b, params={"limit": 1, "cursor": next_cursor})
+                self.assertEqual(foreign_cursor.status_code, 404)
+                self.assertEqual(foreign_cursor.headers.get("cache-control"), "no-store")
+                self.assertNotIn(title, foreign_cursor.text)
+                malformed = get(a, params={"limit": 1, "cursor": next_cursor[:-2] + "!!"})
+                self.assertEqual(malformed.status_code, 422)
                 self.assertEqual(self.request("GET", original.LIST).status_code, 401)
+                for change in ({"iss": "urn:invalid:issuer"}, {"aud": "urn:invalid:audience"},
+                               {"owner_id": b["owner_id"]}):
+                    invalid, _ = self.signed(a, override=change)
+                    denied = self.request("GET", original.LIST, invalid)
+                    self.assertEqual(denied.status_code, 401)
+                    self.assertEqual(denied.headers.get("cache-control"), "no-store")
+                    self.assertNotIn(title, denied.text)
+                bound, _ = self.signed(a, query=b"limit=1")
+                self.assertEqual(self.request("GET", original.LIST, bound, query="?limit=2").status_code, 401)
+                print("PR84_SIGNED_PROOF_ISSUER_AUDIENCE_OWNER_QUERY_DENIAL_PASS", flush=True)
                 replay, _ = self.signed(a)
                 self.assertEqual(self.request("GET", original.LIST, replay).status_code, 200)
                 self.assertEqual(self.request("GET", original.LIST, replay).status_code, 401)

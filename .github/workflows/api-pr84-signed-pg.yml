@@ -2,17 +2,13 @@ name: API PR84 actual signed listener PG17 TLS lab
 
 on:
   push:
-    branches: [agent/api-pr84-signed-history-20261125]
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches: [integration/f3-app-only-four-pr-candidate-20261124]
-    paths: ['apps/api/**', 'tests/phase3/**', 'infra/phase3_l1/**', '.github/workflows/api-pr84-signed-pg.yml']
+    branches: [agent/api-pr84-signed-history-ci-repair-20261125]
+
 permissions:
   contents: read
 
 jobs:
   api-session-011:
-    if: github.event_name == 'push' || (github.event.pull_request.head.ref == 'agent/api-pr84-signed-history-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     services:
@@ -59,39 +55,21 @@ jobs:
       - name: Checkout exact commit (read only)
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Stage exact tested #48 API workers/harness (CI filesystem only)
+      - name: Require exact versioned OIDC and 009-010 source without overlays
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git 1998b31c86155a972b11ea745d6bb37e09549392
-          test "$(git rev-parse FETCH_HEAD)" = "1998b31c86155a972b11ea745d6bb37e09549392"
-          for path in src/phase3/auth/initial_oidc_login.py tests/phase3/integration/api/bootstrap_010_worker.py tests/phase3/integration/api/initial_oidc_harness.py tests/phase3/integration/api/test_bootstrap_oidc_010.py; do
-            git show "1998b31c86155a972b11ea745d6bb37e09549392:$path" > "$path"
-          done
-      # Do NOT overwrite current transactional_admission.py with historical #36:
-      # current API imports AdmissionSerializationUnavailable, absent in #36.
-      # Signed PG integration must exercise the actual HEAD source.
-      - name: Stage exact approved 009 SQL from #44 tested SHA (CI filesystem only)
-        run: |
-          set -euo pipefail
-          git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git 656604356dadea953031fcdb74650a5d42df4e9b
-          test "$(git rev-parse FETCH_HEAD)" = "656604356dadea953031fcdb74650a5d42df4e9b"
-          for kind in up down; do
-            git show "656604356dadea953031fcdb74650a5d42df4e9b:infra/postgres/migrations/009_initial_login_attempt_binding.$kind.sql" > "infra/postgres/migrations/009_initial_login_attempt_binding.$kind.sql"
-          done
-          test -s infra/postgres/migrations/009_initial_login_attempt_binding.up.sql
-          test -s infra/postgres/migrations/009_initial_login_attempt_binding.down.sql
-      - name: Stage exact DB-owned 010 from #47 tested SHA in CI only
-        run: |
-          set -euo pipefail
-          git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git 1678e87b7984094b74ec995383b8d4383e5f5ae7
-          test "$(git rev-parse FETCH_HEAD)" = "1678e87b7984094b74ec995383b8d4383e5f5ae7"
-          for kind in up down; do
-            git show "1678e87b7984094b74ec995383b8d4383e5f5ae7:infra/postgres/migrations/010_initial_login_claim_material.$kind.sql" > "infra/postgres/migrations/010_initial_login_claim_material.$kind.sql"
-          done
-          test -s infra/postgres/migrations/010_initial_login_claim_material.up.sql
-          test -s infra/postgres/migrations/010_initial_login_claim_material.down.sql
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test ! -f infra/postgres/migrations/011_product_answer_claims.up.sql
+          test "$(git rev-parse 'HEAD:src/phase3/auth/initial_oidc_login.py')" = "2bff474c880c0e48616a27e15e38779a8f9d260c"
+          test "$(git rev-parse 'HEAD:tests/phase3/integration/api/bootstrap_010_worker.py')" = "5631dc200075f2da2a9f865589210ac4c5e972e3"
+          test "$(git rev-parse 'HEAD:tests/phase3/integration/api/initial_oidc_harness.py')" = "6528947a9fd5ed79178ece866dea98160a8de1ac"
+          test "$(git rev-parse 'HEAD:tests/phase3/integration/api/test_bootstrap_oidc_010.py')" = "9df717ca72957c094ba7aebda4414ed6fbba9e95"
+          test "$(git rev-parse 'HEAD:infra/postgres/migrations/009_initial_login_attempt_binding.up.sql')" = "2a694f871bf45aa5540b458bcaea1b2bd343036d"
+          test "$(git rev-parse 'HEAD:infra/postgres/migrations/009_initial_login_attempt_binding.down.sql')" = "3bf47d1b4021fec916a4ad93f3b0c40b0a6638ff"
+          test "$(git rev-parse 'HEAD:infra/postgres/migrations/010_initial_login_claim_material.up.sql')" = "3a8ec114ff29c9d8ef795fb85c32b57aecfa8f27"
+          test "$(git rev-parse 'HEAD:infra/postgres/migrations/010_initial_login_claim_material.down.sql')" = "6327b13dc99d23f93188dea6a89d75387f08eec9"
+          echo API_PR84_EXACT_EIGHT_DEPENDENCY_BLOBS_PASS
       - name: Python 3.13
         uses: actions/setup-python@v5
         with:
@@ -308,7 +286,8 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$F3_SIGNED_LISTENER_PG_CA"
-          python -m unittest discover -s tests/phase3/integration/api -p test_pr84_signed_listener_pg.py -v
+          python -m unittest discover -s tests/phase3/integration/api -p test_pr84_signed_listener_pg.py -v 2>&1 | tee "$RUNNER_TEMP/api-pr84-signed-pg.log"
+          grep -Fx PR84_SIGNED_LISTENER_PG_TLS_AB_PAGINATION_REPLAY_REVOKE_ZERO_SEND_PASS "$RUNNER_TEMP/api-pr84-signed-pg.log"
       - name: Verify full identity T2 ledger positive and negative (offline subset)
         run: |
           python -m unittest discover -s tests/phase3/api -p 'test_full_binding_fence.py' -v
