@@ -56,7 +56,9 @@ jobs:
             grep -Fx "API_F3_${phase}_DISABLED_ROUTES_AND_FULL_ROW_PARITY=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
             grep -Fx "API_F3_${phase}_SESSION_ROTATION_EXPIRY_NO_IMPLICIT_REFRESH=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
             grep -Fx "API_F3_${phase}_PARALLEL_HISTORY_REPLAY_ONE_ADMISSION_PER_OWNER=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
+            grep -Fx "API_F3_${phase}_SIGNED_REVOKE_COMMIT_REPLAY_AND_PREBODY_DENIAL=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
           done
+          test "$(grep -Fxc 'API_F3_SPLIT_DB_STARTUP_DENIED_78_NO_LISTENER=PASS' "$RUNNER_TEMP/f3-api-retry-markers.log")" = 2
           grep -Fx 'API_F3_SOURCE_CURSOR_PAGE2_RECORDED=PASS' "$RUNNER_TEMP/f3-api-retry-markers.log"
           grep -Fx 'API_F3_RESTORED_SOURCE_CURSOR_PAGE2_OWNER_PARITY=PASS' "$RUNNER_TEMP/f3-api-retry-markers.log"
           echo 'F3_APP_ONLY_NO_ENGINE_NO_011_NO_DEMO_NO_IDP_CLAIM=PASS'

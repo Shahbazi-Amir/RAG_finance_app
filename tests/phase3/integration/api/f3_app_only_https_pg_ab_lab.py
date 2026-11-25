@@ -23,6 +23,7 @@ import subprocess
 import sys
 import time
 from urllib.parse import urlencode
+from uuid import uuid4
 
 import httpx
 import jwt
@@ -231,6 +232,27 @@ def run_server(host, db, scenario):
     environ["API_RUNNER_EXECUTION_MODE"] = "APP_ONLY"
     environ["API_CURSOR_KEY"] = (PRIVATE / "cursor.key").read_text()
     environ["API_CURSOR_TTL_SECONDS"] = "300"
+    # This negative launch is on the same disposable lab network. The
+    # proposed revoke destination is intentionally NOT the History database.
+    # The new static pair fence must reject it before binding any listener.
+    negative_path = PRIVATE / "split-db-config.json"
+    invalid = dict(config, revoke_dsn=psycopg.conninfo.make_conninfo(
+        config["revoke_dsn"], dbname="f3_deliberately_invalid_split_database"))
+    write_secret(negative_path, json.dumps(invalid).encode())
+    try:
+        denied = subprocess.run(
+            [sys.executable, "-m", "apps.api.private_app_only_asgi",
+             "--config", str(negative_path)],
+            env=environ, stdin=subprocess.DEVNULL, capture_output=True, timeout=15)
+        assert denied.returncode == 78, "SPLIT_DB_MUST_EXIT_78"
+        assert denied.stderr.strip() == b"APP_ONLY_STARTUP_DENIED"
+        assert b"Uvicorn running" not in denied.stdout + denied.stderr
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1)
+            assert sock.connect_ex(("127.0.0.1", 18443)) != 0
+    finally:
+        negative_path.unlink(missing_ok=True)
+    print("API_F3_SPLIT_DB_STARTUP_DENIED_78_NO_LISTENER=PASS", flush=True)
     log = open(PRIVATE / "app-only-server.log", "ab")
     p = subprocess.Popen(
         [sys.executable, "-m", "apps.api.private_app_only_asgi",
@@ -432,9 +454,31 @@ def verify_session_lifecycle(phase, state):
         assert response.status_code == 200
         assert response.json()["scope_user_id"] == actor["owner"]
         assert get_session(rotated, path="/health/ready").status_code == 200
-        with conn("auth_revoker", host, db) as revoker:
-            assert auth_session.revoke_one(revoker, rotated.opaque, rotated.epoch) is True
+        # Revoke through the actual signed HTTP endpoint, not directly with
+        # the revoker role. Malformed requests must not consume a valid proof.
+        revoke_path = "/internal/auth/session/v1/revoke-one"
+        operation = str(uuid4())
+        raw = json.dumps({"operation_id": operation}, separators=(",", ":")).encode()
+        revoke_proof = signature("a", "POST", revoke_path, body=raw,
+                                 session_override=rotated.opaque,
+                                 generation_override=rotated.generation)
+        headers = {"Authorization": "BFF-Assertion " + revoke_proof}
+        denied = client.post(BASE + revoke_path, content=raw,
+                             headers=dict(headers, **{"Content-Type": "text/plain"}))
+        assert denied.status_code == 422
+        assert auth_session.inspect(sessions, rotated.opaque) is not None
+        assert get_session(rotated).status_code == 200
+        # Reusing the identical valid assertion after pre-body rejection
+        # must commit one revoke, then subsequent replay must be denied.
+        headers["Content-Type"] = "application/json"
+        committed = client.post(BASE + revoke_path, content=raw, headers=headers)
+        assert committed.status_code == 200
+        assert committed.json() == {"state": "REVOKED_COMMITTED", "operation_id": operation}
+        assert committed.headers["cache-control"] == "no-store"
+        assert auth_session.inspect(sessions, rotated.opaque) is None
         assert get_session(rotated).status_code == 401
+        assert client.post(BASE + revoke_path, content=raw, headers=headers).status_code == 401
+        print(f"API_F3_{phase.upper()}_SIGNED_REVOKE_COMMIT_REPLAY_AND_PREBODY_DENIAL=PASS", flush=True)
 
         # Independently exercise idle and absolute expiry with tiny lab-only
         # TTLs. Use the DB's own admission clock, not a guessed wall-clock sleep.
