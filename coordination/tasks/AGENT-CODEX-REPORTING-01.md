@@ -446,3 +446,9 @@ Status is review. Supervisor approval is pending.
 - Human evidence: owner explicitly reported all six checkpoint 29 manual UI checks successful. Automated browser test was not rerun. Official quality, Golden, Freeze and supervisor acceptance remain open.
 - Created private local execution snapshot artifacts/nb23-v4-recovery-cp30. Validated 221 archived files, SHA256SUMS, four live mount hashes, seven image IDs and six-service pinned Compose after extraction. No live recovery drill. All seven service start/image identities unchanged. Package excludes private data, sessions, credentials, model/index and image layers. Only sanitized reports are published.
 - [Owner evidence and recovery boundaries](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### Docker_3 / NB23-SESSION-RESUME-31 — offline DeepSeek preparation
+
+- Report baseline 50eb808; execution af57f26, retained BFF 0c2cba75df12 and V4 f49f536f4d82, local NB22E-v4 and C340 pinned template. P3M10 (Module 10 Attempt/idempotency); P3M13 (Module 13 API); P3M14-A03/A09 (Module 14 UI/error); P3M15-A01/A07 (Module 15 persistence and ownership).
+- Implemented two offline sources under infra/nb23-v4, approved two-variable private config outside worktree and cumulative reporting. Six Mock tests, pinned template and private ENV preflight passed. No actual historical failure rerun, secret publication, provider charge, product deployment or UI integration.
+- Same-Attempt Context payload bridge and separately approved egress remain blocking. Runtime provider validation, semantic/citation policy, persisted response UI and formal acceptance pending. [Evidence and provisional test budget](../../docs/codex_execution/MAC_FIRST_START_FA.md).

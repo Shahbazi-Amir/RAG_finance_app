@@ -147,3 +147,7 @@ HTTPS و dispatch واقعی تأیید شد؛ نتیجهٔ جاری UNKNOWN. ب
 ### NB23-SESSION-RESUME-30
 
 مالک هر شش آزمون UI نسخهٔ B را موفق اعلام کرد. نقطهٔ بازیابی اجرایی محلی بررسی شد. پشتهٔ فعال حفظ شد و Generation/Gateway غیرفعال‌اند. Freeze و پذیرش رسمی بازند.
+
+### NB23-SESSION-RESUME-31
+
+DeepSeek contract و شش آزمون Mock تأیید شد. انتشار Context و مسیر Worker→Generation محصول بازند. درخواست زنده صفر. Generation/Gateway غیرفعال.
