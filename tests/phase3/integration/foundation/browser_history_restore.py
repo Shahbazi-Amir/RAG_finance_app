@@ -389,38 +389,85 @@ def rollback_to_original_lab_database(restored, source_system_id):
 
 
 async def unavailable_history_hides_private_data(demo, restored, source_cluster, pages):
-    """Stop only the verified disposable PG source; recover it in finally."""
+    """Observe real browser revalidation, including automatic focus refreshes."""
     source=restored[3]
     assert command(["docker","inspect","--format","{{.Config.Image}}",source]).strip()=="postgres:17.11"
-    for page,owner_ids,message_id in pages:
-        await page.get_by_test_id("conversation-"+message_id[0]).click()
-        await expect(page.get_by_test_id("history-message-"+message_id[1])).to_be_visible()
-    command(["docker","stop",source])
+    observations=[]
+    stopped=False
+    def is_list(request):
+        return request.method=="GET" and request.url.startswith(ORIGIN+"/api/history/conversations?")
     try:
-        for page,owner_ids,_ in pages:
-            # Ordinary browser click, no mocked network or forced owner.
-            async with page.expect_response(lambda r:
-                "/api/history/conversations?limit=2" in r.url
-                and r.request.method=="GET",timeout=40000) as waiting:
+        for page,owner_ids,message_id in pages:
+            await page.get_by_test_id("conversation-"+message_id[0]).click()
+            await expect(page.get_by_test_id("history-message-"+message_id[1])).to_be_visible()
+            pending=set()
+            statuses=[]
+            def requested(r, pending=pending):
+                if r.url.startswith(ORIGIN+"/api/history/"):pending.add(r)
+            def finished(r, pending=pending):
+                pending.discard(r)
+            def received(r, statuses=statuses):
+                if is_list(r.request):statuses.append(r.status)
+            page.on("request",requested)
+            page.on("requestfinished",finished)
+            page.on("requestfailed",finished)
+            page.on("response",received)
+            observations.append((page,pending,statuses,requested,finished,received))
+            # Verify each ordinary refresh before intentionally stopping PG.
+            async with page.expect_response(lambda r:is_list(r.request),timeout=20000) as waiting:
                 await page.get_by_test_id("refresh-history").click()
-            response=await waiting.value
-            assert response.status==503,("PG_OUTAGE_HISTORY_STATUS",response.status)
+            assert (await waiting.value).status==200
+            await expect(page.get_by_test_id("history-message-"+message_id[1])).to_be_visible()
+        # Drain in-flight history GETs to distinguish an intentional outage
+        # from killing a transaction that was already in progress.
+        for _ in range(60):
+            if not any(o[1] for o in observations):
+                await asyncio.sleep(.25)
+                if not any(o[1] for o in observations):break
+            await asyncio.sleep(.1)
+        else:raise AssertionError("PRE_OUTAGE_BROWSER_READS_NOT_DRAINED")
+        for page,_,statuses,*_ in observations:
+            assert 401 not in statuses,"PRE_OUTAGE_UNEXPECTED_AUTH_DENIAL"
+            await expect(page.get_by_test_id("refresh-history")).to_be_enabled()
+            statuses.clear()
+        command(["docker","stop",source])
+        stopped=True
+        for page,_,statuses,*_ in observations:
+            # Focus and visibility can trigger real automatic revalidation
+            # before a click. Observe that response instead of blindly clicking
+            # a disabled control; never reinterpret 401 as 503.
+            refresh=page.get_by_test_id("refresh-history")
+            if await refresh.is_enabled() and 503 not in statuses:
+                try:
+                    await refresh.click(timeout=5000)
+                except PlaywrightError:
+                    if await refresh.is_enabled():raise
+            for _ in range(120):
+                if any(x!=200 for x in statuses):break
+                await asyncio.sleep(.25)
+            print("F3_OUTAGE_OBSERVED_LIST_STATUSES",json.dumps(statuses),flush=True)
+            assert 401 not in statuses,"OUTAGE_UNEXPECTED_SESSION_DENIAL_API_REVIEW"
+            assert 503 in statuses,"PG_OUTAGE_REAL_BROWSER_503_NOT_OBSERVED"
             await expect(page.get_by_test_id("history-owner-revalidation-required")).to_be_visible()
             await expect(page.locator('[data-testid^="history-message-"]')).to_have_count(0)
             await expect(page.locator('[data-testid^="conversation-"]')).to_have_count(0)
             await expect(page.get_by_test_id("history-send")).to_be_disabled()
     finally:
-        command(["docker","start",source])
-        for _ in range(100):
-            try:
-                if inventory(demo)[2]==source_cluster:break
-            except psycopg.Error:pass
-            await asyncio.sleep(.5)
-        else:raise AssertionError("PG_OUTAGE_RECOVERY_FAILED")
+        if stopped:
+            command(["docker","start",source])
+            for _ in range(100):
+                try:
+                    if inventory(demo)[2]==source_cluster:break
+                except psycopg.Error:pass
+                await asyncio.sleep(.5)
+            else:raise AssertionError("PG_OUTAGE_RECOVERY_FAILED")
+        for page,_,_,requested,finished,received in observations:
+            page.remove_listener("request",requested)
+            page.remove_listener("requestfinished",finished)
+            page.remove_listener("requestfailed",finished)
+            page.remove_listener("response",received)
     for page,owner_ids,_ in pages:
-        async with page.expect_response(lambda r:
-            "/api/history/conversations?limit=2" in r.url and r.request.method=="GET",
-            timeout=40000) as waiting:
+        async with page.expect_response(lambda r:is_list(r.request),timeout=40000) as waiting:
             await page.get_by_test_id("refresh-history").click()
         assert (await waiting.value).status==200
         await expect(page.locator('[data-testid^="conversation-"]').first).to_be_visible()
