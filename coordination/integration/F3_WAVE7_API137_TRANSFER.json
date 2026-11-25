@@ -1,0 +1,62 @@
+{
+  "schema": "foundation.f3.api137_selective_transfer.v1",
+  "base_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac",
+  "source_pr": 137,
+  "source_sha": "20567ad525933f7168e8ea04b8599bd450c297bb",
+  "source_run": 45529798552,
+  "source_artifact_sha256": "b99a6ddcb98cb9645092400e2744621835e56a812f983265bb0330b53a863626",
+  "rows": [
+    {
+      "path": "apps/api/private_app_only_asgi.py",
+      "prior_blob": "7502030fc40419f0fa88ac20c790c488331fcc7c",
+      "source_blob": "9ad76c041622a5af338294caa4838e706e8a9b49",
+      "selected_blob": "9ad76c041622a5af338294caa4838e706e8a9b49"
+    },
+    {
+      "path": "apps/api/private_history_contract.py",
+      "prior_blob": null,
+      "source_blob": "ef5c4cc97ed0a8d9d471d2af5726921a621df207",
+      "selected_blob": "ef5c4cc97ed0a8d9d471d2af5726921a621df207"
+    },
+    {
+      "path": "tests/phase3/api/test_api137_app_only_surface.py",
+      "prior_blob": null,
+      "source_blob": "a52fb6a113ebf1a89b41e5cf37a53260dad6aa07",
+      "selected_blob": "a52fb6a113ebf1a89b41e5cf37a53260dad6aa07"
+    },
+    {
+      "path": "tests/phase3/api/test_api137_private_history_contract.py",
+      "prior_blob": null,
+      "source_blob": "881eab06abb41414805029ffe7e9b00af144bdac",
+      "selected_blob": "881eab06abb41414805029ffe7e9b00af144bdac"
+    },
+    {
+      "path": "tests/phase3/integration/foundation/test_history_restore_signed.py",
+      "prior_blob": "52c1cbf3dd3a2ad03cbd90430f6f6a50c5e3f46f",
+      "source_blob": "6e508e19246ebc803c93c54cfedd7c295d493698",
+      "selected_blob": "6e508e19246ebc803c93c54cfedd7c295d493698"
+    },
+    {
+      "path": "coordination/handoffs/API_F3_84_SIGNED_HISTORY_20261125.md",
+      "prior_blob": null,
+      "source_blob": "b4068fd8876babad8b731afc7b22ec1cb808e378",
+      "selected_blob": "b4068fd8876babad8b731afc7b22ec1cb808e378"
+    },
+    {
+      "path": "coordination/handoffs/API_F3_84_SIGNED_TRANSFER_20261125.json",
+      "prior_blob": null,
+      "source_blob": "b308bafaca01c490f0b423a4d8b9094bca40bcd2",
+      "selected_blob": "b308bafaca01c490f0b423a4d8b9094bca40bcd2"
+    }
+  ],
+  "protected_trees": [
+    "apps/web",
+    "src/phase3",
+    "packages/contracts",
+    "infra",
+    "locks",
+    "references/phase2"
+  ],
+  "approved": false,
+  "accepted": false
+}

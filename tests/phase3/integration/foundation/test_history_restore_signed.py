@@ -22,6 +22,10 @@ import uuid
 import httpx
 import psycopg
 from psycopg import sql
+from psycopg.rows import dict_row
+from urllib.parse import urlencode
+from apps.api import history_api
+from src.phase3.storage.postgres import auth_session
 
 ROOT=Path(__file__).resolve().parents[4]
 sys.path.insert(0,str(ROOT/"tests/phase3/integration/api"))
@@ -149,7 +153,37 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
         self.assertTrue(original_a.isdisjoint(original_b))
         self.assertGreaterEqual(len(original_a),5)
         self.assertGreaterEqual(len(original_b),3)
-        selected=next(iter(original_a))
+        # Real persisted user messages in two known synthetic conversations;
+        # never use Send HTTP or invoke an engine. Keep exact SQL expectations.
+        selected=sorted(original_a)[0]
+        selected_b=sorted(original_b)[0]
+        detail_cases=[]
+        persisted_status=[]
+        for actor,cid,label in ((a,selected,"A"),(b,selected_b,"B")):
+            for i in range(3):
+                req={"kind":"send_message_request","contract_version":"product.v1",
+                     "requested_conversation_id":cid,"client_message_id":history_api.uid(),
+                     "idempotency_key":"api137_"+uuid.uuid4().hex,
+                     "question":"API137_PRIVATE_"+label+"_"+str(i)}
+                with psycopg.connect(os.environ["DB_APP_DSN"],autocommit=True,row_factory=dict_row) as c:
+                    first=history_api.send_t1(c,actor["owner_id"],req,history_api.uid(),history_api.uid())
+                    again=history_api.send_t1(c,actor["owner_id"],req,history_api.uid(),history_api.uid())
+                    self.assertEqual(again["disposition"],"replayed")
+                    self.assertEqual(first["message_id"],again["message_id"])
+                    self.assertEqual(first["payload_sha256"],again["payload_sha256"])
+                    with self.assertRaises(history_api.Conflict):
+                        history_api.send_t1(c,actor["owner_id"],{**req,"question":"different synthetic payload"},history_api.uid(),history_api.uid())
+                    # Original store only. No HTTP POST Send, no queue/engine.
+                    from repository import start_t2
+                    att=start_t2(c,actor["owner_id"],cid,req["client_message_id"],req["idempotency_key"],history_api.uid(),history_api.uid())
+                    retry=start_t2(c,actor["owner_id"],cid,req["client_message_id"],req["idempotency_key"],history_api.uid(),history_api.uid())
+                    self.assertEqual(att["id"],retry["id"])
+                    q="?"+urlencode({"requested_conversation_id":cid,"client_message_id":req["client_message_id"],"idempotency_key":req["idempotency_key"]})
+                    persisted_status.append((actor,q,first["message_id"],att["id"]))
+            with connect() as c:
+                expected=c.execute("SELECT id,body FROM history_l1.messages WHERE owner_id=%s AND conversation_id=%s ORDER BY created_at,id",(actor["owner_id"],cid)).fetchall()
+            self.assertEqual(len(expected),3)
+            detail_cases.append((actor,cid,expected))
         foreign_path="/v1/conversations/"+selected+"/messages"
         denied=h.request("GET",foreign_path,
                          h.signed(b,method="GET",path=foreign_path)[0])
@@ -222,7 +256,8 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
                  "-d","postgres","-v","ON_ERROR_STOP=1","-f",str(globals_path)])
         with connect(5433,db="postgres",extra=trusted) as admin:
             for role,secret in (("history_app","synthetic_app_only"),
-                                ("auth_revoker","synthetic_revoker_only")):
+                                ("auth_revoker","synthetic_revoker_only"),
+                                ("auth_sessions","synthetic_session_only")):
                 admin.execute(sql.SQL("ALTER ROLE {} PASSWORD {}").format(
                     sql.Identifier(role),sql.Literal(secret)))
             admin.execute("CREATE DATABASE history_restore_f3_ci")
@@ -281,9 +316,26 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
         }
         from apps.api.private_app_only_asgi import assert_app_only_environment
         assert_app_only_environment(env)
+        # Bad configured signing material must fail startup rather than
+        # listening with a fake 200. Use a separate ephemeral config and port.
+        bad_key=h.temp/"api137-invalid-public.pem"
+        bad_key.write_text("invalid public key");bad_key.chmod(0o600)
+        bad_cfg=h.temp/"api137-invalid-config.json"
+        bad_cfg.write_text(json.dumps({**cfg,"bff_rs256_public_key_file":str(bad_key),"listen_port":port()}))
+        bad_cfg.chmod(0o600)
+        failed=subprocess.run([sys.executable,"-m","apps.api.private_app_only_asgi","--config",str(bad_cfg)],
+                              cwd=ROOT,env=env,capture_output=True,text=True,timeout=20)
+        self.assertEqual(failed.returncode,78)
+        self.assertEqual(failed.stderr.strip(),"APP_ONLY_STARTUP_DENIED")
+        with socket.socket() as sock:
+            sock.settimeout(.5)
+            self.assertNotEqual(sock.connect_ex(("127.0.0.1",json.loads(bad_cfg.read_text())["listen_port"])),0)
+        security_log=h.temp/"api137-private-security.log"
+        log_stream=security_log.open("wb")
+        self.addCleanup(log_stream.close)
         proc=subprocess.Popen(
             [sys.executable,"-m","apps.api.private_app_only_asgi","--config",str(config)],
-            cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=log_stream)
         self.__class__.api_process=proc
         restored_url="https://127.0.0.1:"+str(cfg["listen_port"])
         h.url=restored_url
@@ -308,6 +360,148 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
                 path="/v1/conversations/"+foreign+"/messages"
                 response=h.request("GET",path,h.signed(caller,"GET",path)[0])
                 self.assertEqual(response.status_code,404)
+        # Real private process; exact SQL message body/IDs and chronological
+        # page order; same owner refresh, opposite owner non-disclosure.
+        def get(actor,path,q="",override=None,token=None,body=None,headers=None):
+            signed=token or h.signed(actor,"GET",path,query=q.removeprefix("?").encode(),override=override)[0]
+            response=h.request("GET",path,signed,query=q,body=body,headers=headers)
+            self.assertEqual(response.headers.get("cache-control"),"no-store")
+            return response
+        def error(response,expected,code):
+            self.assertEqual(response.status_code,expected)
+            doc=response.json()
+            self.assertEqual(doc["kind"],"error_response")
+            self.assertEqual(doc["contract_version"],"product.v1")
+            self.assertEqual(doc["error"]["code"],code)
+            self.assertTrue(doc["request_id"] and doc["trace_id"])
+            history_api.VALIDATOR.validate(doc)
+            return (doc["request_id"],doc["trace_id"])
+        pairs=[]
+        for actor,cid,expected in detail_cases:
+            path="/v1/conversations/"+cid+"/messages"
+            observed=[]
+            first=get(actor,path,"?limit=1")
+            self.assertEqual(first.status_code,200)
+            history_api.VALIDATOR.validate(first.json())
+            cursor=first.json()["page"]["next_cursor"]
+            page=first
+            for n in range(3):
+                self.assertEqual(page.status_code,200)
+                doc=page.json();history_api.VALIDATOR.validate(doc)
+                self.assertEqual(doc["owner_user_id"],actor["owner_id"])
+                self.assertEqual(doc["answers"],[])
+                observed.extend((v["message_id"],v["text"]) for v in doc["items"])
+                nxt=doc["page"]["next_cursor"]
+                if n<2:
+                    self.assertTrue(doc["page"]["has_more"] and nxt)
+                    page=get(actor,path,"?limit=1&cursor="+nxt)
+                else:self.assertFalse(doc["page"]["has_more"]);self.assertIsNone(nxt)
+            self.assertEqual(observed,expected)
+            refresh=get(actor,path,"?limit=3")
+            self.assertEqual(refresh.status_code,200)
+            self.assertEqual([(v["message_id"],v["text"]) for v in refresh.json()["items"]],expected)
+            other=b if actor is a else a
+            denied=get(other,path)
+            pairs.append(error(denied,404,"NOT_FOUND"))
+            self.assertNotIn(expected[0][1],denied.text)
+            pairs.append(error(get(other,path,"?limit=1&cursor="+cursor),404,"NOT_FOUND"))
+            flipped=("A" if cursor[0]!="A" else "B")+cursor[1:]
+            pairs.append(error(get(actor,path,"?limit=1&cursor="+flipped),422,"INVALID_CURSOR"))
+            pairs.append(error(get(actor,path,"?limit=2&cursor="+cursor),422,"INVALID_CURSOR"))
+        # Actual signed status reads after restoring the same durable IDs.
+        # The first and repeated GET must observe one T1/T2 and zero T3.
+        for actor,q,mid,aid in persisted_status:
+            for _ in range(2):
+                reply=get(actor,"/v1/message-requests/status",q)
+                self.assertEqual(reply.status_code,200)
+                doc=reply.json();history_api.VALIDATOR.validate(doc)
+                self.assertEqual(doc["message_id"],mid)
+                self.assertEqual(doc["attempt_id"],aid)
+                self.assertEqual(doc["status"],"attempt_pending")
+                self.assertIsNone(doc["answer"])
+            other=b if actor is a else a
+            pairs.append(error(get(other,"/v1/message-requests/status",q),404,"NOT_FOUND"))
+        with connect(5433,db="history_restore_f3_ci",extra=trusted) as c:
+            for actor,q,mid,aid in persisted_status:
+                self.assertEqual(c.execute("""SELECT count(*) FROM history_l1.send_receipts r JOIN history_l1.execution_attempts a ON a.owner_id=r.owner_id AND a.send_receipt_id=r.id
+                    WHERE r.owner_id=%s AND r.user_message_id=%s AND a.id=%s""",(actor["owner_id"],mid,aid)).fetchone()[0],1)
+                self.assertEqual(c.execute("SELECT count(*) FROM history_l1.answers WHERE attempt_id=%s",(aid,)).fetchone()[0],0)
+        # Conditional GET must neither return cached content nor admit a
+        # forged owner. Separate fresh signed reads from both genuine sessions.
+        for actor,cid,expected in detail_cases:
+            other=b if actor is a else a
+            url="/v1/conversations/"+cid+"/messages"
+            hdr={"If-None-Match":"*","If-Modified-Since":"Wed, 21 Oct 2015 07:28:00 GMT"}
+            self.assertEqual(get(actor,url,headers=hdr).status_code,200)
+            denial=get(other,url,headers=hdr)
+            pairs.append(error(denial,404,"NOT_FOUND"))
+            self.assertNotIn(expected[0][1],denial.text)
+            pairs.append(error(get(other,url,headers={**hdr,"X-Owner-ID":actor["owner_id"]}),401,"AUTH_REQUIRED"))
+        # Strict temporal and identity binding on a fresh signature per case.
+        now=int(time.time())
+        invalid=[{"iss":"urn:api137:wrong"},{"aud":"urn:api137:wrong"},
+                 {"epoch":a["epoch"]+1},{"generation":a["generation"]+1},
+                 {"owner_id":b["owner_id"]},{"iat":now-60,"nbf":now-60,"exp":now-30},
+                 {"nbf":now+120,"iat":now+120,"exp":now+145}]
+        for override in invalid:
+            pairs.append(error(get(a,LIST,override=override),401,"AUTH_REQUIRED"))
+        token,_=h.signed(a,"GET",LIST)
+        bad_token=token[:-10]+("A" if token[-10]!="A" else "B")+token[-9:]
+        pairs.append(error(get(a,LIST,token=bad_token),401,"AUTH_REQUIRED"))
+        pairs.append(error(get(a,LIST,"?limit=2",token=token),401,"AUTH_REQUIRED"))
+        pairs.append(error(get(a,LIST,body=b"API137_BODY_CANARY"),401,"AUTH_REQUIRED"))
+        for q in ("?limit=0","?limit=101","?limit=2&limit=3","?owner=API137_QUERY_CANARY"):
+            pairs.append(error(get(a,LIST,q),422,"INVALID_REQUEST"))
+        for path in ("/v1/message-requests/claim-test-status","/v1/message-requests/invited-live-result","/openapi.json"):
+            pairs.append(error(get(a,path),404,"NOT_FOUND"))
+        self.assertEqual(len(set(x[0] for x in pairs)),len(pairs))
+        self.assertEqual(len(set(x[1] for x in pairs)),len(pairs))
+        # SQL role-controlled synthetic session rotation and expiry in the
+        # restored clone only. No client is allowed to issue sessions.
+        with psycopg.connect("host=127.0.0.1 port=5433 dbname=history_restore_f3_ci user=auth_sessions password=synthetic_session_only "+trusted,
+                             autocommit=True,row_factory=dict_row) as c:
+            old=auth_session.issue(c,a["owner_id"],a["epoch"],idle_seconds=60,absolute_seconds=120)
+            fresh=auth_session.rotate(c,old.opaque,old.epoch,old.generation)
+            self.assertEqual(old.absolute_expires_at,fresh.absolute_expires_at)
+            expired=auth_session.issue(c,a["owner_id"],a["epoch"],idle_seconds=60,absolute_seconds=120)
+        def actor_for(issued):
+            return {"owner_id":issued.owner_id,"session_verifier":issued.opaque,"epoch":issued.epoch,"generation":issued.generation}
+        self.assertEqual(get(actor_for(fresh),LIST).status_code,200)
+        pairs.append(error(get(actor_for(old),LIST),401,"AUTH_REQUIRED"))
+        pairs.append(error(get(actor_for(fresh),LIST,override={"generation":old.generation}),401,"AUTH_REQUIRED"))
+        self.assertEqual(get(actor_for(expired),LIST).status_code,200)
+        with connect(5433,db="history_restore_f3_ci",extra=trusted) as c:
+            c.execute("""UPDATE auth_l1.sessions SET created_at=clock_timestamp()-interval '130 seconds',
+                last_activity_at=clock_timestamp()-interval '130 seconds',
+                idle_expires_at=clock_timestamp()-interval '70 seconds',
+                absolute_expires_at=clock_timestamp()-interval '10 seconds'
+                WHERE digest_sha256=%s""",(hashlib.sha256(expired.opaque.encode()).hexdigest(),))
+        pairs.append(error(get(actor_for(expired),LIST),401,"AUTH_REQUIRED"))
+        self.assertEqual(get(b,LIST).status_code,200)
+        # Original source and restored History are unchanged by HTTP reads
+        # and denied requests. Auth replay rows are intentionally excluded.
+        with connect(5433,db="history_restore_f3_ci",extra=trusted) as c:
+            for actor,cid,expected in detail_cases:
+                self.assertEqual(c.execute("SELECT id,body FROM history_l1.messages WHERE owner_id=%s AND conversation_id=%s ORDER BY created_at,id",(actor["owner_id"],cid)).fetchall(),expected)
+            self.assertEqual(c.execute("SELECT count(*) FROM history_l1.send_receipts").fetchone()[0],receipts_before)
+        log_stream.flush()
+        logs=security_log.read_text(encoding="utf-8",errors="replace")
+        entries=[json.loads(line) for line in logs.splitlines() if line.startswith('{"event":"private_request_denied"')]
+        self.assertGreaterEqual(len(entries),10)
+        self.assertTrue(all(e=={"event":"private_request_denied","status":401} for e in entries))
+        for canary in (token,bad_token,a["session_verifier"],b["session_verifier"],old.opaque,fresh.opaque,
+                       expired.opaque,a["owner_id"],b["owner_id"],"API137_PRIVATE_","API137_BODY_CANARY","API137_QUERY_CANARY"):
+            self.assertNotIn(canary,logs)
+        matrix={"sql_detail_messages":6,"detail_pages":6,"refresh_same_ids":True,"canonical_error_count":len(pairs),
+                "security_log_fixed_events":len(entries),"raw_secrets_absent":True,
+                "invalid_signer_startup_exit":78,"invalid_signer_listen":False,
+                "expired_signature_denied":True,"expired_db_session_denied":True,"rotation_new_200_old_401":True,
+                "absolute_expiry_unchanged":True,"readiness_policy_approved":False,
+                "fixture_routes_denied":3,"durable_send_count_unchanged":True,
+                "idempotent_original_store_t1_t2":len(persisted_status),"changed_payload_conflicts":len(persisted_status),
+                "restored_signed_status_reads":2*len(persisted_status),"actual_http_post_send_replay":False,
+                "conditional_cache_owner_negatives":4,"zero_t3_for_seeded_attempts":True}
+        print("API137_SIGNED_DETAIL_CURSOR_SECURITY_ROTATION_MATRIX_PASS",flush=True)
         # A valid one-use assertion must not be accepted twice after restore.
         for actor in (a,b):
             proof=h.signed(actor)[0]
@@ -336,6 +530,10 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
         self.assertEqual(signed_ready(a).status_code,200)
         self.assertEqual(signed_ready(b).status_code,200)
         self.assertEqual(h.request("GET","/health/ready").status_code,503)
+        wrong_ready,_=h.signed(a,method="GET",path="/health/ready",override={"aud":"urn:api137:wrong"})
+        bad_ready=h.request("GET","/health/ready",wrong_ready)
+        self.assertEqual(bad_ready.status_code,503)
+        self.assertEqual(bad_ready.headers.get("cache-control"),"no-store")
         # Restart should never mask an unavailable Postgres dependency.
         command(["docker","stop",name])
         down=h.request("GET","/internal/ready")
@@ -366,6 +564,7 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
         output.write_text(json.dumps({
             "schema":"foundation.f3.signed_history_restored_lab.v1",
             "source_sha":os.environ["GITHUB_SHA"],
+            "api137_extended_matrix":matrix,
             "environment":"disposable_GHA_PG17_to_independent_Docker_volume",
             "owners_distinct":True,
             "source_and_restored_ids_equal_A":len(original_a),

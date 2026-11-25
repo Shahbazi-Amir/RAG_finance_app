@@ -1,0 +1,96 @@
+{
+  "base_sha": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+  "pr80_sha": "cc04bef906d827c20dcdf5da49897246c7f2a7dd",
+  "compatible_source_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac",
+  "rows": [
+    {
+      "path": "apps/api/app_only_socket_probe.py",
+      "base_blob": null,
+      "pr80_blob": "36c5e45d79547d1cfc27ff97862b339adcc7c854",
+      "selected_blob": "bbc803942b0d59a674f116a78c6b9a5786ab14d6",
+      "source_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac"
+    },
+    {
+      "path": "apps/api/private_app_only_asgi.py",
+      "base_blob": null,
+      "pr80_blob": "96a72b5167d473c88aeb3ddb5a67a284c105d4dd",
+      "selected_blob": "7502030fc40419f0fa88ac20c790c488331fcc7c",
+      "source_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac",
+      "derived_blob": "9ad76c041622a5af338294caa4838e706e8a9b49",
+      "derivation": "API137 wave 2: explicit route allowlist / fixed redacted events or expanded actual signed SQL matrix, original selected blob retained"
+    },
+    {
+      "path": "apps/api/private_staging_asgi.py",
+      "base_blob": "6072e7586d922737117dee27d61798df0cb9a6fc",
+      "pr80_blob": "6072e7586d922737117dee27d61798df0cb9a6fc",
+      "selected_blob": "0f87572041cf179db6de004a41cc266a16994b67",
+      "source_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac"
+    },
+    {
+      "path": "apps/api/product_session_api.py",
+      "base_blob": "a1d19754703ebe3704b0127e0274f09b214dd894",
+      "pr80_blob": "a1d19754703ebe3704b0127e0274f09b214dd894",
+      "selected_blob": "32d6148e1eb9f014ee62a4e607516547e510c7ec",
+      "source_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac"
+    },
+    {
+      "path": "src/phase3/auth/service_proof.py",
+      "base_blob": "85106ed9ba5f260510e34a9f9567added1b5bd36",
+      "pr80_blob": "85106ed9ba5f260510e34a9f9567added1b5bd36",
+      "selected_blob": "63f85aa2f15a435faa44e9f41d25df8e7f2e43be",
+      "source_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac"
+    },
+    {
+      "path": "src/phase3/auth/staging_service_profile.py",
+      "base_blob": "5fc1f3f64708ebb5f6756d5cf4d37d3acf9167b3",
+      "pr80_blob": "5fc1f3f64708ebb5f6756d5cf4d37d3acf9167b3",
+      "selected_blob": "bfc45cfcc1989c4fbe1bef9df975eb3c13733c97",
+      "source_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac"
+    },
+    {
+      "path": "tests/phase3/api/test_app_only_no_engine.py",
+      "base_blob": null,
+      "pr80_blob": "b66ff9f4339ddcd3e2d5d93625ea956140356035",
+      "selected_blob": "3bbc9321204b1646b35f5e3169d04683ae2079af",
+      "source_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac"
+    },
+    {
+      "path": "tests/phase3/api/test_service_proof.py",
+      "base_blob": "24a19882968c0f721b02d2d9962d68c6af3b00d1",
+      "pr80_blob": "24a19882968c0f721b02d2d9962d68c6af3b00d1",
+      "selected_blob": "cc6368349602ce1e358a0e8efd4152a219fd7b85",
+      "source_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac"
+    },
+    {
+      "path": "tests/phase3/integration/api/test_app_only_mtls_network.py",
+      "base_blob": null,
+      "pr80_blob": "3d9e3c2b3b241d88326578feabda55387c94571f",
+      "selected_blob": "f4f322559b859f2f0888e4cb41a25c558e68395a",
+      "source_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac"
+    },
+    {
+      "path": "tests/phase3/integration/foundation/test_history_restore_signed.py",
+      "base_blob": null,
+      "pr80_blob": null,
+      "selected_blob": "52c1cbf3dd3a2ad03cbd90430f6f6a50c5e3f46f",
+      "source_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac",
+      "derived_blob": "6e508e19246ebc803c93c54cfedd7c295d493698",
+      "derivation": "API137 wave 2: explicit route allowlist / fixed redacted events or expanded actual signed SQL matrix, original selected blob retained; replay T1/T2 + signed status + cache negative independent subcases"
+    },
+    {
+      "path": "infra/phase3_l1/Dockerfile.api.signed_history",
+      "base_blob": null,
+      "pr80_blob": null,
+      "selected_blob": "d1ed71955232a2927dbeea18420a0671167566c7",
+      "source_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac"
+    },
+    {
+      "path": "infra/phase3_l1/app-only.config.example.json",
+      "base_blob": null,
+      "pr80_blob": "1a40cfc81f53805f4ba1720d01de4c22813b8f86",
+      "selected_blob": "1a40cfc81f53805f4ba1720d01de4c22813b8f86",
+      "source_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac"
+    }
+  ],
+  "accepted": false
+}
