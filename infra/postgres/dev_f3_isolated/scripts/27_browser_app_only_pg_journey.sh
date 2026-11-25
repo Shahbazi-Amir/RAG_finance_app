@@ -122,9 +122,10 @@ sudo chown -R 11003:11003 web ingress store-source store-restore
 sudo chown -R 11005:11005 browser
 sudo chown -R 1000:0 idp realm
 configs demo-db rag_finance_f3_lab
-docker build --platform linux/amd64 -f "$SOURCE_REPO/infra/phase3_l1/Dockerfile.api.signed" --build-arg BASE=docker.io/library/python:3.13.5 --build-arg "SOURCE_SHA=$sha" -t "$F3_SIGNED_IMAGE" "$SOURCE_REPO"
+lab_python_base="$(bash "$SOURCE_REPO/infra/phase3_l1/lab/resolve_python_slim_base.sh")"
+docker build --platform linux/amd64 -f "$SOURCE_REPO/infra/phase3_l1/Dockerfile.api.slim-lab" --build-arg "BASE=$lab_python_base" --build-arg "SOURCE_SHA=$sha" -t "$F3_SIGNED_IMAGE" "$SOURCE_REPO"
 docker build --platform linux/amd64 -f "$SOURCE_REPO/infra/phase3_l1/Dockerfile.web" --build-arg "SOURCE_SHA=$sha" -t "$F3_WEB_IMAGE" "$SOURCE_REPO"
-docker build --platform linux/amd64 -f "$SOURCE_REPO/infra/phase3_l1/lab/Dockerfile.browser" -t "$F3_BROWSER_IMAGE" "$SOURCE_REPO"
+docker build --platform linux/amd64 -f "$SOURCE_REPO/infra/phase3_l1/lab/Dockerfile.browser" --build-arg "BASE=$lab_python_base" -t "$F3_BROWSER_IMAGE" "$SOURCE_REPO"
 docker pull quay.io/keycloak/keycloak@sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3
 stack --profile probe config -q
 stack up -d --no-build idp api web bootstrap ingress

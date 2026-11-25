@@ -30,13 +30,14 @@ def main():
             "registry_digests":info.get("RepoDigests") or [],
             "architecture":info["Architecture"],"os":info["Os"],
             "configured_user":info["Config"].get("User") or None,
-            "revision_label":label,"size_bytes":info["Size"]})
+            "revision_label":label,"base_image_ref":(info.get("Config",{}).get("Labels") or {}).get("org.opencontainers.image.base.name"),"size_bytes":info["Size"]})
     for role in ("api","web"):
         row=next(x for x in images if x["role"]==role)
         assert row["configured_user"] in ("11001:11001","11003:11003")
         assert row["os"]=="linux" and row["architecture"]=="amd64"
     paths=["locks/requirements-api.lock","apps/web/package-lock.json",
-           "infra/phase3_l1/Dockerfile.api.signed","infra/phase3_l1/Dockerfile.web",
+           "infra/phase3_l1/Dockerfile.api.signed","infra/phase3_l1/Dockerfile.api.slim-lab","infra/phase3_l1/Dockerfile.web",
+           "infra/phase3_l1/lab/resolve_python_slim_base.sh","infra/phase3_l1/lab/Dockerfile.browser",
            "infra/phase3_l1/compose.app-only.browser-lab.yml",
            "infra/postgres/dev_f3_isolated/scripts/27_browser_app_only_pg_journey.sh"]
     manifest={"schema":"f3.app_only.ci_candidate_manifest.v1","commit":commit,

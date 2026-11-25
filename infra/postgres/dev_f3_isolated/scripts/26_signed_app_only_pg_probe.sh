@@ -62,7 +62,8 @@ for label,token in json.load(open(sys.argv[1])).items():
     digest=hashlib.sha256(token.encode()).hexdigest()
     print("SELECT auth_l1.issue_session('%s',0,'%s',3600,7200);" % (owner,digest))
 PY
-docker build --platform linux/amd64 -f "$SOURCE_REPO/infra/phase3_l1/Dockerfile.api.signed" --build-arg BASE=docker.io/library/python:3.13.5 --build-arg "SOURCE_SHA=$(git -C "$SOURCE_REPO" rev-parse HEAD)" -t "$image" "$SOURCE_REPO"
+lab_python_base="$(bash "$SOURCE_REPO/infra/phase3_l1/lab/resolve_python_slim_base.sh")"
+docker build --platform linux/amd64 -f "$SOURCE_REPO/infra/phase3_l1/Dockerfile.api.slim-lab" --build-arg "BASE=$lab_python_base" --build-arg "SOURCE_SHA=$(git -C "$SOURCE_REPO" rev-parse HEAD)" -t "$image" "$SOURCE_REPO"
 [[ "$(docker image inspect -f '{{.Config.User}}' "$image")" == 11001:11001 ]] || exit 70
 printf 'API_CURSOR_KEY=%s\nAPI_CURSOR_TTL_SECONDS=300\n' "$(openssl rand -hex 32)" > "$scratch/api.env"
 counts() {
