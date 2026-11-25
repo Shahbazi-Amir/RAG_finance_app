@@ -39,3 +39,7 @@ For a stopped Version B, restore its isolated PostgreSQL, start Keycloak first a
 ### NB23-SESSION-RESUME-28
 
 Use the experimental-local-v4-product-fixes BFF tag for Version B. For this rollout only Bootstrap and BFF were recreated. Preserve the live Keycloak, PostgreSQL, API and Worker. Existing Chrome tabs require one sign-in after replacement so the new cookie and owner-bound correlation can be recovered.
+
+### NB23-SESSION-RESUME-29
+
+The thread-fixes BFF image was activated independently while the existing store was transferred in memory. The Version B title overlay is guarded to nb23_session_local and changes only the existing title data. Keep the original BFF image available and preserve API/Worker/IdP/PG on a UI-only rollback.

@@ -94,3 +94,7 @@
 ## NB23-SESSION-RESUME-28
 
 - ثبت شاهد نخستین آزمون مالک، مهلت‌های نسخهٔ B، اصلاح draft و وضعیت/polling، Build آفلاین و جایگزینی محدود BFF/Bootstrap. آزمون واقعی HTTPS موفق و آزمون Chrome در Logout ابزار ناموفق بود.
+
+## NB23-SESSION-RESUME-29
+
+- ثبت موفقیت دستی قبلی، Build آفلاین، dry-run SQL و backfill بدون تغییر شمار ردیف‌ها، تعویض BFF و حفظ store، آزمون امضاشده موفق. Chrome جاری در Page.navigate timeout. [فهرست مستقل اصلاح‌ها](LOCAL_DOCKER_UI_FIXES.md).
