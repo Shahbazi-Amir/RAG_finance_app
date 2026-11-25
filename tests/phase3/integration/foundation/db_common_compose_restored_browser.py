@@ -57,8 +57,12 @@ async def browser_cutover_get(page):
         result=await asyncio.wait_for(page.evaluate("""async () => {
             try {
                 const r=await fetch('/api/history/conversations?limit=2',{
-                    cache:'no-store',credentials:'same-origin',redirect:'error',
+                    cache:'no-store',credentials:'same-origin',redirect:'manual',
                     signal:AbortSignal.timeout(5000)});
+                // A received redirect must fail the caller's assertion, not
+                // masquerade as a transport exception and trigger a retry.
+                if (r.type==='opaqueredirect' || (r.status>=300 && r.status<400))
+                    return {status:r.status,noStore:false};
                 return {status:r.status,noStore:r.headers.get('cache-control')==='no-store'};
             } catch (error) {
                 if (error instanceof TypeError && error.message==='Failed to fetch')
@@ -512,6 +516,86 @@ class BothSidesComposeBrowserDemo(ComposeRestoredBrowserDemo):
         assert self.compose_witness["api_image_id"]==self.source_witness["api_image_id"]
         assert self.compose_witness["web_image_id"]==self.source_witness["web_image_id"]
 
+    async def verify_third_restore_boundaries(self, a, b, expected, dsns):
+        """Real BFF/PG third-volume controls after committed A revocation."""
+        known = {row["id"] for rows in expected.values() for row in rows}
+        foreign = [row["id"] for row in expected["A"]]
+        own = [row["id"] for row in expected["B"]]
+        unknown = [str(uuid.uuid4()) for _ in foreign]
+        assert len(foreign)==len(own)==len(unknown)==3
+        assert len(known)==6 and len(set(unknown))==3 and not known.intersection(unknown)
+        # Catalog and row parity checks in the caller are independent. Here
+        # also prove unknown controls absent in BOTH owner scopes, and prove
+        # an empty transaction context cannot read either owner's rows.
+        with psycopg.connect(dsns["DB_APP_DSN"],autocommit=True) as db:
+            assert conninfo_to_dict(dsns["DB_APP_DSN"])["sslmode"]=="verify-full"
+            assert db.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()[0]
+            for label in ("A","B"):
+                with db.transaction():
+                    db.execute("SET TRANSACTION READ ONLY")
+                    db.execute("SELECT set_config('app.owner_id',%s,true)",(self.owners[label],))
+                    for row in expected[label]:
+                        assert db.execute("SELECT count(*) FROM history_l1.conversations WHERE id=%s",(row["id"],)).fetchone()[0]==1
+                    for cid in unknown+[row["id"] for row in expected["B" if label=="A" else "A"]]:
+                        assert db.execute("SELECT count(*) FROM history_l1.conversations WHERE id=%s",(cid,)).fetchone()[0]==0
+            with db.transaction():
+                db.execute("SET TRANSACTION READ ONLY")
+                for cid in known:
+                    assert db.execute("SELECT count(*) FROM history_l1.conversations WHERE id=%s",(cid,)).fetchone()[0]==0
+        def stable(value):
+            if isinstance(value,dict):
+                return {k:stable(v) for k,v in value.items() if k not in ("request_id","trace_id","requestId","traceId")}
+            if isinstance(value,list):
+                return [stable(v) for v in value]
+            return value
+        async def read(page,cid):
+            return await asyncio.wait_for(page.evaluate("""async id => {
+                const r=await fetch('/api/history/conversations/'+encodeURIComponent(id)+'/messages?limit=2',{
+                    cache:'no-store',credentials:'same-origin',redirect:'manual',signal:AbortSignal.timeout(5000)});
+                return {status:r.status,cache:r.headers.get('cache-control'),
+                        type:r.headers.get('content-type'),body:await r.text()};
+            }""",cid),timeout=7)
+        for cid in own:
+            r=await read(b,cid)
+            assert r["status"]==200 and r["cache"]=="no-store"
+            assert json.loads(r["body"])["owner_user_id"]==self.owners["B"]
+        for i,cid in enumerate(foreign):
+            denied,missing=await read(b,cid),await read(b,unknown[i])
+            for r in (denied,missing):
+                assert r["status"]==404 and r["cache"]=="no-store"
+                assert "application/json" in (r["type"] or "")
+                assert not any(v.lower() in r["body"].lower() for v in known|set(unknown)|set(self.owners.values()))
+            assert stable(json.loads(denied["body"]))==stable(json.loads(missing["body"]))
+        for cid in sorted(known)+unknown:
+            r=await read(a,cid)
+            assert r["status"]==401 and r["cache"]=="no-store"
+            assert not any(v.lower() in r["body"].lower() for v in known|set(unknown)|set(self.owners.values()))
+        # Same valid-shape synthetic key, concurrent repetitions, changed
+        # payload and malformed JSON: disabled Send is not positive replay.
+        replies=await asyncio.wait_for(b.evaluate("""async () => {
+            const payload={kind:'send_message_request',contract_version:'product.v1',
+                client_message_id:'browser_retry_same_ci',idempotency_key:'browser_retry_same_ci_1234',
+                requested_conversation_id:null,question:'Synthetic app-only retry'};
+            const send=async body=>{
+                const r=await fetch('/api/history/messages',{method:'POST',
+                    credentials:'same-origin',cache:'no-store',redirect:'manual',
+                    signal:AbortSignal.timeout(5000),headers:{'Content-Type':'application/json'},body});
+                const text=await r.text();
+                return {status:r.status,cache:r.headers.get('cache-control'),
+                    disabled:text.includes('ENGINE_NOT_AVAILABLE'),
+                    leaked:text.includes('Synthetic app-only retry')||text.includes('Synthetic conflicting retry')};
+            };
+            const exact=JSON.stringify(payload);
+            const replies=await Promise.all(Array.from({length:4},()=>send(exact)));
+            replies.push(await send(JSON.stringify({...payload,question:'Synthetic conflicting retry'})));
+            replies.push(await send('{'));
+            return replies;
+        }"""),timeout=20)
+        assert len(replies)==6 and all(r=={"status":503,"cache":"no-store","disabled":True,"leaked":False} for r in replies)
+        return {"own_200":3,"foreign_404":3,"unknown_404":3,"revoked_401":9,
+                "disabled_send_503":6,"restricted_sql_controls":True,"no_store":True,
+                "positive_send_idempotency":False,"timing_leak_proven_absent":False}
+
     async def prove_post_revoke_compose_restore(self,a,b,raw_a,raw_b,aid,bid,bmid,bmessage,expected,sql_before,before,restored,restored_id):
         """Restore only the committed-revocation snapshot, not a stale backup."""
         assert restored_id==self.restored_pg_id
@@ -583,13 +667,16 @@ class BothSidesComposeBrowserDemo(ComposeRestoredBrowserDemo):
                 status=await b.evaluate("""async id => (await fetch('/api/history/conversations/'+id+'/messages?limit=2',{cache:'no-store'})).status""",aid)
                 assert status==404
                 assert (await b.evaluate("""async () => (await fetch('/api/history/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status"""))==503
+                boundary_witness=await self.verify_third_restore_boundaries(a,b,expected,third)
                 assert self.counts()==before
                 self.restricted_db_snapshot("POST_REVOKE_BROWSER",third,sql_before,revoked=True)
+                print("DB_COMMON_THIRD_RESTORE_FOREIGN_UNKNOWN_RETRY_ZERO_SQL_PARITY=PASS",flush=True)
                 measured=round((time.monotonic()-outage_start)*1000)
                 self.post_revoke_witness={"three_distinct_volumes":len({self.source_volume,self.restored_pg_volume,self.post_revoke_pg_volume})==3,
                     "three_distinct_pg_containers":len({self.source_pg_id,self.restored_pg_id,self.post_revoke_pg_id})==3,
                     "source_sha":os.environ["F3_EXACT_SHA"],"api_image_id":self.compose_witness["api_image_id"],
                     "web_image_id":self.compose_witness["web_image_id"],"committed_revoke_a_denied_b_replayed":True,
+                    "third_restore_boundary_witness":boundary_witness,
                     "measured_backup_restore_ms":backup_restore_ms,"measured_cutover_to_browser_replay_ms":measured,
                     "approved_operational_rpo_rto":False,"accepted":False}
                 assert self.post_revoke_witness["three_distinct_volumes"] and self.post_revoke_witness["three_distinct_pg_containers"]
