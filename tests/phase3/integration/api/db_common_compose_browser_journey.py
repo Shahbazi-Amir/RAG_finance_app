@@ -1099,6 +1099,42 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
             full_page=True)
         return ctx,page,handle,raw
 
+    async def verify_disabled_send_retries(self, phase, pages):
+        """Ordinary BFF HTTP negative: replay same client/key in APP_ONLY.
+
+        These are real browser requests, NOT an enabled signed Send admission.
+        The caller independently verifies all six durable tables after them.
+        """
+        assert phase in ("SOURCE","RESTORED")
+        result={}
+        for label,page in pages:
+            outcomes=await page.evaluate("""async () => {
+                const payload={kind:'send_message_request',contract_version:'product.v1',
+                    client_message_id:'browser_retry_same_ci',idempotency_key:'browser_retry_same_ci_1234',
+                    requested_conversation_id:null,question:'Synthetic app-only retry'};
+                const send=async body=>{
+                    const r=await fetch('/api/history/messages',{method:'POST',
+                        credentials:'same-origin',cache:'no-store',
+                        headers:{'Content-Type':'application/json'},body});
+                    const text=await r.text();
+                    return {status:r.status,disabled:text.includes('ENGINE_NOT_AVAILABLE'),
+                            leaked:text.includes('Synthetic app-only retry')};
+                };
+                const exact=JSON.stringify(payload);
+                const replies=await Promise.all(Array.from({length:4},()=>send(exact)));
+                replies.push(await send(JSON.stringify({...payload,question:'Synthetic conflicting retry'})));
+                replies.push(await send('{'));
+                return replies;
+            }""")
+            assert len(outcomes)==6 and all(x=={"status":503,"disabled":True,"leaked":False}
+                                          for x in outcomes),"APP_ONLY_RETRY_FENCE_DRIFT"
+            result[label]=len(outcomes)
+        if not hasattr(self,"send_retry_receipts"):
+            self.send_retry_receipts={}
+        assert phase not in self.send_retry_receipts
+        self.send_retry_receipts[phase]=result
+        print("DB_COMMON_"+phase+"_AB_SAME_KEY_CONCURRENT_MALFORMED_SEND_DENIED=PASS",flush=True)
+
     async def journey(self, browser, output):
         contexts = []
         try:
@@ -1193,6 +1229,7 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
             with httpx.Client(verify=tls, trust_env=False, timeout=8) as client:
                 direct = client.post(self.product_origin + "/v1/messages", content=b"{}")
                 assert direct.status_code == 503 and "ENGINE_NOT_CONFIGURED" in direct.text
+            await self.verify_disabled_send_retries("SOURCE", (("A",a),("B",b)))
             await a.reload(wait_until="domcontentloaded")
             await expect(a.get_by_test_id("conversation-" + aid)).to_be_visible()
             assert self.counts() == before
@@ -1279,6 +1316,7 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
                     assert denial["status"] == 404 and message not in denial["body"]
                     assert (await a.evaluate("""async () => (await fetch('/api/history/messages',
                         {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status""")) == 503
+                    await self.verify_disabled_send_retries("RESTORED", (("A",a),("B",b)))
                     await a.reload(wait_until="domcontentloaded")
                     await expect(a.get_by_test_id("conversation-" + aid)).to_be_visible()
                     assert self.counts() == before
@@ -1323,7 +1361,7 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
                     await self.prove_post_revoke_compose_restore(a,b,raw_a,raw_b,aid,bid,bmid,bmessage,expected,sql_before,before,restored,restored_id)
                     receipt=ROOT/"ci_receipts/db_oci_browser_restricted_parity.json"
                     receipt.parent.mkdir(exist_ok=True)
-                    receipt.write_text(json.dumps({"source_sha":os.environ["F3_EXACT_SHA"],"api_image_id":self.api_image_id,"checkpoints":8,"history_tables":6,"signed_history_enumeration":self.enumeration_receipts,"post_revoke_independent_compose_restore":True,"strict_browser_tls":True,"real_31_message_page2_before_after":True,"signed_mobile_320_focus":True,"actual_oci_read_revoke_blocking_pid_chain":True,"real_oidc_owners":2,"exact_row_parity":True,"migration_ledger_rows":10,"data_bearing_up":9,"actual_failed_002_no_autoretry":True,"actual_interrupted_002_no_autoretry":(Path(os.environ["RUNNER_TEMP"])/"f3-actual-migration-interrupted-verified.txt").read_text().strip()=="PASS","db55_pinned_readonly_auditor_checkpoints":8,"force_rls_tables":14,"source_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","restored_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","migration_install_origin":"ACTIONS_PG_BEFORE_FIRST_CLONE","two_journey_clusters_distinct_from_installer":True,"engine_calls":0,"sql_011":False,"target_verified":False,"accepted":False},indent=2)+"\n")
+                    receipt.write_text(json.dumps({"source_sha":os.environ["F3_EXACT_SHA"],"api_image_id":self.api_image_id,"checkpoints":8,"history_tables":6,"signed_history_enumeration":self.enumeration_receipts,"app_only_bff_send_retry_denials":self.send_retry_receipts,"post_revoke_independent_compose_restore":True,"strict_browser_tls":True,"real_31_message_page2_before_after":True,"signed_mobile_320_focus":True,"actual_oci_read_revoke_blocking_pid_chain":True,"real_oidc_owners":2,"exact_row_parity":True,"migration_ledger_rows":10,"data_bearing_up":9,"actual_failed_002_no_autoretry":True,"actual_interrupted_002_no_autoretry":(Path(os.environ["RUNNER_TEMP"])/"f3-actual-migration-interrupted-verified.txt").read_text().strip()=="PASS","db55_pinned_readonly_auditor_checkpoints":8,"force_rls_tables":14,"source_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","restored_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","migration_install_origin":"ACTIONS_PG_BEFORE_FIRST_CLONE","two_journey_clusters_distinct_from_installer":True,"engine_calls":0,"sql_011":False,"target_verified":False,"accepted":False},indent=2)+"\n")
                 finally:
                     self.stop_container_api()
                     for child in (self.api_process, self.bootstrap_process):
