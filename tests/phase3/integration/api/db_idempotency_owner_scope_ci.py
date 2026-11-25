@@ -71,7 +71,7 @@ def snapshot(dsn):
             scale.assert_unset(c)
     return values
 def race(dsn,phase):
-    require(phase in ("INITIAL","AFTER_RESTART"),"BAD_PHASE")
+    require(phase in ("INITIAL","AFTER_RESTART","AFTER_RESTORE"),"BAD_PHASE")
     t1_barrier=threading.Barrier(len(GROUPS)*WORKERS,timeout=30)
     t2_barrier=threading.Barrier(len(GROUPS)*WORKERS,timeout=30)
     def worker(group):
@@ -152,12 +152,80 @@ def initial(demo,dsns,pg_id):
     baseline=snapshot(dsn)
     print("DB_IDEMPOTENCY_CONFLICT_FOREIGN_UNKNOWN_TERMINAL_DENIAL_ZERO_ANSWER=PASS",flush=True)
     return (stable,baseline)
+def prove_independent_restore(source, dsns, pg_id, before):
+    """Replay committed synthetic T1/T2 on a new logical PG cluster.
+
+    Use the existing owned-volume clone code and a distinct demo/TLS root.
+    No HTTP Send, engine or mutation of the source fixture during restore.
+    """
+    import sys
+    sys.path.insert(0, str(scale.ROOT/"tests/phase3/integration/foundation"))
+    from db_common_compose_restored_browser import BothSidesComposeBrowserDemo
+    scale.fence(source, dsns, pg_id)
+    info=json.loads(source.ci_command("docker","inspect",pg_id))[0]
+    require(info["Id"]==pg_id and len(info["NetworkSettings"]["Networks"])==1,
+            "REPLAY_RESTORE_SOURCE_NETWORK")
+    volumes=[m["Name"] for m in info["Mounts"] if m["Destination"]=="/var/lib/postgresql/data"]
+    require(len(volumes)==1,"REPLAY_RESTORE_SOURCE_VOLUME")
+    def system_id(demo,cid):
+        value=demo.ci_command("docker","exec",cid,"psql","-X","-At","-U","postgres",
+            "-d","postgres","-c","SELECT system_identifier FROM pg_control_system()").decode().strip()
+        require(value.isdecimal(),"REPLAY_CLUSTER_ID")
+        return value
+    source_id=system_id(source,pg_id)
+    source_dsn=dsns["DB_APP_DSN"]
+    require(snapshot(source_dsn)==before[1],"REPLAY_SOURCE_PRE_RESTORE_DRIFT")
+    clone=BothSidesComposeBrowserDemo()
+    try:
+        clone.source_pg_id=pg_id
+        clone.source_dsns=dsns
+        clone.source_pg_port=source.restore_pg_port
+        clone.source_pg_label=info["Config"]["Labels"]["rag.finance.ci.restore"]
+        clone.source_network=next(iter(info["NetworkSettings"]["Networks"]))
+        clone.source_volume=volumes[0]
+        clone.source_pg_image=info["Image"]
+        with clone.clone_owned_source() as (target,target_id,_):
+            require(target_id!=pg_id and clone.restored_pg_volume!=volumes[0],
+                    "REPLAY_RESTORE_NOT_INDEPENDENT")
+            require(system_id(clone,target_id)!=source_id,"REPLAY_CLUSTER_ID_REUSED")
+            target=clone.configure_restore_pg_tls(target_id,target)
+            scale.fence(clone,target,target_id)
+            dsn=target["DB_APP_DSN"]
+            require(snapshot(dsn)==before[1],"RESTORE_BEFORE_REPLAY_DRIFT")
+            require(race(dsn,"AFTER_RESTORE")==before[0],"RESTORE_T1_T2_ID_DRIFT")
+            for owner,orig in GROUPS:
+                with connect(dsn) as c:
+                    changed=request(orig);changed["question"]="Conflicting synthetic question"
+                    expect(lambda:repo.send_t1(c,owner,changed,ident(),ident()),repo.Conflict,"IDEMPOTENCY_CONFLICT")
+                    other=OWNERS[1-OWNERS.index(owner)]
+                    foreign=before[0][(other,None)][0]
+                    expect(lambda:repo.read_status(c,owner,query(foreign),ident(),ident()),repo.NotFound,"NOT_FOUND")
+                    expect(lambda:repo.read_status(c,owner,query("nonexistent-ci-scope"),ident(),ident()),repo.NotFound,"NOT_FOUND")
+                    scale.assert_unset(c)
+            with connect(dsn) as c:
+                attempt=before[0][(OWNERS[0],None)][2]
+                expect(lambda:repo.mark_attempt(c,OWNERS[0],attempt,"attempt_unknown"),
+                       repo.Conflict,"TERMINAL_ATTEMPT")
+                scale.assert_unset(c)
+            require(snapshot(dsn)==before[1],"RESTORE_AFTER_REPLAY_MUTATION")
+            require(snapshot(source_dsn)==before[1],"RESTORE_SOURCE_MUTATION")
+    finally:
+        clone.stop()
+    print("DB_IDEMPOTENCY_INDEPENDENT_RESTORE_16_REPLAYS_ZERO_NEW_ROWS_TERMINAL_PRESERVED=PASS",flush=True)
+    return {"independent_pg_cluster":True,"independent_volume":True,"distinct_tls_sessions":16,
+            "created":0,"replayed":16,"owner_scope_groups":4,"conflicting_payload_denials":4,
+            "foreign_unknown_status_denials":8,"exact_t1_t2_ids":True,"exact_six_table_hashes":True,
+            "terminal_cancelled_not_reopened":True,"source_unchanged":True,"answer_rows":0,
+            "http_send_executed":False,"engine_calls":0,"accepted":False,"target_verified":False}
+
+
 def after_restart(demo,dsns,pg_id,before):
     scale.fence(demo,dsns,pg_id)
     dsn=dsns["DB_APP_DSN"]
     require(snapshot(dsn)==before[1],"RESTART_BASELINE_DRIFT")
     replay=race(dsn,"AFTER_RESTART")
     require(replay==before[0] and snapshot(dsn)==before[1],"POST_RESTART_REPLAY_MUTATION")
+    restored=prove_independent_restore(demo,dsns,pg_id,before)
     path=scale.ROOT/"ci_receipts/db_idempotency_owner_scope.json"
     path.parent.mkdir(exist_ok=True)
     with path.open("x",encoding="utf-8") as f:
@@ -166,7 +234,7 @@ def after_restart(demo,dsns,pg_id,before):
           "owner_scope_groups":4,"workers_per_group":4,"initial_created":4,"initial_replayed":12,
           "restart_created":0,"restart_replayed":16,"same_explicit_id_two_owners":True,
           "null_and_explicit_scopes_independent":True,"exact_t1_t2_ids_after_restart":True,
-          "exact_six_table_hashes_after_restart":True,"conflicting_payload_denials":4,
+          "exact_six_table_hashes_after_restart":True,"independent_restore":restored,"conflicting_payload_denials":4,
           "foreign_unknown_status_denials":8,"cancelled_attempt_not_reopened":True,
           "answer_rows":0,"engine_calls":0,"http_send_executed":False,"sql_011":False,
           "accepted":False,"target_verified":False},f,indent=2)
