@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import re
 import ssl
@@ -37,6 +38,18 @@ APP_ONLY_FIELDS = frozenset({
     "bff_leaf_cert_sha256", "bff_issuer", "bff_audience",
     "bff_kid", "bff_rs256_public_key_file", "history_dsn", "revoke_dsn",
 })
+# The app-only surface is smaller than the original Product app. Keep
+# existing read-only History/status/source consumers; never expose invited
+# Claim/result fixtures or let a new engine route become reachable by default.
+_READ_PATHS = frozenset({
+    b"/v1/conversations",
+    b"/v1/message-requests/status",
+    b"/v1/message-requests/engine-status",
+    b"/v1/message-requests/retrieved-sources",
+})
+_DETAIL_PATH = re.compile(rb"/v1/conversations/[A-Za-z0-9_-]{1,64}/messages")
+_REVOKE_PATH = b"/internal/auth/session/v1/revoke-one"
+_SECURITY_LOG = logging.getLogger("phase3.api.security")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _NO_ENGINE_FLAGS = (
     "C018_RUNNER_PATH", "QDRANT_URL", "MODEL_GATEWAY_URL",
@@ -156,6 +169,10 @@ class AppOnlyASGI:
                 headers = [(k, v) for k, v in event.get("headers", ())
                            if k.lower() not in {b"cache-control",
                                                b"x-content-type-options"}]
+                # Fixed vocabulary only. Never interpolate URL, headers,
+                # credentials, exception, owner or History data into logs.
+                if event.get("status") in (401, 403):
+                    _SECURITY_LOG.warning('{"event":"private_request_denied","status":%d}', event["status"])
                 event = dict(event, headers=headers + [
                     (b"cache-control", b"no-store"),
                     (b"x-content-type-options", b"nosniff")])
@@ -269,6 +286,18 @@ class AppOnlyASGI:
                  "history_db": "verified", "bootstrap_idp": "not_probed",
                  "retrieval": "unavailable", "generation": "unavailable"},
                 headers={"Cache-Control": "no-store"})(scope, receive, private_send)
+        raw = scope.get("raw_path")
+        method = scope.get("method")
+        if not (
+            isinstance(raw, bytes)
+            and ((method == "GET" and (raw in _READ_PATHS or _DETAIL_PATH.fullmatch(raw)))
+                 or (method == "POST" and raw == _REVOKE_PATH))
+            and raw.decode("ascii", errors="replace") == scope.get("path")
+        ):
+            from apps.api import history_api
+            return await history_api._safe_error(
+                404, "NOT_FOUND", "authorization", "History unavailable.",
+            )(scope, receive, private_send)
         return await self._app(scope, receive, private_send)
 
 

@@ -15,7 +15,9 @@
       "base_blob": null,
       "pr80_blob": "96a72b5167d473c88aeb3ddb5a67a284c105d4dd",
       "selected_blob": "7502030fc40419f0fa88ac20c790c488331fcc7c",
-      "source_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac"
+      "source_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac",
+      "derived_blob": "9ad76c041622a5af338294caa4838e706e8a9b49",
+      "derivation": "API137 wave 2: explicit route allowlist / fixed redacted events or expanded actual signed SQL matrix, original selected blob retained"
     },
     {
       "path": "apps/api/private_staging_asgi.py",
@@ -71,7 +73,9 @@
       "base_blob": null,
       "pr80_blob": null,
       "selected_blob": "52c1cbf3dd3a2ad03cbd90430f6f6a50c5e3f46f",
-      "source_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac"
+      "source_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac",
+      "derived_blob": "1692e041a9902630a26fb577e65d7509055713cc",
+      "derivation": "API137 wave 2: explicit route allowlist / fixed redacted events or expanded actual signed SQL matrix, original selected blob retained"
     },
     {
       "path": "infra/phase3_l1/Dockerfile.api.signed_history",
