@@ -17,6 +17,7 @@ from pathlib import Path
 
 from starlette.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
+from apps.api.app_only_signer_pin import SignerPin
 
 from apps.api.private_staging_asgi import (
     _harden_tls_context, _protected_file, _test_tls_material,
@@ -146,9 +147,10 @@ class AppOnlyASGI:
     Only the authorized Product-session app handles History/Revoke.  We never
     dispatch an engine or create a Send receipt.  All error paths are no-store.
     """
-    def __init__(self, app, profile: PrivateStagingProfile):
+    def __init__(self, app, profile: PrivateStagingProfile, *, signer_pin: SignerPin | None = None):
         self._app = app
         self._profile = profile
+        self._signer_pin = signer_pin
 
     async def __call__(self, scope, receive, send):
         async def private_send(event):
@@ -175,8 +177,9 @@ class AppOnlyASGI:
             return await JSONResponse(
                 {"error": "SERVICE_UNAVAILABLE"}, status_code=503,
                 headers={"Cache-Control": "no-store"})(scope, receive, private_send)
-        if (scope.get("path") == "/v1/messages"
-                and scope.get("method") == "POST"):
+        if (scope.get("method") == "POST"
+                and (scope.get("raw_path") == b"/v1/messages"
+                     or (scope.get("path") or "").rstrip("/") == "/v1/messages")):
             # Routing uses the percent-decoded ASGI path. A raw-path-only
             # comparison could let /v1/%6dessages bypass the pre-body fence.
             # No body parsing, trusted-user mutation, PG T1/T2, runner queue,
@@ -186,6 +189,25 @@ class AppOnlyASGI:
                 503, "ENGINE_NOT_CONFIGURED", "technical",
                 "Message sending is unavailable until the engine is enabled.",
             )(scope, receive, private_send)
+        # The production composition pins the very key installed in the
+        # verifier. A broken/replaced Ops file is not a valid configuration.
+        # Keep the no-engine Send denial ahead of this check.
+        if (self._signer_pin is not None and not await run_in_threadpool(
+                self._signer_pin.current, self._profile.load_public_key)):
+            if scope.get("path") == "/health/ready":
+                response = JSONResponse(
+                    {"kind": "api_app_only_readiness", "state": "unavailable"}, status_code=503)
+            elif scope.get("path") == "/internal/ready":
+                response = JSONResponse(
+                    {"kind": "app_only_readiness", "state": "unavailable",
+                     "retrieval": "unavailable", "generation": "unavailable"}, status_code=503)
+            elif scope.get("path") == "/internal/auth/session/v1/revoke-one":
+                response = JSONResponse({"error": "REVOKE_OUTCOME_UNKNOWN"}, status_code=503)
+            else:
+                from apps.api import history_api
+                response = history_api._safe_error(
+                    503, "TEMPORARILY_UNAVAILABLE", "technical", "History unavailable.")
+            return await response(scope, receive, private_send)
         # Signed History reads bind exactly b"". A body-bearing GET cannot
         # be admitted under an otherwise valid empty-body BFF assertion.
         if scope.get("method") == "GET" and not _bodyless_get(scope):
@@ -284,9 +306,11 @@ def prepare_app_only(cfg: AppOnlyConfig, environ=None):
         peer_verifier=boundary.scope_is_verified,
     )
     from src.phase3.auth.service_proof import BFFServiceVerifier
+    public_key = profile.load_public_key()
+    signer_pin = SignerPin.capture(public_key)
     BFFServiceVerifier(
         issuer=cfg.issuer, audience=cfg.audience,
-        public_keys={cfg.kid: profile.load_public_key()})
+        public_keys={cfg.kid: public_key})
     verify_staging_database_authority(profile)
     # Original History API imports repository as a top-level module. Do not
     # mutate product.v1, reimplement SQL, or import a fixture.
@@ -308,8 +332,8 @@ def prepare_app_only(cfg: AppOnlyConfig, environ=None):
         history_api._cursor_config()
     except history_api.ApiFailure:
         raise StagingConfigDenied() from None
-    product_session_api.install_private_staging_auth(profile)
-    return AppOnlyASGI(product_session_api.app, profile), boundary
+    product_session_api.install_private_staging_auth(profile, expected_public_key=public_key)
+    return AppOnlyASGI(product_session_api.app, profile, signer_pin=signer_pin), boundary
 
 
 def run_app_only(config_file: Path) -> None:
