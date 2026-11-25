@@ -8,7 +8,7 @@ import type {Answer,Citation} from '../mock/transport';
 import {verifiedSourceUrl,verifiedSourceLocatorLabel,verifiedSourceTypeLabel} from './source-locator';
 import {sourceCredits,confidenceLabel} from './source-metadata';
 import RetrievedSourcesPanel from './retrieved-sources-panel';
-import {OwnerFence} from './owner-fence';
+import {OwnerFence,sameOwnerPrivacyEpoch} from './owner-fence';
 import {isVerifiedLiveAnswer,productOutcomeLabel} from './answer-visibility';
 import {blockedCapability,decodeRuntimeCapability,type RuntimeCapability} from './runtime-capability';
 import {readCheckpoints,retainCheckpoint,forgetCheckpoints,statusCorrelators,
@@ -100,7 +100,11 @@ export default function ProductChat(){
   const [drafts,setDrafts]=useState<Record<string,string>>({});
   const [threads,setThreads]=useState<Record<string,ThreadData>>({});
   const [attempts,setAttempts]=useState<Record<string,Attempt>>({});
+  // Keep transport failures scoped to their own operation. A successful
+  // signed History retry must not leave an old outage alert in the DOM.
   const [error,setError]=useState('');
+  const [listError,setListError]=useState('');
+  const [threadErrors,setThreadErrors]=useState<Record<string,string>>({});
   const [mobileOpen,setMobileOpen]=useState(false);
   const mobileMenu=useRef<HTMLElement|null>(null);
   const menuTrigger=useRef<HTMLButtonElement|null>(null);
@@ -162,7 +166,7 @@ export default function ProductChat(){
     privacyEpoch.current++;
     setAttempts({});setList({items:[],next:null,more:false});
     setThreads({});setSelected('draft:new');setDrafts({});
-    setListState('unauthorized');setError('');setMobileOpen(false);setBusy(false);
+    setListState('unauthorized');setError('');setListError('');setThreadErrors({});setMobileOpen(false);setBusy(false);
     return true;
   },[]);
   const matchOwner=useCallback((owner:string):boolean=>{
@@ -179,6 +183,7 @@ export default function ProductChat(){
       if(lost.current||!matchOwner(page.owner)||listEpoch.current!==epoch)return;
       setList(prev=>({items:append?mergeUnique(prev.items,page.items,x=>x.id):page.items,
         next:page.next,more:page.more}));
+      setListError('');
       setListState('ready');
       if(!append)setSelected(current=>current==='draft:new'&&page.items.length?
         page.items[0].id:current);
@@ -196,8 +201,8 @@ export default function ProductChat(){
       // only GET-only non-secret checkpoint state for a later valid owner.
       privacyEpoch.current++;
       threadEpochs.current={};
-      setThreads({});
-      setListState('error');setError(failureLabel(e));
+      setThreads({});setThreadErrors({});
+      setListState('error');setListError(failureLabel(e));
     }
   },[invalidate,matchOwner]);
   const loadThread=useCallback(async (id:string,append=false,cursor:string|null=null)=>{
@@ -209,8 +214,12 @@ export default function ProductChat(){
       const page=await messages(id,30,append?cursor:null);
       if(lost.current||privacyEpoch.current!==privacyAtStart||
          threadEpochs.current[id]!==epoch||!matchOwner(page.owner))return;
+      setThreadErrors(all=>{
+        if(privacyEpoch.current!==privacyAtStart||threadEpochs.current[id]!==epoch)return all;
+        const next={...all};delete next[id];return next;
+      });
       setThreads(all=>{
-        if(privacyEpoch.current!==privacyAtStart)return all;
+        if(privacyEpoch.current!==privacyAtStart||threadEpochs.current[id]!==epoch)return all;
         const prev=all[id];
         return {...all,[id]:{
           items:append&&prev?mergeUnique(prev.items,page.items,x=>x.id):page.items,
@@ -225,8 +234,12 @@ export default function ProductChat(){
       if(e instanceof HistoryFailure&&e.reason==='invalid'){
         invalidate(new HistoryFailure(401,'unauthorized'));return;
       }
-      setThreads(all=>{const next={...all};delete next[id];return next;});
-      setError(failureLabel(e));
+      setThreads(all=>{
+        if(privacyEpoch.current!==privacyAtStart||threadEpochs.current[id]!==epoch)return all;
+        const next={...all};delete next[id];return next;
+      });
+      setThreadErrors(all=>privacyEpoch.current===privacyAtStart&&
+        threadEpochs.current[id]===epoch?{...all,[id]:failureLabel(e)}:all);
     }
   },[invalidate,matchOwner]);
   const probe=useCallback(async (record:AttemptCheckpoint)=>{
@@ -429,6 +442,11 @@ export default function ProductChat(){
         !isTerminal(a.phase)&&
         (a.record.resolved_conversation_id??a.record.requested_conversation_id)===original))
       return;
+    // The signed owner established by the latest History page is frozen
+    // for this POST. A delayed receipt must never repopulate the UI after
+    // a 401, session rotation or transient owner-revalidation failure.
+    const privacyAtStart=privacyEpoch.current;
+    const ownerRevision=ownerFence.current.capture();
     const request=newSend(question,original);
     const record:AttemptCheckpoint={
       requested_conversation_id:request.requested_conversation_id,
@@ -448,7 +466,8 @@ export default function ProductChat(){
     setAttempts(all=>({...all,[record.client_message_id]:attempt}));
     try{
       const receipt=await sendMessage(request); // exactly one POST per user action
-      if(lost.current)return;
+      if(lost.current||!sameOwnerPrivacyEpoch(ownerFence.current,
+          ownerRevision,privacyAtStart,privacyEpoch.current))return;
       setAttempts(all=>{const prev=all[record.client_message_id];return prev?
         {...all,[record.client_message_id]:{
           ...prev,
@@ -462,6 +481,8 @@ export default function ProductChat(){
       void loadList();void loadThread(receipt.id);
       void probe(record); // GET only
     }catch(e){
+      if(lost.current||!sameOwnerPrivacyEpoch(ownerFence.current,
+          ownerRevision,privacyAtStart,privacyEpoch.current))return;
       if(invalidate(e)||lost.current)return;
       setAttempts(all=>{const prev=all[record.client_message_id];return prev?
         {...all,[record.client_message_id]:{...prev,phase:'transport_unknown'}}:all;});
@@ -473,6 +494,7 @@ export default function ProductChat(){
   // currently authenticated owner cannot be revalidated.
   const verifiedPage=listState==='ready';
   const messagesFor=verifiedPage?threads[selected]:undefined;
+  const threadError=verifiedPage?threadErrors[selected]:undefined;
   const renderedIds=new Set(messagesFor?.items.map(m=>m.id)??[]);
   const answers=new Map((messagesFor?.answers??[]).map(a=>[a.messageId,a.payload]));
   const selectedAttempts=verifiedPage?Object.values(attempts).filter(a=>a.viewId===selected):[];
@@ -521,6 +543,7 @@ export default function ProductChat(){
         </button>)}
       </nav>
       {list.more&&<button type="button" className="secondary"
+        data-testid="more-conversations"
         onClick={()=>void loadList(true,list.next)}>نمایش گفت‌وگوهای بیشتر</button>}
       <button type="button" className="secondary" data-testid="refresh-history"
         onClick={()=>void loadList()} disabled={listState==='unauthorized'}>بازخوانی</button>
@@ -551,7 +574,7 @@ export default function ProductChat(){
             :capabilityState==='unavailable'
             ?'قابلیت ارسال از سرور قابل تأیید نیست؛ ارسال غیرفعال است.'
             :runtimeCapability.send_mode==='DISABLED'
-            ?'برنامه در حالت بدون موتور فعال است؛ تاریخچه قابل مشاهده است، اما ارسال پرسش و تولید پاسخ غیرفعال است.'
+            ?'برنامه در حالت بدون موتور فعال است؛ ارسال پرسش و تولید پاسخ غیرفعال است. تاریخچه فقط پس از ورود و اتصال امن به سرور داده قابل مشاهده است.'
             :'فقط ثبت و بازیابی فنی NO_DISPATCH_ONLY مجاز است؛ تولید پاسخ و موتور زنده فعال نیست.'}
         </p>
         <Link className="history-link" href="/account">حساب، حریم خصوصی و وضعیت قابلیت‌ها</Link>
@@ -560,14 +583,24 @@ export default function ProductChat(){
         برای مشاهدهٔ گفت‌وگوها باید <Link href="/login">وارد حساب شوید</Link>.
       </p>}
       {error&&<p className="history-error" role="alert">{error}</p>}
+      {listError&&<p className="history-error" role="alert" data-testid="history-list-error">{listError}</p>}
+      {threadError&&<div>
+        <p className="history-error" role="alert" data-testid="history-thread-error">{threadError}</p>
+        <button type="button" className="secondary" data-testid="retry-history-thread"
+          onClick={()=>void loadThread(selected)}>بازخوانی پیام‌های همین گفت‌وگو</button>
+      </div>}
       {listState==='error'&&<p role="status" data-testid="history-owner-revalidation-required"
         className="history-note">
         اتصال برای تأیید مالک و نشست برقرار نیست؛ پیام‌های قبلی موقتاً پنهان
         و ارسال پرسش تا بازخوانی موفق غیرفعال است.
       </p>}
       <div className="history-messages" aria-live="polite">
-        {!messagesFor&&!selectedAttempts.length&&listState!=='unauthorized'&&
+        {verifiedPage&&!selectedAttempts.length&&!threadError&&selected.startsWith('draft:')&&
           <p className="history-empty">پرسشتان را بنویسید یا گفت‌وگویی از فهرست باز کنید.</p>}
+        {verifiedPage&&!selected.startsWith('draft:')&&!messagesFor&&!threadError&&
+          <p role="status" className="history-note" data-testid="history-thread-loading">در حال بارگذاری پیام‌ها…</p>}
+        {messagesFor&&messagesFor.items.length===0&&!selectedAttempts.length&&
+          <p role="status" className="history-note" data-testid="history-thread-empty">هنوز پیامی در این گفت‌وگو ثبت نشده است.</p>}
         {(messagesFor?.items??[]).map(m=><article key={m.id}
           data-testid={'history-message-'+m.id}
           className={m.role==='user'?'history-user':'history-answer'}>
@@ -611,6 +644,7 @@ export default function ProductChat(){
           </button>}
         </article>)}
         {messagesFor?.more&&<button type="button" className="secondary"
+          data-testid="more-messages"
           onClick={()=>void loadThread(selected,true,messagesFor.next)}>
           پیام‌های بیشتر
         </button>}
@@ -619,8 +653,13 @@ export default function ProductChat(){
         <label htmlFor="product-question" className="sr-only">پرسش فارسی</label>
         <div className="composer">
           <textarea id="product-question" rows={2} data-testid="history-question"
-            value={drafts[selected]??''} disabled={busy||!verifiedPage||!canSend}
-            onChange={e=>setDrafts(all=>({...all,[selected]:e.target.value}))}
+            // Keep the unsent in-memory draft private until the same owner
+            // is revalidated. Invalidate already clears drafts on 401/change.
+            value={verifiedPage?(drafts[selected]??''):''} disabled={busy||!verifiedPage||!canSend}
+            onChange={e=>{
+              if(verifiedPage&&canSend&&!busy)
+                setDrafts(all=>({...all,[selected]:e.target.value}));
+            }}
             placeholder="سؤال خود را به فارسی بنویسید…"/>
           <button type="submit" className="primary" data-testid="history-send"
             disabled={busy||!verifiedPage||!canSend||!(drafts[selected]??'').trim()}>ارسال پرسش</button>

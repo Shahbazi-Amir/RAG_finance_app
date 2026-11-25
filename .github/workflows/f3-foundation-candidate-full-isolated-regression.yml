@@ -2,7 +2,7 @@ name: FOUNDATION F3 exact-branch full isolated app-only source images and PG17.1
 
 on:
   push:
-    branches: [integration/f3-foundation-history-two-users-20261124]
+    branches: [integration/f3-foundation-history-two-users-20261124, agent/ui-f3-foundation-88-verified-131-transfer-20261125]
   workflow_dispatch:
 
 permissions:
@@ -146,7 +146,7 @@ jobs:
           test "$(curl -s --max-time 3 -o /dev/null -w '%{http_code}' -H 'x-owner-user-id: forgedA' http://127.0.0.1:8118/v1/conversations)" = 503
           echo F3_APP_ONLY_REAL_ASGI_LIVE_READY503_SEND503_OWNER503_NO_ENGINE_PASS
       - name: Install pinned browser for synthetic History and real Next APP_ONLY
-        run: python -m playwright install --with-deps chromium
+        run: bash scripts/phase3/install_ci_playwright_browser.sh chromium
       - name: Existing React desktop/mobile A-B 401/503 regression (synthetic intercepted History only)
         run: |
           set -euo pipefail
@@ -158,6 +158,9 @@ jobs:
             sleep 1
           done
           python tests/phase3/integration/ui/product_chat_browser.py
+          python tests/phase3/integration/ui/history_thread_retry_browser.py | tee "$RUNNER_TEMP/f3-thread-draft-fixture.log"
+          grep -Fx F3_L1_THREAD_LOADING_EMPTY_SCOPED_ERROR_RETRY_GET_ONLY_PASS "$RUNNER_TEMP/f3-thread-draft-fixture.log"
+          grep -Fx F3_L1_DRAFT_HIDDEN_ON_OUTAGE_SAME_OWNER_ONLY_RESTORE_ZERO_POST_PASS "$RUNNER_TEMP/f3-thread-draft-fixture.log"
       - name: Real Next APP_ONLY run with disabled Send and 503 before API
         env:
           PHASE3_APP_MODE: APP_ONLY
