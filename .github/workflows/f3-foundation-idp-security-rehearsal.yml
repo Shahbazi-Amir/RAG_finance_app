@@ -5,6 +5,8 @@ on:
     paths:
       - 'tests/phase3/integration/foundation/f3_disposable_idp_security.py'
       - '.github/workflows/f3-foundation-idp-security-rehearsal.yml'
+      - 'tests/phase3/foundation/test_f3_phase4_contract_draft.py'
+      - 'docs/operations/F3_PHASE4_EXTENSION_BOUNDARY_DRAFT.schema.json'
   workflow_dispatch:
 permissions:
   contents: read
@@ -37,4 +39,26 @@ jobs:
         with:
           name: f3-disposable-idp-security
           path: ci_receipts/f3_disposable_idp_security.json
+          if-no-files-found: error
+
+  phase4-design-only:
+    if: github.repository == 'Shahbazi-Amir/RAG_finance_app' && github.ref == 'refs/heads/integration/f3-foundation-send-fence-restore-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install exact locked API validation libraries, no engine
+        run: python -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r locks/requirements-api.lock
+      - name: Proposed extension version and negative boundary tests
+        run: python tests/phase3/foundation/test_f3_phase4_contract_draft.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f3-phase4-extension-contract-draft-only
+          path: ci_receipts/f3_phase4_extension_contract_draft.json
           if-no-files-found: error

@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rag-finance:phase4:extension-boundary:draft:v1",
+  "title": "Phase4 design-only extension contract, NOT a product payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "status",
+    "runtime_enabled",
+    "entities"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "phase4.extension-boundary.draft.v1"
+    },
+    "status": {
+      "const": "PROPOSAL_NOT_APPROVED"
+    },
+    "runtime_enabled": {
+      "const": false
+    },
+    "entities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "financial_profiles",
+        "assessments",
+        "goals",
+        "action_plans"
+      ],
+      "properties": {
+        "financial_profiles": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/identity"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "entity": {
+                  "const": "financial_profiles"
+                },
+                "refs": {
+                  "type": "array",
+                  "maxItems": 0
+                }
+              }
+            }
+          ]
+        },
+        "assessments": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/identity"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "entity": {
+                  "const": "assessments"
+                },
+                "refs": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "items": {
+                    "allOf": [
+                      {
+                        "$ref": "#/$defs/ref"
+                      },
+                      {
+                        "properties": {
+                          "entity": {
+                            "const": "financial_profiles"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "goals": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/identity"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "entity": {
+                  "const": "goals"
+                },
+                "refs": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 2,
+                  "uniqueItems": true,
+                  "items": {
+                    "allOf": [
+                      {
+                        "$ref": "#/$defs/ref"
+                      },
+                      {
+                        "properties": {
+                          "entity": {
+                            "enum": [
+                              "financial_profiles",
+                              "assessments"
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "action_plans": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/identity"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "entity": {
+                  "const": "action_plans"
+                },
+                "refs": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "items": {
+                    "allOf": [
+                      {
+                        "$ref": "#/$defs/ref"
+                      },
+                      {
+                        "properties": {
+                          "entity": {
+                            "const": "goals"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "syntheticId": {
+      "type": "string",
+      "pattern": "^synthetic_[a-z0-9_]{1,48}$"
+    },
+    "ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entity",
+        "id",
+        "owner_ref"
+      ],
+      "properties": {
+        "entity": {
+          "enum": [
+            "financial_profiles",
+            "assessments",
+            "goals",
+            "action_plans"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/syntheticId"
+        },
+        "owner_ref": {
+          "$ref": "#/$defs/syntheticId"
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entity",
+        "id",
+        "owner_ref",
+        "revision",
+        "refs"
+      ],
+      "properties": {
+        "entity": {
+          "enum": [
+            "financial_profiles",
+            "assessments",
+            "goals",
+            "action_plans"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/syntheticId"
+        },
+        "owner_ref": {
+          "$ref": "#/$defs/syntheticId"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ref"
+          }
+        }
+      }
+    }
+  }
+}
