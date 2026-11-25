@@ -51,7 +51,7 @@ jobs:
           for k in ("basebackup_manifest_verified","wal_after_basebackup_replayed","later_commit_excluded","same_physical_system_identifier","new_volume_promoted_timeline","ledger_exact","history_exact","restricted_set_role_rls","a_revoked_at_target","b_post_target_revocation_absent"):
               assert r[k] is True,k
           assert r["network"]=="NONE" and r["stale_session_admission"] is False
-          for k in ("detached_backup_volume_verified","source_stopped_before_recovery","source_volume_not_mounted_on_target"):
+          for k in ("detached_backup_volume_verified","source_stopped_before_recovery","source_volume_not_mounted_on_target","tampered_base_rejected","missing_post_base_wal_rejected_no_promotion","original_detached_backup_verified_after_faults"):
               assert r[k] is True,k
           assert r["operational_rpo_rto"]=="NOT_ATTESTED"
           assert r["accepted"] is False and r["engine_calls"]==0 and r["sql_011"] is False

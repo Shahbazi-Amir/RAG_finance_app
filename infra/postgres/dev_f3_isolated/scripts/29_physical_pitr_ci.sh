@@ -57,12 +57,19 @@ compose exec -T -u postgres lab-db pg_basebackup -h /var/run/postgresql -U postg
  -D /var/lib/postgresql/data/f3-pitr-base -X stream --checkpoint=fast --manifest-checksums=SHA256
 compose exec -T -u postgres lab-db pg_verifybackup /var/lib/postgresql/data/f3-pitr-base >/dev/null
 echo DB_PITR_REAL_PHYSICAL_BASEBACKUP_MANIFEST_VERIFIED=PASS
+# Ensure the target transaction is in WAL generated strictly AFTER the
+# streamed basebackup, not in pg_wal already included in that backup.
+dbpsql -Atq -c "SELECT pg_create_restore_point('f3_after_base_before_switch')" >/dev/null
+dbpsql -Atq -c 'SELECT pg_switch_wal()' >/dev/null
 # Post-basebackup committed write and revocation before target; a physical
 # restore that merely boots the basebackup must fail these assertions.
 dbpsql -q -c "INSERT INTO history_l1.conversations(owner_id,id,title) VALUES('f3-pitr-a','pitr-a-before-target','A committed after base backup')"
 [[ "$(dbpsql -Atq -c "BEGIN; SET LOCAL ROLE auth_sessions; SELECT auth_l1.revoke_one('$a_digest',0); COMMIT;")" == t ]] || exit 70
 point="$(dbpsql -Atq -c "SELECT pg_create_restore_point('f3_after_a_revoke')")"
 [[ "$point" =~ ^[A-F0-9]+/[A-F0-9]+$ ]] || exit 70
+target_segment="$(dbpsql -Atq -c "SELECT pg_walfile_name('$point'::pg_lsn)")"
+[[ "$target_segment" =~ ^[A-F0-9]{24}$ ]] || exit 70
+compose exec -T -u postgres lab-db test ! -e "/var/lib/postgresql/data/f3-pitr-base/pg_wal/$target_segment"
 target="$(dbpsql -Atq -c "SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US')||'+00'")"
 [[ "$target" =~ ^[0-9-]{10}\ [0-9:.]{15}\+00$ ]] || exit 70
 source_snapshot="$(dbpsql -Atq -c "SELECT to_jsonb(t)::text FROM history_l1.conversations t WHERE owner_id IN ('f3-pitr-a','f3-pitr-b') ORDER BY owner_id,id" | sha256sum | awk '{print $1}')"
@@ -81,6 +88,7 @@ for n in $(seq 1 60); do
  sleep 1
 done
 compose exec -T -u postgres lab-db test -s "/var/lib/postgresql/data/f3-pitr-wal/$segment"
+compose exec -T -u postgres lab-db test -s "/var/lib/postgresql/data/f3-pitr-wal/$target_segment"
 [[ "$(dbpsql -Atq -c "SELECT count(*) FROM auth_l1.sessions WHERE digest_sha256 IN ('$a_digest','$b_digest') AND status='revoked'")" == 2 ]] || exit 70
 echo DB_PITR_SOURCE_FUTURE_COMMIT_AND_WAL_ARCHIVED=PASS
 # Own a new, unique clone volume. The source volume is only ever mounted RO
@@ -88,11 +96,24 @@ echo DB_PITR_SOURCE_FUTURE_COMMIT_AND_WAL_ARCHIVED=PASS
 name="f3-pitr-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
 vol="$name-data"
 backupvol="$name-backup"
+faultvol="$name-fault-data"
+faultname="$name-missing-wal"
+if docker volume inspect "$faultvol" >/dev/null 2>&1 || docker container inspect "$faultname" >/dev/null 2>&1; then
+  echo STOP_EXISTING_PITR_FAULT_RESOURCE >&2; exit 70
+fi
 if docker volume inspect "$vol" >/dev/null 2>&1 || docker volume inspect "$backupvol" >/dev/null 2>&1 || docker container inspect "$name" >/dev/null 2>&1; then
   echo STOP_EXISTING_PITR_RESOURCE >&2; exit 70
 fi
 docker volume create --label "rag.finance.ci.pitr=$name" "$vol" >/dev/null
 cleanup(){
+  if docker container inspect "$faultname" >/dev/null 2>&1; then
+    [[ "$(docker inspect -f '{{index .Config.Labels "rag.finance.ci.pitr"}}' "$faultname")" == "$name" ]] || return 70
+    docker rm -f "$faultname" >/dev/null
+  fi
+  if docker volume inspect "$faultvol" >/dev/null 2>&1; then
+    [[ "$(docker volume inspect -f '{{index .Labels "rag.finance.ci.pitr"}}' "$faultvol")" == "$name" ]] || return 70
+    docker volume rm "$faultvol" >/dev/null
+  fi
   if docker container inspect "$name" >/dev/null 2>&1; then
     [[ "$(docker inspect -f '{{index .Config.Labels "rag.finance.ci.pitr"}}' "$name")" == "$name" ]] && docker rm -f "$name" >/dev/null
   fi
@@ -119,6 +140,67 @@ docker run --rm --network none --pull never --entrypoint bash \
 docker stop --time 5 "$cid" >/dev/null
 [[ "$(docker inspect -f '{{.State.Running}}' "$cid")" == false ]] || exit 70
 echo DB_PITR_DETACHED_BASE_WAL_VERIFIED_SOURCE_STOPPED=PASS
+# Never damage the valid backup. Create a distinct negative-test volume
+# with one actual target archive segment absent and a separate tampered
+# base copy. Verify both failures before the ordinary positive restore.
+docker volume create --label "rag.finance.ci.pitr=$name" "$faultvol" >/dev/null
+docker run --rm --network none --pull never --entrypoint bash \
+ --mount "type=volume,source=$backupvol,target=/backup,readonly" \
+ --mount "type=volume,source=$faultvol,target=/fault" \
+ -e TARGET_WAL="$target_segment" "$image" -euc '
+  test -s "/backup/wal/$TARGET_WAL"
+  test ! -e "/backup/base/pg_wal/$TARGET_WAL"
+  test ! -e /fault/pgdata && test ! -e /fault/wal && test ! -e /fault/tampered
+  cp -a /backup/base /fault/tampered
+  printf "\nci-tamper\n" >> /fault/tampered/PG_VERSION
+  set +e
+  su postgres -s /bin/bash -c "pg_verifybackup /fault/tampered" >/fault/verify-private.log 2>&1
+  rc=$?
+  set -e
+  test "$rc" -ne 0
+  grep -Eiq "PG_VERSION.*(checksum|size)|((checksum|size).*PG_VERSION)" /fault/verify-private.log
+  echo DB_PITR_TAMPERED_BASE_MANIFEST_REJECTED=PASS
+  cp -a /backup/base /fault/pgdata
+  cp -a /backup/wal /fault/wal
+  rm -- "/fault/wal/$TARGET_WAL"
+  test ! -e "/fault/wal/$TARGET_WAL" && test ! -e "/fault/pgdata/pg_wal/$TARGET_WAL"
+  printf "local all postgres trust\nlocal all all reject\n" > /fault/pgdata/f3-pitr-hba.conf
+  touch /fault/pgdata/recovery.signal
+  chown postgres:postgres /fault/pgdata/f3-pitr-hba.conf /fault/pgdata/recovery.signal
+  chmod 0600 /fault/pgdata/f3-pitr-hba.conf /fault/pgdata/recovery.signal
+'
+docker run -d --name "$faultname" --label "rag.finance.ci.pitr=$name" --network none \
+ --pull never --user postgres --entrypoint postgres \
+ --mount "type=volume,source=$faultvol,target=/var/lib/postgresql/data" \
+ "$image" -D /var/lib/postgresql/data/pgdata \
+ -c "listen_addresses=" -c ssl=off -c archive_mode=off \
+ -c hba_file=/var/lib/postgresql/data/pgdata/f3-pitr-hba.conf \
+ -c 'restore_command=cp /var/lib/postgresql/data/wal/%f %p' \
+ -c "recovery_target_time=$target" -c recovery_target_action=promote >/dev/null
+[[ "$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$faultname")" == none ]] || exit 70
+[[ "$(docker inspect -f '{{range .Mounts}}{{println .Name}}{{end}}' "$faultname")" == "$faultvol" ]] || exit 70
+for n in $(seq 1 45); do
+  if [[ "$(docker inspect -f '{{.State.Running}}' "$faultname")" == false ]]; then break; fi
+  sleep 1
+done
+[[ "$(docker inspect -f '{{.State.Running}}' "$faultname")" == false ]] || { echo STOP_MISSING_WAL_DID_NOT_FAIL_CLOSED >&2; exit 70; }
+[[ "$(docker inspect -f '{{.State.ExitCode}}' "$faultname")" != 0 ]] || exit 70
+# A startup error unrelated to the intended fault is NOT success.
+docker logs "$faultname" 2>&1 | grep -F 'recovery ended before configured recovery target was reached'
+if docker logs "$faultname" 2>&1 | grep -Eq 'archive recovery complete|selected new timeline ID'; then
+  echo STOP_MISSING_WAL_PROMOTED >&2; exit 70
+fi
+echo DB_PITR_ACTUAL_MISSING_POST_BASE_WAL_REJECTED_NO_PROMOTION=PASS
+docker rm "$faultname" >/dev/null
+docker volume rm "$faultvol" >/dev/null
+# Recheck original detached backup, never rewrite it after fault injection.
+docker run --rm --network none --pull never --user postgres --entrypoint bash \
+ --mount "type=volume,source=$backupvol,target=/backup,readonly" \
+ -e TARGET_WAL="$target_segment" "$image" -euc '
+  test -s "/backup/wal/$TARGET_WAL"
+  pg_verifybackup /backup/base
+' >/dev/null
+echo DB_PITR_ORIGINAL_DETACHED_BACKUP_INTACT_AFTER_NEGATIVES=PASS
 docker run --rm --network none --pull never --entrypoint bash \
  --mount "type=volume,source=$backupvol,target=/backup,readonly" \
  --mount "type=volume,source=$vol,target=/clone" "$image" -euc '
@@ -192,6 +274,8 @@ p.write_text(json.dumps({
  "new_volume_promoted_timeline":True,"ledger_exact":True,"history_exact":True,
  "detached_backup_volume_verified":True,"source_stopped_before_recovery":True,
  "source_volume_not_mounted_on_target":True,
+ "tampered_base_rejected":True,"missing_post_base_wal_rejected_no_promotion":True,
+ "original_detached_backup_verified_after_faults":True,
  "restricted_set_role_rls":True,"target_tls_login":"NOT_RUN_NETWORK_NONE",
  "a_revoked_at_target":True,"b_post_target_revocation_absent":True,
  "stale_session_admission":False,"network":"NONE",

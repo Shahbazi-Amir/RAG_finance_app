@@ -127,6 +127,7 @@ test('a source link is offered only for a valid verified HTTPS URL locator',()=>
     assert.equal(verifiedSourceUrl({...source,locator:{
       kind:'url',url:'https://example.org/verified',page:null,timestamp_ms:null},
       resolution_status:'verified',attribution_status:'verified',
+      source_type:'website',source_id:'source_web_verified',
       display_title_origin:'source_record'}),'https://example.org/verified');
     assert.equal(verifiedSourceUrl({...source,locator:{
       kind:'url',url:'https://user:pass@example.org',page:null,timestamp_ms:null},
@@ -146,7 +147,10 @@ test('synthetic/provisional Answer is never user-visible even if committed',()=>
   assert.equal(isVerifiedLiveAnswer(fake),false);
   const live={...synthetic,provenance:{
     ...synthetic.provenance,origin:'LIVE_VERIFIED',
-    rag_binding:{...synthetic.provenance.rag_binding,status:'verified',adapter_verified:true}
+    producer_reference:'real-signature-verification-ci',
+    source_fingerprint:'a'.repeat(64),
+    rag_binding:{...synthetic.provenance.rag_binding,status:'verified',
+      blocked_by:null,release_id:'verified_ci_release',adapter_verified:true}
   }};
   // A valid RAG provenance flag alone is NOT permission to show an Answer
   // whose claim points to an unresolved, uncitable source.
@@ -169,7 +173,10 @@ test('verified claim gate checks all five typed locators, rejects unsafe URL and
   const original=fixture('valid_answer_unresolved_source');
   const trusted={...original,provenance:{
     ...original.provenance,origin:'LIVE_VERIFIED',
-    rag_binding:{...original.provenance.rag_binding,status:'verified',adapter_verified:true}
+    producer_reference:'real-signature-verification-ci',
+    source_fingerprint:'b'.repeat(64),
+    rag_binding:{...original.provenance.rag_binding,status:'verified',
+      blocked_by:null,release_id:'verified_ci_release',adapter_verified:true}
   }};
   const template={...original.citations[0].source,
     source_type:'website',source_id:'source_site_verified',

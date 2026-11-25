@@ -1,0 +1,31 @@
+{
+  "scope": "DB_OWNER_TRANSFER_REPAIR_NO_ACCEPTANCE",
+  "prior_transfer_sha": "1bc994bbeaf9a292fff84d9deea847b75102a9bf",
+  "foundation_base_sha": "a93d7807b29c0f3743953be4379e524b0f97744d",
+  "source_sha": "1f816ad09c0167e2d4cc46724ad1791aaa11002b",
+  "source_browser_run": 45491527599,
+  "source_pitr_run": 45491527581,
+  "failed_browser_run": 45491931839,
+  "first_boundary": "HTTP 200 and 30 exact SQL IDs, DOM 0, old Date.parse millisecond order and missing more-messages test id",
+  "changes": "Transfer previously verified UI microsecond ordering, owner fence and provenance delta, their tests, scale preflight and missing-WAL/tamper PITR. No new product policy or assertion weakening. Only new workflows adjusted for branch and UI tests.",
+  "source_blobs": {
+    "apps/web/src/history/client.ts": "f0932d08ff37215111c04fea38f6503d4d3f41f1",
+    "apps/web/src/ui/product-chat.tsx": "5f120827d93cbbf11e534c227cda82f55fbd83ec",
+    "apps/web/src/ui/owner-fence.ts": "f57541d9cd92c57bc8e6562d88ad2c35344fa5ba",
+    "apps/web/src/mock/transport.ts": "8910fccfffb9afe4eb3f64ee615485272b6da591",
+    "apps/web/src/ui/answer-visibility.ts": "5ef344f6c5ef85d00ff31a43ec3aa568c1250068",
+    "apps/web/src/ui/source-locator.ts": "ef10bfa6de16f8c54c88c47183bc956d46c9df71",
+    "tests/phase3/ui/history-microsecond-ordering.test.mjs": "9aa6c4d8e1d433579418a54b87ce15e8bd8de069",
+    "tests/phase3/ui/owner-fence.test.mjs": "d73d500c3f20501cc388a25fb0b011eee77b71c8",
+    "tests/phase3/ui/live-answer-provenance-gate.test.mjs": "e996fba0b736d7dffb98f940d1bec0e7ab84606a",
+    "tests/phase3/ui/product-chat-client.test.mjs": "75086bacf70fe9612e04bcc7f19ef76acc75e404",
+    "tests/phase3/ui/source-display.test.mjs": "eb515e893248428710012f07b9678235963e541d",
+    "tests/phase3/integration/api/db_repository_scale_ci.py": "6e611689ec132a0f0a6846db076998bb15f053b3",
+    "tests/phase3/integration/api/db_common_compose_browser_journey.py": "845c153c54de014e333c9c37d9961358b2a00d6b",
+    "infra/postgres/dev_f3_isolated/scripts/29_physical_pitr_ci.sh": "3d4c9bf7f656ddd5ddc147e713c7a8b52d861833"
+  },
+  "accepted": false,
+  "target_verified": false,
+  "engine_calls": 0,
+  "sql_011": false
+}
