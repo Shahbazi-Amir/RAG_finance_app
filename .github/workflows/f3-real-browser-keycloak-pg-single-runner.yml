@@ -69,7 +69,7 @@ jobs:
       - name: Audit canonical 393 IDs without acceptance promotion
         run: |
           set -euo pipefail
-          python -m unittest discover -s tests/phase3/foundation -p 'test_phase3_393_register_integrity.py' -v
+          python -m unittest discover -s tests/phase3/integration -p 'test_integrated_393_registry.py' -k all_393_source_ids_one_to_one -v
       - name: Stage exact tested #48 API workers/harness (CI filesystem only)
         run: |
           set -euo pipefail
