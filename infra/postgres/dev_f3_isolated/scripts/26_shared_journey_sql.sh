@@ -84,10 +84,24 @@ cluster="$(admin -c 'SELECT system_identifier FROM pg_control_system()')"
 if [[ "$stage" == seed ]]; then
   # Only seed empty History; no pre-existing data or receipt is overwritten.
   [[ "$(admin -c "SELECT (SELECT count(*) FROM history_l1.conversations)+(SELECT count(*) FROM history_l1.messages)+(SELECT count(*) FROM history_l1.create_receipts)+(SELECT count(*) FROM history_l1.send_receipts)+(SELECT count(*) FROM history_l1.execution_attempts)+(SELECT count(*) FROM history_l1.answers)")" == 0 ]] || { echo STOP_NOT_EMPTY_HISTORY; exit 70; }
-  for label in a b; do
-    owner="$a"; [[ "$label" == a ]] || owner="$b"
-    role_sql history_app -v owner="$owner" -v label="$label" <<'SQL' >/dev/null
+  role_sql history_app -v a="$a" -v b="$b" <<'SQL' >/dev/null
 BEGIN;
+\set owner :a
+\set label a
+SELECT set_config('app.owner_id',:'owner',true) AS scope \gset
+INSERT INTO history_l1.conversations(owner_id,id,title,state,created_at,updated_at)
+SELECT :'owner', :'label'||'0000000-0000-4000-8000-00000000000'||n,
+       'journey-'||:'label'||'-'||n, 'active',
+       '2026-01-01T00:00:00Z'::timestamptz+make_interval(secs=>CASE WHEN n=1 THEN 1 ELSE 2 END),
+       '2026-01-01T00:00:00Z'::timestamptz+make_interval(secs=>CASE WHEN n=1 THEN 1 ELSE 2 END)
+FROM generate_series(1,3) n;
+INSERT INTO history_l1.messages(owner_id,id,conversation_id,role,body,created_at)
+SELECT :'owner', :'label'||'1000000-0000-4000-8000-00000000000'||n,
+       :'label'||'0000000-0000-4000-8000-000000000003','user','journey-'||:'label'||'-message-'||n,
+       '2026-01-01T00:00:00Z'::timestamptz+make_interval(secs=>CASE WHEN n=1 THEN 1 ELSE 2 END)
+FROM generate_series(1,3) n;
+\set owner :b
+\set label b
 SELECT set_config('app.owner_id',:'owner',true) AS scope \gset
 INSERT INTO history_l1.conversations(owner_id,id,title,state,created_at,updated_at)
 SELECT :'owner', :'label'||'0000000-0000-4000-8000-00000000000'||n,
@@ -102,7 +116,6 @@ SELECT :'owner', :'label'||'1000000-0000-4000-8000-00000000000'||n,
 FROM generate_series(1,3) n;
 COMMIT;
 SQL
-  done
   printf '%s\n' "$mapping_hash" > "$LAB_WORK/journey-mapping.sha256"
   printf '%s\n' "$cluster" > "$LAB_WORK/journey-source-cluster"
   printf '%s\n' "$sha" > "$LAB_WORK/journey-source-sha"
@@ -117,6 +130,10 @@ else
 fi
 out="$LAB_WORK/journey-$stage.json"
 [[ ! -e "$out" ]] || exit 70
+# Global counts independently catch unexpected writes even to a third owner.
+# Never return actual rows from the privileged connection.
+global_counts="$(admin -c "SELECT json_build_array((SELECT count(*) FROM history_l1.conversations),(SELECT count(*) FROM history_l1.messages),(SELECT count(*) FROM history_l1.create_receipts),(SELECT count(*) FROM history_l1.send_receipts),(SELECT count(*) FROM history_l1.execution_attempts),(SELECT count(*) FROM history_l1.answers))")"
+[[ "$(printf '%s' "$global_counts" | tr -d ' ')" == '[6,6,0,0,0,0]' ]] || { echo STOP_UNEXPECTED_GLOBAL_HISTORY_WRITE; exit 70; }
 for label in a b; do
   owner="$a"; foreign=b
   if [[ "$label" == b ]]; then owner="$b"; foreign=a; fi
@@ -179,6 +196,7 @@ receipt = {"contract_version": "f3.db.shared_journey.sql.v1", "stage":stage,
     "source_sha":sha, "identity_mode":mode, "owners":observed,
     "role":"history_app", "tls":"verify-full", "pg":"17.11",
     "migration_range":"001-010", "force_rls_tables":14,
+    "global_history_counts":[6,6,0,0,0,0],
     "independent_restore_cluster": stage == "after-restore",
     "http_browser_action": "NOT_VERIFIED_BY_SQL",
     "formal_acceptance": "NOT_ACCEPTED"}
