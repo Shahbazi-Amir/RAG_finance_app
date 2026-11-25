@@ -1,0 +1,99 @@
+# Derived from #85 isolated Compose and #84 signed listener, CI-only private network.
+# No ports, no Engine, no external ingress. Bootstrap listens on Web's loopback.
+name: ${F3_BROWSER_PROJECT:?}
+x-hardened: &hardened
+  init: true
+  restart: "no"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 256
+services:
+  api:
+    <<: *hardened
+    image: ${F3_SIGNED_IMAGE:?}
+    user: "11001:11001"
+    environment:
+      API_CURSOR_KEY: ${F3_CURSOR_KEY:?}
+      API_CURSOR_TTL_SECONDS: "300"
+    volumes:
+      - ${F3_BROWSER_ROOT:?}/api:/run/secrets:ro
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=16m,uid=11001,gid=11001
+    networks:
+      private: {aliases: [signed-api]}
+  web:
+    <<: *hardened
+    image: ${F3_WEB_IMAGE:?}
+    user: "11003:11003"
+    environment:
+      PHASE3_APP_MODE: APP_ONLY
+      AUTH_RUNTIME_PROFILE: private-staging
+      AUTH_STAGING_CONFIG_FILE: /run/web/config.json
+      NEXT_TELEMETRY_DISABLED: "1"
+    volumes:
+      - ${F3_BROWSER_ROOT:?}/web:/run/web:ro
+      - ${F3_STORE:?}:/run/aliases:rw
+    tmpfs:
+      - /tmp:rw,nosuid,size=32m,uid=11003,gid=11003
+      - /srv/release/apps/web/.next/cache:rw,nosuid,size=64m,uid=11003,gid=11003
+    networks: [private]
+  bootstrap:
+    <<: *hardened
+    image: ${F3_SIGNED_IMAGE:?}
+    user: "11001:11001"
+    network_mode: "service:web"
+    depends_on: [web]
+    command: ["python3","-m","apps.api.private_staging_bootstrap_asgi","--config","/run/bootstrap/config.json"]
+    healthcheck: {disable: true}
+    volumes:
+      - ${F3_BROWSER_ROOT:?}/bootstrap:/run/bootstrap:ro
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=16m,uid=11001,gid=11001
+  ingress:
+    <<: *hardened
+    image: ${F3_WEB_IMAGE:?}
+    user: "11003:11003"
+    command: ["node","/run/ingress/https-ingress.mjs"]
+    healthcheck: {disable: true}
+    volumes:
+      - ${F3_BROWSER_ROOT:?}/ingress:/run/ingress:ro
+    networks:
+      private: {aliases: [ragfinance.ir]}
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: "0"
+  idp:
+    image: quay.io/keycloak/keycloak:26.8.2
+    restart: "no"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    command: ["start-dev","--import-realm","--http-enabled=false","--https-port=443","--hostname=https://lab-idp.test","--hostname-strict=true","--https-certificate-file=/run/idp/idp.crt","--https-certificate-key-file=/run/idp/idp.key"]
+    volumes:
+      - ${F3_BROWSER_ROOT:?}/idp:/run/idp:ro
+      - ${F3_BROWSER_ROOT:?}/realm:/opt/keycloak/data/import:ro
+    networks:
+      private: {aliases: [lab-idp.test]}
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: "0"
+  browser:
+    image: ${F3_BROWSER_IMAGE:?}
+    profiles: [probe]
+    user: "11005:11005"
+    init: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    shm_size: 256m
+    environment:
+      HOME: /home/browser
+      PYTHONUNBUFFERED: "1"
+    tmpfs:
+      - /tmp:rw,nosuid,size=256m,uid=11005,gid=11005
+      - /home/browser:rw,nosuid,size=128m,uid=11005,gid=11005
+    volumes:
+      - ${F3_BROWSER_ROOT:?}/browser:/run/browser:ro
+    networks: [private]
+networks:
+  private:
+    external: true
+    name: ${F3_PRIVATE_NETWORK:?}
