@@ -462,6 +462,17 @@ jobs:
           assert replay["accepted"] is False and replay["target_verified"] is False
           for key in ("same_explicit_id_two_owners","null_and_explicit_scopes_independent","exact_t1_t2_ids_after_restart","exact_six_table_hashes_after_restart","cancelled_attempt_not_reopened"):
               assert replay[key] is True,key
+          restored_replay=replay["independent_restore"]
+          assert restored_replay["independent_pg_cluster"] and restored_replay["independent_volume"]
+          assert restored_replay["distinct_tls_sessions"]==16 and restored_replay["owner_scope_groups"]==4
+          assert restored_replay["created"]==0 and restored_replay["replayed"]==16
+          assert restored_replay["conflicting_payload_denials"]==4 and restored_replay["foreign_unknown_status_denials"]==8
+          for key in ("exact_t1_t2_ids","exact_six_table_hashes","terminal_cancelled_not_reopened","source_unchanged"):
+              assert restored_replay[key] is True,key
+          assert restored_replay["answer_rows"]==0 and restored_replay["engine_calls"]==0
+          assert not restored_replay["http_send_executed"] and not restored_replay["target_verified"] and not restored_replay["accepted"]
+          assert db["app_only_bff_send_retry_denials"]=={"SOURCE":{"A":6,"B":6},"RESTORED":{"A":6,"B":6}}
+          print("DB_IDEMPOTENCY_INDEPENDENT_RESTORE_AND_24_BFF_DENIALS_EXACT_SHA_RECEIPT=PASS")
           print("DB_IDEMPOTENCY_EXACT_SHA_SANITIZED_RECEIPT=PASS")
           concurrency=json.loads(Path("ci_receipts/db_concurrent_append_disconnect.json").read_text())
           assert concurrency["source_sha"]==sha and concurrency["repository_blob"]==scale["repository_blob"]
