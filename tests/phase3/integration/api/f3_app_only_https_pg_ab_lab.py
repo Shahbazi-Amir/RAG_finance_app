@@ -769,8 +769,20 @@ def verify_bodyless_signed_read_recovery(phase, state):
                 assert response.headers["cache-control"] == "no-store"
                 if path == "/health/ready":
                     assert response.json()["state"] == "ready"
+                elif path == "/v1/conversations":
+                    page = response.json()
+                    assert page["kind"] == "conversation_page"
+                    assert page["scope_user_id"] == state[label]["owner"]
+                    assert len(page["items"]) == 2
+                    assert all(item["owner_user_id"] == state[label]["owner"] for item in page["items"])
                 else:
-                    assert response.json()["scope_user_id"] == state[label]["owner"]
+                    page = response.json()
+                    assert page["kind"] == "conversation_messages_page"
+                    assert page["owner_user_id"] == state[label]["owner"]
+                    assert page["conversation_id"] == f"f3-net-{label}-1"
+                    assert len(page["items"]) == 2
+                    assert all(item["owner_user_id"] == state[label]["owner"] and
+                               item["conversation_id"] == page["conversation_id"] for item in page["items"])
                 replay = client.get(url, headers=headers)
                 assert replay.status_code == (503 if path == "/health/ready" else 401)
     print(f"API_F3_{phase.upper()}_BODYLESS_GET_SAME_PROOF_RECOVERY_REPLAY_DENY=PASS", flush=True)
