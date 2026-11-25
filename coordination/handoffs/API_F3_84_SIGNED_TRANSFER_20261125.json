@@ -74,8 +74,8 @@
       "pr80_blob": null,
       "selected_blob": "52c1cbf3dd3a2ad03cbd90430f6f6a50c5e3f46f",
       "source_sha": "f2b743a1588cac76fddafc36e3b489deb59d42ac",
-      "derived_blob": "1692e041a9902630a26fb577e65d7509055713cc",
-      "derivation": "API137 wave 2: explicit route allowlist / fixed redacted events or expanded actual signed SQL matrix, original selected blob retained"
+      "derived_blob": "6e508e19246ebc803c93c54cfedd7c295d493698",
+      "derivation": "API137 wave 2: explicit route allowlist / fixed redacted events or expanded actual signed SQL matrix, original selected blob retained; replay T1/T2 + signed status + cache negative independent subcases"
     },
     {
       "path": "infra/phase3_l1/Dockerfile.api.signed_history",

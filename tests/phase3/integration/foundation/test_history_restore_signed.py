@@ -158,6 +158,7 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
         selected=sorted(original_a)[0]
         selected_b=sorted(original_b)[0]
         detail_cases=[]
+        persisted_status=[]
         for actor,cid,label in ((a,selected,"A"),(b,selected_b,"B")):
             for i in range(3):
                 req={"kind":"send_message_request","contract_version":"product.v1",
@@ -165,7 +166,20 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
                      "idempotency_key":"api137_"+uuid.uuid4().hex,
                      "question":"API137_PRIVATE_"+label+"_"+str(i)}
                 with psycopg.connect(os.environ["DB_APP_DSN"],autocommit=True,row_factory=dict_row) as c:
-                    history_api.send_t1(c,actor["owner_id"],req,history_api.uid(),history_api.uid())
+                    first=history_api.send_t1(c,actor["owner_id"],req,history_api.uid(),history_api.uid())
+                    again=history_api.send_t1(c,actor["owner_id"],req,history_api.uid(),history_api.uid())
+                    self.assertEqual(again["disposition"],"replayed")
+                    self.assertEqual(first["message_id"],again["message_id"])
+                    self.assertEqual(first["payload_sha256"],again["payload_sha256"])
+                    with self.assertRaises(history_api.Conflict):
+                        history_api.send_t1(c,actor["owner_id"],{**req,"question":"different synthetic payload"},history_api.uid(),history_api.uid())
+                    # Original store only. No HTTP POST Send, no queue/engine.
+                    from repository import start_t2
+                    att=start_t2(c,actor["owner_id"],cid,req["client_message_id"],req["idempotency_key"],history_api.uid(),history_api.uid())
+                    retry=start_t2(c,actor["owner_id"],cid,req["client_message_id"],req["idempotency_key"],history_api.uid(),history_api.uid())
+                    self.assertEqual(att["id"],retry["id"])
+                    q="?"+urlencode({"requested_conversation_id":cid,"client_message_id":req["client_message_id"],"idempotency_key":req["idempotency_key"]})
+                    persisted_status.append((actor,q,first["message_id"],att["id"]))
             with connect() as c:
                 expected=c.execute("SELECT id,body FROM history_l1.messages WHERE owner_id=%s AND conversation_id=%s ORDER BY created_at,id",(actor["owner_id"],cid)).fetchall()
             self.assertEqual(len(expected),3)
@@ -394,6 +408,35 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
             flipped=("A" if cursor[0]!="A" else "B")+cursor[1:]
             pairs.append(error(get(actor,path,"?limit=1&cursor="+flipped),422,"INVALID_CURSOR"))
             pairs.append(error(get(actor,path,"?limit=2&cursor="+cursor),422,"INVALID_CURSOR"))
+        # Actual signed status reads after restoring the same durable IDs.
+        # The first and repeated GET must observe one T1/T2 and zero T3.
+        for actor,q,mid,aid in persisted_status:
+            for _ in range(2):
+                reply=get(actor,"/v1/message-requests/status",q)
+                self.assertEqual(reply.status_code,200)
+                doc=reply.json();history_api.VALIDATOR.validate(doc)
+                self.assertEqual(doc["message_id"],mid)
+                self.assertEqual(doc["attempt_id"],aid)
+                self.assertEqual(doc["status"],"attempt_pending")
+                self.assertIsNone(doc["answer"])
+            other=b if actor is a else a
+            pairs.append(error(get(other,"/v1/message-requests/status",q),404,"NOT_FOUND"))
+        with connect(5433,db="history_restore_f3_ci",extra=trusted) as c:
+            for actor,q,mid,aid in persisted_status:
+                self.assertEqual(c.execute("""SELECT count(*) FROM history_l1.send_receipts r JOIN history_l1.execution_attempts a ON a.owner_id=r.owner_id AND a.send_receipt_id=r.id
+                    WHERE r.owner_id=%s AND r.user_message_id=%s AND a.id=%s""",(actor["owner_id"],mid,aid)).fetchone()[0],1)
+                self.assertEqual(c.execute("SELECT count(*) FROM history_l1.answers WHERE attempt_id=%s",(aid,)).fetchone()[0],0)
+        # Conditional GET must neither return cached content nor admit a
+        # forged owner. Separate fresh signed reads from both genuine sessions.
+        for actor,cid,expected in detail_cases:
+            other=b if actor is a else a
+            url="/v1/conversations/"+cid+"/messages"
+            hdr={"If-None-Match":"*","If-Modified-Since":"Wed, 21 Oct 2015 07:28:00 GMT"}
+            self.assertEqual(get(actor,url,headers=hdr).status_code,200)
+            denial=get(other,url,headers=hdr)
+            pairs.append(error(denial,404,"NOT_FOUND"))
+            self.assertNotIn(expected[0][1],denial.text)
+            pairs.append(error(get(other,url,headers={**hdr,"X-Owner-ID":actor["owner_id"]}),401,"AUTH_REQUIRED"))
         # Strict temporal and identity binding on a fresh signature per case.
         now=int(time.time())
         invalid=[{"iss":"urn:api137:wrong"},{"aud":"urn:api137:wrong"},
@@ -454,7 +497,10 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
                 "invalid_signer_startup_exit":78,"invalid_signer_listen":False,
                 "expired_signature_denied":True,"expired_db_session_denied":True,"rotation_new_200_old_401":True,
                 "absolute_expiry_unchanged":True,"readiness_policy_approved":False,
-                "fixture_routes_denied":3,"durable_send_count_unchanged":True}
+                "fixture_routes_denied":3,"durable_send_count_unchanged":True,
+                "idempotent_original_store_t1_t2":len(persisted_status),"changed_payload_conflicts":len(persisted_status),
+                "restored_signed_status_reads":2*len(persisted_status),"actual_http_post_send_replay":False,
+                "conditional_cache_owner_negatives":4,"zero_t3_for_seeded_attempts":True}
         print("API137_SIGNED_DETAIL_CURSOR_SECURITY_ROTATION_MATRIX_PASS",flush=True)
         # A valid one-use assertion must not be accepted twice after restore.
         for actor in (a,b):
@@ -484,6 +530,10 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
         self.assertEqual(signed_ready(a).status_code,200)
         self.assertEqual(signed_ready(b).status_code,200)
         self.assertEqual(h.request("GET","/health/ready").status_code,503)
+        wrong_ready,_=h.signed(a,method="GET",path="/health/ready",override={"aud":"urn:api137:wrong"})
+        bad_ready=h.request("GET","/health/ready",wrong_ready)
+        self.assertEqual(bad_ready.status_code,503)
+        self.assertEqual(bad_ready.headers.get("cache-control"),"no-store")
         # Restart should never mask an unavailable Postgres dependency.
         command(["docker","stop",name])
         down=h.request("GET","/internal/ready")

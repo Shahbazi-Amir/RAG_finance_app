@@ -337,6 +337,10 @@ jobs:
           python -m unittest discover -s tests/phase3/integration/api -p 'test_app_only_mtls_network.py' -v
       - name: App-only explicit route allowlist and redacted event unit tests
         run: python -m unittest discover -s tests/phase3/api -p 'test_api137_app_only_surface.py' -v
+      - name: Generate versioned private read contract and verify exact product.v1 refs
+        run: |
+          python -m unittest discover -s tests/phase3/api -p 'test_api137_private_history_contract.py' -v
+          python -m apps.api.private_history_contract --out ci_receipts/api137_private_history_openapi.json
       - name: Signed History A/B on PostgreSQL then reissue after separate volume Restore
         run: |
           set -euo pipefail
@@ -349,6 +353,7 @@ jobs:
           path: |
             ci_receipts/f3_foundation_restored_signed_history.json
             ci_receipts/api84_baseline.json
+            ci_receipts/api137_private_history_openapi.json
           if-no-files-found: warn
           retention-days: 14
       - name: Show bounded SQL permissions and container status
