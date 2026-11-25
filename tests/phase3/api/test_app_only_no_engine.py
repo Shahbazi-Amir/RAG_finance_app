@@ -829,5 +829,82 @@ class AppOnlyNoEngineTests(unittest.TestCase):
                     spy.assert_not_called()
 
 
+    def test_runtime_signer_drift_denies_before_pg_or_handler_and_recovers(self):
+        from apps.api.app_only_signer_pin import SignerPin
+        from apps.api import product_session_api
+        profile = FakeProfile()
+        profile.load_public_key = lambda: b"original"
+        downstream = FastAPI()
+        calls = []
+        @downstream.get("/v1/conversations")
+        async def history():
+            calls.append("history")
+            return {"ok": True}
+        wrapper = AppOnlyASGI(downstream, profile, signer_pin=SignerPin.capture(b"original"))
+
+        async def invoke():
+            async def trusted(scope, receive, send):
+                scope["trusted_transport_test"] = True
+                return await wrapper(scope, receive, send)
+            async with AsyncClient(transport=ASGITransport(app=trusted),
+                                   base_url="https://test.invalid") as client:
+                self.assertEqual((await client.get("/v1/conversations")).status_code, 200)
+                profile.load_public_key = lambda: b"replacement"
+                for path in ("/v1/conversations", "/health/ready", "/internal/ready"):
+                    response = await client.get(path)
+                    self.assertEqual(response.status_code, 503)
+                    self.assertEqual(response.headers["cache-control"], "no-store")
+                    self.assertNotIn("replacement", response.text)
+                response = await client.post("/internal/auth/session/v1/revoke-one", content=b"bad")
+                self.assertEqual(response.status_code, 503)
+                self.assertEqual((await client.post("/v1/%6dessages", content=b"bad")).status_code, 503)
+                profile.load_public_key = lambda: b"original"
+                self.assertEqual((await client.get("/v1/conversations")).status_code, 200)
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}), \
+                patch("apps.api.private_app_only_asgi.verify_staging_database_authority",
+                      side_effect=AssertionError("MUST_NOT_PROBE_PG")) as pg, \
+                patch.object(product_session_api, "_signed_history",
+                             side_effect=AssertionError("MUST_NOT_ADMIT")) as admit:
+            asyncio.run(invoke())
+            pg.assert_not_called()
+            admit.assert_not_called()
+        self.assertEqual(calls, ["history", "history"])
+
+
+    def test_startup_key_replacement_denied_before_verifier_install(self):
+        # Exercise the actual installation function, not a mocked verifier.
+        # DSN parsing only is mocked; no database is contacted in this L1 test.
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization
+        from apps.api import product_session_api as api
+        from src.phase3.auth.staging_service_profile import PrivateStagingProfile
+        def public_key():
+            return rsa.generate_private_key(public_exponent=65537, key_size=2048).public_key().public_bytes(
+                serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        original, replacement = public_key(), public_key()
+        path = self.root / "pub.pem"
+        profile = PrivateStagingProfile(
+            issuer="urn:test:bff", audience="urn:test:api", kid="test-kid",
+            public_key_path=path, history_dsn="unused-history", revoke_dsn="unused-revoke",
+            peer_verifier=lambda scope: True)
+        path.write_bytes(original)
+        inspected = profile.load_public_key()
+        path.write_bytes(replacement)
+        with patch.dict(os.environ, {"CI": "false", "GITHUB_ACTIONS": "false"}), \
+                patch.object(api, "_PRIVATE_STAGING_PROFILE", None), \
+                patch.object(api, "_PRIVATE_STAGING_VERIFIER", None), \
+                patch.object(api, "_SERVER_NO_DISPATCH_TASK", None), \
+                patch.object(api, "private_db_connection_options", return_value={}):
+            with self.assertRaises(StagingConfigDenied):
+                api.install_private_staging_auth(profile, expected_public_key=inspected)
+            self.assertIsNone(api._PRIVATE_STAGING_PROFILE)
+            self.assertIsNone(api._PRIVATE_STAGING_VERIFIER)
+            path.write_bytes(original)
+            api.install_private_staging_auth(profile, expected_public_key=inspected)
+            self.assertIs(api._PRIVATE_STAGING_PROFILE, profile)
+            self.assertIsNotNone(api._PRIVATE_STAGING_VERIFIER)
+
+
+
 if __name__ == "__main__":
     unittest.main()
