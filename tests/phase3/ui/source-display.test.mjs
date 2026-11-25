@@ -54,7 +54,7 @@ test('unknown confidence never becomes a numeric score or estimated percentage',
 });
 
 test('verified source links require an actually public safe HTTPS URL',()=>{
-  assert.equal(verifiedSourceUrl(source()),'https://example.org/book');
+  assert.equal(verifiedSourceUrl({...source(),source_type:'website'}),'https://example.org/book');
   for(const url of [
     'http://example.org','javascript:alert(1)','https://127.0.0.1/',
     'https://localhost/','https://service.internal/',
@@ -70,6 +70,17 @@ test('verified source links require an actually public safe HTTPS URL',()=>{
   }
   assert.equal(verifiedSourceUrl({...source(),attribution_status:'unknown'}),null);
   assert.equal(verifiedSourceUrl({...source(),resolution_status:'unresolved'}),null);
+  // A verified source cannot acquire a navigation action by mislabeling a
+  // book/transcript as an arbitrary URL. The source-type and locator kind
+  // are a *paired* contract, not independent friendly-looking fields.
+  for(const kind of ['book','transcript',null]){
+    assert.equal(verifiedSourceUrl({...source(),source_type:kind}),null,
+      'mismatched non-website source must not become a link: '+kind);
+  }
+  assert.equal(verifiedSourceUrl({...source(),source_type:'website',source_id:null}),null);
+  assert.equal(verifiedSourceUrl({...source(),source_type:'website',source_id:'  '}),null);
+  assert.equal(verifiedSourceUrl({...source(),source_type:'website',
+    display_title_origin:'SYNTHETIC'}),null);
 });
 
 

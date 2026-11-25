@@ -1,0 +1,20 @@
+{
+  "schema": "foundation.f3.history_page_contract_followup.v1",
+  "parent_sha": "4e326e4efe477fc4c0e30eecab077ae668656555",
+  "path": "apps/web/src/history/client.ts",
+  "previous_blob_sha": "f0932d08ff37215111c04fea38f6503d4d3f41f1",
+  "candidate_blob_sha": "b9ebe6659c334e02ae24a46a0b07f3a65ffa02a0",
+  "tests": "tests/phase3/ui/history-page-contract-guard.test.mjs",
+  "canonical_ids": [
+    "P3M13-A04",
+    "P3M15-A03",
+    "P3M14-A09",
+    "P3M13-A02"
+  ],
+  "scope": "LOCAL_CODE_CHANGE_CI_PENDING_NO_OWNER_ACCEPTANCE",
+  "owner_signed_acceptance": false,
+  "target_verified": false,
+  "canonical_activity_accepted": false,
+  "module_gate_accepted": false,
+  "original_58_manifest_frozen": true
+}

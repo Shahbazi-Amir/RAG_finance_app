@@ -28,6 +28,153 @@ def read(path: Path):
         return reader.fieldnames,rows
 
 
+UI_TRANSFER=ROOT/"coordination/integration/F3_84_REVIEWED_UI_SOURCE_TRANSFER_20261124.json"
+
+def reviewed_ui_overrides():
+    """Exact, independently CI-tested source delta; NOT an acceptance override.
+
+    Historical #84 42-blob/58-path manifests remain byte-for-byte frozen.
+    Any unlisted path, arbitrary hash, changed owner decision or forged
+    ACCEPTED bit must fail rather than silently fall through.
+    """
+    d=json.loads(UI_TRANSFER.read_text(encoding="utf-8"))
+    assert d["schema"]=="foundation.f3.reviewed_ui_source_transfer.v1"
+    assert d["root_candidate_sha"]=="0fd1066945ef91a3913e040ab4c350bb645ea502"
+    assert d["foundation_parent_sha"]=="9f708c73439ab790a1b402e2c8dc78e45df3d717"
+    assert d["tested_source_sha"]=="ed28a6840d5e8714ff7d943ad6215534992e6a7b"
+    assert d["source_ci_runs"]==[45396172643,45396172648]
+    assert d["scope"]=="EXACT_TESTED_UI_SOURCE_TRANSFER_NOT_OWNER_ACCEPTANCE"
+    assert (d["p0_1_accepted"],d["owner_signed_acceptance"],d["target_verified"])==(False,False,False)
+    rows=d["rows"]
+    assert isinstance(rows,list) and len(rows)==9
+    expected={
+        "apps/web/src/mock/transport.ts",
+        "apps/web/src/ui/answer-visibility.ts",
+        "apps/web/src/ui/owner-fence.ts",
+        "apps/web/src/ui/product-chat.tsx",
+        "apps/web/src/ui/source-locator.ts",
+        "tests/phase3/ui/live-answer-provenance-gate.test.mjs",
+        "tests/phase3/ui/owner-fence.test.mjs",
+        "tests/phase3/ui/product-chat-client.test.mjs",
+        "tests/phase3/ui/source-display.test.mjs",
+    }
+    assert {r["path"] for r in rows}==expected
+    assert {r["path"] for r in rows if r["historical_42_path"]}=={
+        "apps/web/src/ui/answer-visibility.ts",
+        "apps/web/src/ui/product-chat.tsx",
+        "apps/web/src/ui/source-locator.ts"}
+    assert {r["path"] for r in rows if r["historical_58_path"]}=={
+        "apps/web/src/ui/answer-visibility.ts",
+        "apps/web/src/ui/product-chat.tsx",
+        "apps/web/src/ui/source-locator.ts",
+        "tests/phase3/ui/product-chat-client.test.mjs"}
+    for row in rows:
+        assert row["owner_signed_acceptance"] is False
+        assert row["source_blob_sha"]==row["candidate_blob_sha"]
+        assert re.fullmatch(r"[0-9a-f]{40}",row["source_blob_sha"])
+        if row["previous_blob_sha"] is not None:
+            assert re.fullmatch(r"[0-9a-f]{40}",row["previous_blob_sha"])
+        else:
+            assert row["path"]=="tests/phase3/ui/live-answer-provenance-gate.test.mjs"
+        if row["historical_58_path"]:
+            assert row["historical_58_decision"] in {
+                "FOUNDATION_SECURITY_COMPAT",
+                "EXACT_SOURCE_SELECTED",
+                "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW"}
+        else:
+            assert row["historical_58_decision"] is None
+        actual=subprocess.run(["git","hash-object",row["path"]],
+            cwd=ROOT,capture_output=True,text=True,check=True).stdout.strip()
+        if row["path"]=="apps/web/src/ui/product-chat.tsx":
+            follow=guarded_ui_history_recovery(row,actual)
+            row["historical_transferred_blob_sha"]=row["source_blob_sha"]
+            row["source_blob_sha"]=follow["candidate_blob_sha"]
+            row["candidate_blob_sha"]=follow["candidate_blob_sha"]
+        else:
+            assert actual==row["source_blob_sha"],row["path"]
+    return {r["path"]:r for r in rows}
+
+UI_HISTORY_RECOVERY=ROOT/"coordination/integration/F3_84_UI_HISTORY_RECOVERY_FOLLOWUP_20261124.json"
+
+def guarded_ui_history_recovery(row,actual):
+    d=json.loads(UI_HISTORY_RECOVERY.read_text(encoding="utf8"))
+    assert set(d)=={"schema","parent_sha","path","previous_blob_sha","candidate_blob_sha","canonical_ids","scope","owner_signed_acceptance","target_verified","canonical_activity_accepted","module_gate_accepted"}
+    assert d["schema"]=="foundation.f3.ui_history_recovery_followup.v1"
+    assert d["parent_sha"]=="e55f9ae8406f52fe0437bd442ac8cd4d946ef1bd"
+    assert d["path"]==row["path"]=="apps/web/src/ui/product-chat.tsx"
+    assert row["source_blob_sha"]==row["candidate_blob_sha"]==d["previous_blob_sha"]=="5f120827d93cbbf11e534c227cda82f55fbd83ec"
+    assert d["candidate_blob_sha"]=="b1ba457f4a4eca179739b6a010993697c1633aa5"
+    assert row["owner_signed_acceptance"] is False
+    assert d["canonical_ids"]==["P3M14-A02","P3M14-A03","P3M14-A09","P3M14-A10","P3M15-A03"]
+    assert d["scope"]=="CI_CANDIDATE_NOT_OWNER_ACCEPTANCE"
+    assert all(d[k] is False for k in ("owner_signed_acceptance","target_verified",
+        "canonical_activity_accepted","module_gate_accepted"))
+    # The historic recovery manifest is unchanged. This exact follow-up is
+    # only a UI draft visibility correction, not a new accepted witness row.
+    return guarded_ui_draft_privacy(d,actual)
+
+def guarded_ui_draft_privacy(parent,actual):
+    d=json.loads((ROOT/"coordination/integration/F3_84_UI_DRAFT_PRIVACY_FOLLOWUP_20261125.json").read_text(encoding="utf8"))
+    assert set(d)=={"schema","parent_sha","path","previous_blob_sha","candidate_blob_sha","tests","canonical_ids","scope","owner_signed_acceptance","target_verified","canonical_activity_accepted","module_gate_accepted"}
+    assert d["schema"]=="foundation.f3.ui_draft_privacy_followup.v1"
+    assert d["parent_sha"]=="9b73484965afb9f174946f5a8c9c293bee9d2002"
+    assert d["path"]==parent["path"]=="apps/web/src/ui/product-chat.tsx"
+    assert d["previous_blob_sha"]==parent["candidate_blob_sha"]=="b1ba457f4a4eca179739b6a010993697c1633aa5"
+    assert d["candidate_blob_sha"]==actual=="f20cdbe10bb7d8c6e4ea537aa96bd47e520ac803"
+    assert d["tests"]=="tests/phase3/integration/ui/history_thread_retry_browser.py"
+    assert d["canonical_ids"]==["P3M14-A09","P3M15-A07"]
+    assert d["scope"]=="L1_FIXTURE_ONLY_NO_OWNER_ACCEPTANCE"
+    assert all(d[k] is False for k in ("owner_signed_acceptance","target_verified",
+        "canonical_activity_accepted","module_gate_accepted"))
+    return d
+
+
+
+
+HISTORY_PAGE_FOLLOWUP=ROOT/"coordination/integration/F3_84_HISTORY_PAGE_CONTRACT_FOLLOWUP_20261124.json"
+def guarded_history_page_followup(parent,actual):
+    """One explicit child of #118; never rewrite frozen owner/source records."""
+    d=json.loads(HISTORY_PAGE_FOLLOWUP.read_text(encoding="utf8"))
+    assert set(d)=={"schema","parent_sha","path","previous_blob_sha","candidate_blob_sha","tests","canonical_ids","scope","owner_signed_acceptance","target_verified","canonical_activity_accepted","module_gate_accepted","original_58_manifest_frozen"}
+    assert d["schema"]=="foundation.f3.history_page_contract_followup.v1"
+    assert d["parent_sha"]=="4e326e4efe477fc4c0e30eecab077ae668656555"
+    assert d["path"]==parent["path"]=="apps/web/src/history/client.ts"
+    assert d["previous_blob_sha"]==parent["candidate_blob_sha"]=="f0932d08ff37215111c04fea38f6503d4d3f41f1"
+    assert d["candidate_blob_sha"]==actual=="b9ebe6659c334e02ae24a46a0b07f3a65ffa02a0"
+    assert d["tests"]=="tests/phase3/ui/history-page-contract-guard.test.mjs"
+    assert d["canonical_ids"]==["P3M13-A04","P3M15-A03","P3M14-A09","P3M13-A02"]
+    assert d["scope"]=="LOCAL_CODE_CHANGE_CI_PENDING_NO_OWNER_ACCEPTANCE"
+    assert d["original_58_manifest_frozen"] is True
+    assert all(d[k] is False for k in ("owner_signed_acceptance","target_verified",
+        "canonical_activity_accepted","module_gate_accepted"))
+    return d
+
+
+HISTORY_MICRO_DELTA=ROOT/"coordination/integration/F3_84_HISTORY_MICROSECOND_REVIEW_DELTA_20261124.json"
+def guarded_history_microsecond_source():
+    """Exact one-path functional UI patch; one of 16 review decisions stays open."""
+    d=json.loads(HISTORY_MICRO_DELTA.read_text(encoding="utf-8"))
+    assert d["schema"]=="foundation.f3.web_history_microsecond_source_extension.v1"
+    assert d["root_84_sha"]=="0fd1066945ef91a3913e040ab4c350bb645ea502"
+    assert d["last_verified_parent_sha"]=="9cacaede2fd67b5cf13331c7650532b8b408a8dc"
+    assert d["path"]=="apps/web/src/history/client.ts"
+    assert d["historical_58_decision"]=="FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW"
+    assert d["historical_blob_sha"]=="6e057e4d097dd76f36bc41843b17c63dfb96e313"
+    assert d["candidate_blob_sha"]=="f0932d08ff37215111c04fea38f6503d4d3f41f1"
+    assert d["negative_test_file"]=="tests/phase3/ui/history-microsecond-ordering.test.mjs"
+    assert d["scope_signed_ci_only"] is True and d["original_58_manifest_frozen"] is True
+    assert d["source_behavior"]==(
+        "PostgreSQL microsecond-accurate chronological checks on signed History message "
+        "and conversation page results")
+    assert all(d[k] is False for k in (
+        "owner_signed_acceptance","canonical_activity_accepted","module_gate_accepted"))
+    p=subprocess.run(["git","hash-object",d["path"]],
+       cwd=ROOT,capture_output=True,text=True,check=True)
+    guarded_history_page_followup(d,p.stdout.strip())
+    return d
+
+
+
 class LedgerTest(unittest.TestCase):
     def test_all_393_source_ids_one_to_one(self):
         header,rows=read(LEDGER)
@@ -70,13 +217,20 @@ class LedgerTest(unittest.TestCase):
                             manifest["generated_from_commit_sha"])
         expected=set(manifest["source_resolutions"])
         self.assertEqual(len(expected),6)
+        ui=reviewed_ui_overrides()
         preserved=0
         for file in manifest["candidate_tree_selected_changes"]:
             self.assertTrue(re.fullmatch(r"[0-9a-f]{40}",file["source_blob_sha"]))
             self.assertTrue(re.fullmatch(r"[0-9a-f]{40}",file["integrated_blob_sha"]))
             result=subprocess.run(["git","hash-object",file["path"]],
                                   cwd=ROOT,capture_output=True,text=True,check=True)
-            self.assertEqual(result.stdout.strip(),file["integrated_blob_sha"],file["path"])
+            if file["path"] in ui:
+                item=ui[file["path"]]
+                self.assertTrue(item["historical_42_path"])
+                self.assertEqual(item["previous_blob_sha"],file["integrated_blob_sha"])
+                self.assertEqual(result.stdout.strip(),item["source_blob_sha"],file["path"])
+            else:
+                self.assertEqual(result.stdout.strip(),file["integrated_blob_sha"],file["path"])
             if file["path"] in expected:
                 self.assertEqual(file["resolution"],"FOUNDATION_SECURITY_COMPAT")
                 preserved+=1
@@ -99,6 +253,8 @@ class LedgerTest(unittest.TestCase):
         self.assertEqual(summary["custom"],0)
         records=audit["paths"]
         self.assertEqual(len({row["path"] for row in records}),58)
+        ui=reviewed_ui_overrides()
+        micro=guarded_history_microsecond_source()
         # The historical #84 audit remains frozen. A later tested source
         # transfer may change a pending path, but cannot change its original
         # owner decision or turn it into acceptance.
@@ -141,6 +297,25 @@ class LedgerTest(unittest.TestCase):
                 self.assertEqual(blob,item["source_blob_sha"])
                 self.assertEqual(row["integrated_blob_sha"],row["foundation_blob_sha"])
                 self.assertFalse(row["selected_owner_blobs"])
+                continue
+            if row["path"]==micro["path"]:
+                # Real source bugfix, but still among the original 16
+                # owner-retained conflicts. Never modify the 58-row verdict.
+                self.assertEqual(row["decision"],micro["historical_58_decision"])
+                self.assertEqual(row["integrated_blob_sha"],micro["historical_blob_sha"])
+                followup=guarded_history_page_followup(micro,blob)
+                self.assertEqual(blob,followup["candidate_blob_sha"])
+                self.assertFalse(row["owner_signed_acceptance"])
+                continue
+            if row["path"] in ui:
+                item=ui[row["path"]]
+                self.assertTrue(item["historical_58_path"])
+                self.assertEqual(item["previous_blob_sha"],row["integrated_blob_sha"])
+                self.assertEqual(item["historical_58_decision"],row["decision"])
+                self.assertEqual(blob,item["source_blob_sha"])
+                # In particular, one formerly retained UI test remains
+                # owner-pending; moving its code never provides owner signoff.
+                self.assertFalse(item["owner_signed_acceptance"])
                 continue
             self.assertEqual(blob,row["integrated_blob_sha"],row["path"])
             if row["decision"]=="EXACT_SOURCE_SELECTED":
