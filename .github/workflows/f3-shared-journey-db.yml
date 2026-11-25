@@ -1,0 +1,54 @@
+name: F3 shared journey DB SQL witness
+on:
+  push:
+    branches: [agent/db-f3-shared-journey-20261125]
+  pull_request:
+    branches: [integration/f3-app-only-four-pr-candidate-20261124]
+    paths:
+      - 'infra/postgres/dev_f3_isolated/scripts/26_shared_journey_sql.sh'
+      - 'infra/postgres/dev_f3_isolated/scripts/journey_receipt.py'
+      - 'infra/postgres/dev_f3_isolated/scripts/test_journey_receipt.py'
+      - '.github/workflows/f3-shared-journey-db.yml'
+permissions:
+  contents: read
+jobs:
+  two-owner-sql:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Fresh PG17.11 TLS two mapped synthetic subjects and fresh volume restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd infra/postgres/dev_f3_isolated
+          export SOURCE_REPO="$GITHUB_WORKSPACE"
+          export LAB_ROOT="$RUNNER_TEMP/f3-journey-db-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          export JOURNEY_IDENTITY_MODE=sql-only-ci
+          bash -n scripts/26_shared_journey_sql.sh
+          python3 -B -m unittest discover -s scripts -p 'test_journey_receipt.py' -v
+          bash tests/run_static.sh
+          bash scripts/00_prepare_source.sh
+          bash scripts/01_create_isolated_lab.sh
+          bash scripts/02_provision_roles.sh
+          bash scripts/03_apply_pinned_001_010.sh
+          bash scripts/04_bridge_and_db55.sh
+          bash scripts/05_test_roles_tls_rls.sh
+          bash scripts/26_shared_journey_sql.sh seed
+          bash scripts/26_shared_journey_sql.sh before
+          bash scripts/06_backup_restore_independent.sh
+          bash scripts/26_shared_journey_sql.sh after-restore
+          source scripts/_lib.sh
+          mkdir -p "$RUNNER_TEMP/journey-receipts"
+          cp "$LAB_WORK/journey-before.json" "$LAB_WORK/journey-after-restore.json" "$RUNNER_TEMP/journey-receipts/"
+          echo "SQL_ONLY_NOT_BROWSER_NOT_REAL_IDP_NO_011_NO_ENGINE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f3-shared-journey-db-sql-only
+          path: ${{ runner.temp }}/journey-receipts/*.json
+          if-no-files-found: error
+          retention-days: 14
