@@ -87,10 +87,13 @@ def main():
                     page.goto(BASE+"/",wait_until="domcontentloaded")
                 assert response.value.status==200 and seen["list"]>=1
                 print("F3_FIXTURE_LIST",mode,"response",response.value.status,"count",seen["list"],"page_errors",len(page_errors),flush=True)
-                expect(page.get_by_test_id("conversation-"+cid)).to_be_visible(timeout=10000)
-                # Initial selection of the first conversation is automatic. No
-                # redundant click racing the initial thread GET.
-                expect(page.get_by_test_id("history-send")).to_be_disabled()
+                # Initial selection is automatic. Invalid thread contract
+                # clears the owner fence and may remove the list/form before
+                # the test can observe them. Do not require stale UI.
+                invalid_thread=mode in ("debug","unsafe","cross_claim")
+                if not invalid_thread:
+                    expect(page.get_by_test_id("conversation-"+cid)).to_be_visible(timeout=10000)
+                    expect(page.get_by_test_id("history-send")).to_be_disabled()
                 page.wait_for_function("document.querySelector('.history-messages') !== null")
                 if mode=="positive":
                     panel=page.get_by_test_id("answer-"+answer["answer_id"])
@@ -121,10 +124,13 @@ def main():
                 else:
                     expect(page.get_by_test_id("history-login-required")).to_be_visible()
                     assert page.locator(".product-answer").count()==0
+                    assert page.get_by_test_id("history-send").count()==0
+                    assert page.locator("nav.history-list button").count()==0
                 for canary in ("F3_HIDDEN_RAW_ASSISTANT_DEBUG","F3_HIDDEN_INTERNAL_PROMPT","F3_HIDDEN_SYNTHETIC_ANSWER"):
                     assert canary not in page.locator("body").inner_text()
                 assert seen["thread"]>=1 and seen["post"]==0 and not page_errors
                 results[mode]=True
+                print("F3_CITATION_FIXTURE_CASE_PASS",mode,flush=True)
                 context.close()
         finally:browser.close()
     out=ROOT/"ci_receipts/f3_citation_dom_fixture.json";out.parent.mkdir(exist_ok=True)

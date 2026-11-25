@@ -93,6 +93,54 @@ def owner_rows(lab,name,owner):
     rows=lab.sql(name,scoped(owner,"SELECT coalesce(string_agg(id||':'||body,',' ORDER BY id),'') FROM history_l1.messages"))
     return rows.splitlines()[-1] if "\n" in rows else ""
 
+def post_recovery_role_and_expiry(lab, restored):
+    # Only the disconnected synthetic restored cluster; no real user policy.
+    # Use the real database clock rather than sleeping for 15 minutes.
+    h=lambda text:hashlib.sha256((lab.prefix+text).encode()).hexdigest()
+    old,new,expired=h("rotate-old"),h("rotate-new"),h("expired")
+    for digest in (old,expired):
+        require(lab.sql(restored,"SET ROLE auth_sessions; SELECT auth_l1.issue_session('B',0,'"+digest+"',60,120) IS NOT NULL;")=="t","ISSUE_POST_RECOVERY")
+    deadline_before=lab.sql(restored,"SELECT absolute_expires_at::text FROM auth_l1.sessions WHERE digest_sha256='"+old+"';")
+    require(lab.sql(restored,"SET ROLE auth_sessions; SELECT (auth_l1.rotate_session('"+old+"','"+new+"',0,0)->>'generation')::int;")=="1","ROTATION_GENERATION")
+    require(lab.sql(restored,"SET ROLE auth_sessions; SELECT auth_l1.validate_session('"+old+"') IS NULL AND auth_l1.validate_session('"+new+"') IS NOT NULL;")=="t","ROTATION_REUSE")
+    require(lab.sql(restored,"SELECT absolute_expires_at::text FROM auth_l1.sessions WHERE digest_sha256='"+new+"';")==deadline_before,"ROTATION_EXTENDED_ABSOLUTE")
+    # Fixture-only clock adjustment to an already elapsed valid session window.
+    lab.sql(restored,"UPDATE auth_l1.sessions SET created_at=clock_timestamp()-interval '130 seconds',last_activity_at=clock_timestamp()-interval '130 seconds',idle_expires_at=clock_timestamp()-interval '70 seconds',absolute_expires_at=clock_timestamp()-interval '10 seconds' WHERE digest_sha256='"+expired+"';")
+    require(lab.sql(restored,"SET ROLE auth_sessions; SELECT auth_l1.validate_session('"+expired+"') IS NULL;")=="t","EXPIRED_SESSION_ACCEPTED")
+    def deny(sql, code):
+        result=lab.exec(restored,"psql","-X","-qAt","-v","ON_ERROR_STOP=1","-U","postgres","-d",DB,
+                    data=sql.encode(),check=False)
+        require(result.returncode!=0,code)
+    deny("SET ROLE auth_sessions; SELECT auth_l1.rotate_session('"+expired+"','"+h("expired-new")+"',0,0);","EXPIRED_ROTATION_ACCEPTED")
+    deny("SET ROLE auth_sessions; SELECT auth_l1.rotate_session('"+old+"','"+h("reused-old")+"',0,0);","OLD_ROTATION_ACCEPTED")
+    live,gone1,gone2=h("replay-live"),h("replay-expired1"),h("replay-expired2")
+    lab.sql(restored,"INSERT INTO auth_l1.service_assertion_replays(issuer_jti_sha256,consumed_at,expires_at) VALUES ('"+live+"',clock_timestamp()-interval '2 seconds',clock_timestamp()+interval '10 minutes'),('"+gone1+"',clock_timestamp()-interval '2 minutes',clock_timestamp()-interval '1 minute'),('"+gone2+"',clock_timestamp()-interval '2 minutes',clock_timestamp()-interval '1 minute');")
+    before=lab.sql(restored,"SELECT count(*) FROM auth_l1.service_assertion_replays;")
+    require(before=="3","REPLAY_FIXTURE_COUNT")
+    # Background cleanup role has only its fixed SECURITY DEFINER function.
+    for sql,code in (
+        ("SELECT * FROM auth_l1.sessions;","CLEANER_SESSION_READ"),
+        ("SELECT * FROM history_l1.messages;","CLEANER_HISTORY_READ"),
+        ("SELECT * FROM auth_l1.service_assertion_replays;","CLEANER_RAW_REPLAY_READ"),
+        ("DELETE FROM auth_l1.service_assertion_replays;","CLEANER_RAW_REPLAY_DELETE"),
+        ("SELECT auth_l1.consume_service_assertion('"+h("forbidden")+"',extract(epoch from clock_timestamp())::bigint+20);","CLEANER_CONSUME"),
+        ("SELECT auth_l1.purge_expired_service_assertions(0);","ZERO_BATCH"),
+        ("SELECT auth_l1.purge_expired_service_assertions(1001);","OVERSIZE_BATCH")):
+        deny("SET ROLE auth_replay_cleaner; "+sql,code)
+    require(lab.sql(restored,"SET ROLE auth_replay_cleaner; SELECT auth_l1.purge_expired_service_assertions(1);")=="1","BOUNDED_PURGE_1")
+    require(lab.sql(restored,"SET ROLE auth_replay_cleaner; SELECT auth_l1.purge_expired_service_assertions(1);")=="1","BOUNDED_PURGE_2")
+    require(lab.sql(restored,"SET ROLE auth_replay_cleaner; SELECT auth_l1.purge_expired_service_assertions(1);")=="0","LIVE_PURGED")
+    require(lab.sql(restored,"SELECT count(*) FROM auth_l1.service_assertion_replays WHERE issuer_jti_sha256='"+live+"';")=="1","VALID_REPLAY_LOST")
+    require(lab.sql(restored,"SELECT count(*) FROM auth_l1.service_assertion_replays;")=="1","REPLAY_COUNT_DRIFT")
+    deny("SET ROLE auth_trust_api; SELECT auth_l1.consume_service_assertion('"+gone1+"',extract(epoch from clock_timestamp()-interval '1 minute')::bigint);","EXPIRED_REPLAY_REUSED")
+    require(lab.sql(restored,"SELECT count(*) FROM history_l1.messages;")=="4","CLEANER_HISTORY_MUTATED")
+    return {"scope":"DISCONNECTED_RESTORED_PG_SYNTHETIC_AUTH_ONLY","rotation_generation_increment":True,
+            "old_generation_reuse_denied":True,"absolute_deadline_unchanged":True,
+            "expired_validate_and_rotate_denied":True,"cleaner_privilege_negatives":7,
+            "expired_replay_removed":2,"valid_replay_preserved":1,"expired_replay_reuse_denied":True,
+            "history_rows_unchanged":True,"history_retention_policy_approved":False,
+            "auth_expiry_policy_approved":False,"native_background_job_started":False}
+
 def execute(sha):
     lab=Lab()
     started=time.monotonic()
@@ -199,6 +247,8 @@ def execute(sha):
             data=scoped("A","INSERT INTO history_l1.messages(owner_id,id,conversation_id,role,body) VALUES ('B','forbidden','cB','user','bad')").encode(),check=False)
         require(denied.returncode!=0,"CROSS_OWNER_WRITE_ACCEPTED")
         require(lab.sql(restored,"SELECT count(*) FROM history_l1.messages;")=="4","NEGATIVE_WRITE_MUTATED")
+        auth_maintenance=post_recovery_role_and_expiry(lab,restored)
+        require(lab.sql(src,"SELECT count(*) FROM history_l1.messages;")=="6","SOURCE_DRIFT_AFTER_MAINTENANCE")
         receipt={"schema":"foundation.f3.pg17_physical_pitr_ci.v1","source_sha":sha,
           "run_id":os.environ["GITHUB_RUN_ID"],"image_id":image_id,"migration_sha256":hashes,
           "network_none_no_published_ports":True,"physical_base_manifest_sha256":manifest_sha,
@@ -208,7 +258,7 @@ def execute(sha):
           "force_rls_tables":14,"both_owner_read_denials":True,"foreign_write_denied":True,
           "pre_target_revocation_preserved":True,"later_revocation_not_present_at_target":True,
           "synthetic_later_revocation_reconciled_before_any_reuse":True,"target_reconciliation_policy_approved":False,
-          "source_unchanged":True,"restore_and_validation_ms":round((time.monotonic()-restore_start)*1000),
+          "source_unchanged":True,"restored_auth_maintenance":auth_maintenance,"restore_and_validation_ms":round((time.monotonic()-restore_start)*1000),
           "total_lab_ms":round((time.monotonic()-started)*1000),"rpo_rto_approved":False,
           "scope":"PG17.11_HISTORY_AUTH_001_010_CI_PHYSICAL_PITR_ONLY","target_verified":False,
           "engine_calls":0,"sql011":False,"accepted":False}
