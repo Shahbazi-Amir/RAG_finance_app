@@ -602,6 +602,33 @@ def verify_http_contract_negatives(phase):
     print(f"API_F3_{phase.upper()}_HTTP_ROUTE_QUERY_TRACE_CONTRACT_NEGATIVES=PASS", flush=True)
 
 
+def verify_status_and_security_log(phase):
+    """Real signed status negative and privacy-safe event on the running listener."""
+    canary = "F3_SYNTHETIC_LOG_CANARY"
+    token = signature("a", "GET", "/v1/conversations")
+    with tls_client() as client:
+        denied = client.get(BASE + "/v1/conversations", headers={
+            "Authorization": "BFF-Assertion " + token,
+            "X-Owner-Id": canary, "X-Trace-ID": canary})
+        assert denied.status_code == 401
+        query = urlencode({"client_message_id":"absent-fixture",
+                           "idempotency_key":"absent-fixture-key"})
+        for label in ("a", "b"):
+            r = request(client, label, "/v1/message-requests/status", query, expect=404)
+            assert r.json()["error"]["code"] == "NOT_FOUND"
+            assert r.headers["cache-control"] == "no-store"
+            bad = request(client, label, "/v1/message-requests/status", "client_message_id=missing", expect=422)
+            assert bad.json()["error"]["code"] == "INVALID_REQUEST"
+        request(client, "a", "/v1/conversations")
+        request(client, "b", "/v1/conversations")
+    log = (PRIVATE / "app-only-server.log").read_bytes()
+    assert b"APP_ONLY_SECURITY_EVENT outcome=denied status=401" in log
+    assert b"APP_ONLY_SECURITY_EVENT outcome=denied status=404" in log
+    for secret in (canary, token, *(json.loads((LAB / "role_passwords.json").read_text()).values())):
+        assert secret.encode() not in log, "PRIVATE_LOG_LEAK"
+    print(f"API_F3_{phase.upper()}_STATUS_NEGATIVE_SECURITY_LOG_NO_SECRETS=PASS", flush=True)
+
+
 def verify_history(phase: str):
     state = json.loads((PRIVATE / "session_state.json").read_text())
     with tls_client() as client:
@@ -673,6 +700,7 @@ def verify_history(phase: str):
             except httpx.HTTPError:
                 pass
     verify_http_contract_negatives(phase)
+    verify_status_and_security_log(phase)
     verify_disabled_send_retries(phase, state)
     verify_runtime_signer_drift(phase)
     verify_session_lifecycle(phase, state)

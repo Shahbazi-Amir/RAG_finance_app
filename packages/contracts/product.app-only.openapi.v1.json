@@ -1,0 +1,510 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "RAG Finance private app-only Product API",
+    "version": "1.0.0-app-only-draft",
+    "description": "Offline consumer contract, not a public API or authorization. Product DTOs reference the existing canonical schema. Only this signed History slice is enabled. No engine, T1, T2, T3, or target acceptance. The private listener does not expose OpenAPI over HTTP."
+  },
+  "x-product-contract-version": "product.v1",
+  "components": {
+    "securitySchemes": {
+      "privateMTLS": {
+        "type": "mutualTLS",
+        "description": "CA verified and pinned BFF leaf"
+      },
+      "bffAssertion": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization",
+        "description": "BFF-Assertion followed by signed envelope bound to method, raw path, query, body, active session and owner. Never supply a client-generated owner."
+      }
+    }
+  },
+  "paths": {
+    "/v1/conversations": {
+      "get": {
+        "operationId": "listSignedConversations",
+        "security": [
+          {
+            "privateMTLS": [],
+            "bffAssertion": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owner-scoped signed response",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./product.v1.schema.json#/$defs/conversation_page"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication denied; transport rejection may precede HTTP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "./product.v1.schema.json#/$defs/error_response"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "error": {
+                          "const": "AUTH_REQUIRED"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sanitized product.v1 error after trusted transport admission",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./product.v1.schema.json#/$defs/error_response"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Sanitized product.v1 error after trusted transport admission",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./product.v1.schema.json#/$defs/error_response"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable; no answer or engine operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "./product.v1.schema.json#/$defs/error_response"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "error": {
+                          "const": "SERVICE_UNAVAILABLE"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/conversations/{conversation_id}/messages": {
+      "get": {
+        "operationId": "listSignedMessages",
+        "security": [
+          {
+            "privateMTLS": [],
+            "bffAssertion": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owner-scoped signed response",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./product.v1.schema.json#/$defs/conversation_messages_page"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication denied; transport rejection may precede HTTP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "./product.v1.schema.json#/$defs/error_response"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "error": {
+                          "const": "AUTH_REQUIRED"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sanitized product.v1 error after trusted transport admission",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./product.v1.schema.json#/$defs/error_response"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Sanitized product.v1 error after trusted transport admission",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./product.v1.schema.json#/$defs/error_response"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable; no answer or engine operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "./product.v1.schema.json#/$defs/error_response"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "error": {
+                          "const": "SERVICE_UNAVAILABLE"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/message-requests/status": {
+      "get": {
+        "operationId": "readSignedHistoricalRequestStatus",
+        "security": [
+          {
+            "privateMTLS": [],
+            "bffAssertion": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "requested_conversation_id",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+            }
+          },
+          {
+            "in": "query",
+            "name": "client_message_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+            }
+          },
+          {
+            "in": "query",
+            "name": "idempotency_key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owner-scoped signed response",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./product.v1.schema.json#/$defs/message_request_status"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication denied; transport rejection may precede HTTP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "./product.v1.schema.json#/$defs/error_response"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "error": {
+                          "const": "AUTH_REQUIRED"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sanitized product.v1 error after trusted transport admission",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./product.v1.schema.json#/$defs/error_response"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Sanitized product.v1 error after trusted transport admission",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./product.v1.schema.json#/$defs/error_response"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable; no answer or engine operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "./product.v1.schema.json#/$defs/error_response"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "error": {
+                          "const": "SERVICE_UNAVAILABLE"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/messages": {
+      "post": {
+        "operationId": "disabledAppOnlySend",
+        "description": "Always disabled after trusted transport, before body or persistence. No successful response, no engine and no Send receipt.",
+        "security": [
+          {
+            "privateMTLS": []
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Transport admission denied"
+          },
+          "503": {
+            "description": "ENGINE_NOT_CONFIGURED after trusted peer (or SERVICE_UNAVAILABLE before app-only configuration)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "./product.v1.schema.json#/$defs/error_response"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "error": {
+                          "const": "SERVICE_UNAVAILABLE"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

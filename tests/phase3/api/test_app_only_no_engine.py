@@ -974,5 +974,24 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             asyncio.run(scenario())
 
 
+    def test_security_denial_log_is_fixed_label_only(self):
+        wrapper = AppOnlyASGI(FastAPI(), FakeProfile())
+        async def scenario():
+            async def trusted(scope, receive, send):
+                scope["trusted_transport_test"] = True
+                return await wrapper(scope, receive, send)
+            async with AsyncClient(transport=ASGITransport(app=trusted),
+                                   base_url="https://test.invalid") as client:
+                response = await client.get("/v1/private-log-canary?secret=QUERY_CANARY",
+                    headers={"Authorization":"BFF-Assertion TOKEN_CANARY",
+                             "X-Owner-Id":"OWNER_CANARY","X-Trace-ID":"TRACE_CANARY"})
+                self.assertEqual(response.status_code, 404)
+                self.assertEqual(response.headers["cache-control"], "no-store")
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE":"APP_ONLY"}):
+            with self.assertLogs("uvicorn.error", level="INFO") as events:
+                asyncio.run(scenario())
+        self.assertEqual(events.output, [
+            "INFO:uvicorn.error:APP_ONLY_SECURITY_EVENT outcome=denied status=404"])
+
 if __name__ == "__main__":
     unittest.main()

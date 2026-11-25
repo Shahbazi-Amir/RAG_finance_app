@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import re
 import ssl
@@ -157,6 +158,11 @@ class AppOnlyASGI:
     async def __call__(self, scope, receive, send):
         async def private_send(event):
             if event["type"] == "http.response.start":
+                # Fixed labels only: never log URL, query, proof, owner, peer,
+                # body, exception or caller-supplied correlation IDs.
+                if event["status"] in (401, 403, 404):
+                    logging.getLogger("uvicorn.error").info(
+                        "APP_ONLY_SECURITY_EVENT outcome=denied status=%d", event["status"])
                 headers = [(k, v) for k, v in event.get("headers", ())
                            if k.lower() not in {b"cache-control",
                                                b"x-content-type-options"}]
