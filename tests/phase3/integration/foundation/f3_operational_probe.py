@@ -161,6 +161,7 @@ async def owner_lock_timeout_probe(demo,page_a,page_b,origin,ids_a,ids_b,connect
             assert r.status==503 and expected not in await r.text()
         return r.status
     conn=connect()
+    conn.autocommit=False
     pending=None
     try:
         conn.execute("SET LOCAL lock_timeout='2s'")
