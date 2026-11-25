@@ -1,0 +1,80 @@
+name: F3 #84 signed API listener transfer — scoped tests
+on:
+  push:
+    branches: [agent/api-f3-signed-history-on-84-20261125]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [integration/f3-app-only-four-pr-candidate-20261124]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  app-only-api:
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/api-f3-signed-history-on-84-20261125')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false, ref: '${{ github.event.pull_request.head.sha || github.sha }}'}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - name: Install exact hashed Python API deps, no Engine
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes --only-binary=:all: -r locks/requirements-api.lock
+          python -m pip check
+      - name: Compile API and exact app-only tests
+        run: |
+          python -m compileall -q apps/api src/phase3 tests/phase3/api/test_app_only_no_engine.py
+      - name: App-only no engine API positive/negative
+        run: |
+          python -m unittest discover -s tests/phase3/api -p 'test_app_only_no_engine.py' -v
+      - name: Original mTLS transport real OpenSSL regression
+        run: |
+          python -m unittest discover -s tests/phase3/api -p 'test_staging_private_asgi.py' -v
+      - name: Real Uvicorn HTTPS mTLS app-only network Request → response
+        run: |
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_app_only_mtls_network.py' -v
+      - name: Real API container build, nonroot and actual configured startup gate
+        run: |
+          set -euo pipefail
+          GITHUB_SHA="$(git rev-parse HEAD)"
+          docker build --platform linux/amd64 -f infra/phase3_l1/Dockerfile.api.signed \
+            --build-arg BASE=docker.io/library/python:3.13.5 \
+            --build-arg "SOURCE_SHA=$GITHUB_SHA" \
+            -t "f3-app-only:$GITHUB_SHA" .
+          test "$(docker image inspect -f '{{.Config.User}}' "f3-app-only:$GITHUB_SHA")" = "11001:11001"
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "f3-app-only:$GITHUB_SHA")" = "$GITHUB_SHA"
+          docker run --rm --network none "f3-app-only:$GITHUB_SHA" \
+            python3 -c "from apps.api.private_app_only_asgi import main; print('APP_ONLY_IMAGE_IMPORT_PASS')" 
+          docker run --rm --network none "f3-app-only:$GITHUB_SHA" \
+            python3 -m unittest discover -s tests/phase3/api -p 'test_app_only_no_engine.py' -v
+          # Without an Ops 0600 config the real default CMD must deny startup.
+          set +e
+          docker run --rm --network none "f3-app-only:$GITHUB_SHA" > /tmp/denied.stdout 2> /tmp/denied.stderr
+          status=$?
+          set -e
+          test "$status" = 78
+          grep -Fx 'APP_ONLY_STARTUP_DENIED' /tmp/denied.stderr
+          ! grep -E 'password=|token=|BEGIN PRIVATE|API_KEY' /tmp/denied.stderr
+          echo 'APP_ONLY_REAL_IMAGE_STARTUP_FAIL_CLOSED_PASS'
+      - name: Bounded evidence (not signed Mac and not app E2E)
+        if: always()
+        run: |
+          echo "APP_ONLY_CI_SOURCE_SHA=$(git rev-parse HEAD)"
+          echo 'NO_RUNNER_NO_QDRANT_NO_MODEL_NO_GATEWAY_NO_T3'
+          echo 'DOCKER_STARTUP_DENIAL_AND_MTLS_TRANSPORT_ONLY; REAL_SIGNED_PG_NOT_ATTESTED'
+          echo 'CENTRAL_APPROVAL_AND_REAL_MAC_E2E_NOT_CLAIMED'
+  signed-pg-api:
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/api-f3-signed-history-on-84-20261125')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0, persist-credentials: false, ref: '${{ github.event.pull_request.head.sha || github.sha }}'}
+      - name: Real signed API + PG17.11 001-010 on disposable private network
+        run: |
+          set -euo pipefail
+          export SOURCE_REPO="$GITHUB_WORKSPACE"
+          export LAB_ROOT="$RUNNER_TEMP/f3-signed-api-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          bash tests/phase3/integration/api/run_app_only_signed_pg_lab.sh

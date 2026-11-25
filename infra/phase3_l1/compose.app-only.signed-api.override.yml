@@ -1,0 +1,17 @@
+# Apply only to the isolated app-only Compose project; requires real PG and BFF.
+# The caller provides a directory readable by UID 11001, with a 0600 JSON,
+# TLS and public key files; use absolute paths inside /run/secrets in JSON.
+# Keep API private; no published ports, no default credential or fallback.
+services:
+  api:
+    build:
+      dockerfile: infra/phase3_l1/Dockerfile.api.signed
+    environment:
+      API_RUNNER_EXECUTION_MODE: APP_ONLY
+      API_CURSOR_KEY_FILE: /run/secrets/cursor.key
+      API_CURSOR_TTL_SECONDS: ${F3_CURSOR_TTL_SECONDS:?set approved cursor lifetime}
+    volumes:
+      - type: bind
+        source: ${F3_SIGNED_API_CONFIG_DIR:?protected signed API configuration directory required}
+        target: /run/secrets
+        read_only: true
