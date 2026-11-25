@@ -45,6 +45,34 @@ from db_common_compose_browser_journey import AppOnlyBrowserDemo, ORIGIN
 from src.phase3.storage.postgres import auth_session
 
 
+
+async def browser_cutover_get(page):
+    """One bounded safe GET across a just-replaced CI ingress TCP endpoint.
+
+    Chromium can transiently fail fetch after the Compose port is rebound.
+    Retain the same context, cookie state and real TLS. Never retry a received
+    HTTP status or a write, and do not accept a transport failure as 401.
+    """
+    for attempt in range(3):
+        result=await asyncio.wait_for(page.evaluate("""async () => {
+            try {
+                const r=await fetch('/api/history/conversations?limit=2',{
+                    cache:'no-store',credentials:'same-origin',redirect:'error',
+                    signal:AbortSignal.timeout(5000)});
+                return {status:r.status,noStore:r.headers.get('cache-control')==='no-store'};
+            } catch (error) {
+                if (error instanceof TypeError && error.message==='Failed to fetch')
+                    return {transport:'FETCH_NETWORK_ERROR'};
+                throw error;
+            }
+        }"""),timeout=7)
+        if result!={"transport":"FETCH_NETWORK_ERROR"}:
+            return result
+        if attempt==2:
+            raise AssertionError("THIRD_RESTORE_BROWSER_TRANSPORT_NOT_RECOVERED")
+        print("DB_COMMON_THIRD_RESTORE_BROWSER_GET_TRANSPORT_RETRY",flush=True)
+        await asyncio.sleep(0.5*(attempt+1))
+
 def verify_isolation():
     assert os.environ.get("CI")=="true" and os.environ.get("GITHUB_ACTIONS")=="true"
     assert os.environ.get("GITHUB_RUN_ID")
@@ -519,11 +547,12 @@ class BothSidesComposeBrowserDemo(ComposeRestoredBrowserDemo):
                 # correct. Re-test the real ordinary BFF HTTP boundary without
                 # re-injecting the removed cookie or forcing a disabled click.
                 await expect(a.get_by_test_id("refresh-history")).to_be_disabled()
-                denied=await a.evaluate("""async () => {
-                    const r=await fetch('/api/history/conversations?limit=2',{cache:'no-store'});
-                    return {status:r.status,noStore:r.headers.get('cache-control')==='no-store'};
-                }""")
+                denied=await browser_cutover_get(a)
                 assert denied=={"status":401,"noStore":True}
+                # Re-establish B's browser transport before the actual UI click.
+                # A successful HTTP response, even 503, is NEVER retried.
+                live=await browser_cutover_get(b)
+                assert live=={"status":200,"noStore":True}
                 await expect(a.get_by_test_id("history-login-required")).to_be_visible()
                 print("DB_COMMON_POST_REVOKE_BROWSER_DISABLED_REFRESH_AND_REAL_BFF_401=PASS",flush=True)
                 assert await a.locator('[data-testid^="conversation-"]').count()==0
