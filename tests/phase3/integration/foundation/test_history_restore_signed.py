@@ -280,6 +280,33 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
         }
         from apps.api.private_app_only_asgi import assert_app_only_environment
         assert_app_only_environment(env)
+        # Real negative startup checks against only this restored, owned PG.
+        # Verify both restricted DSNs; wrong CA uses the unrelated ephemeral
+        # HTTPS CA, never an external host. Invalid config must not listen.
+        from psycopg.conninfo import make_conninfo
+        for field,overrides in (
+            ("history_dsn",{"sslmode":"disable"}),
+            ("history_dsn",{"sslmode":"verify-ca"}),
+            ("history_dsn",{"hostaddr":"127.0.0.1"}),
+            ("history_dsn",{"sslrootcert":str(h.fixture.ca)}),
+            ("revoke_dsn",{"sslmode":"prefer"}),
+            ("revoke_dsn",{"sslrootcert":str(h.fixture.ca)}),
+        ):
+            denied_config=h.temp/"f3-restore-invalid-pg-config.json"
+            invalid=dict(cfg)
+            invalid[field]=make_conninfo(invalid[field],**overrides)
+            denied_config.write_text(json.dumps(invalid))
+            denied_config.chmod(0o600)
+            try:
+                denied=subprocess.run(
+                    [sys.executable,"-m","apps.api.private_app_only_asgi","--config",str(denied_config)],
+                    cwd=ROOT,env=env,capture_output=True,text=True,timeout=25)
+                self.assertEqual(denied.returncode,78,"APP_ONLY_INVALID_PG_CONFIG_MUST_DENY")
+                self.assertEqual(denied.stderr.strip(),"APP_ONLY_STARTUP_DENIED")
+                self.assertEqual(denied.stdout.strip(),"")
+            finally:
+                denied_config.unlink(missing_ok=True)
+        print("F3_API_RESTORED_PG_STRICT_TLS_BOTH_DSNS_SIX_STARTUP_DENIALS_PASS",flush=True)
         proc=subprocess.Popen(
             [sys.executable,"-m","apps.api.private_app_only_asgi","--config",str(config)],
             cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
@@ -318,6 +345,92 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
         self.assertEqual(signed_ready(a).status_code,200)
         self.assertEqual(signed_ready(b).status_code,200)
         self.assertEqual(h.request("GET","/health/ready").status_code,503)
+        # Real restored PG + actual production listener, not an ASGI mock.
+        # Only the ephemeral public verifier file in this test's temp dir
+        # is modified. A newly signed request under the original key must
+        # remain unconsumed when the server refuses signer configuration.
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization
+        original_key = h.pubkey.read_bytes()
+        replacement_key = rsa.generate_private_key(public_exponent=65537, key_size=2048).public_key().public_bytes(
+            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        list_token, list_claims = h.signed(a, method="GET", path=LIST)
+        ready_token, ready_claims = h.signed(b, method="GET", path="/health/ready")
+        deny_revoke_body = json.dumps({"operation_id":str(uuid.uuid4())},separators=(",",":")).encode()
+        revoke_token, revoke_claims = h.signed(a, "POST", REVOKE, deny_revoke_body)
+        digests = [hashlib.sha256((x["iss"]+"\0"+x["jti"]).encode()).hexdigest()
+                   for x in (list_claims, ready_claims, revoke_claims)]
+        def replay_rows():
+            with connect(5433, db="history_restore_f3_ci", extra=trusted) as c:
+                return c.execute("SELECT count(*) FROM auth_l1.service_assertion_replays WHERE issuer_jti_sha256=ANY(%s)", (digests,)).fetchone()[0]
+        self.assertEqual(replay_rows(),0)
+        try:
+            h.pubkey.write_bytes(replacement_key)
+            for response in (h.request("GET",LIST,list_token),
+                             h.request("GET","/health/ready",ready_token),
+                             h.request("GET","/internal/ready"),
+                             h.request("POST",REVOKE,revoke_token,body=deny_revoke_body)):
+                self.assertEqual(response.status_code,503)
+                self.assertEqual(response.headers.get("cache-control"),"no-store")
+                self.assertNotIn("PRIVATE KEY",response.text)
+            for alias in ("/v1/messages/", "/v1/%6dessages/"):
+                response=h.request("POST",alias,body=b"not-json")
+                self.assertEqual(response.status_code,503)
+                self.assertIn("ENGINE_NOT_CONFIGURED",response.text)
+            self.assertEqual(replay_rows(),0)
+        finally:
+            h.pubkey.write_bytes(original_key)
+        self.assertEqual(h.request("GET",LIST,list_token).status_code,200)
+        self.assertEqual(h.request("GET","/health/ready",ready_token).status_code,200)
+        self.assertEqual(replay_rows(),2)
+        self.assertEqual(h.list(a).status_code,200)
+        self.assertEqual(h.list(b).status_code,200)
+        self.assertEqual(h.request("GET",LIST,list_token).status_code,401)
+        with connect(5433,db="history_restore_f3_ci",extra=trusted) as c:
+            self.assertEqual(c.execute("SELECT count(*) FROM history_l1.send_receipts").fetchone()[0],receipts_before)
+        print("F3_API_RESTORED_REAL_PG_SIGNER_DRIFT_NO_ADMISSION_REPLAY_RECOVERY_PASS",flush=True)
+        # All disabled endpoints must deny even genuine A/B signed proofs
+        # without consuming the corresponding replay rows on restored PG.
+        denied_specs = (
+            ("GET","/v1/message-requests/engine-status",503,"ENGINE_STATUS_UNAVAILABLE"),
+            ("GET","/v1/message-requests/retrieved-sources",503,"ENGINE_STATUS_UNAVAILABLE"),
+            ("GET","/v1/message-requests/claim-test-status",404,"NOT_FOUND"),
+            ("GET","/v1/message-requests/invited-live-result",404,"NOT_FOUND"),
+            ("GET","/v1/conversations/",404,"NOT_FOUND"),
+            ("GET","/docs",404,"NOT_FOUND"),
+            ("GET","/openapi.json",404,"NOT_FOUND"),
+            ("POST","/internal/auth/session/v1/revoke-one/",404,"NOT_FOUND"),
+            ("POST","/v1/messages/",503,"ENGINE_NOT_CONFIGURED"),
+        )
+        route_digests=[]
+        def history_counts():
+            with connect(5433,db="history_restore_f3_ci",extra=trusted) as conn:
+                with conn.transaction():
+                    conn.execute("SET TRANSACTION READ ONLY")
+                    return tuple(conn.execute(sql.SQL("SELECT count(*) FROM history_l1.{}").format(sql.Identifier(table))).fetchone()[0]
+                                 for table in ("conversations","messages","create_receipts","send_receipts","execution_attempts","answers"))
+        route_baseline=history_counts()
+        for actor in (a,b):
+            for method,path,expected_status,expected_code in denied_specs:
+                raw=b"{}" if method=="POST" else b""
+                token,claims=h.signed(actor,method,path,raw)
+                route_digests.append(hashlib.sha256((claims["iss"]+"\0"+claims["jti"]).encode()).hexdigest())
+                response=h.request(method,path,token,body=raw if method=="POST" else None)
+                self.assertEqual(response.status_code,expected_status,path)
+                self.assertEqual(response.json()["error"]["code"],expected_code,path)
+                self.assertEqual(response.headers.get("cache-control"),"no-store")
+                self.assertNotIn("location",response.headers)
+        self.assertEqual(len(set(route_digests)),18)
+        with connect(5433,db="history_restore_f3_ci",extra=trusted) as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM auth_l1.service_assertion_replays WHERE issuer_jti_sha256=ANY(%s)",(route_digests,)).fetchone()[0],0)
+        self.assertEqual(history_counts(),route_baseline)
+        self.assertEqual(h.list(a).status_code,200)
+        self.assertEqual(h.list(b).status_code,200)
+        for path in ("/health/live","/v1/capabilities"):
+            response=h.request("GET",path)
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.headers.get("cache-control"),"no-store")
+        print("F3_API_RESTORED_PG_EXPLICIT_ROUTE_FENCE_18_PROOFS_ZERO_REPLAY_HISTORY_PASS",flush=True)
         # Restart should never mask an unavailable Postgres dependency.
         command(["docker","stop",name])
         down=h.request("GET","/internal/ready")
@@ -347,7 +460,7 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
         output.parent.mkdir(parents=True,exist_ok=True)
         output.write_text(json.dumps({
             "schema":"foundation.f3.signed_history_restored_lab.v1",
-            "source_sha":os.environ["GITHUB_SHA"],
+            "source_sha":os.environ.get("F3_API_EXACT_SHA",os.environ["GITHUB_SHA"]),
             "environment":"disposable_GHA_PG17_to_independent_Docker_volume",
             "owners_distinct":True,
             "source_and_restored_ids_equal_A":len(original_a),
@@ -361,6 +474,13 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
             "revoke_A":200,"stale_A":401,"B_after_revoke":200,
             "pg_stop_readiness":503,
             "pg_restart_readiness":200,
+            "app_only_pg_strict_tls_startup_denials":6,
+            "app_only_denied_route_proofs":18,
+            "app_only_denied_route_replay_rows":0,
+            "app_only_denied_route_history_unchanged":True,
+            "signer_drift_real_pg_no_admission":True,
+            "signer_original_recovery_same_proofs":True,
+            "signer_drift_no_send_or_revoke":True,
             "signed_readiness_valid_A_B":200,
             "signed_readiness_missing_proof":503,
             "signed_readiness_pg_down":503,

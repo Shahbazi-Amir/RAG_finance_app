@@ -47,8 +47,8 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             "bff_audience": "urn:test:api",
             "bff_kid": "test-kid",
             "bff_rs256_public_key_file": str(self.root / "pub.pem"),
-            "history_dsn": "host=127.0.0.1 dbname=stage user=history_app",
-            "revoke_dsn": "host=127.0.0.1 dbname=stage user=auth_revoker",
+            "history_dsn": f"host=127.0.0.1 port=5432 dbname=stage user=history_app sslmode=verify-full sslrootcert={self.root / 'ca.pem'}",
+            "revoke_dsn": f"host=127.0.0.1 port=5432 dbname=stage user=auth_revoker sslmode=verify-full sslrootcert={self.root / 'ca.pem'}",
         }
         self.save()
 
@@ -827,6 +827,175 @@ class AppOnlyNoEngineTests(unittest.TestCase):
                 asyncio.run(invoke())
                 for spy in spies:
                     spy.assert_not_called()
+
+
+    def test_runtime_signer_drift_denies_before_pg_or_handler_and_recovers(self):
+        from apps.api.app_only_signer_pin import SignerPin
+        from apps.api import product_session_api
+        profile = FakeProfile()
+        profile.load_public_key = lambda: b"original"
+        downstream = FastAPI()
+        calls = []
+        @downstream.get("/v1/conversations")
+        async def history():
+            calls.append("history")
+            return {"ok": True}
+        wrapper = AppOnlyASGI(downstream, profile, signer_pin=SignerPin.capture(b"original"))
+
+        async def invoke():
+            async def trusted(scope, receive, send):
+                scope["trusted_transport_test"] = True
+                return await wrapper(scope, receive, send)
+            async with AsyncClient(transport=ASGITransport(app=trusted),
+                                   base_url="https://test.invalid") as client:
+                self.assertEqual((await client.get("/v1/conversations")).status_code, 200)
+                profile.load_public_key = lambda: b"replacement"
+                for path in ("/v1/conversations", "/health/ready", "/internal/ready"):
+                    response = await client.get(path)
+                    self.assertEqual(response.status_code, 503)
+                    self.assertEqual(response.headers["cache-control"], "no-store")
+                    self.assertNotIn("replacement", response.text)
+                response = await client.post("/internal/auth/session/v1/revoke-one", content=b"bad")
+                self.assertEqual(response.status_code, 503)
+                self.assertEqual((await client.post("/v1/%6dessages", content=b"bad")).status_code, 503)
+                profile.load_public_key = lambda: b"original"
+                self.assertEqual((await client.get("/v1/conversations")).status_code, 200)
+        with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": "APP_ONLY"}), \
+                patch("apps.api.private_app_only_asgi.verify_staging_database_authority",
+                      side_effect=AssertionError("MUST_NOT_PROBE_PG")) as pg, \
+                patch.object(product_session_api, "_signed_history",
+                             side_effect=AssertionError("MUST_NOT_ADMIT")) as admit:
+            asyncio.run(invoke())
+            pg.assert_not_called()
+            admit.assert_not_called()
+        self.assertEqual(calls, ["history", "history"])
+
+
+    def test_startup_key_replacement_denied_before_verifier_install(self):
+        # Exercise the actual installation function, not a mocked verifier.
+        # DSN parsing only is mocked; no database is contacted in this L1 test.
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization
+        from apps.api import product_session_api as api
+        from src.phase3.auth.staging_service_profile import PrivateStagingProfile
+        def public_key():
+            return rsa.generate_private_key(public_exponent=65537, key_size=2048).public_key().public_bytes(
+                serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        original, replacement = public_key(), public_key()
+        path = self.root / "pub.pem"
+        profile = PrivateStagingProfile(
+            issuer="urn:test:bff", audience="urn:test:api", kid="test-kid",
+            public_key_path=path, history_dsn="unused-history", revoke_dsn="unused-revoke",
+            peer_verifier=lambda scope: True)
+        path.write_bytes(original)
+        inspected = profile.load_public_key()
+        path.write_bytes(replacement)
+        with patch.dict(os.environ, {"CI": "false", "GITHUB_ACTIONS": "false"}), \
+                patch.object(api, "_PRIVATE_STAGING_PROFILE", None), \
+                patch.object(api, "_PRIVATE_STAGING_VERIFIER", None), \
+                patch.object(api, "_SERVER_NO_DISPATCH_TASK", None), \
+                patch.object(api, "private_db_connection_options", return_value={}):
+            with self.assertRaises(StagingConfigDenied):
+                api.install_private_staging_auth(profile, expected_public_key=inspected)
+            self.assertIsNone(api._PRIVATE_STAGING_PROFILE)
+            self.assertIsNone(api._PRIVATE_STAGING_VERIFIER)
+            path.write_bytes(original)
+            api.install_private_staging_auth(profile, expected_public_key=inspected)
+            self.assertIs(api._PRIVATE_STAGING_PROFILE, profile)
+            self.assertIsNotNone(api._PRIVATE_STAGING_VERIFIER)
+
+
+
+    def test_app_only_explicit_route_fence_never_admits_disabled_routes(self):
+        calls = []
+        async def downstream(scope, receive, send):
+            calls.append((scope["method"], scope["raw_path"]))
+            from starlette.responses import JSONResponse
+            await JSONResponse({"kind":"allowed-test"})(scope, receive, send)
+        app = AppOnlyASGI(downstream, FakeProfile())
+        async def invoke(method, raw, path=None, query=b""):
+            events = []
+            async def recv():
+                raise AssertionError("ROUTE_FENCE_MUST_NOT_READ_BODY")
+            async def emit(event):
+                events.append(event)
+            await app({"type":"http", "scheme":"https",
+                       "trusted_transport_test":True, "method":method,
+                       "path":path or raw.decode(), "raw_path":raw,
+                       "query_string":query, "headers":[], "http_version":"1.1"},
+                      recv, emit)
+            start = next(e for e in events if e["type"]=="http.response.start")
+            headers = dict(start["headers"])
+            body = json.loads(b"".join(e.get("body",b"") for e in events if e["type"]=="http.response.body"))
+            self.assertEqual(headers[b"cache-control"],b"no-store")
+            self.assertEqual(headers[b"x-content-type-options"],b"nosniff")
+            self.assertNotIn(b"location",headers)
+            return start["status"],body
+        async def run():
+            for method,raw,path in (
+                ("GET",b"/v1/conversations",None),
+                ("GET",b"/v1/conversations/A-1/messages",None),
+                ("GET",b"/v1/message-requests/status",None),
+                ("POST",b"/internal/auth/session/v1/revoke-one",None)):
+                self.assertEqual((await invoke(method,raw,path))[0],200)
+            for raw in (b"/v1/message-requests/engine-status",b"/v1/message-requests/retrieved-sources"):
+                status,body=await invoke("GET",raw)
+                self.assertEqual((status,body["error"]["code"]),(503,"ENGINE_STATUS_UNAVAILABLE"))
+            for method,raw,path in (
+                ("GET",b"/v1/message-requests/claim-test-status",None),
+                ("GET",b"/v1/message-requests/invited-live-result",None),
+                ("GET",b"/docs",None),("GET",b"/openapi.json",None),
+                ("GET",b"/v1/conversations/",None),
+                ("GET",b"/v1/%63onversations","/v1/conversations"),
+                ("GET",b"/v1/conversations/A-1/messages/",None),
+                ("POST",b"/internal/auth/session/v1/revoke-one/",None),
+                ("HEAD",b"/v1/conversations",None),
+                ("DELETE",b"/v1/conversations/A-1/messages",None),
+                ("GET",b"/v1/future-unknown",None)):
+                status,body=await invoke(method,raw,path)
+                self.assertEqual((status,body["error"]["code"]),(404,"NOT_FOUND"))
+            for raw in (b"/v1/messages",b"/v1/messages/",b"/v1/%6dessages/"):
+                status,body=await invoke("POST",raw,"/v1/messages/" if raw.endswith(b"/") else None)
+                self.assertEqual((status,body["error"]["code"]),(503,"ENGINE_NOT_CONFIGURED"))
+            status,body=await invoke("GET",b"/health/live")
+            self.assertEqual(status,200)
+            self.assertTrue(body["process_alive"])
+            self.assertFalse(body["application_ready"])
+            status,body=await invoke("GET",b"/v1/capabilities")
+            self.assertEqual(status,200)
+            self.assertEqual(body["send_mode"],"DISABLED")
+            self.assertFalse(body["background_dispatch_available"])
+            self.assertEqual((await invoke("GET",b"/v1/capabilities",query=b"x=1"))[0],404)
+        with patch.dict(os.environ,{"API_RUNNER_EXECUTION_MODE":"APP_ONLY","PHASE3_APP_MODE":"APP_ONLY"}):
+            asyncio.run(run())
+        self.assertEqual(len(calls),4)
+
+
+    def test_app_only_pg_transport_is_verified_before_any_db_authority_probe(self):
+        from dataclasses import replace
+        from psycopg.conninfo import conninfo_to_dict, make_conninfo
+        from apps.api.private_app_only_asgi import prepare_app_only, _require_app_only_pg_tls
+        cfg = load_app_only_config(self.config_file)
+        for dsn in (cfg.history_dsn,cfg.revoke_dsn):
+            verified = conninfo_to_dict(_require_app_only_pg_tls(dsn))
+            self.assertEqual(verified["sslmode"],"verify-full")
+            self.assertEqual(verified["gssencmode"],"disable")
+        for field in ("history_dsn","revoke_dsn"):
+            dsn=getattr(cfg,field)
+            for changes in ({"sslmode":"disable"}, {"sslmode":"require"},
+                            {"sslmode":"verify-ca"}, {"hostaddr":"127.0.0.1"},
+                            {"sslrootcert":"relative.pem"}, {"port":""},
+                            {"sslrootcert":str(self.root/"missing-ca.pem")}):
+                with self.subTest(field=field,case=list(changes)):
+                    bad=replace(cfg,**{field:make_conninfo(dsn,**changes)})
+                    with patch.dict(os.environ,{"PHASE3_APP_MODE":"APP_ONLY",
+                                                 "API_RUNNER_EXECUTION_MODE":"APP_ONLY",
+                                                 "CI":"false","GITHUB_ACTIONS":"false"}), \
+                            patch("apps.api.private_app_only_asgi._test_tls_material"), \
+                            patch("apps.api.private_app_only_asgi.verify_staging_database_authority") as probe:
+                        with self.assertRaises(StagingConfigDenied):
+                            prepare_app_only(bad)
+                        probe.assert_not_called()
 
 
 if __name__ == "__main__":

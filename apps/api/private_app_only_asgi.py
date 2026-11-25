@@ -17,6 +17,8 @@ from pathlib import Path
 
 from starlette.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
+from apps.api.app_only_signer_pin import SignerPin
+from apps.api.app_only_pg_policy import pg_tls_options_allowed
 
 from apps.api.private_staging_asgi import (
     _harden_tls_context, _protected_file, _test_tls_material,
@@ -140,15 +142,28 @@ def _bodyless_get(scope) -> bool:
                         for name, _ in scope.get("headers", ())))
 
 
+# This explicit allowlist is the private APP_ONLY composition boundary, not
+# a replacement for Product.v1 authorization in the original handlers.
+_HISTORY_LIST = b"/v1/conversations"
+_HISTORY_DETAIL = re.compile(rb"/v1/conversations/[A-Za-z0-9][A-Za-z0-9_-]{0,63}/messages")
+_HISTORY_STATUS = b"/v1/message-requests/status"
+_REVOKE = b"/internal/auth/session/v1/revoke-one"
+_ENGINE_ONLY_READS = frozenset({
+    b"/v1/message-requests/engine-status",
+    b"/v1/message-requests/retrieved-sources",
+})
+
+
 class AppOnlyASGI:
     """mTLS-scope fence plus deny-before-body POST and live PG readiness.
 
     Only the authorized Product-session app handles History/Revoke.  We never
     dispatch an engine or create a Send receipt.  All error paths are no-store.
     """
-    def __init__(self, app, profile: PrivateStagingProfile):
+    def __init__(self, app, profile: PrivateStagingProfile, *, signer_pin: SignerPin | None = None):
         self._app = app
         self._profile = profile
+        self._signer_pin = signer_pin
 
     async def __call__(self, scope, receive, send):
         async def private_send(event):
@@ -175,8 +190,9 @@ class AppOnlyASGI:
             return await JSONResponse(
                 {"error": "SERVICE_UNAVAILABLE"}, status_code=503,
                 headers={"Cache-Control": "no-store"})(scope, receive, private_send)
-        if (scope.get("path") == "/v1/messages"
-                and scope.get("method") == "POST"):
+        if (scope.get("method") == "POST"
+                and (scope.get("raw_path") == b"/v1/messages"
+                     or (scope.get("path") or "").rstrip("/") == "/v1/messages")):
             # Routing uses the percent-decoded ASGI path. A raw-path-only
             # comparison could let /v1/%6dessages bypass the pre-body fence.
             # No body parsing, trusted-user mutation, PG T1/T2, runner queue,
@@ -186,6 +202,37 @@ class AppOnlyASGI:
                 503, "ENGINE_NOT_CONFIGURED", "technical",
                 "Message sending is unavailable until the engine is enabled.",
             )(scope, receive, private_send)
+        # Canonical process-only signals, independent of the signer/PG.
+        # They do not claim Bootstrap/IdP readiness or engine capability.
+        raw = scope.get("raw_path")
+        path = scope.get("path")
+        method = scope.get("method")
+        canonical = isinstance(raw, bytes) and isinstance(path, str) and raw == path.encode("utf-8")
+        if (canonical and method == "GET" and not scope.get("query_string")
+                and _bodyless_get(scope)
+                and raw in {b"/health/live", b"/v1/capabilities"}):
+            from apps.api.app_only_asgi import live, capabilities
+            response = await (live() if raw == b"/health/live" else capabilities())
+            return await response(scope, receive, private_send)
+        # The production composition pins the very key installed in the
+        # verifier. A broken/replaced Ops file is not a valid configuration.
+        # Keep the no-engine Send denial ahead of this check.
+        if (self._signer_pin is not None and not await run_in_threadpool(
+                self._signer_pin.current, self._profile.load_public_key)):
+            if scope.get("path") == "/health/ready":
+                response = JSONResponse(
+                    {"kind": "api_app_only_readiness", "state": "unavailable"}, status_code=503)
+            elif scope.get("path") == "/internal/ready":
+                response = JSONResponse(
+                    {"kind": "app_only_readiness", "state": "unavailable",
+                     "retrieval": "unavailable", "generation": "unavailable"}, status_code=503)
+            elif scope.get("path") == "/internal/auth/session/v1/revoke-one":
+                response = JSONResponse({"error": "REVOKE_OUTCOME_UNKNOWN"}, status_code=503)
+            else:
+                from apps.api import history_api
+                response = history_api._safe_error(
+                    503, "TEMPORARILY_UNAVAILABLE", "technical", "History unavailable.")
+            return await response(scope, receive, private_send)
         # Signed History reads bind exactly b"". A body-bearing GET cannot
         # be admitted under an otherwise valid empty-body BFF assertion.
         if scope.get("method") == "GET" and not _bodyless_get(scope):
@@ -202,7 +249,7 @@ class AppOnlyASGI:
             return await history_api._safe_error(
                 401, "AUTH_REQUIRED", "authorization", "Authentication required.",
             )(scope, receive, private_send)
-        if scope.get("raw_path") == b"/health/ready":
+        if canonical and raw == b"/health/ready":
             # Strict readiness checks the *same* signed 004/005 session
             # admission and owner-bound PostgreSQL transaction as History.
             # PG-role-only /internal/ready is NOT proof the BFF signer works.
@@ -249,7 +296,7 @@ class AppOnlyASGI:
                 "bootstrap_idp": "not_probed",
                 "retrieval": "unavailable", "generation": "unavailable",
             })(scope, receive, private_send)
-        if (scope.get("raw_path") == b"/internal/ready"
+        if (canonical and raw == b"/internal/ready"
                 and scope.get("method") == "GET"
                 and not scope.get("query_string")):
             try:
@@ -268,7 +315,40 @@ class AppOnlyASGI:
                  "history_db": "verified", "bootstrap_idp": "not_probed",
                  "retrieval": "unavailable", "generation": "unavailable"},
                 headers={"Cache-Control": "no-store"})(scope, receive, private_send)
-        return await self._app(scope, receive, private_send)
+        # Only current independent History/Revoke endpoints may enter the
+        # Product-session app. In particular engine/fixture/status diagnostics
+        # must not consume a signed JTI, begin PG admission, or redirect.
+        if canonical and ((method == "GET" and (
+                raw in {_HISTORY_LIST, _HISTORY_STATUS}
+                or _HISTORY_DETAIL.fullmatch(raw)))
+                or (method == "POST" and raw == _REVOKE)):
+            return await self._app(scope, receive, private_send)
+        from apps.api import history_api
+        if canonical and method == "GET" and raw in _ENGINE_ONLY_READS:
+            response = history_api._safe_error(
+                503, "ENGINE_STATUS_UNAVAILABLE", "technical", "History unavailable.")
+        else:
+            response = history_api._safe_error(
+                404, "NOT_FOUND", "authorization", "Resource not found.")
+        return await response(scope, receive, private_send)
+
+
+def _require_app_only_pg_tls(dsn: str) -> str:
+    """Private APP_ONLY must use one explicit verify-full TCP endpoint.
+
+    Unlike historical engine-enabled staging, loopback is not exempt.
+    Keep all parsing failures sanitized and preserve the original role check.
+    """
+    from psycopg import Error
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+    try:
+        options = conninfo_to_dict(dsn)
+        if not pg_tls_options_allowed(options):
+            raise StagingConfigDenied()
+        _protected_file(Path(options["sslrootcert"]), secret=False)
+        return make_conninfo(dsn, gssencmode="disable")
+    except (Error, ValueError, TypeError, OSError):
+        raise StagingConfigDenied() from None
 
 
 def prepare_app_only(cfg: AppOnlyConfig, environ=None):
@@ -280,13 +360,16 @@ def prepare_app_only(cfg: AppOnlyConfig, environ=None):
     profile = PrivateStagingProfile(
         issuer=cfg.issuer, audience=cfg.audience, kid=cfg.kid,
         public_key_path=cfg.public_key_file,
-        history_dsn=cfg.history_dsn, revoke_dsn=cfg.revoke_dsn,
+        history_dsn=_require_app_only_pg_tls(cfg.history_dsn),
+        revoke_dsn=_require_app_only_pg_tls(cfg.revoke_dsn),
         peer_verifier=boundary.scope_is_verified,
     )
     from src.phase3.auth.service_proof import BFFServiceVerifier
+    public_key = profile.load_public_key()
+    signer_pin = SignerPin.capture(public_key)
     BFFServiceVerifier(
         issuer=cfg.issuer, audience=cfg.audience,
-        public_keys={cfg.kid: profile.load_public_key()})
+        public_keys={cfg.kid: public_key})
     verify_staging_database_authority(profile)
     # Original History API imports repository as a top-level module. Do not
     # mutate product.v1, reimplement SQL, or import a fixture.
@@ -308,8 +391,8 @@ def prepare_app_only(cfg: AppOnlyConfig, environ=None):
         history_api._cursor_config()
     except history_api.ApiFailure:
         raise StagingConfigDenied() from None
-    product_session_api.install_private_staging_auth(profile)
-    return AppOnlyASGI(product_session_api.app, profile), boundary
+    product_session_api.install_private_staging_auth(profile, expected_public_key=public_key)
+    return AppOnlyASGI(product_session_api.app, profile, signer_pin=signer_pin), boundary
 
 
 def run_app_only(config_file: Path) -> None:

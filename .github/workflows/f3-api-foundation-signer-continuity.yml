@@ -1,0 +1,45 @@
+name: API Foundation signer continuity and real mTLS fence
+
+on:
+  pull_request:
+    branches: [integration/f3-foundation-history-two-users-20261124]
+  push:
+    branches: [agent/api-f3-foundation-signer-continuity-20261125]
+
+permissions:
+  contents: read
+jobs:
+  signer-and-listener:
+    if: github.event_name == 'push' || (github.event.pull_request.head.ref == 'agent/api-f3-foundation-signer-continuity-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify exact checked-out source and no engine migration
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test ! -f infra/postgres/migrations/011_product_answer_claims.up.sql
+          echo "EXACT_API_SOURCE=$EXPECTED_SHA"
+      - name: Install Foundation API CI pins only
+        run: python -m pip install --disable-pip-version-check --no-cache-dir -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.48.0'
+      - name: Source regression and real mTLS network
+        run: |
+          set -euo pipefail
+          python -m compileall -q apps/api src/phase3/auth
+          python -m unittest discover -s tests/phase3/api -p 'test_app_only_signer_pin.py' -v
+          python -m unittest discover -s tests/phase3/api -p 'test_app_only_no_engine.py' -v
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_app_only_mtls_network.py' -v
+          python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
+          python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v
+          echo 'API_SIGNER_SOURCE_AND_MTLS_PASS_NO_TARGET_ACCEPTANCE'

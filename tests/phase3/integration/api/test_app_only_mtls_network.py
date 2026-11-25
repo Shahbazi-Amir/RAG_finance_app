@@ -14,6 +14,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from apps.api.private_app_only_asgi import AppOnlyASGI
+from apps.api.app_only_signer_pin import SignerPin
 from apps.api.private_staging_asgi import _harden_tls_context
 from src.phase3.auth.staging_transport_mtls import (
     TrustedBFFTLSBoundary, make_verified_h11_protocol,
@@ -28,6 +29,10 @@ def openssl(*parts):
 class VerifiedProfile:
     def __init__(self, boundary):
         self.boundary = boundary
+        self.public_key = b'original test public material'
+
+    def load_public_key(self):
+        return self.public_key
 
     def allowed_peer(self, scope):
         return scope.get("scheme") == "https" and self.boundary.scope_is_verified(scope)
@@ -71,7 +76,8 @@ class AppOnlyActualNetwork(unittest.TestCase):
             @inner.get("/v1/conversations")
             async def protected_history():
                 return {"kind": "fixture_only"}
-            api = AppOnlyASGI(inner, VerifiedProfile(boundary))
+            profile = VerifiedProfile(boundary)
+            api = AppOnlyASGI(inner, profile, signer_pin=SignerPin.capture(profile.public_key))
             cfg = uvicorn.Config(
                 app=api, host="127.0.0.1", port=0,
                 loop="asyncio", http=make_verified_h11_protocol(boundary),
@@ -139,6 +145,19 @@ class AppOnlyActualNetwork(unittest.TestCase):
                     self.assertIn(b"ENGINE_NOT_CONFIGURED", send)
                     self.assertNotIn(b"FORBIDDEN", send)
                     self.assertIn(b"no-store", send.lower())
+                    # Real TLS transport, no real PG in this particular test.
+                    profile.public_key = b"replacement test public material"
+                    for path in ("/internal/ready", "/health/ready", "/v1/conversations"):
+                        denied = await call("GET", path, "bff")
+                        self.assertIn(b"HTTP/1.1 503", denied)
+                        self.assertIn(b"no-store", denied.lower())
+                        self.assertNotIn(b"replacement", denied)
+                    for path in ("/v1/messages/", "/v1/%6dessages/"):
+                        denied = await call("POST", path, "bff", b"invalid")
+                        self.assertIn(b"HTTP/1.1 503", denied)
+                        self.assertIn(b"ENGINE_NOT_CONFIGURED", denied)
+                    profile.public_key = b"original test public material"
+                    self.assertIn(b"HTTP/1.1 200", await call("GET", "/internal/ready", "bff"))
                     no_cert = await call("POST", "/v1/messages", None, b"data")
                     wrong = await call("GET", "/internal/ready", "other")
                     self.assertNotIn(b"HTTP/1.1 200", no_cert)
