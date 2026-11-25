@@ -8,6 +8,8 @@ services:
       dockerfile: infra/phase3_l1/Dockerfile.api.signed
     environment:
       API_RUNNER_EXECUTION_MODE: APP_ONLY
+      API_CURSOR_KEY_FILE: /run/secrets/cursor.key
+      API_CURSOR_TTL_SECONDS: ${F3_CURSOR_TTL_SECONDS:?set approved cursor lifetime}
     volumes:
       - type: bind
         source: ${F3_SIGNED_API_CONFIG_DIR:?protected signed API configuration directory required}

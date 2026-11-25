@@ -2,11 +2,15 @@ name: F3 #84 signed API listener transfer — scoped tests
 on:
   push:
     branches: [agent/api-f3-signed-history-on-84-20261125]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [integration/f3-app-only-four-pr-candidate-20261124]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   app-only-api:
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/api-f3-signed-history-on-84-20261125')
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -60,3 +64,16 @@ jobs:
           echo 'NO_RUNNER_NO_QDRANT_NO_MODEL_NO_GATEWAY_NO_T3'
           echo 'DOCKER_STARTUP_DENIAL_AND_MTLS_TRANSPORT_ONLY; REAL_SIGNED_PG_NOT_ATTESTED'
           echo 'CENTRAL_APPROVAL_AND_REAL_MAC_E2E_NOT_CLAIMED'
+  signed-pg-api:
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/api-f3-signed-history-on-84-20261125')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0, persist-credentials: false, ref: ${{ github.event.pull_request.head.sha || github.sha }}}
+      - name: Real signed API + PG17.11 001-010 on disposable private network
+        run: |
+          set -euo pipefail
+          export SOURCE_REPO="$GITHUB_WORKSPACE"
+          export LAB_ROOT="$RUNNER_TEMP/f3-signed-api-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          bash tests/phase3/integration/api/run_app_only_signed_pg_lab.sh

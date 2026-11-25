@@ -70,9 +70,13 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo)
         (self.root / "pub.pem").write_bytes(public_key)
+        cursor_file = self.root / "cursor.key"
+        cursor_file.write_text("a" * 64)
+        cursor_file.chmod(0o600)
         cfg = load_app_only_config(self.config_file)
         with patch.dict(os.environ, {
             "CI": "false", "GITHUB_ACTIONS": "false",
+            "API_CURSOR_KEY_FILE": str(cursor_file), "API_CURSOR_TTL_SECONDS": "300",
             "API_RUNNER_EXECUTION_MODE": "APP_ONLY",
         }):
             with patch("apps.api.private_app_only_asgi._test_tls_material"):
@@ -91,6 +95,23 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         self.assertEqual(install.call_count, 1)
         self.assertIs(app._app, product_session_api.app)
         self.assertIsNone(product_session_api._SERVER_NO_DISPATCH_TASK)
+
+    def test_cursor_secret_requires_protected_file_and_bounded_ttl(self):
+        from apps.api.private_app_only_asgi import _configure_history_cursor
+        key = self.root / "cursor.key"
+        key.write_text("b" * 64)
+        key.chmod(0o600)
+        settings = {"API_CURSOR_KEY_FILE": str(key), "API_CURSOR_TTL_SECONDS": "300"}
+        with patch.dict(os.environ, {}):
+            _configure_history_cursor(settings)
+            self.assertEqual(os.environ["API_CURSOR_TTL_SECONDS"], "300")
+            self.assertEqual(os.environ["API_CURSOR_KEY"], "b" * 64)
+            for ttl in ("", "0", "3601"):
+                with self.assertRaises(StagingConfigDenied):
+                    _configure_history_cursor(dict(settings, API_CURSOR_TTL_SECONDS=ttl))
+            key.chmod(0o644)
+            with self.assertRaises(StagingConfigDenied):
+                _configure_history_cursor(settings)
 
     def test_config_exact_and_redacted_no_runner_no_ledger(self):
         cfg = load_app_only_config(self.config_file)

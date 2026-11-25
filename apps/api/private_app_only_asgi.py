@@ -210,10 +210,27 @@ class AppOnlyASGI:
         return await self._app(scope, receive, private_send)
 
 
+def _configure_history_cursor(environ):
+    # The original product.v1 cursor codec expects process-local settings.
+    # Only the server startup reads the owner-protected secret; no HTTP input.
+    path = Path(environ.get("API_CURSOR_KEY_FILE", ""))
+    _protected_file(path, secret=True)
+    try:
+        key = path.read_text(encoding="utf-8").strip()
+        ttl = int(environ.get("API_CURSOR_TTL_SECONDS", ""))
+        if len(key.encode("utf-8")) < 32 or not 1 <= ttl <= 3600:
+            raise StagingConfigDenied()
+    except (OSError, UnicodeError, ValueError):
+        raise StagingConfigDenied() from None
+    os.environ["API_CURSOR_KEY"] = key
+    os.environ["API_CURSOR_TTL_SECONDS"] = str(ttl)
+
+
 def prepare_app_only(cfg: AppOnlyConfig, environ=None):
     """Preflight real DB+TLS without a C018 lock, spawn, ledger or model."""
     environ = os.environ if environ is None else environ
     assert_app_only_environment(environ)
+    _configure_history_cursor(environ)
     _test_tls_material(cfg)
     boundary = TrustedBFFTLSBoundary(cfg.bff_leaf_cert_sha256)
     profile = PrivateStagingProfile(

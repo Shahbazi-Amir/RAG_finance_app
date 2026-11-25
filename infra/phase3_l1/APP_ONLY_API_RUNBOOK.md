@@ -101,3 +101,9 @@ docker compose -f infra/phase3_l1/compose.app-only.internal.yml -f infra/phase3_
 ```
 
 Foundation must attach the real PG and Bootstrap services to the private network, mount the separately protected Web profile, and use HTTPS DNS/SAN. This override is only the API contribution, not a complete end-to-end configuration. The readiness alias checks API PG and signing key, not Bootstrap/IdP. The current key is fingerprinted at startup; key change requires restart. Only signed canonical History reads and revoke are delegated; Send (including percent-encoded path) is rejected before body. Existing BFF APP_ONLY Send contract remains unchanged. No acceptance change without same-SHA execution.
+
+### Cursor signing and isolated SQL-to-HTTP test
+
+The existing product.v1 cursor codec requires a server-owned key. Supply a protected 0600 `/run/secrets/cursor.key` and explicit `API_CURSOR_TTL_SECONDS` (1–3600; choose the approved value). No secret value goes into Compose, source or logs. The signed startup refuses absent/unsafe cursor configuration. The isolated test uses its own ephemeral key and 300-second laboratory TTL; this is not a product policy approval.
+
+The new CI job uses the existing DB-owned PG17.11 001–010/DB55 lab on a private Docker network, a real non-root signed API container and a separate TLS/RS256 test client. Session/History rows are explicitly synthetic, seeded by the isolated lab administrator; this is not a real IdP login or browser journey. It checks owner list/detail, pagination, foreign 404, forged owner/replay 401, revoke, Send 503 with unchanged History counts and readiness 503 after DB shutdown. No production, 011 or engine path.
