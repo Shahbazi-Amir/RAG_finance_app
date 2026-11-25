@@ -280,7 +280,8 @@ revoked(){ dbpsql -Atc "SELECT count(*) FROM auth_l1.sessions WHERE owner_id='$o
 [[ "$(snapshot)" == '4|2|0|0|0' ]] || exit 70
 before="$(lineage)"
 [[ "$(revoked)" == 0 ]] || exit 70
-stack run --rm --no-deps browser python /opt/probe.py source
+stack run --rm --no-deps browser python /opt/probe.py source | tee "$F3_BROWSER_ROOT/trace-source.log"
+stack logs --no-color api 2>&1 | python3 "$SOURCE_REPO/scripts/phase3/f3_lab_correlate.py" source "$F3_BROWSER_ROOT/trace-source.log"
 [[ "$(snapshot)" == '4|2|0|0|0' && "$(lineage)" == "$before" && "$(revoked)" == 1 ]] || exit 70
 # Witness the real Product dependency outage in the SAME browser job.
 compose stop lab-db >/dev/null
@@ -308,7 +309,8 @@ stack up -d --no-build api web bootstrap ingress
 wait_stack
 inspect_runtime
 probe_boundary
-stack run --rm --no-deps browser python /opt/probe.py restore
+stack run --rm --no-deps browser python /opt/probe.py restore | tee "$F3_BROWSER_ROOT/trace-restore.log"
+stack logs --no-color api 2>&1 | python3 "$SOURCE_REPO/scripts/phase3/f3_lab_correlate.py" restore "$F3_BROWSER_ROOT/trace-restore.log"
 [[ "$(snapshot)" == '4|2|0|0|0' && "$(lineage)" == "$before" && "$(revoked)" == 2 ]] || exit 70
 scan_lab_logs restore
 python3 - "$restore_started" <<'PY'
