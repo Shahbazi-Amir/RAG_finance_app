@@ -108,6 +108,54 @@ def run(mode):
             expect(pa.get_by_test_id("history-send")).to_be_disabled()
             expect(pa.get_by_test_id("app-runtime-capability")).to_contain_text("بدون موتور")
             expect_json(pa.request.post(ORIGIN+"/api/history/messages",data="invalid-no-read"),503)
+            # Repeat the same valid client request, then the same key with changed
+            # text and from owner B. App-only must deny before durable admission.
+            # This is a negative fence, NOT successful M10-A10 persistence.
+            payload={"kind":"send_message_request","contract_version":"product.v1",
+                     "requested_conversation_id":None,"client_message_id":"browser-retry-001",
+                     "question":"synthetic app-only retry","idempotency_key":"browser-retry-key-001"}
+            for actor,body in [(pa,payload),(pa,payload),(pa,{**payload,"question":"changed"}),(pb,payload)]:
+                result=actor.request.post(ORIGIN+"/api/history/messages",data=body)
+                expect_json(result,503)
+                assert result.json()["error"]=="ENGINE_NOT_AVAILABLE"
+            after_retry=expect_json(pa.request.get(LIST+"?limit=2"),200)
+            assert after_retry["scope_user_id"]==la["scope_user_id"]
+            assert [r["conversation_id"] for r in after_retry["items"]]==["browser-a-3","browser-a-2"]
+            print("BROWSER_APP_ONLY_REPEAT_VALID_SEND_DENIED_PASS",flush=True)
+            # Independent real B session: mobile navigation, focus trap and
+            # viewport overflow checks without mock transports or extra logins.
+            pb.set_viewport_size({"width":320,"height":720})
+            trigger=pb.get_by_role("button",name="بازکردن فهرست گفت‌وگوها")
+            expect(trigger).to_be_visible()
+            assert pb.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            assert pb.locator("html").get_attribute("dir")=="rtl"
+            trigger.click()
+            dialog=pb.get_by_role("dialog")
+            expect(dialog).to_be_visible()
+            assert dialog.get_attribute("aria-modal")=="true"
+            close=pb.get_by_role("button",name="بستن فهرست")
+            expect(close).to_be_focused()
+            for key in ["Shift+Tab","Tab","Tab","Tab"]:
+                pb.keyboard.press(key)
+                assert dialog.evaluate("(node)=>node.contains(document.activeElement)")
+            pb.keyboard.press("Escape")
+            expect(trigger).to_be_focused()
+            expect(dialog).to_have_count(0)
+            trigger.click()
+            pb.get_by_test_id("conversation-browser-b-1").click()
+            expect(pb.get_by_test_id("history-message-browser-msg-b")).to_have_text("lab browser B")
+            assert pb.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            pb.set_viewport_size({"width":1280,"height":900})
+            expect(pb.get_by_test_id("conversation-browser-b-1")).to_be_visible()
+            print("BROWSER_REAL_320_RTL_KEYBOARD_FOCUS_RESIZE_PASS",flush=True)
+            # Invalid same-origin CSRF and cross-site mutation cannot revoke
+            # a still-active B session. Send no real token in negative probes.
+            for origin,site in [(ORIGIN,"same-origin"),("https://untrusted.invalid","cross-site")]:
+                result=pb.request.post(ORIGIN+"/api/auth/logout",form={"csrf":"invalid"},
+                    headers={"Origin":origin,"Sec-Fetch-Site":site})
+                assert result.status==403
+                expect_json(pb.request.get(LIST+"?limit=2"),200)
+            print("BROWSER_REAL_CSRF_DENY_SESSION_REMAINS_ACTIVE_PASS",flush=True)
             # Normal logout via real form; replay the exact previously issued cookie
             # only for the negative assertion, never to establish a session.
             pa.goto(ORIGIN+"/login",wait_until="domcontentloaded")
