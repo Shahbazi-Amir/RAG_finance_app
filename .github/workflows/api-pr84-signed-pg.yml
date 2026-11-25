@@ -1,6 +1,8 @@
 name: API PR84 actual signed listener PG17 TLS lab
 
 on:
+  push:
+    branches: [agent/api-pr84-signed-history-20261125]
   pull_request:
     types: [opened, synchronize, reopened]
     branches: [integration/f3-app-only-four-pr-candidate-20261124]
@@ -10,7 +12,7 @@ permissions:
 
 jobs:
   api-session-011:
-    if: github.event.pull_request.head.ref == 'agent/api-pr84-signed-history-20261125' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'push' || (github.event.pull_request.head.ref == 'agent/api-pr84-signed-history-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     services:
@@ -57,6 +59,7 @@ jobs:
       - name: Checkout exact commit (read only)
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Stage exact tested #48 API workers/harness (CI filesystem only)
         run: |
@@ -301,6 +304,11 @@ jobs:
           set -euo pipefail
           python -m compileall -q apps/api/product_session_api.py src/phase3/auth tests/phase3/integration/api/test_product_session_011.py
           python -m unittest discover -s tests/phase3/integration/api -p 'test_product_session_011.py' -v
+      - name: Real signed app-only listener on fresh synthetic PG database
+        run: |
+          set -euo pipefail
+          test -n "$F3_SIGNED_LISTENER_PG_CA"
+          python -m unittest discover -s tests/phase3/integration/api -p test_pr84_signed_listener_pg.py -v
       - name: Verify full identity T2 ledger positive and negative (offline subset)
         run: |
           python -m unittest discover -s tests/phase3/api -p 'test_full_binding_fence.py' -v
