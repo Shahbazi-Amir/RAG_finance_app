@@ -680,6 +680,68 @@ def verify_fa_disabled_send_corpus(phase, state):
     print(f"API_F3_{phase.upper()}_24_FA_CASES_DISABLED_SEND_ZERO_SQL_NO_REFLECTION=PASS", flush=True)
 
 
+def verify_transport_capacity_recovery(phase, state):
+    """Existing 32-connection cap in isolated mTLS lab, not a target SLO."""
+    host = "demo-db" if phase == "before" else "restore-db"
+    db = ("rag_finance_f3_http_ab_source" if phase == "before"
+          else "rag_finance_f3_http_ab_restored")
+    def snapshot():
+        hashes = []
+        with conn("history_app", host, db) as sql:
+            for label in ("a", "b"):
+                with sql.transaction():
+                    sql.execute("SELECT set_config('app.owner_id', %s, true)",
+                                (state[label]["owner"],))
+                    for table in ("conversations","messages","create_receipts",
+                                  "send_receipts","execution_attempts","answers"):
+                        rows = sql.execute(
+                            f"SELECT to_jsonb(t)::text AS row_value FROM history_l1.{table} AS t"
+                        ).fetchall()
+                        hashes.append(row_fingerprint([r["row_value"] for r in rows]))
+        assert tuple(x[0] for x in hashes) == (5,4,0,0,0,0,3,2,0,0,0,0)
+        return tuple(hashes)
+    before = snapshot()
+    endpoint = "/v1/conversations"
+    context = ssl.create_default_context(cafile=str(PRIVATE / "ca.pem"))
+    context.load_cert_chain(str(PRIVATE / "bff.pem"), str(PRIVATE / "bff.key"))
+    held = []
+    proofs = {}
+    try:
+        # Hold TLS connections without requests; H11 checks existing capacity
+        # before ASGI admission. No new limit or policy is introduced.
+        for _ in range(36):
+            with socket.create_connection(("127.0.0.1", 18443), timeout=2) as raw:
+                held.append(context.wrap_socket(raw, server_hostname="127.0.0.1"))
+        for label in ("a", "b"):
+            token = signature(label, "GET", endpoint)
+            proofs[label] = token
+            with tls_client() as client:
+                response = client.get(BASE + endpoint, headers={
+                    "Authorization":"BFF-Assertion " + token})
+                assert response.status_code == 503, "EXISTING_TRANSPORT_CAP_NOT_OBSERVED"
+                assert state[label]["owner"] not in response.text
+                assert "scope_user_id" not in response.text
+                assert token not in response.text
+    finally:
+        for sock in held:
+            sock.close()
+    for label in ("a", "b"):
+        with tls_client() as client:
+            headers = {"Authorization":"BFF-Assertion " + proofs[label]}
+            # Allow bounded socket cleanup, never mint a replacement proof.
+            for _ in range(20):
+                response = client.get(BASE + endpoint, headers=headers)
+                if response.status_code != 503:
+                    break
+                time.sleep(0.05)
+            assert response.status_code == 200, "OVERLOAD_RECOVERY_OR_PROOF_REPLAY"
+            assert response.json()["scope_user_id"] == state[label]["owner"]
+            assert response.headers["cache-control"] == "no-store"
+            assert client.get(BASE + endpoint, headers=headers).status_code == 401
+    assert snapshot() == before
+    print(f"API_F3_{phase.upper()}_TRANSPORT_CAP_503_SAME_PROOF_RECOVERY_ZERO_SQL=PASS", flush=True)
+
+
 def verify_history(phase: str):
     state = json.loads((PRIVATE / "session_state.json").read_text())
     with tls_client() as client:
@@ -753,6 +815,7 @@ def verify_history(phase: str):
     verify_http_contract_negatives(phase)
     verify_status_and_security_log(phase)
     verify_fa_disabled_send_corpus(phase, state)
+    verify_transport_capacity_recovery(phase, state)
     verify_disabled_send_retries(phase, state)
     verify_runtime_signer_drift(phase)
     verify_session_lifecycle(phase, state)
