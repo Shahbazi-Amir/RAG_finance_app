@@ -466,3 +466,8 @@ P3M10 (Module 10 Attempt و منع تکرار)، P3M13 (Module 13 API)، P3M14-A
 ### NB23-SESSION-RESUME-34
 
 آزمون یکپارچه Chrome، Keycloak، BFF، API، PostgreSQL و Generation Mock موفق شد. پاسخ زیر سؤال و حفظ همان Attempt در Refresh و History، با دقیقاً یک dispatch تأیید شد. آداپتر HTTPS غیرفعال است. درخواست خارجی صفر. P3M10، P3M13، P3M14-A03/A09 و P3M15-A01/A07. [نسخه مبنا، مسیرهای تغییر، فرمان آزمون و نتیجه به‌همراه اقدام بعدی](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+
+### NB23-SESSION-RESUME-35
+
+کنترل بسته زنده و دستور smoke آماده شد و آزمون آفلاین ۴/۴ موفق بود. تعرفه همان Gateway و بازیابی کامل حساب و تاریخچه نسخه B احراز نشد. درخواست خارجی صفر و نسخه B دست‌نخورده است. P3M10، P3M13، P3M14-A03/A09 و P3M15-A01/A07. [نسخه مبنا، مسیرهای تغییر، فرمان آزمون و نتیجه به‌همراه اقدام بعدی](../../docs/codex_execution/MAC_FIRST_START_FA.md).

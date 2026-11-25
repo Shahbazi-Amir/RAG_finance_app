@@ -165,3 +165,8 @@ DeepSeek contract و شش آزمون Mock تأیید شد. انتشار Context 
 ### NB23-SESSION-RESUME-34
 
 آزمون یکپارچه Chrome، Keycloak، BFF، API، PostgreSQL و Generation Mock موفق شد. پاسخ زیر سؤال و حفظ همان Attempt در Refresh و History، با دقیقاً یک dispatch تأیید شد. آداپتر HTTPS غیرفعال است. درخواست خارجی صفر.
+
+
+### NB23-SESSION-RESUME-35
+
+کنترل بسته زنده و دستور smoke آماده شد و آزمون آفلاین ۴/۴ موفق بود. تعرفه همان Gateway و بازیابی کامل حساب و تاریخچه نسخه B احراز نشد. درخواست خارجی صفر و نسخه B دست‌نخورده است.
