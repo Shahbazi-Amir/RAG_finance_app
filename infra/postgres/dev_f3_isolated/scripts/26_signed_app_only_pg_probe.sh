@@ -42,7 +42,7 @@ leaf="$(openssl x509 -in "$scratch/client/bff.crt" -outform DER | sha256sum | cu
 python3 - "$scratch/client/actors.json" <<'PY'
 import json, secrets, sys
 with open(sys.argv[1], "w") as f:
-    json.dump({label:secrets.token_urlsafe(32) for label in ("a-before","a-after","b")},f)
+    json.dump({label:secrets.token_urlsafe(32) for label in ("a-before","a-after","a-replay","b")},f)
 PY
 [[ "$(dbpsql -Atc 'SELECT count(*) FROM history_l1.conversations')" == 0 ]] || exit 70
 dbpsql -q <<'SQL'
@@ -114,4 +114,26 @@ start_api restore-db rag_finance_f3_lab_restore
 probe restore
 [[ "$(counts)" == '3|2|0|0|0' ]] || exit 70
 printf 'SIGNED_PG_SOURCE_RESTORE_ZERO_HISTORY_WRITES=PASS\nSOURCE_SHA=%s\nSIGNED_API_LOCAL_IMAGE_ID=%s\n' "$(git -C "$SOURCE_REPO" rev-parse HEAD)" "$(docker image inspect -f '{{.Id}}' "$image")"
+# Separate historical-fixture phase AFTER the zero-write journey has passed.
+# No POST admission route enabled. Only this disposable restored lab is mutated.
+docker run --rm --network "$network" --read-only --cap-drop ALL --security-opt no-new-privileges --mount "type=bind,source=$scratch/api,target=/run/secrets,readonly" "$image" python3 tests/phase3/integration/api/m10_historical_replay_fixture.py
+[[ "$(counts)" == '4|3|1|1|0' ]] || exit 70
+sudo chown -R "$(id -u):$(id -g)" "$scratch/client"
+dbpsql -Atc "SELECT json_build_object('owner_user_id',r.owner_id,'resolved_conversation_id',r.resolved_conversation_id,'message_id',r.user_message_id,'attempt_id',a.id,'attempt_request_id',a.attempt_request_id,'attempt_trace_id',a.attempt_trace_id,'reserved_answer_id',a.reserved_answer_id) FROM history_l1.send_receipts r JOIN history_l1.execution_attempts a ON a.owner_id=r.owner_id AND a.send_receipt_id=r.id WHERE r.client_message_id='m10-historical-client' AND r.owner_id='signed-owner-b'" > "$scratch/client/historical-expected.json"
+python3 - "$scratch/client/historical-expected.json" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1]))
+assert len(d)==7 and all(d.values())
+PY
+chmod 0600 "$scratch/client/historical-expected.json"
+sudo chown -R 11001:11001 "$scratch/client"
+probe historical-replay
+# Real hard stop of the disposable restored DB; not the source, never Mac.
+compose kill -s SIGKILL restore-db >/dev/null
+probe outage
+compose start restore-db >/dev/null
+probe historical-replay
+[[ "$(counts)" == '4|3|1|1|0' ]] || exit 70
+echo M10_HISTORICAL_STATUS_AFTER_REAL_PG_CRASH_COUNTS_STABLE_PASS
+echo M10_POSITIVE_HTTP_SEND_PERSISTENCE_NOT_RUN_APP_ONLY_FENCE
 echo 'BROWSER_OIDC_JOURNEY=NOT_RUN'
