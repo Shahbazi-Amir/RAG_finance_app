@@ -1,28 +1,28 @@
 name: API PR84 signed app-only transfer
 on:
   push:
-    branches: [agent/api-pr84-signed-history-20261125]
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches: [integration/f3-app-only-four-pr-candidate-20261124]
-    paths: ['apps/api/**', 'tests/phase3/**', 'infra/phase3_l1/**', '.github/workflows/api-pr84-signed-history.yml', '.github/workflows/api-pr84-signed-pg.yml']
+    branches: [agent/api-pr84-signed-history-ci-repair-20261125]
+
 permissions:
   contents: read
 jobs:
   listener:
-    if: github.event_name == 'push' || (github.event.pull_request.head.ref == 'agent/api-pr84-signed-history-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Verify exact source and no SQL011
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test ! -f infra/postgres/migrations/011_product_answer_claims.up.sql
       - name: Install exact API lock
-        run: python -m pip install --require-hashes --only-binary=:all: -r locks/requirements-api.lock
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r locks/requirements-api.lock
       - name: Compile and check original plus transferred listener boundaries
         run: |
           python -m compileall -q apps/api/private_app_only_asgi.py

@@ -153,6 +153,15 @@ def assert_app_only_environment(environ) -> None:
         raise StagingConfigDenied()
 
 
+def _bodyless_get(scope) -> bool:
+    """Reject GET payload framing before proof verification or PG admission."""
+    lengths = [value for name, value in scope.get("headers", ())
+               if name.lower() == b"content-length"]
+    return (lengths in ([], [b"0"])
+            and not any(name.lower() == b"transfer-encoding"
+                        for name, _ in scope.get("headers", ())))
+
+
 class AppOnlyASGI:
     """mTLS-scope fence plus deny-before-body POST and live PG readiness.
 
@@ -202,6 +211,13 @@ class AppOnlyASGI:
             # No body parsing, trusted-user mutation, PG T1/T2, runner queue,
             # synthetic Answer, citation, or Gateway network call.
             return await JSONResponse({"error": "ENGINE_NOT_AVAILABLE"}, status_code=503)(scope, receive, private_send)
+        # Carry the bodyless GET fence from the verified Foundation listener.
+        # The signed product read binds b""; reject a nonempty or ambiguous
+        # HTTP request before replay consumption or any owner transaction.
+        if route in {"pg_ready", "health", "history"} and not _bodyless_get(scope):
+            status = 503 if route == "pg_ready" or scope.get("raw_path") == b"/health/ready" else 401
+            return await JSONResponse({"error": "SERVICE_UNAVAILABLE" if status == 503 else "AUTH_REQUIRED"},
+                                      status_code=status)(scope, receive, private_send)
         if route == "pg_ready":
             try:
                 if self._signing_key_sha256 is not None:
@@ -232,6 +248,33 @@ class AppOnlyASGI:
             # are probed by the integrated candidate. PG-only /internal/ready
             # is a separate, explicitly scoped API signal.
             from apps.api.app_only_asgi import live, ready, capabilities
+            if raw == b"/health/ready" and any(
+                    k.lower() == b"authorization" for k, _ in scope.get("headers", ())):
+                # This is API readiness only, NOT full-product readiness.
+                # Use precisely the canonical signed History transaction;
+                # neither the owner nor any returned data enters this DTO.
+                try:
+                    if not self._signing_key_current():
+                        raise StagingConfigDenied()
+                    from starlette.requests import Request
+                    from apps.api import product_session_api, history_api
+                    request = Request(scope, receive)
+                    def probe_history(ctx):
+                        history_api._cursor_config()
+                        page = history_api.conversations(request, ctx)
+                        if page.status_code != 200:
+                            raise StagingConfigDenied()
+                    await run_in_threadpool(product_session_api._signed_history,
+                                            request, b"", b"/health/ready", probe_history)
+                except Exception:
+                    return await JSONResponse(
+                        {"kind": "api_app_only_readiness", "state": "unavailable"},
+                        status_code=503)(scope, receive, private_send)
+                return await JSONResponse({
+                    "kind": "api_app_only_readiness", "state": "ready",
+                    "signed_actor_pg": "verified", "bootstrap_idp": "not_probed",
+                    "retrieval": "unavailable", "generation": "unavailable",
+                })(scope, receive, private_send)
             handlers = {b"/health/live": live, b"/health/ready": ready,
                         b"/v1/capabilities": capabilities}
             response = await handlers[raw]()
@@ -281,6 +324,12 @@ def prepare_app_only(cfg: AppOnlyConfig, environ=None):
     if str(module_dir) not in sys.path:
         sys.path.insert(0, str(module_dir))
     from apps.api import product_session_api
+    # Never inherit an already-installed execution/fixture capability in
+    # the same interpreter. Reject rather than silently clear it.
+    if any(getattr(product_session_api, name) is not None for name in (
+            "_SERVER_NO_DISPATCH_TASK", "_CI_CLAIM_STUB",
+            "_CI_DISPATCH_REPORTER_DSN", "_CI_INVITED_RESULT_STORE")):
+        raise StagingConfigDenied()
     product_session_api.install_private_staging_auth(profile)
     if profile.load_public_key() != public_key:
         raise StagingConfigDenied()

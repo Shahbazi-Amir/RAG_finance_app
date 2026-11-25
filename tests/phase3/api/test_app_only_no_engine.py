@@ -96,6 +96,27 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         self.assertIs(app._app, product_session_api.app)
         self.assertIsNone(product_session_api._SERVER_NO_DISPATCH_TASK)
 
+    def test_prepare_rejects_inherited_engine_or_fixture_capabilities(self):
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization
+        from apps.api import product_session_api
+        from apps.api.private_app_only_asgi import prepare_app_only
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        (self.root / "pub.pem").write_bytes(key.public_key().public_bytes(
+            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
+        cfg = load_app_only_config(self.config_file)
+        with patch.dict(os.environ, {"CI":"false", "GITHUB_ACTIONS":"false",
+                                     "API_RUNNER_EXECUTION_MODE":"APP_ONLY"}):
+            with patch("apps.api.private_app_only_asgi._test_tls_material"), patch(
+                    "apps.api.private_app_only_asgi.verify_staging_database_authority"), patch.object(
+                    product_session_api, "install_private_staging_auth") as install:
+                for field in ("_SERVER_NO_DISPATCH_TASK", "_CI_CLAIM_STUB",
+                              "_CI_DISPATCH_REPORTER_DSN", "_CI_INVITED_RESULT_STORE"):
+                    with self.subTest(field=field), patch.object(product_session_api, field, object()):
+                        with self.assertRaises(StagingConfigDenied):
+                            prepare_app_only(cfg)
+                install.assert_not_called()
+
     def test_config_exact_and_redacted_no_runner_no_ledger(self):
         cfg = load_app_only_config(self.config_file)
         self.assertIsInstance(cfg, AppOnlyConfig)
@@ -199,7 +220,7 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             return {"kind": "fixture_history"}
         wrapper = AppOnlyASGI(app, FakeProfile())
 
-        async def invoke(path, method, trusted, mode="APP_ONLY"):
+        async def invoke(path, method, trusted, mode="APP_ONLY", headers=()):
             receive_reads = []
             emitted = []
             async def recv():
@@ -211,7 +232,7 @@ class AppOnlyNoEngineTests(unittest.TestCase):
                 "type": "http", "scheme": "https" if trusted else "http",
                 "trusted_transport_test": trusted,
                 "path": path, "raw_path": path.encode(),
-                "method": method, "query_string": b"", "headers": [],
+                "method": method, "query_string": b"", "headers": list(headers),
                 "http_version": "1.1",
             }
             with patch.dict(os.environ, {"API_RUNNER_EXECUTION_MODE": mode}):
@@ -241,6 +262,16 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             status, _, _, reads = asyncio.run(invoke(path, method, True))
             self.assertEqual(status, 404)
             self.assertFalse(reads)
+        for framing in (((b"content-length", b"1"),),
+                        ((b"content-length", b"0"), (b"content-length", b"0")),
+                        ((b"transfer-encoding", b"chunked"),)):
+            for path, expected in (("/v1/conversations", 401),
+                                   ("/health/ready", 503), ("/internal/ready", 503)):
+                status, headers, _, reads = asyncio.run(
+                    invoke(path, "GET", True, headers=framing))
+                self.assertEqual(status, expected)
+                self.assertEqual(headers[b"cache-control"], b"no-store")
+                self.assertFalse(reads)
         self.assertEqual(calls["app"], 0)
 
     def test_bff_only_history_is_routed_but_not_created_here(self):
