@@ -122,7 +122,7 @@ configs demo-db rag_finance_f3_lab
 docker build --platform linux/amd64 -f "$SOURCE_REPO/infra/phase3_l1/Dockerfile.api.signed" --build-arg BASE=docker.io/library/python:3.13.5 --build-arg "SOURCE_SHA=$sha" -t "$F3_SIGNED_IMAGE" "$SOURCE_REPO"
 docker build --platform linux/amd64 -f "$SOURCE_REPO/infra/phase3_l1/Dockerfile.web" --build-arg "SOURCE_SHA=$sha" -t "$F3_WEB_IMAGE" "$SOURCE_REPO"
 docker build --platform linux/amd64 -f "$SOURCE_REPO/infra/phase3_l1/lab/Dockerfile.browser" -t "$F3_BROWSER_IMAGE" "$SOURCE_REPO"
-docker pull quay.io/keycloak/keycloak:26.8.2
+docker pull quay.io/keycloak/keycloak@sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3
 stack --profile probe config -q
 stack up -d --no-build idp api web bootstrap ingress
 # Actual Keycloak discovery with verified CA before beginning browser login.
@@ -137,11 +137,35 @@ for i in range(90):
 else: raise SystemExit("IDP_DISCOVERY_NOT_READY")
 print("REAL_IDP_DISCOVERY_TLS_PASS")
 '
-# Ensure Bootstrap has bound its actual socket (no synthetic success response).
-for i in {1..60}; do
-  if stack exec -T web node -e 'const s=require("node:net").connect(8444,"127.0.0.1",()=>{s.end();process.exit(0)});s.on("error",()=>process.exit(1));setTimeout(()=>process.exit(1),1000)' >/dev/null 2>&1; then break; fi
-  sleep 1
-done
+# Gate BOTH source and restored startup on the actual product DB and TLS
+# listeners. No browser login retry, no mocked readiness or altered trust.
+wait_stack() {
+  local ready=0
+  for i in {1..90}; do
+    if stack exec -T web node -e '
+const https=require("node:https"),fs=require("node:fs"),tls=require("node:tls");
+const material={ca:fs.readFileSync("/run/web/ca.crt"),cert:fs.readFileSync("/run/web/bff.crt"),key:fs.readFileSync("/run/web/bff.key"),rejectUnauthorized:true};
+const timer=setTimeout(()=>process.exit(1),5000);
+const b=tls.connect({...material,host:"127.0.0.1",port:8444,checkServerIdentity:(_,c)=>tls.checkServerIdentity("127.0.0.1",c)},()=>{
+  b.end();
+  const q=https.get("https://signed-api:8443/internal/ready",material,r=>{
+    let raw="";r.on("data",x=>raw+=x);r.on("end",()=>{
+      try{const j=JSON.parse(raw);if(r.statusCode!==200||j.history_db!=="verified")process.exit(1);clearTimeout(timer);process.exit(0)}catch{process.exit(1)}
+    });
+  });q.on("error",()=>process.exit(1));
+});b.on("error",()=>process.exit(1));' >/dev/null 2>&1; then
+      ready=1; break
+    fi
+    sleep 1
+  done
+  if [[ "$ready" != 1 ]]; then
+    echo STACK_DEPENDENCY_READINESS_FAILED
+    stack ps -a --format json | python3 -c 'import json,sys; [print(x.get("Service"),x.get("State"),x.get("ExitCode")) for l in sys.stdin if l.strip() for x in [json.loads(l)]]' || true
+    return 70
+  fi
+  echo STACK_REAL_BOOTSTRAP_TLS_AND_PRODUCT_PG_READY_PASS
+}
+wait_stack
 stack run --rm --no-deps browser python /opt/probe.py map
 # Identity links must have been created by real verified OIDC, not pre-seeded.
 issuer=https://lab-idp.test/realms/f3-lab
@@ -183,10 +207,11 @@ export DB_SERVICE=restore-db DB_NAME=rag_finance_f3_lab_restore
 configs restore-db rag_finance_f3_lab_restore
 export F3_STORE="$F3_BROWSER_ROOT/store-restore"
 stack up -d --no-build api web bootstrap ingress
+wait_stack
 stack run --rm --no-deps browser python /opt/probe.py restore
 [[ "$(snapshot)" == '4|2|0|0|0' && "$(lineage)" == "$before" && "$(revoked)" == 2 ]] || exit 70
 printf 'BROWSER_SQL_LINEAGE_COUNTS_REVOKE_RESTORE=PASS\nSOURCE_SHA=%s\n' "$sha"
-for image in "$F3_SIGNED_IMAGE" "$F3_WEB_IMAGE" "$F3_BROWSER_IMAGE" quay.io/keycloak/keycloak:26.8.2; do
+for image in "$F3_SIGNED_IMAGE" "$F3_WEB_IMAGE" "$F3_BROWSER_IMAGE" quay.io/keycloak/keycloak@sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3; do
   printf 'IMAGE_ID=%s\n' "$(docker image inspect -f '{{.Id}}' "$image")"
 done
 echo NO_ENGINE_NO_011_NO_PRODUCTION_NO_CENTRAL_ACCEPTANCE
