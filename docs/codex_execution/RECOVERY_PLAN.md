@@ -31,3 +31,7 @@ Version B keeps its running PostgreSQL while stopping or recreating isolated API
 ### NB23-SESSION-RESUME-22
 
 The isolated API now starts independently of Worker warmup. Before an owner Send, confirm the WORKER_READY marker. Replaying an existing FAILED receipt was observed to leave the PostgreSQL deadline, Attempt count and isolated outcome unchanged.
+
+### NB23-SESSION-RESUME-27
+
+For a stopped Version B, restore its isolated PostgreSQL, start Keycloak first and wait for its private 8443 listener, then start the remaining project services. This order was exercised with one verified real retrieval. Preserve both stacks and existing volumes. Formal Freeze remains pending.

@@ -419,3 +419,9 @@ Status is review. Supervisor approval is pending.
 - Report baseline 40a41f2; execution af57f26; V4 f49f536f4d82. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
 - Tested: host memory/CPU/iostat, Docker per-service usage and cgroups, no active excess test process. Verified HTTPS, fresh authenticated Send, old 179.230-s T2-to-UNKNOWN and current 180-s RUNNING-to-UNKNOWN. No result metrics or owner window; no Chrome automation repeated.
 - Implemented: changed the question in the existing staging HTTP harness and updated cumulative local/report evidence with a short manual checklist. No resource changes. Formal 5/20, private 13/20, Freeze and acceptance pending. [Detailed evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### Docker_3 / NB23-SESSION-RESUME-27 — manual diagnostic handoff
+
+- Report baseline 7ddf7d4; execution af57f26; V4 f49f536f4d82. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
+- Implemented: staggered startup documented in infra/nb23-v4/STAGING_RETRIEVAL.md and owner launcher process liveness in check_session_browser.py. Preserved existing work, sources, frozen C018 and parallel branches.
+- Tested: isolated PG/IdP-first Compose, app/IdP HTTPS 200/0, real signed test exit 0, CONTEXT_READY with 10 results, 86,982 ms Worker and 89.001 s signed-poll observation. GET/replay and logout retained signed behavior. Same Worker and dedicated Chrome were live after owner launch. Formal 5/20, private 14/20 (T20), manual browser steps and official acceptance/Freeze pending. [Evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
