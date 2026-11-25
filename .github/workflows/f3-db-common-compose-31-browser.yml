@@ -428,13 +428,16 @@ jobs:
               assert boundary[key] is value,key
           print("DB_COMMON_THIRD_RESTORE_BOUNDARY_EXACT_SHA_RECEIPT=PASS")
           role=third["third_restore_role_witness"]
-          assert role=={"valid_admission_controls":2,"invalid_admission_denials":5,
-              "no_transaction_denied":True,"unrelated_role_repository_denials":16,
-              "product_role_admission_denied":True,"raw_guc_spoof_resolved":False}
-          for key in ("valid_admission_controls","invalid_admission_denials","unrelated_role_repository_denials"):
-              assert type(role[key]) is int,key
-          for key in ("no_transaction_denied","product_role_admission_denied","raw_guc_spoof_resolved"):
-              assert type(role[key]) is bool,key
+          counts={"valid_admission_controls":2,"invalid_admission_denials":5,
+              "unrelated_role_repository_denials":16,"product_role_invalid_admission_denials":4,
+              "product_role_raw_auth_read_denials":3,"product_role_raw_auth_privilege_denials":12}
+          flags={"no_transaction_denied":True,"product_role_pinned_bridge_admission":True,
+              "product_role_same_tx_repository":True,"raw_guc_spoof_resolved":False}
+          assert set(role)==set(counts)|set(flags)
+          for key,value in counts.items():
+              assert type(role[key]) is int and role[key]==value,key
+          for key,value in flags.items():
+              assert role[key] is value,key
           cursor=third["third_restore_cursor_witness"]
           assert cursor=={"pre_cutover_cursor_replayed":True,"page2_exact":True,
               "malformed_422":True,"revoked_401":True,"no_store":True}
