@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: foundation-f3-${{ github.workflow }}-${{ github.ref }}
+  group: foundation-f3-${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
