@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: foundation-f3-${{ github.workflow }}-${{ github.ref }}
+  group: api137-${{ github.workflow }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -361,3 +361,27 @@ jobs:
         run: |
           echo 'API_BOOTSTRAP_ONLY_NO_PRODUCTION_GRANTS'
           echo 'NO_BROWSER_COOKIE_NO_REAL_NEXT_NO_RESET_C2'
+
+  api-offline-regression:
+    if: github.repository == 'Shahbazi-Amir/RAG_finance_app' && github.ref == 'refs/heads/agent/api-f3-signed-history-from84-20261125'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Exact API dependency lock only
+        run: |
+          python -m pip install --disable-pip-version-check --no-cache-dir --require-hashes --only-binary=:all: -r locks/requirements-api.lock
+          python -m pip check
+      - name: Full existing API and contract regression without external service or model
+        run: |
+          set -euo pipefail
+          python -m compileall -q apps/api src/phase3/auth tests/phase3/api tests/phase3/contracts
+          python -m unittest discover -s tests/phase3/api -p 'test_*.py' -v
+          python -m unittest discover -s tests/phase3/contracts -p 'test_*.py' -v
