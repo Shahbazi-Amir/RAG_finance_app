@@ -564,6 +564,44 @@ def verify_cursor_restore(phase, state):
             print("API_F3_RESTORED_SOURCE_CURSOR_PAGE2_OWNER_PARITY=PASS", flush=True)
 
 
+def verify_http_contract_negatives(phase):
+    """Actual wire paths, signed query validation, no redirect or reflected IDs."""
+    with tls_client() as client:
+        ids = set()
+        for method, path, code, status in (
+            ("POST", "/v1/messages/", "ENGINE_NOT_CONFIGURED", 503),
+            ("POST", "/v1/%6dessages/", "ENGINE_NOT_CONFIGURED", 503),
+            ("GET", "/v1/message-requests/retrieved-sources/", "ENGINE_STATUS_UNAVAILABLE", 503),
+            ("GET", "/v1/conversations/", "NOT_FOUND", 404),
+            ("POST", "/v1/conversations", "NOT_FOUND", 404),
+            ("DELETE", "/v1/conversations/f3-net-a-1/messages", "NOT_FOUND", 404),
+            ("GET", "/v1/future-private-operation", "NOT_FOUND", 404),
+        ):
+            response = client.request(method, BASE + path, follow_redirects=False,
+                                      headers={"X-Request-ID": "caller-chosen-id",
+                                               "X-Trace-ID": "caller-chosen-trace"})
+            assert response.status_code == status
+            assert response.headers["cache-control"] == "no-store"
+            assert "location" not in response.headers
+            document = response.json()
+            assert document["kind"] == "error_response"
+            assert document["contract_version"] == "product.v1"
+            assert document["error"]["code"] == code
+            for field in ("request_id", "trace_id"):
+                value = document[field]
+                assert isinstance(value, str) and value and value not in ids
+                assert not value.startswith("caller-chosen")
+                ids.add(value)
+        for query in ("limit=0", "limit=101", "limit=1&limit=2",
+                      "limit=bad", "owner_id=foreign", "cursor=invalid"):
+            response = request(client, "a", "/v1/conversations", query, expect=422)
+            assert response.json()["error"]["code"] in {"INVALID_REQUEST", "INVALID_CURSOR"}
+            assert response.headers["cache-control"] == "no-store"
+        request(client, "a", "/v1/conversations")
+        request(client, "b", "/v1/conversations")
+    print(f"API_F3_{phase.upper()}_HTTP_ROUTE_QUERY_TRACE_CONTRACT_NEGATIVES=PASS", flush=True)
+
+
 def verify_history(phase: str):
     state = json.loads((PRIVATE / "session_state.json").read_text())
     with tls_client() as client:
@@ -634,6 +672,7 @@ def verify_history(phase: str):
                     assert result.status_code in (401, 403), "WRONG_PEER_AUTHENTICATED"
             except httpx.HTTPError:
                 pass
+    verify_http_contract_negatives(phase)
     verify_disabled_send_retries(phase, state)
     verify_runtime_signer_drift(phase)
     verify_session_lifecycle(phase, state)
@@ -656,7 +695,7 @@ def revoke_and_check():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("phase", choices=("seed", "before", "after", "ready200", "ready503"))
+    parser.add_argument("phase", choices=("seed", "before", "after", "ready200", "ready503", "role200", "role503"))
     args = parser.parse_args()
     require_lab()
     if args.phase in ("ready200", "ready503"):
@@ -665,6 +704,17 @@ def main():
             res = c.get(BASE + "/internal/ready", timeout=12.0)
         assert res.status_code == expected, "PG_DEPENDENCY_READINESS_STATUS_MISMATCH"
         print("HTTPS_APP_ONLY_PG_DEPENDENCY_READY_" + str(expected) + "=PASS", flush=True)
+        return
+    if args.phase in ("role200", "role503"):
+        expected = 200 if args.phase == "role200" else 503
+        with tls_client() as c:
+            assert c.get(BASE + "/internal/ready").status_code == expected
+            result = request(c, "b", "/health/ready", expect=expected)
+            assert result.json()["state"] == ("ready" if expected == 200 else "unavailable")
+            # Loss of the revoker grant must lower readiness but not leak or
+            # corrupt existing owner-scoped History. The B session is active.
+            request(c, "b", "/v1/conversations")
+        print("API_F3_REAL_REVOKER_GRANT_READINESS_" + str(expected) + "=PASS", flush=True)
         return
     if args.phase == "seed":
         create_fixture()

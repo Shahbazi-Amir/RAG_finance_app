@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 from starlette.responses import JSONResponse
-from apps.api.app_only_disabled_routes import deny_disabled_route
+from apps.api.app_only_disabled_routes import app_only_route_allowed, deny_disabled_route
 
 
 class DisabledRouteTests(unittest.TestCase):
@@ -63,6 +63,32 @@ class DisabledRouteTests(unittest.TestCase):
 
     def test_unrelated_path_not_reclassified(self):
         self.assertIsNone(self.invoke("/v1/message-requests/engine-status-other"))
+
+    def test_disabled_trailing_aliases_never_redirect(self):
+        self.assertEqual(self.invoke("/v1/messages/", "POST"), "ENGINE_NOT_CONFIGURED")
+        self.assertEqual(self.invoke("/v1/message-requests/retrieved-sources/"),
+                         "ENGINE_STATUS_UNAVAILABLE")
+
+    def test_allowlist_canonical_read_revoke_and_readiness_only(self):
+        for method, path in (
+            ("GET", "/v1/conversations"),
+            ("GET", "/v1/conversations/a-1/messages"),
+            ("GET", "/v1/message-requests/status"),
+            ("GET", "/internal/ready"),
+            ("GET", "/health/ready"),
+            ("POST", "/internal/auth/session/v1/revoke-one"),
+        ):
+            self.assertTrue(app_only_route_allowed({"method":method, "path":path}))
+        for method, path in (
+            ("POST", "/v1/conversations"),
+            ("GET", "/v1/conversations/"),
+            ("GET", "/v1/conversations/-invalid/messages"),
+            ("DELETE", "/v1/conversations/a-1/messages"),
+            ("GET", "/internal/auth/session/v1/revoke-one"),
+            ("GET", "/v1/new-future-operation"),
+            ("GET", "/v1/conversations/" + "a"*65 + "/messages"),
+        ):
+            self.assertFalse(app_only_route_allowed({"method":method, "path":path}))
 
 
 if __name__ == "__main__":

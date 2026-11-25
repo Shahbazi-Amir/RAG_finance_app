@@ -19,7 +19,7 @@ from starlette.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from apps.api.app_only_signer_pin import SignerPin
 from apps.api.app_only_db_pair import same_tls_database
-from apps.api.app_only_disabled_routes import deny_disabled_route
+from apps.api.app_only_disabled_routes import app_only_route_allowed, deny_disabled_route
 
 from apps.api.private_staging_asgi import (
     _harden_tls_context, _protected_file, _test_tls_material,
@@ -187,6 +187,8 @@ class AppOnlyASGI:
 
         if await deny_disabled_route(scope, receive, private_send, disabled_error):
             return
+        if not app_only_route_allowed(scope):
+            return await disabled_error(404, "NOT_FOUND", "authorization", "History unavailable.")(scope, receive, private_send)
         # The production composition pins the very key installed in the
         # verifier. A broken/replaced Ops file is not a valid configuration.
         # Keep the no-engine Send denial ahead of this check.
@@ -256,6 +258,10 @@ class AppOnlyASGI:
                     product_session_api._signed_history,
                     request, b"", b"/health/ready", probe_history,
                 )
+                # An active History role alone cannot certify the separate
+                # revoke role. Probe its actual restricted function grants
+                # as well, after the signed actor has been admitted.
+                await run_in_threadpool(verify_staging_database_authority, self._profile)
             except Exception:
                 # Signature, role, session, revoked user, PG outage and
                 # uncertain transaction results are all fail-closed.

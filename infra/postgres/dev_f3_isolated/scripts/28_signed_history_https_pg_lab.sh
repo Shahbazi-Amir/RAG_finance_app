@@ -195,6 +195,18 @@ done
 [[ "$db_ready" == 1 ]] || { echo STOP_PG_RESTORE_SERVICE_NOT_RESTARTED >&2; exit 70; }
 docker exec "$probe_name" python3 /srv/release/tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py ready200
 echo APP_ONLY_RUNNING_MTLS_API_READY_RECOVERED_PG_200=PASS
+# Only the independently restored disposable DB. Probe live privilege drift
+# while the API is running; then reinstate the exact original DB55 grant.
+docker exec "$probe_name" python3 /srv/release/tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py role200
+[[ "$(DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -Atc "SELECT has_function_privilege('auth_revoker','auth_l1.revoke_one(text,bigint)','EXECUTE')")" == t ]] || exit 70
+DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -c 'REVOKE EXECUTE ON FUNCTION auth_l1.revoke_one(text,bigint) FROM auth_revoker' >/dev/null
+if ! docker exec "$probe_name" python3 /srv/release/tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py role503; then
+  DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -c 'GRANT EXECUTE ON FUNCTION auth_l1.revoke_one(text,bigint) TO auth_revoker' >/dev/null
+  exit 70
+fi
+DB_SERVICE=restore-db DB_NAME="$dst" dbpsql -c 'GRANT EXECUTE ON FUNCTION auth_l1.revoke_one(text,bigint) TO auth_revoker' >/dev/null
+docker exec "$probe_name" python3 /srv/release/tests/phase3/integration/api/f3_app_only_https_pg_ab_lab.py role200
+echo API_F3_RESTORED_REVOKER_GRANT_DRIFT_200_503_200=PASS
 docker rm -f "$probe_name" >/dev/null
 trap - EXIT
 [[ "$(DB_SERVICE=lab-db DB_NAME="$src" dbpsql -Atc "SELECT count(*) FROM history_l1.conversations")" == 8 ]] || exit 70
