@@ -1353,6 +1353,8 @@ def pg_lifecycle_preflight():
             scale_before=scale.observe(demo,dsns,pg_id,"BEFORE_RESTART")
             import db_idempotency_owner_scope_ci as replay
             replay_before=replay.initial(demo,dsns,pg_id)
+            append_before=scale.concurrent_append(demo,dsns,pg_id,"BEFORE_RESTART")
+            disconnect_before=replay.disconnect_and_terminal_race(demo,dsns,pg_id,"BEFORE_RESTART")
             def witness():
                 with psycopg.connect(dsns["DB_APP_DSN"], autocommit=True,
                                      row_factory=dict_row) as conn:
@@ -1385,6 +1387,16 @@ def pg_lifecycle_preflight():
             scale_after=scale.observe(demo,dsns,pg_id,"AFTER_RESTART")
             scale.receipt(scale_before,scale_after)
             replay.after_restart(demo,dsns,pg_id,replay_before)
+            append_after=scale.concurrent_append(demo,dsns,pg_id,"AFTER_RESTART")
+            disconnect_after=replay.disconnect_and_terminal_race(demo,dsns,pg_id,"AFTER_RESTART")
+            receipt=ROOT/"ci_receipts/db_concurrent_append_disconnect.json"
+            with receipt.open("x",encoding="utf-8") as out:
+                json.dump({"source_sha":os.environ["F3_EXACT_SHA"],"repository_blob":scale.REPO_BLOB,
+                    "before":{"append":append_before,"disconnect":disconnect_before},
+                    "after":{"append":append_after,"disconnect":disconnect_after},
+                    "distinct_fixture_sets":True,"target_verified":False,"accepted":False,
+                    "engine_calls":0,"sql_011":False},out,indent=2)
+                out.write("\n")
             print("API_F3_PG_PREFLIGHT_FRESH_VOLUME_TLS_STOP_START_PASS", flush=True)
     finally:
         demo.stop()

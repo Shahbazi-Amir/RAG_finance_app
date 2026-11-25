@@ -463,6 +463,27 @@ jobs:
           for key in ("same_explicit_id_two_owners","null_and_explicit_scopes_independent","exact_t1_t2_ids_after_restart","exact_six_table_hashes_after_restart","cancelled_attempt_not_reopened"):
               assert replay[key] is True,key
           print("DB_IDEMPOTENCY_EXACT_SHA_SANITIZED_RECEIPT=PASS")
+          concurrency=json.loads(Path("ci_receipts/db_concurrent_append_disconnect.json").read_text())
+          assert concurrency["source_sha"]==sha and concurrency["repository_blob"]==scale["repository_blob"]
+          assert concurrency["distinct_fixture_sets"] and not concurrency["accepted"] and not concurrency["target_verified"]
+          assert concurrency["engine_calls"]==0 and not concurrency["sql_011"]
+          for phase in ("before","after"):
+              append=concurrency[phase]["append"]
+              assert append["owners"]==2 and append["independent_reader_writer_pairs"]==2
+              for key in ("uncommitted_invisible","old_anchor_exact","fresh_read_sees_append","foreign_denied","scope_cleared"):
+                  assert append[key] is True,key
+              assert append["arbitrary_backdated_insert_snapshot_claim"] is False
+              disconnect=concurrency[phase]["disconnect"]
+              assert disconnect["owners"]==2 and disconnect["uncommitted_disconnects"]==4 and disconnect["successful_retries"]==4
+              assert disconnect["terminal_winners"]==2 and disconnect["terminal_conflicts"]==6 and disconnect["foreign_terminal_denials"]==2
+              assert disconnect["zero_duplicate_rows"] and disconnect["terminal_replay_preserved"] and disconnect["uncommitted_rows_invisible"]
+              assert disconnect["answer_rows"]==0 and disconnect["http_send_executed"] is False
+          for phase in ("SOURCE","RESTORED"):
+              enum=db["signed_history_enumeration"][phase]
+              assert enum["own_200"]==enum["foreign_404"]==enum["unknown_404"]==6
+              assert enum["normalized_error_parity"] and enum["restricted_sql_controls"] and enum["counts_unchanged"]
+              assert enum["timing_leak_proven_absent"] is False
+          print("DB_CONCURRENT_APPEND_DISCONNECT_AND_ENUMERATION_EXACT_SHA_RECEIPTS=PASS")
           PY
       - uses: actions/upload-artifact@v4
         with:
@@ -475,6 +496,7 @@ jobs:
             ci_receipts/db_postcommit_migration.json
             ci_receipts/db_repository_scale.json
             ci_receipts/db_idempotency_owner_scope.json
+            ci_receipts/db_concurrent_append_disconnect.json
           if-no-files-found: error
       - name: Show bounded SQL permissions and container status
         if: always()

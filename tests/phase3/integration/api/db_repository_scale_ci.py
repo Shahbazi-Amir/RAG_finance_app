@@ -232,3 +232,78 @@ def receipt(before,after):
           "engine_calls":0,"sql_011":False},f,indent=2)
         f.write("\n")
     print("DB_SCALE_RESTART_EXACT_PARITY_1072_REPOSITORY_PAGE_SAMPLES=PASS",flush=True)
+
+
+def concurrent_append(demo,dsns,pg_id,phase):
+    """Actual two-owner, separate-connection append between keyset pages.
+
+    Fixed timestamps and ID ties deliberately exercise the second sort key.
+    This proves new rows ABOVE the existing anchor are excluded; it is not
+    a claim of snapshot isolation across arbitrary backdated inserts.
+    """
+    require(phase in ("BEFORE_RESTART","AFTER_RESTART"),"APPEND_PHASE")
+    fence(demo,dsns,pg_id)
+    dsn=dsns["DB_APP_DSN"]
+    owners=tuple("append-ci-"+phase.lower()+"-"+x for x in ("a","b"))
+    at=datetime.fromisoformat("2026-01-01T00:00:00+00:00")
+    later=datetime.fromisoformat("2026-01-01T00:00:01+00:00")
+    def seed(owner):
+        with psycopg.connect(dsn,autocommit=True,row_factory=dict_row) as c:
+            assert_unset(c)
+            with c.transaction():
+                repository.scoped(c,owner)
+                require(c.execute("SELECT count(*) AS n FROM history_l1.conversations").fetchone()["n"]==0,"APPEND_FIXTURE_COLLISION")
+                for n in range(1,6):
+                    cid=owner+"-c-"+str(n)
+                    c.execute("INSERT INTO history_l1.conversations(owner_id,id,title,created_at,updated_at) VALUES(%s,%s,'synthetic append',%s,%s)",(owner,cid,at,at))
+                    c.execute("INSERT INTO history_l1.messages(owner_id,id,conversation_id,role,body,created_at) VALUES(%s,%s,%s,'user','synthetic append',%s)",(owner,owner+"-m-"+str(n),owner+"-c-1",at))
+            assert_unset(c)
+    for owner in owners:seed(owner)
+    def exercise(owner,foreign):
+        hot=owner+"-c-1"
+        cids=[owner+"-c-"+str(n) for n in range(5,0,-1)]
+        mids=[owner+"-m-"+str(n) for n in range(1,6)]
+        newc=owner+"-c-6";newm=owner+"-m-6"
+        with connect(dsn) as reader, psycopg.connect(dsn,autocommit=True,row_factory=dict_row) as writer:
+            require(reader.execute("SELECT pg_backend_pid() AS pid").fetchone()!=writer.execute("SELECT pg_backend_pid() AS pid").fetchone(),"APPEND_DISTINCT_BACKENDS")
+            require(writer.execute("SELECT current_user AS role,(SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()) AS tls").fetchone()=={"role":"history_app","tls":True},"APPEND_WRITER_ROLE")
+            first=repository.list_conversations(reader,owner,limit=2)
+            first_m=repository.list_messages(reader,owner,hot,limit=2,anchor=(at,mids[-1]))
+            require([x["conversation_id"] for x in first["items"]]==cids[:2] and first["has_more"],"APPEND_CONV_FIRST")
+            require([x["message_id"] for x in first_m["items"]]==mids[:2] and first_m["has_more"],"APPEND_MESSAGE_FIRST")
+            with writer.transaction():
+                repository.scoped(writer,owner)
+                writer.execute("INSERT INTO history_l1.conversations(owner_id,id,title,created_at,updated_at) VALUES(%s,%s,'synthetic appended',%s,%s)",(owner,newc,later,later))
+                writer.execute("INSERT INTO history_l1.messages(owner_id,id,conversation_id,role,body,created_at) VALUES(%s,%s,%s,'user','synthetic appended',%s)",(owner,newm,hot,later))
+                require([x["conversation_id"] for x in repository.list_conversations(reader,owner,limit=100)["items"]]==cids,"UNCOMMITTED_CONVERSATION_VISIBLE")
+                require([x["message_id"] for x in repository.list_messages(reader,owner,hot,limit=100)["items"]]==mids,"UNCOMMITTED_MESSAGE_VISIBLE")
+            # Continue the exact previous keyset after the other connection
+            # commits. Refresh without anchor must see the new rows instead.
+            conv=list(first["items"]);last=first["last"]
+            msg=list(first_m["items"]);mlast=first_m["last"]
+            for _ in range(2):
+                page=repository.list_conversations(reader,owner,limit=2,anchor=(at,cids[0]),last=last)
+                conv+=page["items"];last=page["last"]
+                require(page["has_more"]==(len(conv)<5),"APPEND_CONV_MORE")
+                page=repository.list_messages(reader,owner,hot,limit=2,anchor=(at,mids[-1]),last=mlast)
+                msg+=page["items"];mlast=page["last"]
+                require(page["has_more"]==(len(msg)<5),"APPEND_MSG_MORE")
+            require([x["conversation_id"] for x in conv]==cids,"APPEND_CONVERSATION_CURSOR_DRIFT")
+            require([x["message_id"] for x in msg]==mids,"APPEND_MESSAGE_CURSOR_DRIFT")
+            require(all(x["owner_user_id"]==owner for x in conv+msg),"APPEND_OWNER_DRIFT")
+            require([x["conversation_id"] for x in repository.list_conversations(reader,owner,limit=100)["items"]]==[newc]+cids,"APPEND_REFRESH_CONV")
+            require([x["message_id"] for x in repository.list_messages(reader,owner,hot,limit=100)["items"]]==mids+[newm],"APPEND_REFRESH_MSG")
+            try:
+                repository.list_messages(reader,owner,foreign+"-c-1",limit=2)
+            except repository.NotFound as exc:require(str(exc)=="NOT_FOUND","APPEND_FOREIGN_CODE")
+            else:raise AssertionError("APPEND_FOREIGN_VISIBLE")
+            assert_unset(reader);assert_unset(writer)
+        return True
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures=[pool.submit(exercise,owner,owners[1-i]) for i,owner in enumerate(owners)]
+        require(all(f.result(timeout=30) for f in futures),"APPEND_BOTH_OWNERS")
+    print("DB_SCALE_"+phase+"_AB_CONCURRENT_APPEND_KEYSET_ANCHOR_AND_REFRESH=PASS",flush=True)
+    return {"owners":2,"independent_reader_writer_pairs":2,"initial_rows_per_resource":5,
+            "appended_rows_per_resource":1,"uncommitted_invisible":True,"old_anchor_exact":True,
+            "fresh_read_sees_append":True,"foreign_denied":True,"scope_cleared":True,
+            "arbitrary_backdated_insert_snapshot_claim":False}

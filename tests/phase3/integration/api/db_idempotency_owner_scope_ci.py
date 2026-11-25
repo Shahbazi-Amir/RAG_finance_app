@@ -172,3 +172,86 @@ def after_restart(demo,dsns,pg_id,before):
           "accepted":False,"target_verified":False},f,indent=2)
         f.write("\n")
     print("DB_IDEMPOTENCY_RESTART_16_REPLAYS_ZERO_NEW_ROWS_TERMINAL_PRESERVED=PASS",flush=True)
+
+
+def disconnect_and_terminal_race(demo,dsns,pg_id,phase):
+    """Actual PostgreSQL client disconnect before outer COMMIT and retry.
+
+    The Repository's nested transaction has returned; a separate TLS
+    connection sees no durable result until the outer commit. No worker
+    process, provider, HTTP Send or answer generation is executed.
+    """
+    require(phase in ("BEFORE_RESTART","AFTER_RESTART"),"DISCONNECT_PHASE")
+    scale.fence(demo,dsns,pg_id)
+    dsn=dsns["DB_APP_DSN"]
+    owners=tuple("disconnect-ci-"+phase.lower()+"-"+x for x in ("a","b"))
+    def counts(conn,owner):
+        with conn.transaction():
+            conn.execute("SET TRANSACTION READ ONLY")
+            repo.scoped(conn,owner)
+            return tuple(conn.execute("SELECT count(*) AS n FROM history_l1."+table).fetchone()["n"] for table in TABLES)
+    def one(owner,foreign):
+        req=request(None);q=query(None)
+        with connect(dsn) as observer:
+            require(counts(observer,owner)==(0,0,0,0,0,0),"DISCONNECT_FIXTURE_COLLISION")
+            writer=connect(dsn)
+            try:
+                writer.execute("BEGIN")
+                first=repo.send_t1(writer,owner,req,ident(),ident())
+                require(first["disposition"]=="created","T1_UNCOMMITTED_CREATE")
+                require(counts(observer,owner)==(0,0,0,0,0,0),"T1_DIRTY_READ")
+                expect(lambda:repo.read_status(observer,owner,q,ident(),ident()),repo.NotFound,"NOT_FOUND")
+            finally:
+                writer.close() # real disconnect with outer transaction open
+            require(counts(observer,owner)==(0,0,0,0,0,0),"T1_DISCONNECT_DURABLE_ROWS")
+            with connect(dsn) as committed:
+                receipt=repo.send_t1(committed,owner,req,ident(),ident())
+                require(receipt["disposition"]=="created","T1_RETRY_NOT_CREATED")
+            require(receipt["message_id"]!=first["message_id"],"T1_ROLLED_BACK_ID_REUSED")
+            require(counts(observer,owner)==(1,1,0,1,0,0),"T1_RETRY_ROWS")
+            writer=connect(dsn)
+            try:
+                writer.execute("BEGIN")
+                pending=repo.start_t2(writer,owner,None,CLIENT,KEY,ident(),ident())
+                require(counts(observer,owner)==(1,1,0,1,0,0),"T2_DIRTY_READ")
+                st=repo.read_status(observer,owner,q,ident(),ident())
+                require(st["status"]=="persisted" and st["attempt_id"] is None,"T2_DIRTY_STATUS")
+            finally:
+                writer.close()
+            require(counts(observer,owner)==(1,1,0,1,0,0),"T2_DISCONNECT_DURABLE_ROWS")
+            with connect(dsn) as committed:
+                attempt=repo.start_t2(committed,owner,None,CLIENT,KEY,ident(),ident())
+                require(attempt["id"]!=pending["id"],"T2_ROLLED_BACK_ID_REUSED")
+                require(repo.send_t1(committed,owner,req,ident(),ident())["disposition"]=="replayed","T1_POST_COMMIT_REPLAY")
+            require(counts(observer,owner)==(1,1,0,1,1,0),"T2_RETRY_ROWS")
+            expect(lambda:repo.mark_attempt(observer,foreign,attempt["id"],"cancelled"),repo.NotFound,"NOT_FOUND")
+            # All contenders race for one terminal transition using separate
+            # restricted TLS sessions. Both valid terminal choices are
+            # permitted; the winning value is intentionally not prescribed.
+            gate=threading.Barrier(4,timeout=15)
+            def contend(index):
+                with connect(dsn) as worker:
+                    gate.wait()
+                    try:
+                        result=repo.mark_attempt(worker,owner,attempt["id"],"cancelled" if index%2 else "failed")
+                        return ("committed",result["state"])
+                    except repo.Conflict as exc:
+                        require(str(exc)=="TERMINAL_ATTEMPT","TERMINAL_RACE_CODE")
+                        return ("denied",None)
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                outcomes=list(pool.map(contend,range(4)))
+            wins=[x[1] for x in outcomes if x[0]=="committed"]
+            require(len(wins)==1 and outcomes.count(("denied",None))==3,"TERMINAL_RACE_DUPLICATE")
+            st=repo.read_status(observer,owner,q,ident(),ident())
+            require(st["status"]==wins[0] and st["answer"] is None and st["attempt_id"]==attempt["id"],"TERMINAL_RACE_STATUS")
+            require(repo.start_t2(observer,owner,None,CLIENT,KEY,ident(),ident())["id"]==attempt["id"],"TERMINAL_REPLAY_REOPENED")
+            require(repo.read_status(observer,owner,q,ident(),ident())["status"]==wins[0],"TERMINAL_STATE_REOPENED")
+            require(counts(observer,owner)==(1,1,0,1,1,0),"TERMINAL_RACE_ROWS")
+            scale.assert_unset(observer)
+    for i,owner in enumerate(owners):one(owner,owners[1-i])
+    print("DB_IDEMPOTENCY_"+phase+"_AB_DISCONNECT_T1_T2_RETRY_TERMINAL_RACE=PASS",flush=True)
+    return {"owners":2,"uncommitted_disconnects":4,"successful_retries":4,
+            "terminal_race_sessions_per_owner":4,"terminal_winners":2,"terminal_conflicts":6,
+            "foreign_terminal_denials":2,"uncommitted_rows_invisible":True,
+            "zero_duplicate_rows":True,"terminal_replay_preserved":True,
+            "answer_rows":0,"provider_cancellation_proven":False,"http_send_executed":False}
