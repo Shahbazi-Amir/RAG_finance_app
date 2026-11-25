@@ -165,43 +165,4 @@ SQL
 done
 # No user IDs, tokens, DSNs or raw logs in receipts. Validate exact synthetic
 # data and absence of foreign rows before writing any public-safe JSON.
-python3 - "$LAB_WORK" "$stage" "$mode" "$sha" <<'PY'
-import json, sys
-from pathlib import Path
-work, stage, mode, sha = sys.argv[1:]
-p = Path(work)
-observed = {}
-def require(ok, label):
-    if not ok:
-        raise SystemExit("STOP_JOURNEY_" + label)
-for label in ("a", "b"):
-    lines = (p / f"journey-{stage}-{label}.private").read_text().splitlines()
-    require(len(lines) == 2, "SQL_OUTPUT")
-    doc, empty = map(json.loads, lines)
-    conv = lambda n: f"{label}0000000-0000-4000-8000-00000000000{n}"
-    msg = lambda n: f"{label}1000000-0000-4000-8000-00000000000{n}"
-    expected = {
-        "list": [[conv(n), f"journey-{label}-{n}"] for n in (3,2,1)],
-        "page1": [conv(3),conv(2)], "page2": [conv(1)],
-        "detail": [[msg(n), f"journey-{label}-message-{n}", "user"] for n in (1,2,3)],
-        "counts": [3,3,0,0,0,0], "foreign": [0,0],
-    }
-    require(doc == expected and empty == [0,0], "OWNER_OR_DATA")
-    observed[label] = {"data": doc, "no_context": empty}
-if stage != "before":
-    baseline = json.loads((p / "journey-before.json").read_text())
-    require(baseline["owners"] == observed and baseline["source_sha"] == sha
-            and baseline["identity_mode"] == mode, "BASELINE_DRIFT")
-receipt = {"contract_version": "f3.db.shared_journey.sql.v1", "stage":stage,
-    "source_sha":sha, "identity_mode":mode, "owners":observed,
-    "role":"history_app", "tls":"verify-full", "pg":"17.11",
-    "migration_range":"001-010", "force_rls_tables":14,
-    "global_history_counts":[6,6,0,0,0,0],
-    "independent_restore_cluster": stage == "after-restore",
-    "http_browser_action": "NOT_VERIFIED_BY_SQL",
-    "formal_acceptance": "NOT_ACCEPTED"}
-with (p / f"journey-{stage}.json").open("x") as f:
-    json.dump(receipt, f, indent=2, sort_keys=True)
-    f.write("\n")
-print("JOURNEY_SQL_"+stage.upper().replace("-","_")+"=PASS")
-PY
+python3 -B "$BUNDLE_ROOT/scripts/journey_receipt.py" "$LAB_WORK" "$stage" "$mode" "$sha"
