@@ -846,6 +846,90 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
         assert self.counts() == before
         print("API_F3_REAL_BROWSER_BAD_CSRF_NO_REVOKE_NO_HISTORY_MUTATION_PASS", flush=True)
 
+    async def verify_signed_history_enumeration(self, phase, a, b, expected, dsns=None):
+        """Compare real BFF/HTTPS foreign and nonexistent History denials.
+        Only synthetic records of the disposable two-owner lab are used.
+        Latency is descriptive, not an approved SLO or timing-leak proof.
+        """
+        assert phase in ("SOURCE", "RESTORED")
+        cfg = dsns if dsns is not None else os.environ
+        known = {row["id"] for rows in expected.values() for row in rows}
+        unknown = [history_api.uid() for _ in range(3)]
+        assert len(set(unknown)) == 3 and not known.intersection(unknown)
+        # Independent SQL: prove the controls are absent and all known IDs
+        # are visible only within their original product-role owner scope.
+        with psycopg.connect(cfg["DB_APP_DSN"], autocommit=True) as db:
+            assert conninfo_to_dict(cfg["DB_APP_DSN"])["sslmode"] == "verify-full"
+            assert db.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()[0]
+            for label, foreign in (("A", "B"), ("B", "A")):
+                with db.transaction():
+                    db.execute("SET TRANSACTION READ ONLY")
+                    db.execute("SELECT set_config('app.owner_id',%s,true)", (self.owners[label],))
+                    for row in expected[label]:
+                        assert db.execute("SELECT count(*) FROM history_l1.conversations WHERE id=%s", (row["id"],)).fetchone()[0] == 1
+                    for cid in unknown + [row["id"] for row in expected[foreign]]:
+                        assert db.execute("SELECT count(*) FROM history_l1.conversations WHERE id=%s", (cid,)).fetchone()[0] == 0
+        before = self.counts()
+        latency = {"foreign": [], "unknown": []}
+        own_count = 0
+        # Correlation identifiers may differ per request; all other error
+        # fields must match. No body, raw ID, token or cookie enters a receipt.
+        def stable_error(value):
+            if isinstance(value, dict):
+                return {k: stable_error(v) for k, v in value.items()
+                        if k not in ("request_id", "trace_id", "requestId", "traceId")}
+            if isinstance(value, list):
+                return [stable_error(v) for v in value]
+            return value
+
+        async def request(page, cid):
+            return await page.evaluate("""async id => {
+                const start=performance.now();
+                const r=await fetch('/api/history/conversations/'+encodeURIComponent(id)+'/messages?limit=2',
+                    {cache:'no-store'});
+                const body=await r.text();
+                return {status:r.status,cache:r.headers.get('cache-control'),
+                    type:r.headers.get('content-type'),body:body,ms:performance.now()-start};
+            }""", cid)
+
+        for label, foreign, page in (("A", "B", a), ("B", "A", b)):
+            for row in expected[label]:
+                response = await request(page, row["id"])
+                assert response["status"] == 200 and response["cache"] == "no-store"
+                doc = json.loads(response["body"])
+                assert doc["owner_user_id"] == self.owners[label]
+                own_count += 1
+            for i, row in enumerate(expected[foreign]):
+                pair = {}
+                # Alternate order to reduce systematic first-request bias.
+                sequence = (("foreign", row["id"]), ("unknown", unknown[i]))
+                if i % 2:
+                    sequence = tuple(reversed(sequence))
+                for kind, cid in sequence:
+                    response = await request(page, cid)
+                    assert response["status"] == 404 and response["cache"] == "no-store", "HISTORY_ENUMERATION_DENIAL_STATUS"
+                    assert "application/json" in (response["type"] or ""), "HISTORY_ENUMERATION_ERROR_TYPE"
+                    assert not any(secret in response["body"] for secret in known | set(unknown) | set(self.owners.values())), "HISTORY_ENUMERATION_ID_LEAK"
+                    pair[kind] = stable_error(json.loads(response["body"]))
+                    latency[kind].append(response["ms"])
+                assert pair["foreign"] == pair["unknown"], "HISTORY_FOREIGN_UNKNOWN_ERROR_PARITY"
+        assert own_count == 6 and all(len(v) == 6 for v in latency.values())
+        assert self.counts() == before, "HISTORY_ENUMERATION_SQL_MUTATION"
+        if not hasattr(self, "enumeration_receipts"):
+            self.enumeration_receipts = {}
+        assert phase not in self.enumeration_receipts
+        self.enumeration_receipts[phase] = {
+            "own_200": own_count, "foreign_404": 6, "unknown_404": 6,
+            "normalized_error_parity": True, "no_store": True,
+            "restricted_sql_controls": True, "counts_unchanged": True,
+            "latency_ms": {kind: {"n": len(values), "min": round(min(values), 3),
+                                  "median": round((sorted(values)[2]+sorted(values)[3])/2, 3),
+                                  "max": round(max(values), 3)}
+                           for kind, values in latency.items()},
+            "approved_slo": False, "timing_leak_proven_absent": False,
+        }
+        print("DB_SIGNED_HISTORY_ENUMERATION_"+phase+"_AB_6_6_DENIALS_SQL_PARITY=PASS", flush=True)
+
     async def actual_oci_read_blocks_real_logout(self, a, logout, raw_a, conversation_id, rows, restored, pg_id):
         """Actual History request blocked AFTER real session admission.
         The held table lock only forces a deterministic scheduling window;
@@ -1038,6 +1122,7 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
             assert all(len(rows) == 3 for rows in expected.values())
             before = self.counts()
             sql_before=self.restricted_db_snapshot("SOURCE")
+            await self.verify_signed_history_enumeration("SOURCE", a, b, expected)
             for label, page in (("A", a), ("B", b)):
                 foreign = "B" if label == "A" else "A"
                 async with page.expect_response(
@@ -1125,6 +1210,7 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
                     self.check_restored_outage(raw_b, restored_id)
                     self.restricted_db_snapshot("AFTER_OUTAGE",restored,sql_before)
                     await self.verify_browser_privacy(browser, a, b, raw_a, raw_b, aid, message)
+                    await self.verify_signed_history_enumeration("RESTORED", a, b, expected, restored)
                     # Normal login again, through the restored Bootstrap and
                     # unchanged Next login route. Reuse the demo harness with
                     # SQL-derived expected titles for the first page only.
@@ -1237,7 +1323,7 @@ print('API_F3_CONTAINER_PG_RESTRICTED_ROLE_TLS_PASS')
                     await self.prove_post_revoke_compose_restore(a,b,raw_a,raw_b,aid,bid,bmid,bmessage,expected,sql_before,before,restored,restored_id)
                     receipt=ROOT/"ci_receipts/db_oci_browser_restricted_parity.json"
                     receipt.parent.mkdir(exist_ok=True)
-                    receipt.write_text(json.dumps({"source_sha":os.environ["F3_EXACT_SHA"],"api_image_id":self.api_image_id,"checkpoints":8,"history_tables":6,"post_revoke_independent_compose_restore":True,"strict_browser_tls":True,"real_31_message_page2_before_after":True,"signed_mobile_320_focus":True,"actual_oci_read_revoke_blocking_pid_chain":True,"real_oidc_owners":2,"exact_row_parity":True,"migration_ledger_rows":10,"data_bearing_up":9,"actual_failed_002_no_autoretry":True,"actual_interrupted_002_no_autoretry":(Path(os.environ["RUNNER_TEMP"])/"f3-actual-migration-interrupted-verified.txt").read_text().strip()=="PASS","db55_pinned_readonly_auditor_checkpoints":8,"force_rls_tables":14,"source_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","restored_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","migration_install_origin":"ACTIONS_PG_BEFORE_FIRST_CLONE","two_journey_clusters_distinct_from_installer":True,"engine_calls":0,"sql_011":False,"target_verified":False,"accepted":False},indent=2)+"\n")
+                    receipt.write_text(json.dumps({"source_sha":os.environ["F3_EXACT_SHA"],"api_image_id":self.api_image_id,"checkpoints":8,"history_tables":6,"signed_history_enumeration":self.enumeration_receipts,"post_revoke_independent_compose_restore":True,"strict_browser_tls":True,"real_31_message_page2_before_after":True,"signed_mobile_320_focus":True,"actual_oci_read_revoke_blocking_pid_chain":True,"real_oidc_owners":2,"exact_row_parity":True,"migration_ledger_rows":10,"data_bearing_up":9,"actual_failed_002_no_autoretry":True,"actual_interrupted_002_no_autoretry":(Path(os.environ["RUNNER_TEMP"])/"f3-actual-migration-interrupted-verified.txt").read_text().strip()=="PASS","db55_pinned_readonly_auditor_checkpoints":8,"force_rls_tables":14,"source_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","restored_tls":"VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN","migration_install_origin":"ACTIONS_PG_BEFORE_FIRST_CLONE","two_journey_clusters_distinct_from_installer":True,"engine_calls":0,"sql_011":False,"target_verified":False,"accepted":False},indent=2)+"\n")
                 finally:
                     self.stop_container_api()
                     for child in (self.api_process, self.bootstrap_process):
