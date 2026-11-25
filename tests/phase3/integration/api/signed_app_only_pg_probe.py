@@ -69,6 +69,25 @@ def main(stage):
         check(ready, 200)
         assert ready.json()["history_db"] == "verified"
         assert ready.json()["generation"] == "unavailable"
+        if stage=="historical-replay":
+            query="requested_conversation_id=&client_message_id=m10-historical-client&idempotency_key=m10-historical-key-001"
+            path="/v1/message-requests/status"
+            a=("signed-owner-a",actors["a-replay"])
+            b=("signed-owner-b",actors["b"])
+            def status(actor, query=query):
+                return c.get(URL+path+"?"+query,headers={"Authorization":"BFF-Assertion "+sign(actor,"GET",path,query)})
+            expected=json.loads((ROOT/"historical-expected.json").read_text())
+            for _ in range(3):
+                doc=check(status(b),200).json()
+                assert doc["status"]=="attempt_unknown" and doc["answer"] is None
+                assert all(doc[k]==v for k,v in expected.items())
+                check(status(a),404)
+            check(status(("signed-owner-a",actors["a-after"])),401)
+            check(status(b,query.replace("m10-historical-client","m10-rollback-client").replace("m10-historical-key-001","m10-rollback-key-001")),404)
+            body=json.dumps({"kind":"send_message_request","contract_version":"product.v1","requested_conversation_id":None,"client_message_id":"m10-historical-client","idempotency_key":"m10-historical-key-001","question":"Disposable historical replay fixture"}).encode()
+            check(c.post(URL+"/v1/messages",content=body,headers={"Authorization":"BFF-Assertion "+sign(b,"POST","/v1/messages",body=body),"Content-Type":"application/json"}),503)
+            print("M10_REAL_SIGNED_HTTP_STATUS_REPLAY_SQL_CORRELATION_FOREIGN_REVOKED_SEND_DENIED_PASS")
+            return
         a = ("signed-owner-a", actors["a-before" if stage=="source" else "a-after"])
         b = ("signed-owner-b", actors["b"])
         def request(actor, path=LIST, query="", method="GET", body=b"", override=None, token=None):
@@ -120,5 +139,5 @@ def main(stage):
 
 
 if __name__ == "__main__":
-    assert len(sys.argv) == 2 and sys.argv[1] in ("source","restore","outage")
+    assert len(sys.argv) == 2 and sys.argv[1] in ("source","restore","outage","historical-replay")
     main(sys.argv[1])
