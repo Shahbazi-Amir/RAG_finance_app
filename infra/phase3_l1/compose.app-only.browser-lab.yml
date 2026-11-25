@@ -86,6 +86,7 @@ services:
     shm_size: 256m
     environment:
       HOME: /home/browser
+      NODE_EXTRA_CA_CERTS: /run/browser/ca.crt
       PYTHONUNBUFFERED: "1"
     tmpfs:
       - /tmp:rw,nosuid,size=256m,uid=11005,gid=11005
