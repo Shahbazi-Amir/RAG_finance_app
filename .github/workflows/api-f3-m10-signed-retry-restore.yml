@@ -54,7 +54,11 @@ jobs:
             grep -Fx "API_F3_${phase}_12_REAL_SIGNED_SEND_RETRIES_ZERO_SCOPED_SQL=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
             grep -Fx "API_F3_${phase}_REAL_SIGNER_DRIFT_503_RECOVERY_200=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
             grep -Fx "API_F3_${phase}_DISABLED_ROUTES_AND_FULL_ROW_PARITY=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
+            grep -Fx "API_F3_${phase}_SESSION_ROTATION_EXPIRY_NO_IMPLICIT_REFRESH=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
+            grep -Fx "API_F3_${phase}_PARALLEL_HISTORY_REPLAY_ONE_ADMISSION_PER_OWNER=PASS" "$RUNNER_TEMP/f3-api-retry-markers.log"
           done
+          grep -Fx 'API_F3_SOURCE_CURSOR_PAGE2_RECORDED=PASS' "$RUNNER_TEMP/f3-api-retry-markers.log"
+          grep -Fx 'API_F3_RESTORED_SOURCE_CURSOR_PAGE2_OWNER_PARITY=PASS' "$RUNNER_TEMP/f3-api-retry-markers.log"
           echo 'F3_APP_ONLY_NO_ENGINE_NO_011_NO_DEMO_NO_IDP_CLAIM=PASS'
       - name: Verify sanitized signed HTTP and restore witness
         shell: bash

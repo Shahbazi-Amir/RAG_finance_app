@@ -8,7 +8,9 @@ OS processes, communicating over genuine TLS localhost. No engine/011/target.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from threading import Barrier
 from hashlib import sha256
 import json
 import os
@@ -173,7 +175,7 @@ def create_fixture():
 
 
 def signature(label, method: str, raw_path: str, raw_query: str = "", body: bytes = b"",
-              owner_override=None, session_override=None) -> str:
+              owner_override=None, session_override=None, generation_override=None) -> str:
     state = json.loads((PRIVATE / "session_state.json").read_text())[label]
     now = int(time.time())
     claims = dict(
@@ -184,7 +186,8 @@ def signature(label, method: str, raw_path: str, raw_query: str = "", body: byte
         body_sha256=sha256(body).hexdigest(), body_len=len(body),
         session_ref=session_override or state["token"],
         owner_id=owner_override or state["owner"],
-        epoch=state["epoch"], generation=state["generation"])
+        epoch=state["epoch"], generation=(state["generation"] if generation_override is None
+                                         else generation_override))
     key = serialization.load_pem_private_key((PRIVATE / "signer.key").read_bytes(), password=None)
     return jwt.encode(claims, key, algorithm="RS256", headers={"kid": KID, "typ": "JWT"})
 
@@ -396,6 +399,127 @@ def verify_runtime_signer_drift(phase):
     print(f"API_F3_{phase.upper()}_REAL_SIGNER_DRIFT_503_RECOVERY_200=PASS", flush=True)
 
 
+def verify_session_lifecycle(phase, state):
+    """Use only additional, disposable sessions; do not rotate the main A/B sessions."""
+    host = "demo-db" if phase == "before" else "restore-db"
+    db = ("rag_finance_f3_http_ab_source" if phase == "before"
+          else "rag_finance_f3_http_ab_restored")
+    actor = state["a"]
+    endpoint = "/v1/conversations"
+    with conn("auth_sessions", host, db) as sessions, tls_client() as client:
+        def get_session(session, generation=None, path=endpoint):
+            proof = signature("a", "GET", path, session_override=session.opaque,
+                              generation_override=(session.generation if generation is None
+                                                   else generation))
+            response = client.get(BASE + path, headers={"Authorization": "BFF-Assertion " + proof})
+            assert response.headers["cache-control"] == "no-store"
+            return response
+
+        first = auth_session.issue(sessions, actor["owner"], actor["epoch"],
+                                   idle_seconds=60, absolute_seconds=300)
+        assert get_session(first).status_code == 200
+        # A normal History GET must not implicitly extend the DB session deadline.
+        observed = auth_session.inspect(sessions, first.opaque)
+        assert observed is not None
+        assert observed["idle_expires_at"] == first.idle_expires_at
+        assert observed["absolute_expires_at"] == first.absolute_expires_at
+        rotated = auth_session.rotate(sessions, first.opaque, first.epoch, first.generation)
+        assert rotated.generation == first.generation + 1
+        assert rotated.absolute_expires_at == first.absolute_expires_at
+        assert get_session(first).status_code == 401
+        assert get_session(rotated, generation=first.generation).status_code == 401
+        response = get_session(rotated)
+        assert response.status_code == 200
+        assert response.json()["scope_user_id"] == actor["owner"]
+        assert get_session(rotated, path="/health/ready").status_code == 200
+        with conn("auth_revoker", host, db) as revoker:
+            assert auth_session.revoke_one(revoker, rotated.opaque, rotated.epoch) is True
+        assert get_session(rotated).status_code == 401
+
+        # Independently exercise idle and absolute expiry with tiny lab-only
+        # TTLs. Use the DB's own admission clock, not a guessed wall-clock sleep.
+        idle = auth_session.issue(sessions, actor["owner"], actor["epoch"],
+                                  idle_seconds=8, absolute_seconds=60)
+        absolute = auth_session.issue(sessions, actor["owner"], actor["epoch"],
+                                      idle_seconds=8, absolute_seconds=8)
+        assert get_session(idle).status_code == 200
+        assert get_session(absolute).status_code == 200
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if (auth_session.inspect(sessions, idle.opaque) is None and
+                    auth_session.inspect(sessions, absolute.opaque) is None):
+                break
+            time.sleep(.1)
+        else:
+            raise AssertionError("DB_SESSION_EXPIRY_NOT_OBSERVED")
+        # A NEW cryptographically valid assertion is not a new DB session.
+        for session in (idle, absolute):
+            assert get_session(session).status_code == 401
+            assert get_session(session, path="/health/ready").status_code == 503
+        assert request(client, "a", endpoint).json()["scope_user_id"] == actor["owner"]
+        assert request(client, "b", endpoint).json()["scope_user_id"] == state["b"]["owner"]
+    print(f"API_F3_{phase.upper()}_SESSION_ROTATION_EXPIRY_NO_IMPLICIT_REFRESH=PASS", flush=True)
+
+
+def verify_parallel_history_replay(phase, state):
+    """One admission for one signed assertion across six simultaneous TLS requests."""
+    endpoint = "/v1/conversations"
+    for label in ("a", "b"):
+        proof = signature(label, "GET", endpoint)
+        barrier = Barrier(6, timeout=10)
+        def one(_):
+            with tls_client() as client:
+                barrier.wait()
+                response = client.get(BASE + endpoint, headers={
+                    "Authorization": "BFF-Assertion " + proof})
+                assert response.headers["cache-control"] == "no-store"
+                if response.status_code == 200:
+                    assert response.json()["scope_user_id"] == state[label]["owner"]
+                else:
+                    assert response.status_code in (401, 503)
+                    assert "items" not in response.json()
+                return response.status_code
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            results = tuple(pool.map(one, range(6)))
+        assert results.count(200) == 1, "SINGLE_ASSERTION_PARALLEL_ADMISSION_MISMATCH"
+        with tls_client() as client:
+            # A separate fresh proof must still read the unchanged owner data.
+            request(client, label, endpoint, expect=200)
+            assert client.get(BASE + endpoint, headers={
+                "Authorization": "BFF-Assertion " + proof}).status_code == 401
+    print(f"API_F3_{phase.upper()}_PARALLEL_HISTORY_REPLAY_ONE_ADMISSION_PER_OWNER=PASS", flush=True)
+
+
+def verify_cursor_restore(phase, state):
+    """Bind a real source cursor to its exact page2 IDs across independent restore."""
+    cursor_file = PRIVATE / "source_page2.json"
+    endpoint = "/v1/conversations"
+    with tls_client() as client:
+        if phase == "before":
+            expected = {}
+            for label in ("a", "b"):
+                page = request(client, label, endpoint, "limit=2").json()
+                cursor = page["page"]["next_cursor"]
+                assert cursor
+                second = request(client, label, endpoint,
+                                 urlencode({"limit": "2", "cursor": cursor})).json()
+                expected[label] = {"cursor": cursor, "ids": [
+                    item["conversation_id"] for item in second["items"]]}
+            write_secret(cursor_file, json.dumps(expected).encode())
+            assert expected["a"]["ids"] == ["f3-net-a-3", "f3-net-a-2"]
+            assert expected["b"]["ids"] == ["f3-net-b-1"]
+            print("API_F3_SOURCE_CURSOR_PAGE2_RECORDED=PASS", flush=True)
+        else:
+            expected = json.loads(cursor_file.read_text())
+            for label, foreign in (("a", "b"), ("b", "a")):
+                query = urlencode({"limit": "2", "cursor": expected[label]["cursor"]})
+                page = request(client, label, endpoint, query).json()
+                assert page["scope_user_id"] == state[label]["owner"]
+                assert [item["conversation_id"] for item in page["items"]] == expected[label]["ids"]
+                request(client, foreign, endpoint, query, expect=404)
+            print("API_F3_RESTORED_SOURCE_CURSOR_PAGE2_OWNER_PARITY=PASS", flush=True)
+
+
 def verify_history(phase: str):
     state = json.loads((PRIVATE / "session_state.json").read_text())
     with tls_client() as client:
@@ -468,6 +592,9 @@ def verify_history(phase: str):
                 pass
     verify_disabled_send_retries(phase, state)
     verify_runtime_signer_drift(phase)
+    verify_session_lifecycle(phase, state)
+    verify_parallel_history_replay(phase, state)
+    verify_cursor_restore(phase, state)
     print(f"HTTPS_APP_ONLY_{phase.upper()}_A_B_OWNER_PAGES_DETAILS_404_SEND503_MTLS_NEGATIVE=PASS", flush=True)
     print(f"HTTPS_APP_ONLY_{phase.upper()}_005_JTI_REPLAY_QUERY_BINDING_CROSS_OWNER_CURSOR_NEGATIVE=PASS", flush=True)
 
