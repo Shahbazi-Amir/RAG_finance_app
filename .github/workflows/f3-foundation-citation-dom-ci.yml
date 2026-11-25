@@ -15,11 +15,12 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.16.0'
+          node-version: '24'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - run: npm ci --prefix apps/web --no-audit --no-fund && npm --prefix apps/web run build
+      - run: npm ci --no-audit --no-fund && npm run build
+        working-directory: apps/web
         env:
           NEXT_TELEMETRY_DISABLED: '1'
       - run: |

@@ -83,10 +83,11 @@ jobs:
           psql -d history_seeded_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
           psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
           psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
-      - name: Run real PostgreSQL synthetic HDB-01 through HDB-10
+      - name: Run scoped History SQL and citation tests (Auth has separate fixtures)
         run: |
           set -euo pipefail
-          python -m unittest discover -s tests/phase3/database -p 'test_*.py' -v
+          python -m unittest discover -s tests/phase3/database -p 'test_history*.py' -v
+          python -m unittest discover -s tests/phase3/database -p 'test_f3_citation_persistence.py' -v
       - name: Smoke seeded migration and reversible rollback in separate disposable DB
         run: |
           set -euo pipefail

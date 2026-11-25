@@ -5,7 +5,7 @@ import copy
 import json
 import os
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit,parse_qs
 from playwright.sync_api import sync_playwright,expect
 
 ROOT=Path(__file__).resolve().parents[4]
@@ -78,9 +78,19 @@ def main():
                         route.fulfill(status=200,json=thread);return
                     route.fulfill(status=404,json={"error":"NOT_FOUND"})
                 page.route("**/api/history/**",intercept)
-                page.goto(BASE,wait_until="domcontentloaded")
-                expect(page.get_by_test_id("conversation-"+cid)).to_be_visible()
-                page.get_by_test_id("conversation-"+cid).click()
+                page.route("**/api/product-capabilities",lambda route:route.fulfill(status=200,json={
+                    "kind":"ui_runtime_capabilities","contract_version":"ui.runtime_capabilities.v1",
+                    "send_mode":"DISABLED","engine_available":False,"generation_available":False}))
+                page_errors=[]
+                page.on("pageerror",lambda error:page_errors.append(type(error).__name__))
+                with page.expect_response(lambda r:urlsplit(r.url).path=="/api/history/conversations",timeout=20000) as response:
+                    page.goto(BASE+"/",wait_until="domcontentloaded")
+                assert response.value.status==200 and seen["list"]>=1
+                print("F3_FIXTURE_LIST",mode,"response",response.value.status,"count",seen["list"],"page_errors",len(page_errors),flush=True)
+                expect(page.get_by_test_id("conversation-"+cid)).to_be_visible(timeout=10000)
+                # Initial selection of the first conversation is automatic. No
+                # redundant click racing the initial thread GET.
+                expect(page.get_by_test_id("history-send")).to_be_disabled()
                 page.wait_for_function("document.querySelector('.history-messages') !== null")
                 if mode=="positive":
                     panel=page.get_by_test_id("answer-"+answer["answer_id"])
@@ -105,12 +115,15 @@ def main():
                 elif mode=="unverified":
                     expect(page.get_by_text("پاسخ نمونه یا تأییدنشده از API دریافت شده و عمداً نمایش داده نمی‌شود.")).to_be_visible()
                     assert page.locator(".product-answer").count()==0
-                else:
+                elif mode=="raw_error":
                     expect(page.locator(".history-error")).to_be_visible()
+                    assert page.locator(".product-answer").count()==0
+                else:
+                    expect(page.get_by_test_id("history-login-required")).to_be_visible()
                     assert page.locator(".product-answer").count()==0
                 for canary in ("F3_HIDDEN_RAW_ASSISTANT_DEBUG","F3_HIDDEN_INTERNAL_PROMPT","F3_HIDDEN_SYNTHETIC_ANSWER"):
                     assert canary not in page.locator("body").inner_text()
-                assert seen["thread"]>=1 and seen["post"]==0
+                assert seen["thread"]>=1 and seen["post"]==0 and not page_errors
                 results[mode]=True
                 context.close()
         finally:browser.close()

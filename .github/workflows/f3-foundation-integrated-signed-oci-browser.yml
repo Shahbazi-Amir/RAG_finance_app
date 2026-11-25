@@ -318,8 +318,9 @@ jobs:
           clean="$(mktemp -d "$RUNNER_TEMP/api-f3-source.XXXXXXXX")"
           trap 'rm -rf "$clean"' EXIT
           git archive "$GITHUB_SHA" | tar -xf - -C "$clean"
-          docker pull --platform linux/amd64 docker.io/library/python:3.13.5
-          base="$(docker image inspect -f '{{index .RepoDigests 0}}' docker.io/library/python:3.13.5)"
+          base="$(sed -n 's/^ARG BASE=//p' "$clean/infra/phase3_l1/Dockerfile.api.signed_history")"
+          test "$base" = "docker.io/library/python@sha256:f3dac913ab53b78c64f26d5518fcd7043d5a1a46522d6a493b598c3ed12f62a6"
+          docker pull --platform linux/amd64 "$base"
           [[ "$base" =~ @sha256:[a-f0-9]{64}$ ]]
           echo "API_F3_BROWSER_CI_BASE_DIGEST=$base"
           docker build --platform linux/amd64 --file "$clean/infra/phase3_l1/Dockerfile.api.signed_history" \
@@ -392,7 +393,9 @@ jobs:
           clean="$(mktemp -d "$RUNNER_TEMP/f3-prior-signed.XXXXXXXX")"
           trap 'rm -rf "$clean"' EXIT
           git archive "$prior" | tar -xf - -C "$clean"
-          base="$(docker image inspect -f '{{index .RepoDigests 0}}' docker.io/library/python:3.13.5)"
+          base="$(sed -n 's/^ARG BASE=//p' "$clean/infra/phase3_l1/Dockerfile.api.signed_history")"
+          test "$base" = "docker.io/library/python@sha256:f3dac913ab53b78c64f26d5518fcd7043d5a1a46522d6a493b598c3ed12f62a6"
+          docker image inspect "$base" >/dev/null
           [[ "$base" =~ @sha256:[a-f0-9]{64}$ ]]
           docker build --platform linux/amd64 -f "$clean/infra/phase3_l1/Dockerfile.api.signed_history" --build-arg "BASE=$base" --build-arg "SOURCE_SHA=$prior" -t "f3-rollback-signed-api:$prior" "$clean"
           docker build --platform linux/amd64 -f "$clean/infra/phase3_l1/Dockerfile.web" --build-arg "SOURCE_SHA=$prior" -t "f3-rollback-signed-web:$prior" "$clean"
