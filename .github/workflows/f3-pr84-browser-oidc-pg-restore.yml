@@ -41,3 +41,56 @@ jobs:
         run: |
           echo "CHECKED_OUT_SHA=$(git rev-parse HEAD)"
           echo 'CI-only standard Keycloak, no external traffic or Mac/CENTRAL acceptance.'
+
+  clean-install-rollback:
+    name: Post-journey clean install, DB replay, rollback and crash recovery
+    needs: browser-pg-restore
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Same source SHA, independent clean empty DB lab (never browser data)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SOURCE_REPO="$GITHUB_WORKSPACE"
+          export LAB_ROOT="$RUNNER_TEMP/f3-post-journey-db-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cd infra/postgres/dev_f3_isolated
+          bash tests/run_static.sh
+          bash scripts/00_prepare_source.sh
+          bash scripts/01_create_isolated_lab.sh
+          bash scripts/02_provision_roles.sh
+          bash scripts/03_apply_pinned_001_010.sh
+          bash scripts/03_apply_pinned_001_010.sh | grep -F ALREADY_APPLIED_EXACT_PINS_NO_RERUN
+          bash scripts/04_bridge_and_db55.sh
+          bash scripts/05_test_roles_tls_rls.sh
+          bash scripts/09_shared_stack_db_preflight.sh
+          bash scripts/06_backup_restore_independent.sh
+          bash scripts/10_restored_stack_db_preflight.sh
+          bash scripts/22_restore_catalog_parity_probe.sh
+          bash scripts/13_catalog_erd_inventory.sh
+          bash scripts/12_rollback_rls_constraints_probe.sh
+          bash scripts/14_synthetic_owner_lifecycle_restore.sh
+          bash scripts/15_populated_pre009_upgrade_restore.sh
+          bash scripts/24_m10_idempotency_concurrency_probe.sh
+          bash scripts/23_m04_migration_full_cycle.sh
+          bash scripts/16_fault_injected_migration_ledger.sh
+          bash scripts/17_populated_query_plan_and_owner.sh
+          bash scripts/19_history_rls_negative_matrix.sh
+          bash scripts/20_backup_integrity_corruption_probe.sh
+          bash scripts/25_pg_crash_recovery_probe.sh
+          bash scripts/21_history_cursor_race_probe.sh
+          bash scripts/11_export_sanitized_receipt.sh
+          echo "SOURCE_SHA=$(git rev-parse HEAD)"
+          echo 'M10 DB uniqueness/concurrency only; no approved positive Send HTTP admission in APP_ONLY.'
+      - name: Upload only existing sanitized DB receipt files
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3-post-journey-db-sanitized
+          path: ci_receipts/*
+          if-no-files-found: error
+          retention-days: 14
