@@ -43,3 +43,7 @@ Use the experimental-local-v4-product-fixes BFF tag for Version B. For this roll
 ### NB23-SESSION-RESUME-29
 
 The thread-fixes BFF image was activated independently while the existing store was transferred in memory. The Version B title overlay is guarded to nb23_session_local and changes only the existing title data. Keep the original BFF image available and preserve API/Worker/IdP/PG on a UI-only rollback.
+
+### NB23-SESSION-RESUME-30
+
+Use the independent local artifacts/nb23-v4-recovery-cp30 package for execution rollback. Verify SHA256SUMS and local dependencies; restore into a separate sibling directory and validate the pinned Compose plan before activation. This package excludes live data, credentials and image layers. No live restore drill was run.

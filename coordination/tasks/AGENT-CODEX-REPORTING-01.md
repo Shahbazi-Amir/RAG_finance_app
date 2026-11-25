@@ -439,3 +439,10 @@ Status is review. Supervisor approval is pending.
 - Implemented: apps/web/src/ui/product-chat.tsx, apps/web/app/history/history.css, infra/nb23-v4/session_conversation_titles.sql, provision_session_postgres.py, Dockerfile.session-v4-web, check_session_browser.py and STAGING_RETRIEVAL.md. No shared migration or wire contract changes. Local trigger kept in B; DB specialist review for future title mechanisms.
 - Tested: three corresponding actual durations and ten results, SQL rollback dry run and applied title-only backfill with count parity, offline build, BFF-only rollout with in-memory store, preserved containers and signed policy/revocation. Chrome Page.navigate timed out on new image; manual regression pending. Owner reports prior full private checklist successful, separate from automated evidence. Formal 5/20 with supervisor acceptance/Freeze pending.
 - [Cumulative evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md) and [selective handoff](../../docs/codex_execution/LOCAL_DOCKER_UI_FIXES.md).
+
+### Docker_3 / NB23-SESSION-RESUME-30 — human confirmation and execution rollback point
+
+- Report baseline 28de5d0, execution af57f26 with existing WIP, BFF 0c2cba75df12 and Engine V4 f49f536f4d82. P3M14-A02/A03/A09/A11 (Module 14 UI/History), P3M15-A02/A03 (Module 15 title/order), and recovery P3M22-A06 / P3OP11-R07 (§Launch checklist).
+- Human evidence: owner explicitly reported all six checkpoint 29 manual UI checks successful. Automated browser test was not rerun. Official quality, Golden, Freeze and supervisor acceptance remain open.
+- Created private local execution snapshot artifacts/nb23-v4-recovery-cp30. Validated 221 archived files, SHA256SUMS, four live mount hashes, seven image IDs and six-service pinned Compose after extraction. No live recovery drill. All seven service start/image identities unchanged. Package excludes private data, sessions, credentials, model/index and image layers. Only sanitized reports are published.
+- [Owner evidence and recovery boundaries](../../docs/codex_execution/MAC_FIRST_START_FA.md).
