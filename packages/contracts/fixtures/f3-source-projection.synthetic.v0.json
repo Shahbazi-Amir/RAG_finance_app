@@ -1,0 +1,24 @@
+{
+  "origin": "SYNTHETIC",
+  "status": "PROPOSED_NOT_APPROVED",
+  "claims": [
+    {"id":"fixture-claim-a", "source_ids":["fixture-site","fixture-book"]},
+    {"id":"fixture-claim-b", "source_ids":["fixture-transcript","fixture-unresolved"]}
+  ],
+  "sources": [
+    {"id":"fixture-site","kind":"website","locator":{"url_fixture_id":"fixture-url"},"credited_author_name":null,"editorial_supervisor_name":"fixture-editor","speaker_name":null,"reason":"fixture-reason-site"},
+    {"id":"fixture-book","kind":"book","locator":{"page":7},"credited_author_name":"fixture-author","editorial_supervisor_name":null,"speaker_name":null,"reason":"fixture-reason-book"},
+    {"id":"fixture-transcript","kind":"transcript","locator":{"timestamp_ms":0},"credited_author_name":null,"editorial_supervisor_name":null,"speaker_name":"fixture-speaker","reason":"fixture-reason-transcript"},
+    {"id":"fixture-unresolved","kind":"unresolved","locator":null,"credited_author_name":null,"editorial_supervisor_name":null,"speaker_name":null,"reason":null}
+  ],
+  "expected": {
+    "origin":"SYNTHETIC","approved":false,
+    "claims":[{"id":"fixture-claim-a","source_ids":["fixture-site","fixture-book"]},{"id":"fixture-claim-b","source_ids":["fixture-transcript","fixture-unresolved"]}],
+    "sources":[
+      {"id":"fixture-book","kind":"book","locator":{"page":7},"credited_author_name":"fixture-author","editorial_supervisor_name":null,"speaker_name":null,"reason":"fixture-reason-book","href":null,"verified":false,"origin":"SYNTHETIC"},
+      {"id":"fixture-site","kind":"website","locator":{"url_fixture_id":"fixture-url"},"credited_author_name":null,"editorial_supervisor_name":"fixture-editor","speaker_name":null,"reason":"fixture-reason-site","href":null,"verified":false,"origin":"SYNTHETIC"},
+      {"id":"fixture-transcript","kind":"transcript","locator":{"timestamp_ms":0},"credited_author_name":null,"editorial_supervisor_name":null,"speaker_name":"fixture-speaker","reason":"fixture-reason-transcript","href":null,"verified":false,"origin":"SYNTHETIC"},
+      {"id":"fixture-unresolved","kind":"unresolved","locator":null,"credited_author_name":null,"editorial_supervisor_name":null,"speaker_name":null,"reason":null,"href":null,"verified":false,"origin":"SYNTHETIC"}
+    ]
+  }
+}

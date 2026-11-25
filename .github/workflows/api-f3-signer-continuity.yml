@@ -37,5 +37,6 @@ jobs:
           python -m unittest discover -s tests/phase3/api -p test_app_only_offline_contract.py -v
           python -m unittest discover -s tests/phase3/api -p test_app_only_fa_boundary.py -v
           python -m unittest discover -s tests/phase3/api -p test_staging_result_gate.py -v
+          PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests/phase3/api -p 'test_f3_synthetic_*oracle.py' -v
       - name: Scope
         run: echo 'SOURCE REGRESSION ONLY; NO REAL PG OR TARGET ACCEPTANCE'
