@@ -66,3 +66,8 @@ Use the independent local artifacts/nb23-v4-recovery-cp30 package for execution 
 ### NB23-SESSION-RESUME-35
 
 کنترل بسته زنده و دستور smoke آماده شد و آزمون آفلاین ۴/۴ موفق بود. تعرفه همان Gateway و بازیابی کامل حساب و تاریخچه نسخه B احراز نشد. درخواست خارجی صفر و نسخه B دست‌نخورده است. برای مسیر ادامه، گزارش اجرای همین checkpoint را ببینید.
+
+
+### NB23-SESSION-RESUME-36
+
+Smoke واقعی ساختگی موفق شد و گزارش آن پس از اعتبارسنجی آفلاین یک پاسخ ثبت شد. Volumeها و PostgreSQL پایدار مستقل برقرارند و Chrome هنوز در مرحله آزمون است. برای مسیر ادامه، گزارش اجرای همین checkpoint را ببینید.
