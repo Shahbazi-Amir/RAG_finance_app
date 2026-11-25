@@ -312,6 +312,8 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --prefix apps/web --no-audit --no-fund
+          npm --prefix apps/web run typecheck
+          npm --prefix apps/web test
           npm --prefix apps/web run build
           python -m pip install --no-cache-dir 'playwright==1.64.1'
           python -m playwright install --with-deps ${{ matrix.browser }}
@@ -322,7 +324,7 @@ jobs:
           set -euo pipefail
           export GITHUB_SHA="$(git rev-parse HEAD)"
           python -m py_compile tests/phase3/integration/foundation/browser_lab_trust.py tests/phase3/integration/foundation/browser_history_restore.py tests/phase3/integration/ui/phase3_auth_demo.py
-          python -m py_compile tests/phase3/integration/foundation/browser_cross_engine_signed.py tests/phase3/integration/foundation/browser_privacy_paging.py
+          python -m py_compile tests/phase3/integration/foundation/browser_cross_engine_signed.py tests/phase3/integration/foundation/browser_privacy_paging.py tests/phase3/integration/foundation/browser_accessibility_contract.py
           python -m unittest discover -s tests/phase3/integration/foundation -p 'test_browser_privacy_paging.py' -v
           if [ '${{ matrix.browser }}' = chromium ]; then
             python tests/phase3/integration/foundation/browser_history_restore.py

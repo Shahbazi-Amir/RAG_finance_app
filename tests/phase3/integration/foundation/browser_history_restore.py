@@ -226,6 +226,8 @@ async def account_and_accessibility(page):
     await skip.focus()
     await page.keyboard.press("Enter")
     await expect(page.locator("#product-main")).to_be_focused()
+    from browser_accessibility_contract import assert_history_accessibility, assert_account_accessibility
+    await assert_history_accessibility(page)
     # Normal-text contrast on selected actual labels, not a WCAG audit.
     ratio=await page.get_by_test_id("app-runtime-capability").evaluate("""el=>{
       const parse=s=>s.match(/[0-9.]+/g).map(Number);
@@ -256,6 +258,7 @@ async def account_and_accessibility(page):
         await expect(page.get_by_role("status").filter(has_text="درخواست حذف از این رابط هنوز فعال نیست")).to_be_visible()
         await expect(page.get_by_role("status").filter(has_text="Export و Feedback در این نسخه فعال نیستند")).to_be_visible()
         await expect(page.locator("main form,main button,main input,main textarea")).to_have_count(0)
+        await assert_account_accessibility(page)
         await page.set_viewport_size({"width":320,"height":568})
         assert await page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2"),"ACCOUNT_320_OVERFLOW"
         await page.get_by_role("link",name="بازگشت به گفت‌وگو").click()
@@ -706,6 +709,7 @@ async def execute():
                 "real_pg_outage_private_dom_hidden_then_revalidated":True,
                 "account_read_only_policy_status_and_mobile":True,
                 "skip_link_and_selected_normal_text_contrast":True,
+                "accessible_names_descriptions_log_and_selected_contrast":True,
                 "all_a_conversations_cross_owner_404":True,
                 "all_b_conversations_cross_owner_404":True,
                 "cursor_owner_404_hmac_tamper_422_limit_422_pre_post_restore":True,

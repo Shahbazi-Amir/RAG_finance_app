@@ -170,6 +170,7 @@ async def execute(name):
                              "mobile_keyboard":True,"cursor_and_foreign_denials":True,
                              "account_read_only_policy_status_and_mobile":True,
                              "skip_link_and_selected_normal_text_contrast":True,
+                             "accessible_names_descriptions_log_and_selected_contrast":True,
                              "send_503_no_history_mutation":True,
                              "original_session_a_401_b_200":True,"revoked_dom_empty":True,
                              "multi_page_message_detail_sql_http_dom":True,
