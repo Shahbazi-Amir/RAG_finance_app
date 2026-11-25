@@ -47,8 +47,8 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             "bff_audience": "urn:test:api",
             "bff_kid": "test-kid",
             "bff_rs256_public_key_file": str(self.root / "pub.pem"),
-            "history_dsn": "host=127.0.0.1 dbname=stage user=history_app",
-            "revoke_dsn": "host=127.0.0.1 dbname=stage user=auth_revoker",
+            "history_dsn": f"host=127.0.0.1 port=5432 dbname=stage user=history_app sslmode=verify-full sslrootcert={self.root / 'ca.pem'}",
+            "revoke_dsn": f"host=127.0.0.1 port=5432 dbname=stage user=auth_revoker sslmode=verify-full sslrootcert={self.root / 'ca.pem'}",
         }
         self.save()
 
@@ -969,6 +969,33 @@ class AppOnlyNoEngineTests(unittest.TestCase):
         with patch.dict(os.environ,{"API_RUNNER_EXECUTION_MODE":"APP_ONLY","PHASE3_APP_MODE":"APP_ONLY"}):
             asyncio.run(run())
         self.assertEqual(len(calls),4)
+
+
+    def test_app_only_pg_transport_is_verified_before_any_db_authority_probe(self):
+        from dataclasses import replace
+        from psycopg.conninfo import conninfo_to_dict, make_conninfo
+        from apps.api.private_app_only_asgi import prepare_app_only, _require_app_only_pg_tls
+        cfg = load_app_only_config(self.config_file)
+        for dsn in (cfg.history_dsn,cfg.revoke_dsn):
+            verified = conninfo_to_dict(_require_app_only_pg_tls(dsn))
+            self.assertEqual(verified["sslmode"],"verify-full")
+            self.assertEqual(verified["gssencmode"],"disable")
+        for field in ("history_dsn","revoke_dsn"):
+            dsn=getattr(cfg,field)
+            for changes in ({"sslmode":"disable"}, {"sslmode":"require"},
+                            {"sslmode":"verify-ca"}, {"hostaddr":"127.0.0.1"},
+                            {"sslrootcert":"relative.pem"}, {"port":""},
+                            {"sslrootcert":str(self.root/"missing-ca.pem")}):
+                with self.subTest(field=field,case=list(changes)):
+                    bad=replace(cfg,**{field:make_conninfo(dsn,**changes)})
+                    with patch.dict(os.environ,{"PHASE3_APP_MODE":"APP_ONLY",
+                                                 "API_RUNNER_EXECUTION_MODE":"APP_ONLY",
+                                                 "CI":"false","GITHUB_ACTIONS":"false"}), \
+                            patch("apps.api.private_app_only_asgi._test_tls_material"), \
+                            patch("apps.api.private_app_only_asgi.verify_staging_database_authority") as probe:
+                        with self.assertRaises(StagingConfigDenied):
+                            prepare_app_only(bad)
+                        probe.assert_not_called()
 
 
 if __name__ == "__main__":

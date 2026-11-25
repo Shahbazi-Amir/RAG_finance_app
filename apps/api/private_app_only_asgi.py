@@ -18,6 +18,7 @@ from pathlib import Path
 from starlette.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from apps.api.app_only_signer_pin import SignerPin
+from apps.api.app_only_pg_policy import pg_tls_options_allowed
 
 from apps.api.private_staging_asgi import (
     _harden_tls_context, _protected_file, _test_tls_material,
@@ -332,6 +333,24 @@ class AppOnlyASGI:
         return await response(scope, receive, private_send)
 
 
+def _require_app_only_pg_tls(dsn: str) -> str:
+    """Private APP_ONLY must use one explicit verify-full TCP endpoint.
+
+    Unlike historical engine-enabled staging, loopback is not exempt.
+    Keep all parsing failures sanitized and preserve the original role check.
+    """
+    from psycopg import Error
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+    try:
+        options = conninfo_to_dict(dsn)
+        if not pg_tls_options_allowed(options):
+            raise StagingConfigDenied()
+        _protected_file(Path(options["sslrootcert"]), secret=False)
+        return make_conninfo(dsn, gssencmode="disable")
+    except (Error, ValueError, TypeError, OSError):
+        raise StagingConfigDenied() from None
+
+
 def prepare_app_only(cfg: AppOnlyConfig, environ=None):
     """Preflight real DB+TLS without a C018 lock, spawn, ledger or model."""
     environ = os.environ if environ is None else environ
@@ -341,7 +360,8 @@ def prepare_app_only(cfg: AppOnlyConfig, environ=None):
     profile = PrivateStagingProfile(
         issuer=cfg.issuer, audience=cfg.audience, kid=cfg.kid,
         public_key_path=cfg.public_key_file,
-        history_dsn=cfg.history_dsn, revoke_dsn=cfg.revoke_dsn,
+        history_dsn=_require_app_only_pg_tls(cfg.history_dsn),
+        revoke_dsn=_require_app_only_pg_tls(cfg.revoke_dsn),
         peer_verifier=boundary.scope_is_verified,
     )
     from src.phase3.auth.service_proof import BFFServiceVerifier

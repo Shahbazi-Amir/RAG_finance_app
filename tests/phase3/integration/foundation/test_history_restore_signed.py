@@ -280,6 +280,33 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
         }
         from apps.api.private_app_only_asgi import assert_app_only_environment
         assert_app_only_environment(env)
+        # Real negative startup checks against only this restored, owned PG.
+        # Verify both restricted DSNs; wrong CA uses the unrelated ephemeral
+        # HTTPS CA, never an external host. Invalid config must not listen.
+        from psycopg.conninfo import make_conninfo
+        for field,overrides in (
+            ("history_dsn",{"sslmode":"disable"}),
+            ("history_dsn",{"sslmode":"verify-ca"}),
+            ("history_dsn",{"hostaddr":"127.0.0.1"}),
+            ("history_dsn",{"sslrootcert":str(h.fixture.ca)}),
+            ("revoke_dsn",{"sslmode":"prefer"}),
+            ("revoke_dsn",{"sslrootcert":str(h.fixture.ca)}),
+        ):
+            denied_config=h.temp/"f3-restore-invalid-pg-config.json"
+            invalid=dict(cfg)
+            invalid[field]=make_conninfo(invalid[field],**overrides)
+            denied_config.write_text(json.dumps(invalid))
+            denied_config.chmod(0o600)
+            try:
+                denied=subprocess.run(
+                    [sys.executable,"-m","apps.api.private_app_only_asgi","--config",str(denied_config)],
+                    cwd=ROOT,env=env,capture_output=True,text=True,timeout=25)
+                self.assertEqual(denied.returncode,78,"APP_ONLY_INVALID_PG_CONFIG_MUST_DENY")
+                self.assertEqual(denied.stderr.strip(),"APP_ONLY_STARTUP_DENIED")
+                self.assertEqual(denied.stdout.strip(),"")
+            finally:
+                denied_config.unlink(missing_ok=True)
+        print("F3_API_RESTORED_PG_STRICT_TLS_BOTH_DSNS_SIX_STARTUP_DENIALS_PASS",flush=True)
         proc=subprocess.Popen(
             [sys.executable,"-m","apps.api.private_app_only_asgi","--config",str(config)],
             cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
@@ -447,6 +474,7 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
             "revoke_A":200,"stale_A":401,"B_after_revoke":200,
             "pg_stop_readiness":503,
             "pg_restart_readiness":200,
+            "app_only_pg_strict_tls_startup_denials":6,
             "app_only_denied_route_proofs":18,
             "app_only_denied_route_replay_rows":0,
             "app_only_denied_route_history_unchanged":True,
