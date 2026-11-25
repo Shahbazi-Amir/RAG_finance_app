@@ -116,7 +116,7 @@ probe restore
 printf 'SIGNED_PG_SOURCE_RESTORE_ZERO_HISTORY_WRITES=PASS\nSOURCE_SHA=%s\nSIGNED_API_LOCAL_IMAGE_ID=%s\n' "$(git -C "$SOURCE_REPO" rev-parse HEAD)" "$(docker image inspect -f '{{.Id}}' "$image")"
 # Separate historical-fixture phase AFTER the zero-write journey has passed.
 # No POST admission route enabled. Only this disposable restored lab is mutated.
-docker run --rm --network "$network" --read-only --cap-drop ALL --security-opt no-new-privileges --mount "type=bind,source=$scratch/api,target=/run/secrets,readonly" "$image" python3 tests/phase3/integration/api/m10_historical_replay_fixture.py
+docker run --rm --network "$network" --read-only --cap-drop ALL --security-opt no-new-privileges -e PYTHONPATH=/srv/release --mount "type=bind,source=$scratch/api,target=/run/secrets,readonly" "$image" python3 tests/phase3/integration/api/m10_historical_replay_fixture.py
 [[ "$(counts)" == '4|3|1|1|0' ]] || exit 70
 sudo chown -R "$(id -u):$(id -g)" "$scratch/client"
 dbpsql -Atc "SELECT json_build_object('owner_user_id',r.owner_id,'resolved_conversation_id',r.resolved_conversation_id,'message_id',r.user_message_id,'attempt_id',a.id,'attempt_request_id',a.attempt_request_id,'attempt_trace_id',a.attempt_trace_id,'reserved_answer_id',a.reserved_answer_id) FROM history_l1.send_receipts r JOIN history_l1.execution_attempts a ON a.owner_id=r.owner_id AND a.send_receipt_id=r.id WHERE r.client_message_id='m10-historical-client' AND r.owner_id='signed-owner-b'" > "$scratch/client/historical-expected.json"
