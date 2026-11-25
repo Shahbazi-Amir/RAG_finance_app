@@ -1,0 +1,43 @@
+name: Foundation PR84 real signed API PG restore boundary
+on:
+  push:
+    branches: [integration/f3-pr84-foundation-signed-history-20261125]
+  pull_request:
+    branches: [integration/f3-app-only-four-pr-candidate-20261124]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  signed-pg-restore:
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'integration/f3-pr84-foundation-signed-history-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fresh pinned lab and signed API before and after independent restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SOURCE_REPO="$GITHUB_WORKSPACE"
+          export LAB_ROOT="$RUNNER_TEMP/f3-signed-pg-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cd infra/postgres/dev_f3_isolated
+          bash -n scripts/26_signed_app_only_pg_probe.sh
+          python3 -m py_compile "$SOURCE_REPO/tests/phase3/integration/api/signed_app_only_pg_probe.py"
+          bash tests/run_static.sh
+          bash scripts/00_prepare_source.sh
+          bash scripts/01_create_isolated_lab.sh
+          bash scripts/02_provision_roles.sh
+          bash scripts/03_apply_pinned_001_010.sh
+          bash scripts/04_bridge_and_db55.sh
+          bash scripts/05_test_roles_tls_rls.sh
+          bash scripts/26_signed_app_only_pg_probe.sh
+      - name: Safe evidence boundary
+        if: always()
+        run: |
+          echo "CHECKED_OUT_SHA=$(git rev-parse HEAD)"
+          echo 'Synthetic lab session issuance only; no Browser/OIDC, Mac or CENTRAL acceptance.'
