@@ -160,8 +160,9 @@ def run(mode):
             sys.path.insert(0, str(ROOT))
             from f3_lab_http_metrics import measure_read_baseline
             measure_read_baseline(pa, pb, LIST, la["scope_user_id"], lb["scope_user_id"], mode)
-            from f3_lab_read_load import measure_bounded_load
+            from f3_lab_read_load import measure_bounded_load, measure_cross_context_overlap
             measure_bounded_load(pa, pb, la["scope_user_id"], lb["scope_user_id"], mode)
+            measure_cross_context_overlap(pa, pb, la["scope_user_id"], lb["scope_user_id"], mode)
             # Normal logout via real form; replay the exact previously issued cookie
             # only for the negative assertion, never to establish a session.
             pa.goto(ORIGIN+"/login",wait_until="domcontentloaded")
