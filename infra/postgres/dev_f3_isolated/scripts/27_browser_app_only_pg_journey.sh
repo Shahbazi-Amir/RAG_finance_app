@@ -170,6 +170,10 @@ const b=tls.connect({...material,host:"127.0.0.1",port:8444,checkServerIdentity:
   echo STACK_REAL_BOOTSTRAP_TLS_AND_PRODUCT_PG_READY_PASS
 }
 wait_stack
+health_event(){
+  python3 "$SOURCE_REPO/scripts/phase3/f3_lab_health_receipt.py" "$F3_BROWSER_ROOT/health-events.jsonl" --stage "$1" --status "$2"
+}
+health_event source 200
 # Inspect only selected properties of this lab's containers; never dump env,
 # full Docker inspect, mounted secret contents or credentials into the log.
 inspect_runtime(){
@@ -293,8 +297,10 @@ const material={ca:fs.readFileSync("/run/web/ca.crt"),cert:fs.readFileSync("/run
 const q=https.get("https://signed-api:8443/internal/ready",material,r=>{r.resume();r.on("end",()=>process.exit(r.statusCode===503?0:1));});
 q.on("timeout",()=>q.destroy());q.on("error",()=>process.exit(1));'
 echo SAME_STACK_PG_OUTAGE_503_PASS
+health_event outage 503
 compose start lab-db >/dev/null
 wait_stack
+health_event recovery 200
 [[ "$(snapshot)" == '4|2|0|0|0' && "$(lineage)" == "$before" ]] || exit 70
 scan_lab_logs source
 # Stop live clients, restore populated database into independent cluster, then
@@ -309,6 +315,7 @@ configs restore-db rag_finance_f3_lab_restore
 export F3_STORE="$F3_BROWSER_ROOT/store-restore"
 stack up -d --no-build api web bootstrap ingress
 wait_stack
+health_event restore 200
 inspect_runtime
 probe_boundary
 stack run -T --rm --no-deps browser python /opt/probe.py restore | tee "$F3_BROWSER_ROOT/trace-restore.log"
@@ -317,6 +324,7 @@ api_container="$(stack ps -q api)"
 docker logs "$api_container" 2>&1 | python3 "$SOURCE_REPO/scripts/phase3/f3_lab_correlate.py" restore "$F3_BROWSER_ROOT/trace-restore.log"
 [[ "$(snapshot)" == '4|2|0|0|0' && "$(lineage)" == "$before" && "$(revoked)" == 2 ]] || exit 70
 scan_lab_logs restore
+python3 "$SOURCE_REPO/scripts/phase3/f3_lab_health_receipt.py" "$F3_BROWSER_ROOT/health-events.jsonl" --sha "$sha" --out "$SOURCE_REPO/ci_receipts/f3-lab-health.json"
 python3 - "$restore_started" <<'PY'
 import sys,time
 print("LAB_BACKUP_RESTORE_AND_BROWSER_REPLAY_ELAPSED_MS="+str((time.monotonic_ns()-int(sys.argv[1]))//1000000))

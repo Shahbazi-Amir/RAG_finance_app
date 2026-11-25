@@ -57,6 +57,7 @@ jobs:
             ci_receipts/lab_image_supply_chain/ci_candidate_manifest.json
             ci_receipts/lab_image_supply_chain/*.cdx.json
             ci_receipts/lab_image_supply_chain/*.vulnerability_summary.json
+            ci_receipts/f3-lab-health.json
           if-no-files-found: warn
           retention-days: 14
       - name: Evidence boundary
