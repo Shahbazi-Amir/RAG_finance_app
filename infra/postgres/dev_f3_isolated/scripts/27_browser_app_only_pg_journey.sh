@@ -166,6 +166,30 @@ const b=tls.connect({...material,host:"127.0.0.1",port:8444,checkServerIdentity:
   echo STACK_REAL_BOOTSTRAP_TLS_AND_PRODUCT_PG_READY_PASS
 }
 wait_stack
+# Cross-service negative checks in the very same job as the browser witness.
+probe_boundary(){
+  stack exec -T web node -e '
+const https=require("node:https"),fs=require("node:fs");
+const ca=fs.readFileSync("/run/web/ca.crt");
+const cert=fs.readFileSync("/run/web/bff.crt"),key=fs.readFileSync("/run/web/bff.key");
+function get(url,opt={}){return new Promise((resolve,reject)=>{
+  const q=https.get(url,{ca,rejectUnauthorized:true,timeout:5000,...opt},r=>{r.resume();r.on("end",()=>resolve(r.statusCode));});
+  q.on("timeout",()=>q.destroy(new Error("timeout")));q.on("error",reject);
+});}
+(async()=>{
+  if(await get("https://ragfinance.ir/login")!==200)throw Error("ingress");
+  if(await get("https://ragfinance.ir/login",{headers:{host:"wrong.invalid"}})!==421)throw Error("host");
+  if(await get("https://lab-idp.test/realms/f3-lab/.well-known/openid-configuration")!==200)throw Error("idp");
+  if(await get("https://signed-api:8443/v1/conversations",{cert,key,headers:{Authorization:"BFF-Assertion invalid"}})!==401)throw Error("proof");
+  let denied=false;
+  try{denied=(await get("https://signed-api:8443/internal/ready"))!==200}catch{denied=true}
+  if(!denied)throw Error("peer");
+  const r=await fetch("http://127.0.0.1:3000/login",{headers:{"x-forwarded-host":"ragfinance.ir","x-forwarded-proto":"https","x-auth-staging-proxy-proof":"invalid"}});
+  if(r.status!==503)throw Error("direct-web");
+  console.log("SAME_STACK_TLS_HOST_IDP_INVALID_PROOF_NO_CERT_DIRECT_WEB_PASS");
+})().catch(e=>{console.error("BOUNDARY_FAILED",["ingress","host","idp","proof","peer","direct-web"].includes(e.message)?e.message:"transport");process.exit(1)});'
+}
+probe_boundary
 stack run --rm --no-deps browser python /opt/probe.py map
 # Identity links must have been created by real verified OIDC, not pre-seeded.
 issuer=https://lab-idp.test/realms/f3-lab
@@ -197,6 +221,17 @@ before="$(lineage)"
 [[ "$(revoked)" == 0 ]] || exit 70
 stack run --rm --no-deps browser python /opt/probe.py source
 [[ "$(snapshot)" == '4|2|0|0|0' && "$(lineage)" == "$before" && "$(revoked)" == 1 ]] || exit 70
+# Witness the real Product dependency outage in the SAME browser job.
+compose stop lab-db >/dev/null
+stack exec -T web node -e '
+const https=require("node:https"),fs=require("node:fs");
+const material={ca:fs.readFileSync("/run/web/ca.crt"),cert:fs.readFileSync("/run/web/bff.crt"),key:fs.readFileSync("/run/web/bff.key"),rejectUnauthorized:true,timeout:15000};
+const q=https.get("https://signed-api:8443/internal/ready",material,r=>{r.resume();r.on("end",()=>process.exit(r.statusCode===503?0:1));});
+q.on("timeout",()=>q.destroy());q.on("error",()=>process.exit(1));'
+echo SAME_STACK_PG_OUTAGE_503_PASS
+compose start lab-db >/dev/null
+wait_stack
+[[ "$(snapshot)" == '4|2|0|0|0' && "$(lineage)" == "$before" ]] || exit 70
 # Stop live clients, restore populated database into independent cluster, then
 # recreate listeners with new DB hostname and fresh Web alias store.
 stack stop ingress bootstrap web api
@@ -208,6 +243,7 @@ configs restore-db rag_finance_f3_lab_restore
 export F3_STORE="$F3_BROWSER_ROOT/store-restore"
 stack up -d --no-build api web bootstrap ingress
 wait_stack
+probe_boundary
 stack run --rm --no-deps browser python /opt/probe.py restore
 [[ "$(snapshot)" == '4|2|0|0|0' && "$(lineage)" == "$before" && "$(revoked)" == 2 ]] || exit 70
 printf 'BROWSER_SQL_LINEAGE_COUNTS_REVOKE_RESTORE=PASS\nSOURCE_SHA=%s\n' "$sha"
