@@ -47,8 +47,8 @@ class AppOnlyNoEngineTests(unittest.TestCase):
             "bff_audience": "urn:test:api",
             "bff_kid": "test-kid",
             "bff_rs256_public_key_file": str(self.root / "pub.pem"),
-            "history_dsn": "host=127.0.0.1 dbname=stage user=history_app",
-            "revoke_dsn": "host=127.0.0.1 dbname=stage user=auth_revoker",
+            "history_dsn": "host=127.0.0.1 port=5432 dbname=stage user=history_app sslmode=verify-full sslrootcert=/run/secrets/pg-ca.pem",
+            "revoke_dsn": "host=127.0.0.1 port=5432 dbname=stage user=auth_revoker sslmode=verify-full sslrootcert=/run/secrets/pg-ca.pem",
         }
         self.save()
 
@@ -721,6 +721,21 @@ class AppOnlyNoEngineTests(unittest.TestCase):
                     asyncio.run(scenario())
                     commit.assert_not_called()
 
+
+    def test_app_only_split_db_denied_before_connection(self):
+        from dataclasses import replace
+        from apps.api.private_app_only_asgi import verify_app_only_db_pair
+        cfg = load_app_only_config(self.config_file)
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("psycopg.connect", side_effect=AssertionError("MUST_NOT_CONNECT")) as connect:
+                verify_app_only_db_pair(cfg)
+                for changed in ("dbname=other", "port=5433", "host=other", "sslmode=verify-ca"):
+                    field = changed.split("=")[0]
+                    dsn = " ".join(changed if part.startswith(field + "=") else part
+                                   for part in cfg.revoke_dsn.split())
+                    with self.assertRaises(StagingConfigDenied):
+                        verify_app_only_db_pair(replace(cfg, revoke_dsn=dsn))
+                connect.assert_not_called()
 
     def test_private_db_destination_cannot_be_overridden(self):
         from src.phase3.auth.staging_service_profile import (

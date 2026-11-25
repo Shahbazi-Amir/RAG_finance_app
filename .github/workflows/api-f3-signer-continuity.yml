@@ -32,6 +32,7 @@ jobs:
           python -m unittest discover -s tests/phase3/integration/api -p test_app_only_retry_probe.py -v
           python -m unittest discover -s tests/phase3/api -p test_app_only_signer_pin.py -v
           python -m unittest discover -s tests/phase3/api -p test_app_only_disabled_routes.py -v
+          python -m unittest discover -s tests/phase3/api -p test_app_only_db_pair.py -v
           python -m unittest discover -s tests/phase3/api -p test_app_only_no_engine.py -v
       - name: Scope
         run: echo 'SOURCE REGRESSION ONLY; NO REAL PG OR TARGET ACCEPTANCE'

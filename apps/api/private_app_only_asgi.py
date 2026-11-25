@@ -18,6 +18,7 @@ from pathlib import Path
 from starlette.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from apps.api.app_only_signer_pin import SignerPin
+from apps.api.app_only_db_pair import same_tls_database
 from apps.api.app_only_disabled_routes import deny_disabled_route
 
 from apps.api.private_staging_asgi import (
@@ -25,7 +26,7 @@ from apps.api.private_staging_asgi import (
     verify_staging_database_authority,
 )
 from src.phase3.auth.staging_service_profile import (
-    PrivateStagingProfile, StagingConfigDenied,
+    PrivateStagingProfile, StagingConfigDenied, private_db_connection_options,
 )
 from src.phase3.auth.service_proof import TrustRejected
 from src.phase3.auth.staging_transport_mtls import (
@@ -290,10 +291,25 @@ class AppOnlyASGI:
         return await self._app(scope, receive, private_send)
 
 
+def verify_app_only_db_pair(cfg: AppOnlyConfig):
+    """Reject split History/revoke endpoints before any connection."""
+    import psycopg
+    for operation, dsn in (("history", cfg.history_dsn), ("revoke", cfg.revoke_dsn)):
+        private_db_connection_options(dsn, operation)
+    try:
+        history = psycopg.conninfo.conninfo_to_dict(cfg.history_dsn)
+        revoke = psycopg.conninfo.conninfo_to_dict(cfg.revoke_dsn)
+    except (psycopg.Error, TypeError, ValueError):
+        raise StagingConfigDenied() from None
+    if not same_tls_database(history, revoke):
+        raise StagingConfigDenied()
+
+
 def prepare_app_only(cfg: AppOnlyConfig, environ=None):
     """Preflight real DB+TLS without a C018 lock, spawn, ledger or model."""
     environ = os.environ if environ is None else environ
     assert_app_only_environment(environ)
+    verify_app_only_db_pair(cfg)
     _test_tls_material(cfg)
     boundary = TrustedBFFTLSBoundary(cfg.bff_leaf_cert_sha256)
     profile = PrivateStagingProfile(
