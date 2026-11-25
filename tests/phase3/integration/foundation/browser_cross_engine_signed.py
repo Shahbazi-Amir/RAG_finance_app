@@ -17,7 +17,7 @@ from browser_history_restore import (
     ROOT, Demo, ORIGIN, verify_isolation, inventory, message_inventory,
     create_extra_question, browser_history, mobile_320_keyboard_accessibility,
     signed_pagination, foreign_owner_denied, cursor_owner_signature_denied,
-    send_denied,
+    send_denied, account_and_accessibility,
 )
 from browser_lab_trust import isolated_browser_trust
 
@@ -131,6 +131,8 @@ async def execute(name):
                         await signed_pagination(page,ids)
                         await foreign_owner_denied(page,foreign)
                         await send_denied(page)
+                        await account_and_accessibility(page)
+                        await browser_history(page,label,ids,demo.owners[label],messages)
                     await cursor_owner_signature_denied(page_a,page_b)
                     assert inventory(demo)==(rows,receipts,cluster)
                     assert message_inventory(demo)==messages
@@ -162,6 +164,8 @@ async def execute(name):
                              "strict_https":True,"untrusted_ca_denied":True,
                              "real_two_user_oidc":True,"clicked_sql_dom_detail":True,
                              "mobile_keyboard":True,"cursor_and_foreign_denials":True,
+                             "account_read_only_policy_status_and_mobile":True,
+                             "skip_link_and_selected_normal_text_contrast":True,
                              "send_503_no_history_mutation":True,
                              "original_session_a_401_b_200":True,"revoked_dom_empty":True,
                              "restore_tested":False,"target_accepted":False,

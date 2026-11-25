@@ -88,6 +88,9 @@ def create_extra_question(demo,label):
 async def reload_history_document(page, *, recovery_phase=None):
     """Only recover one browser network-change after a verified lab PG switch."""
     target=page.url
+    assert target.startswith(ORIGIN+"/"),"HISTORY_RELOAD_WRONG_ORIGIN"
+    # Prove a new document, not an SPA repaint or stale in-memory DOM.
+    await page.evaluate("window.__f3OldDocument = true")
     try:
         response=await page.reload()
     except PlaywrightError as exc:
@@ -100,8 +103,22 @@ async def reload_history_document(page, *, recovery_phase=None):
         assert recovery is not None and recovery.status==200 and page.url==target, (
             "HISTORY_DOCUMENT_RECOVERY_FAILED",recovery_phase)
         response=await page.reload()
-    assert response is not None and response.status==200 and page.url==target, (
-        "HISTORY_DOCUMENT_RELOAD_FAILED",recovery_phase)
+    status=response.status if response is not None else None
+    same_url=page.url==target
+    navigation=response is not None and response.request.is_navigation_request()
+    new_document=await page.evaluate("window.__f3OldDocument !== true")
+    print("F3_HISTORY_RELOAD_OBSERVED",json.dumps({
+        "status":status,"same_url":same_url,"navigation":navigation,
+        "new_document":new_document,"phase":recovery_phase}),flush=True)
+    # A browser can revalidate the static Next shell with 304. Its private
+    # History is never accepted from that cache: browser_history separately
+    # demands a fresh ordinary BFF 200 and SQL/DOM parity.
+    assert status in (200,304) and same_url and navigation and new_document,(
+        "HISTORY_DOCUMENT_RELOAD_FAILED",recovery_phase,status,same_url,navigation,new_document)
+    if status==304:
+        assert response.request.method=="GET"
+        assert response.url==target,"CONDITIONAL_RELOAD_WRONG_RESOURCE"
+        print("F3_HISTORY_STATIC_SHELL_304_REVALIDATED",flush=True)
 
 
 async def browser_history(page,label,expected_ids,expected_owner,expected_messages,*,recovery_phase=None):
@@ -112,12 +129,15 @@ async def browser_history(page,label,expected_ids,expected_owner,expected_messag
         # Validate the real BFF response first; only then wait for hydration.
         server=await page.request.get(ORIGIN+"/api/history/conversations?limit=2")
         assert server.status==200,("BFF_LIST",label,server.status)
+        assert "no-store" in server.headers.get("cache-control","").lower(),"PRIVATE_LIST_CACHE"
         assert (await server.json())["page"]["has_more"],("SERVER_CURSOR_MISSING",label)
         async with page.expect_response(
             lambda r:"/api/history/conversations?limit=2" in r.url
             and r.request.method=="GET",timeout=20000) as observing:
             await page.get_by_test_id("refresh-history").click()
-        assert (await observing.value).status==200
+        observed=await observing.value
+        assert observed.status==200
+        assert "no-store" in observed.headers.get("cache-control","").lower(),"PRIVATE_BROWSER_LIST_CACHE"
         more=page.get_by_role("button",name="نمایش گفت‌وگوهای بیشتر")
         await expect(more).to_be_visible(timeout=15000)
         await more.click()
@@ -134,6 +154,7 @@ async def browser_history(page,label,expected_ids,expected_owner,expected_messag
         response=await page.request.get(
             ORIGIN+"/api/history/conversations/"+cid+"/messages?limit=20")
         assert response.status==200,("SELF_DETAIL",label,response.status)
+        assert "no-store" in response.headers.get("cache-control","").lower(),"PRIVATE_DETAIL_CACHE"
         body=await response.json()
         assert body["owner_user_id"]==expected_owner,("DETAIL_OWNER_MISMATCH",label,cid)
         expected={(m[2],m[3]) for m in expected_messages
@@ -206,6 +227,54 @@ async def mobile_320_keyboard_accessibility(page):
         await expect(menu).to_be_visible()
     finally:
         await page.set_viewport_size({"width":1280,"height":800})
+
+
+async def account_and_accessibility(page):
+    """Read-only product account and a bounded contrast/skip-link check."""
+    await page.set_viewport_size({"width":1280,"height":800})
+    skip=page.get_by_role("link",name="رفتن به محتوای اصلی گفت‌وگو")
+    await skip.focus()
+    await page.keyboard.press("Enter")
+    await expect(page.locator("#product-main")).to_be_focused()
+    # Normal-text contrast on selected actual labels, not a WCAG audit.
+    ratio=await page.get_by_test_id("app-runtime-capability").evaluate("""el=>{
+      const parse=s=>s.match(/[0-9.]+/g).map(Number);
+      const fg=parse(getComputedStyle(el).color);
+      let bg=null;
+      for(let n=el;n;n=n.parentElement){
+        const c=parse(getComputedStyle(n).backgroundColor);
+        if(c.length===3||c[3]===1){bg=c;break;}
+        if(c[3]!==0)throw Error('UNSUPPORTED_ALPHA_BACKGROUND');
+      }
+      if(!bg)throw Error('NO_OPAQUE_BACKGROUND');
+      const l=c=>c.slice(0,3).map(x=>x/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4)
+        .reduce((sum,x,i)=>sum+x*[.2126,.7152,.0722][i],0);
+      const a=l(fg),b=l(bg);
+      return (Math.max(a,b)+.05)/(Math.min(a,b)+.05);
+    }""")
+    assert ratio>=4.5,("APP_ONLY_LABEL_CONTRAST",round(ratio,2))
+    writes=[]
+    def record(r):
+        if r.url.startswith(ORIGIN+"/") and r.method not in ("GET","HEAD","OPTIONS"):
+            writes.append(r.method)
+    page.on("request",record)
+    try:
+        await page.get_by_role("link",name="حساب، حریم خصوصی و وضعیت قابلیت‌ها").click()
+        await expect(page.get_by_role("heading",name="حساب و حریم خصوصی")).to_be_visible()
+        assert await page.locator("main").evaluate("(el)=>getComputedStyle(el).direction")=="rtl"
+        await expect(page.get_by_role("status").filter(has_text="پذیرش خودکار انجام نمی‌شود")).to_be_visible()
+        await expect(page.get_by_role("status").filter(has_text="درخواست حذف از این رابط هنوز فعال نیست")).to_be_visible()
+        await expect(page.get_by_role("status").filter(has_text="Export و Feedback در این نسخه فعال نیستند")).to_be_visible()
+        await expect(page.locator("main form,main button,main input,main textarea")).to_have_count(0)
+        await page.set_viewport_size({"width":320,"height":568})
+        assert await page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2"),"ACCOUNT_320_OVERFLOW"
+        await page.get_by_role("link",name="بازگشت به گفت‌وگو").click()
+        await expect(page.get_by_test_id("app-runtime-capability")).to_be_visible()
+        assert not writes,"ACCOUNT_UNAPPROVED_MUTATION"
+    finally:
+        page.remove_listener("request",record)
+        await page.set_viewport_size({"width":1280,"height":800})
+    print("F3_ACCOUNT_POLICY_READ_ONLY_SKIP_CONTRAST_PASS",flush=True)
 
 
 async def signed_pagination(page,known):
@@ -590,6 +659,11 @@ async def execute():
             assert inventory(demo)[0]==source and inventory(demo)[1]==receipt_before
             assert message_inventory(demo)==messages_before
             print("F3_BROWSER_SQL_DOM_DETAIL_AND_KEYBOARD_FOCUS_WRAP_PASS",flush=True)
+            for page,label,ids in ((page_a,"A",ids_a),(page_b,"B",ids_b)):
+                await account_and_accessibility(page)
+                await browser_history(page,label,ids,demo.owners[label],messages_before)
+            assert inventory(demo)[0]==source and inventory(demo)[1]==receipt_before
+            assert message_inventory(demo)==messages_before
             # Genuine Logout form and old cookie on original Chromium context.
             tab=await ctx_a.new_page()
             await tab.goto(ORIGIN+"/login")
@@ -631,6 +705,8 @@ async def execute():
                 "clicked_detail_dom_message_id_and_body_sql_equal":True,
                 "mobile_focus_wrap_and_resize_return":True,
                 "real_pg_outage_private_dom_hidden_then_revalidated":True,
+                "account_read_only_policy_status_and_mobile":True,
+                "skip_link_and_selected_normal_text_contrast":True,
                 "all_a_conversations_cross_owner_404":True,
                 "all_b_conversations_cross_owner_404":True,
                 "cursor_owner_404_hmac_tamper_422_limit_422_pre_post_restore":True,
