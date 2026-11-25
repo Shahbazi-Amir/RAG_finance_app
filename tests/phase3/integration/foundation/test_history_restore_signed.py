@@ -362,6 +362,48 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
         with connect(5433,db="history_restore_f3_ci",extra=trusted) as c:
             self.assertEqual(c.execute("SELECT count(*) FROM history_l1.send_receipts").fetchone()[0],receipts_before)
         print("F3_API_RESTORED_REAL_PG_SIGNER_DRIFT_NO_ADMISSION_REPLAY_RECOVERY_PASS",flush=True)
+        # All disabled endpoints must deny even genuine A/B signed proofs
+        # without consuming the corresponding replay rows on restored PG.
+        denied_specs = (
+            ("GET","/v1/message-requests/engine-status",503,"ENGINE_STATUS_UNAVAILABLE"),
+            ("GET","/v1/message-requests/retrieved-sources",503,"ENGINE_STATUS_UNAVAILABLE"),
+            ("GET","/v1/message-requests/claim-test-status",404,"NOT_FOUND"),
+            ("GET","/v1/message-requests/invited-live-result",404,"NOT_FOUND"),
+            ("GET","/v1/conversations/",404,"NOT_FOUND"),
+            ("GET","/docs",404,"NOT_FOUND"),
+            ("GET","/openapi.json",404,"NOT_FOUND"),
+            ("POST","/internal/auth/session/v1/revoke-one/",404,"NOT_FOUND"),
+            ("POST","/v1/messages/",503,"ENGINE_NOT_CONFIGURED"),
+        )
+        route_digests=[]
+        def history_counts():
+            with connect(5433,db="history_restore_f3_ci",extra=trusted) as conn:
+                with conn.transaction():
+                    conn.execute("SET TRANSACTION READ ONLY")
+                    return tuple(conn.execute(sql.SQL("SELECT count(*) FROM history_l1.{}").format(sql.Identifier(table))).fetchone()[0]
+                                 for table in ("conversations","messages","create_receipts","send_receipts","execution_attempts","answers"))
+        route_baseline=history_counts()
+        for actor in (a,b):
+            for method,path,expected_status,expected_code in denied_specs:
+                raw=b"{}" if method=="POST" else b""
+                token,claims=h.signed(actor,method,path,raw)
+                route_digests.append(hashlib.sha256((claims["iss"]+"\0"+claims["jti"]).encode()).hexdigest())
+                response=h.request(method,path,token,body=raw if method=="POST" else None)
+                self.assertEqual(response.status_code,expected_status,path)
+                self.assertEqual(response.json()["error"]["code"],expected_code,path)
+                self.assertEqual(response.headers.get("cache-control"),"no-store")
+                self.assertNotIn("location",response.headers)
+        self.assertEqual(len(set(route_digests)),18)
+        with connect(5433,db="history_restore_f3_ci",extra=trusted) as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM auth_l1.service_assertion_replays WHERE issuer_jti_sha256=ANY(%s)",(route_digests,)).fetchone()[0],0)
+        self.assertEqual(history_counts(),route_baseline)
+        self.assertEqual(h.list(a).status_code,200)
+        self.assertEqual(h.list(b).status_code,200)
+        for path in ("/health/live","/v1/capabilities"):
+            response=h.request("GET",path)
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.headers.get("cache-control"),"no-store")
+        print("F3_API_RESTORED_PG_EXPLICIT_ROUTE_FENCE_18_PROOFS_ZERO_REPLAY_HISTORY_PASS",flush=True)
         # Restart should never mask an unavailable Postgres dependency.
         command(["docker","stop",name])
         down=h.request("GET","/internal/ready")
@@ -405,6 +447,9 @@ class FoundationRestoredSignedHistory(unittest.TestCase):
             "revoke_A":200,"stale_A":401,"B_after_revoke":200,
             "pg_stop_readiness":503,
             "pg_restart_readiness":200,
+            "app_only_denied_route_proofs":18,
+            "app_only_denied_route_replay_rows":0,
+            "app_only_denied_route_history_unchanged":True,
             "signer_drift_real_pg_no_admission":True,
             "signer_original_recovery_same_proofs":True,
             "signer_drift_no_send_or_revoke":True,

@@ -298,6 +298,8 @@ jobs:
           r=json.loads(Path("ci_receipts/f3_foundation_restored_signed_history.json").read_text())
           assert r["source_sha"]==os.environ["F3_API_EXACT_SHA"]
           assert r["signer_drift_real_pg_no_admission"] and r["signer_original_recovery_same_proofs"] and r["signer_drift_no_send_or_revoke"]
+          assert r["app_only_denied_route_proofs"]==18 and r["app_only_denied_route_replay_rows"]==0
+          assert r["app_only_denied_route_history_unchanged"] is True
           assert r["module_gate_accepted"] is False and r["engine_calls"]==0
           print("API_F3_EXACT_SOURCE_SIGNER_RESTORE_RECEIPT_PASS")
           PY

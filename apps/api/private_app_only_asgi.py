@@ -141,6 +141,18 @@ def _bodyless_get(scope) -> bool:
                         for name, _ in scope.get("headers", ())))
 
 
+# This explicit allowlist is the private APP_ONLY composition boundary, not
+# a replacement for Product.v1 authorization in the original handlers.
+_HISTORY_LIST = b"/v1/conversations"
+_HISTORY_DETAIL = re.compile(rb"/v1/conversations/[A-Za-z0-9][A-Za-z0-9_-]{0,63}/messages")
+_HISTORY_STATUS = b"/v1/message-requests/status"
+_REVOKE = b"/internal/auth/session/v1/revoke-one"
+_ENGINE_ONLY_READS = frozenset({
+    b"/v1/message-requests/engine-status",
+    b"/v1/message-requests/retrieved-sources",
+})
+
+
 class AppOnlyASGI:
     """mTLS-scope fence plus deny-before-body POST and live PG readiness.
 
@@ -189,6 +201,18 @@ class AppOnlyASGI:
                 503, "ENGINE_NOT_CONFIGURED", "technical",
                 "Message sending is unavailable until the engine is enabled.",
             )(scope, receive, private_send)
+        # Canonical process-only signals, independent of the signer/PG.
+        # They do not claim Bootstrap/IdP readiness or engine capability.
+        raw = scope.get("raw_path")
+        path = scope.get("path")
+        method = scope.get("method")
+        canonical = isinstance(raw, bytes) and isinstance(path, str) and raw == path.encode("utf-8")
+        if (canonical and method == "GET" and not scope.get("query_string")
+                and _bodyless_get(scope)
+                and raw in {b"/health/live", b"/v1/capabilities"}):
+            from apps.api.app_only_asgi import live, capabilities
+            response = await (live() if raw == b"/health/live" else capabilities())
+            return await response(scope, receive, private_send)
         # The production composition pins the very key installed in the
         # verifier. A broken/replaced Ops file is not a valid configuration.
         # Keep the no-engine Send denial ahead of this check.
@@ -224,7 +248,7 @@ class AppOnlyASGI:
             return await history_api._safe_error(
                 401, "AUTH_REQUIRED", "authorization", "Authentication required.",
             )(scope, receive, private_send)
-        if scope.get("raw_path") == b"/health/ready":
+        if canonical and raw == b"/health/ready":
             # Strict readiness checks the *same* signed 004/005 session
             # admission and owner-bound PostgreSQL transaction as History.
             # PG-role-only /internal/ready is NOT proof the BFF signer works.
@@ -271,7 +295,7 @@ class AppOnlyASGI:
                 "bootstrap_idp": "not_probed",
                 "retrieval": "unavailable", "generation": "unavailable",
             })(scope, receive, private_send)
-        if (scope.get("raw_path") == b"/internal/ready"
+        if (canonical and raw == b"/internal/ready"
                 and scope.get("method") == "GET"
                 and not scope.get("query_string")):
             try:
@@ -290,7 +314,22 @@ class AppOnlyASGI:
                  "history_db": "verified", "bootstrap_idp": "not_probed",
                  "retrieval": "unavailable", "generation": "unavailable"},
                 headers={"Cache-Control": "no-store"})(scope, receive, private_send)
-        return await self._app(scope, receive, private_send)
+        # Only current independent History/Revoke endpoints may enter the
+        # Product-session app. In particular engine/fixture/status diagnostics
+        # must not consume a signed JTI, begin PG admission, or redirect.
+        if canonical and ((method == "GET" and (
+                raw in {_HISTORY_LIST, _HISTORY_STATUS}
+                or _HISTORY_DETAIL.fullmatch(raw)))
+                or (method == "POST" and raw == _REVOKE)):
+            return await self._app(scope, receive, private_send)
+        from apps.api import history_api
+        if canonical and method == "GET" and raw in _ENGINE_ONLY_READS:
+            response = history_api._safe_error(
+                503, "ENGINE_STATUS_UNAVAILABLE", "technical", "History unavailable.")
+        else:
+            response = history_api._safe_error(
+                404, "NOT_FOUND", "authorization", "Resource not found.")
+        return await response(scope, receive, private_send)
 
 
 def prepare_app_only(cfg: AppOnlyConfig, environ=None):

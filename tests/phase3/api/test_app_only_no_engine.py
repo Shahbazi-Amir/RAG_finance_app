@@ -906,5 +906,70 @@ class AppOnlyNoEngineTests(unittest.TestCase):
 
 
 
+    def test_app_only_explicit_route_fence_never_admits_disabled_routes(self):
+        calls = []
+        async def downstream(scope, receive, send):
+            calls.append((scope["method"], scope["raw_path"]))
+            from starlette.responses import JSONResponse
+            await JSONResponse({"kind":"allowed-test"})(scope, receive, send)
+        app = AppOnlyASGI(downstream, FakeProfile())
+        async def invoke(method, raw, path=None, query=b""):
+            events = []
+            async def recv():
+                raise AssertionError("ROUTE_FENCE_MUST_NOT_READ_BODY")
+            async def emit(event):
+                events.append(event)
+            await app({"type":"http", "scheme":"https",
+                       "trusted_transport_test":True, "method":method,
+                       "path":path or raw.decode(), "raw_path":raw,
+                       "query_string":query, "headers":[], "http_version":"1.1"},
+                      recv, emit)
+            start = next(e for e in events if e["type"]=="http.response.start")
+            headers = dict(start["headers"])
+            body = json.loads(b"".join(e.get("body",b"") for e in events if e["type"]=="http.response.body"))
+            self.assertEqual(headers[b"cache-control"],b"no-store")
+            self.assertEqual(headers[b"x-content-type-options"],b"nosniff")
+            self.assertNotIn(b"location",headers)
+            return start["status"],body
+        async def run():
+            for method,raw,path in (
+                ("GET",b"/v1/conversations",None),
+                ("GET",b"/v1/conversations/A-1/messages",None),
+                ("GET",b"/v1/message-requests/status",None),
+                ("POST",b"/internal/auth/session/v1/revoke-one",None)):
+                self.assertEqual((await invoke(method,raw,path))[0],200)
+            for raw in (b"/v1/message-requests/engine-status",b"/v1/message-requests/retrieved-sources"):
+                status,body=await invoke("GET",raw)
+                self.assertEqual((status,body["error"]["code"]),(503,"ENGINE_STATUS_UNAVAILABLE"))
+            for method,raw,path in (
+                ("GET",b"/v1/message-requests/claim-test-status",None),
+                ("GET",b"/v1/message-requests/invited-live-result",None),
+                ("GET",b"/docs",None),("GET",b"/openapi.json",None),
+                ("GET",b"/v1/conversations/",None),
+                ("GET",b"/v1/%63onversations","/v1/conversations"),
+                ("GET",b"/v1/conversations/A-1/messages/",None),
+                ("POST",b"/internal/auth/session/v1/revoke-one/",None),
+                ("HEAD",b"/v1/conversations",None),
+                ("DELETE",b"/v1/conversations/A-1/messages",None),
+                ("GET",b"/v1/future-unknown",None)):
+                status,body=await invoke(method,raw,path)
+                self.assertEqual((status,body["error"]["code"]),(404,"NOT_FOUND"))
+            for raw in (b"/v1/messages",b"/v1/messages/",b"/v1/%6dessages/"):
+                status,body=await invoke("POST",raw,"/v1/messages/" if raw.endswith(b"/") else None)
+                self.assertEqual((status,body["error"]["code"]),(503,"ENGINE_NOT_CONFIGURED"))
+            status,body=await invoke("GET",b"/health/live")
+            self.assertEqual(status,200)
+            self.assertTrue(body["process_alive"])
+            self.assertFalse(body["application_ready"])
+            status,body=await invoke("GET",b"/v1/capabilities")
+            self.assertEqual(status,200)
+            self.assertEqual(body["send_mode"],"DISABLED")
+            self.assertFalse(body["background_dispatch_available"])
+            self.assertEqual((await invoke("GET",b"/v1/capabilities",query=b"x=1"))[0],404)
+        with patch.dict(os.environ,{"API_RUNNER_EXECUTION_MODE":"APP_ONLY","PHASE3_APP_MODE":"APP_ONLY"}):
+            asyncio.run(run())
+        self.assertEqual(len(calls),4)
+
+
 if __name__ == "__main__":
     unittest.main()
