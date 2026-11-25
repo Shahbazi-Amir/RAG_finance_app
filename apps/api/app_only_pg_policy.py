@@ -25,3 +25,23 @@ def pg_tls_options_allowed(options) -> bool:
         and not options.get("service") and not options.get("hostaddr")
         and options.get("gssencmode") in (None, "disable")
     )
+
+
+
+def same_history_database(history, revoke) -> bool:
+    """Require both restricted roles to target the same explicit PG database.
+
+    This is a configuration consistency fence, not a claim that matching
+    DNS names identify an immutable physical cluster. Never compare or expose
+    passwords. A split restore or stale DSN must not produce successful revoke
+    on a different database than the one admitting History.
+    """
+    if not pg_tls_options_allowed(history) or not pg_tls_options_allowed(revoke):
+        return False
+    def endpoint(options):
+        database = options.get("dbname")
+        if not isinstance(database, str) or not database or not database.strip():
+            return None
+        return (options["host"], int(options["port"]), database)
+    left, right = endpoint(history), endpoint(revoke)
+    return left is not None and left == right

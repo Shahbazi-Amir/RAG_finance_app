@@ -1,5 +1,5 @@
 import unittest
-from apps.api.app_only_pg_policy import pg_tls_options_allowed
+from apps.api.app_only_pg_policy import pg_tls_options_allowed, same_history_database
 
 
 class PGTLSOptionsTests(unittest.TestCase):
@@ -38,6 +38,26 @@ class PGTLSOptionsTests(unittest.TestCase):
         self.assertTrue(pg_tls_options_allowed(self.valid | {"gssencmode": "disable"}))
         for mode in ("prefer", "require"):
             self.assertFalse(pg_tls_options_allowed(self.valid | {"gssencmode": mode}))
+
+    def test_same_database_distinct_role_and_credentials(self):
+        h = self.valid | {"dbname": "history", "user": "history_app", "password": "synthetic_A"}
+        r = self.valid | {"dbname": "history", "user": "auth_revoker", "password": "synthetic_B"}
+        self.assertTrue(same_history_database(h, r))
+        self.assertTrue(same_history_database(h, r | {"port": "05432"}))
+
+    def test_split_database_host_port_denied(self):
+        h = self.valid | {"dbname": "history"}
+        for changes in ({"dbname": "history_restored"}, {"host": "other.internal"}, {"port": "5433"}):
+            with self.subTest(changes=changes):
+                self.assertFalse(same_history_database(h, h | changes))
+
+    def test_missing_database_and_unsafe_peer_denied(self):
+        h = self.valid | {"dbname": "history"}
+        for changes in ({"dbname": ""}, {"dbname": None}, {"dbname": " "},
+                        {"sslmode": "require"}, {"hostaddr": "127.0.0.1"}):
+            self.assertFalse(same_history_database(h, h | changes))
+            self.assertFalse(same_history_database(h | changes, h))
+        self.assertFalse(same_history_database(self.valid, self.valid))
 
     def test_malformed_options(self):
         for value in (None, [], {}, "dsn"):

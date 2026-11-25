@@ -18,7 +18,7 @@ from pathlib import Path
 from starlette.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from apps.api.app_only_signer_pin import SignerPin
-from apps.api.app_only_pg_policy import pg_tls_options_allowed
+from apps.api.app_only_pg_policy import pg_tls_options_allowed, same_history_database
 
 from apps.api.private_staging_asgi import (
     _harden_tls_context, _protected_file, _test_tls_material,
@@ -357,11 +357,19 @@ def prepare_app_only(cfg: AppOnlyConfig, environ=None):
     assert_app_only_environment(environ)
     _test_tls_material(cfg)
     boundary = TrustedBFFTLSBoundary(cfg.bff_leaf_cert_sha256)
+    history_dsn = _require_app_only_pg_tls(cfg.history_dsn)
+    revoke_dsn = _require_app_only_pg_tls(cfg.revoke_dsn)
+    from psycopg.conninfo import conninfo_to_dict
+    # Revoke and signed admission MUST refer to the same versioned database.
+    # Reject before any DB probe, authentication installation or listener.
+    if not same_history_database(conninfo_to_dict(history_dsn),
+                                 conninfo_to_dict(revoke_dsn)):
+        raise StagingConfigDenied()
     profile = PrivateStagingProfile(
         issuer=cfg.issuer, audience=cfg.audience, kid=cfg.kid,
         public_key_path=cfg.public_key_file,
-        history_dsn=_require_app_only_pg_tls(cfg.history_dsn),
-        revoke_dsn=_require_app_only_pg_tls(cfg.revoke_dsn),
+        history_dsn=history_dsn,
+        revoke_dsn=revoke_dsn,
         peer_verifier=boundary.scope_is_verified,
     )
     from src.phase3.auth.service_proof import BFFServiceVerifier
