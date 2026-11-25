@@ -452,3 +452,7 @@ Status is review. Supervisor approval is pending.
 - Report baseline 50eb808; execution af57f26, retained BFF 0c2cba75df12 and V4 f49f536f4d82, local NB22E-v4 and C340 pinned template. P3M10 (Module 10 Attempt/idempotency); P3M13 (Module 13 API); P3M14-A03/A09 (Module 14 UI/error); P3M15-A01/A07 (Module 15 persistence and ownership).
 - Implemented two offline sources under infra/nb23-v4, approved two-variable private config outside worktree and cumulative reporting. Six Mock tests, pinned template and private ENV preflight passed. No actual historical failure rerun, secret publication, provider charge, product deployment or UI integration.
 - Same-Attempt Context payload bridge and separately approved egress remain blocking. Runtime provider validation, semantic/citation policy, persisted response UI and formal acceptance pending. [Evidence and provisional test budget](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### NB23-SESSION-RESUME-32
+
+P3M10 (Module 10 Attempt و منع تکرار)، P3M13 (Module 13 API)، P3M14-A03/A09 (Module 14 نمایش و خطا)، P3M15-A01/A07 (Module 15 ذخیره و مالکیت). مبنا، مسیرهای دقیق، فرمان‌ها و نتیجه آزمون، شکست TS2307، تصمیم‌های اجرایی و وابستگی‌های بعدی در [شواهد تجمعی](../../docs/codex_execution/MAC_FIRST_START_FA.md) ثبت شده‌اند. پیاده‌سازی و آزمون مؤلفه Mock ثبت شد. پذیرش ناظر و آزمون واقعی بازند.

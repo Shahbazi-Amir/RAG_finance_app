@@ -47,3 +47,7 @@ The thread-fixes BFF image was activated independently while the existing store 
 ### NB23-SESSION-RESUME-30
 
 Use the independent local artifacts/nb23-v4-recovery-cp30 package for execution rollback. Verify SHA256SUMS and local dependencies; restore into a separate sibling directory and validate the pinned Compose plan before activation. This package excludes live data, credentials and image layers. No live restore drill was run.
+
+### NB23-SESSION-RESUME-32
+
+نسخه بازیابی checkpoint 30 محفوظ است. پل خصوصی Context همان Attempt و ذخیره و نمایش پاسخ Mock در Worktree پیاده‌سازی شد. آزمون کانتینری ۱/۱، آزمون مصرف‌کننده Web ۱/۱ و بررسی TypeScript موفق بودند. امضای واقعی BFF، PostgreSQL، Chrome و Gateway در این آزمون اجرا نشدند. نسخه B و Worker روشن دست‌نخورده ماندند. درخواست خارجی صفر. آمادگی آزمون زنده هنوز احراز نشده است. مسیر ادامه و محدودیت‌های آزمون در MAC_FIRST_START_FA.md ثبت شده است.

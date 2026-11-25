@@ -151,3 +151,7 @@ HTTPS و dispatch واقعی تأیید شد؛ نتیجهٔ جاری UNKNOWN. ب
 ### NB23-SESSION-RESUME-31
 
 DeepSeek contract و شش آزمون Mock تأیید شد. انتشار Context و مسیر Worker→Generation محصول بازند. درخواست زنده صفر. Generation/Gateway غیرفعال.
+
+### NB23-SESSION-RESUME-32
+
+پل خصوصی Context همان Attempt و ذخیره و نمایش پاسخ Mock در Worktree پیاده‌سازی شد. آزمون کانتینری ۱/۱، آزمون مصرف‌کننده Web ۱/۱ و بررسی TypeScript موفق بودند. امضای واقعی BFF، PostgreSQL، Chrome و Gateway در این آزمون اجرا نشدند. نسخه B و Worker روشن دست‌نخورده ماندند. درخواست خارجی صفر. آمادگی آزمون زنده هنوز احراز نشده است.
