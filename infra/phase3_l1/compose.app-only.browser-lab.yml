@@ -10,6 +10,8 @@ x-hardened: &hardened
   pids_limit: 256
 services:
   api:
+    mem_limit: 512m
+    cpus: 1.0
     <<: *hardened
     image: ${F3_SIGNED_IMAGE:?}
     user: "11001:11001"
@@ -23,6 +25,8 @@ services:
     networks:
       private: {aliases: [signed-api]}
   web:
+    mem_limit: 768m
+    cpus: 1.0
     <<: *hardened
     image: ${F3_WEB_IMAGE:?}
     user: "11003:11003"
@@ -39,6 +43,8 @@ services:
       - /srv/release/apps/web/.next/cache:rw,nosuid,size=64m,uid=11003,gid=11003
     networks: [private]
   bootstrap:
+    mem_limit: 512m
+    cpus: 1.0
     <<: *hardened
     image: ${F3_SIGNED_IMAGE:?}
     user: "11001:11001"
@@ -51,6 +57,8 @@ services:
     tmpfs:
       - /tmp:rw,nosuid,noexec,size=16m,uid=11001,gid=11001
   ingress:
+    mem_limit: 256m
+    cpus: 0.5
     <<: *hardened
     image: ${F3_WEB_IMAGE:?}
     user: "11003:11003"
@@ -63,6 +71,8 @@ services:
     sysctls:
       net.ipv4.ip_unprivileged_port_start: "0"
   idp:
+    mem_limit: 1536m
+    cpus: 2.0
     image: quay.io/keycloak/keycloak@sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3
     restart: "no"
     security_opt: ["no-new-privileges:true"]
@@ -76,6 +86,8 @@ services:
     sysctls:
       net.ipv4.ip_unprivileged_port_start: "0"
   browser:
+    mem_limit: 1536m
+    cpus: 2.0
     image: ${F3_BROWSER_IMAGE:?}
     profiles: [probe]
     user: "11005:11005"
