@@ -6,6 +6,7 @@ Only a disposable CI runner may stop its own PG service on port 5432.
 """
 from __future__ import annotations
 import asyncio
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
@@ -30,6 +31,7 @@ sys.path[:0]=[
 from phase3_auth_demo import Demo,ORIGIN
 from test_history_restore_signed import command,pg17,connect
 from apps.api import history_api
+from browser_lab_trust import isolated_browser_trust
 
 
 def verify_isolation():
@@ -361,6 +363,20 @@ def rollback_to_original_lab_database(restored, source_system_id):
     raise AssertionError("ORIGINAL_PG_CLUSTER_NOT_RESTORED_TO_HOST_PORT")
 
 
+async def assert_browser_tls_denied(browser, target, expected_error):
+    ctx=await browser.new_context(ignore_https_errors=False)
+    try:
+        page=await ctx.new_page()
+        try:
+            await page.goto(target,timeout=15000)
+        except PlaywrightError as exc:
+            assert expected_error in str(exc),"UNEXPECTED_BROWSER_TLS_FAILURE"
+        else:
+            raise AssertionError("UNTRUSTED_BROWSER_TLS_ACCEPTED")
+    finally:
+        await ctx.close()
+
+
 async def execute():
     verify_isolation()
     os.environ["PHASE3_APP_MODE"]="APP_ONLY"
@@ -368,13 +384,24 @@ async def execute():
     restored=None
     browser=None
     ctx_a=ctx_b=None
+    trust=ExitStack()
     try:
         demo.start()
+        # First prove the lab ingress is untrusted without the ephemeral CA.
+        async with async_playwright() as pw:
+            untrusted=await pw.chromium.launch(headless=True)
+            try:
+                await assert_browser_tls_denied(untrusted,ORIGIN+"/login","ERR_CERT_AUTHORITY_INVALID")
+            finally:
+                await untrusted.close()
+        trust.enter_context(isolated_browser_trust(demo.ca))
         output=Path(os.environ["RUNNER_TEMP"])/"f3-browser-source-restored"
         async with async_playwright() as pw:
             browser=await pw.chromium.launch(headless=True)
-            ctx_a,page_a,_,raw_a=await demo.browser_login(browser,"A",False,output)
-            ctx_b,page_b,_,raw_b=await demo.browser_login(browser,"B",False,output)
+            await assert_browser_tls_denied(browser,ORIGIN.replace("127.0.0.1","localhost")+"/login","ERR_CERT_COMMON_NAME_INVALID")
+            ctx_a,page_a,_,raw_a=await demo.browser_login(browser,"A",False,output,strict_https=True)
+            ctx_b,page_b,_,raw_b=await demo.browser_login(browser,"B",False,output,strict_https=True)
+            print("F3_BROWSER_INGRESS_CA_SAN_AND_STRICT_OIDC_AB_PASS",flush=True)
             a_id=create_extra_question(demo,"A")
             b_id=create_extra_question(demo,"B")
             source,receipt_before,source_cluster=inventory(demo)
@@ -472,6 +499,9 @@ async def execute():
                 "sha":os.environ["GITHUB_SHA"],
                 "env":"disposable-GitHub-Actions-standard-Keycloak-Chromium-Next-mTLS-PG17",
                 "genuine_two_browser_context_oidc":True,
+                "browser_ingress_tls_verified":True,
+                "browser_untrusted_ca_and_wrong_san_denied":True,
+                "idp_transport":"loopback_http_ci_only",
                 "browser_default_history_sql_equal":True,
                 "browser_pagination_and_detail_sql_equal":True,
                 "browser_detail_message_id_and_body_sql_equal":True,
@@ -519,6 +549,7 @@ async def execute():
         if browser is not None:
             try:await browser.close()
             except Exception:pass
+        trust.close()
         demo.stop()
         if restored:
             command(["docker","rm","-f",restored[0]])
