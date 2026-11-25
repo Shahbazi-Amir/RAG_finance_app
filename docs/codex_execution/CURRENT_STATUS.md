@@ -123,3 +123,7 @@ History و replay همان FAILED بدون تمدید و Attempt جدید PASS �
 ### NB23-SESSION-RESUME-24
 
 نسخهٔ B پس از قطع هم‌زمان بازیابی شد. HTTPS و سوکت Worker برقرارند. آزمون Chrome در جریان؛ رسمی ۵/۲۰ و خصوصی ۱۳/۲۰.
+
+### NB23-SESSION-RESUME-25
+
+HTTPS و dispatch واقعی تأیید شد؛ نتیجهٔ جاری UNKNOWN. بازیابی خودکار Worker برقرار است. Chrome پیش از Send متوقف شد. خصوصی ۱۳/۲۰، رسمی ۵/۲۰، تحویل نهایی احراز نشده.

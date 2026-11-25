@@ -78,3 +78,7 @@
 ## NB23-SESSION-RESUME-24
 
 - شروع af57f26، گزارش b67d6a4. بازبینی منابع و Cache و بازیابی محدود پشته. خروجی قدیمی timeout با زمان startup جاری تفکیک شد. Chrome دو سؤال در جریان.
+
+## NB23-SESSION-RESUME-25
+
+- ورود و History امضاشده PASS، یک Send واقعی RUNNING→UNKNOWN، بازیابی خودکار یک Worker. Chrome pipe/WebSocket/DOM پیش از Send متوقف شدند. پیشرفت ۱۳/۲۰ خصوصی بدون افزایش.

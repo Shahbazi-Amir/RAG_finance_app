@@ -407,3 +407,9 @@ Status is review. Supervisor approval is pending.
 - Report baseline b67d6a4, execution af57f26, pinned V4 f49f536f4d82. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
 - Tested: read-only Docker/host/cache/cgroup checks, PG provision and scoped Compose startup, two verified HTTPS 200s and three private listeners. Current worker child and connected socket remained active while archived timeout logs were excluded. New startup timing unavailable.
 - Implemented: running witness and lower observation frequency in check_session_browser.py, corrective checkpoint local and reports. Formal 5/20, private 13/20, Chrome and acceptance pending. [Evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+### Docker_3 / NB23-SESSION-RESUME-25 — current dispatch and Chrome blocker
+
+- Report baseline f492c64, execution af57f26, pinned V4 f49f536f4d82. P3M14-A01 (Module 14 activity 1), P3M22-A06 (Module 22 activity 6), P3OP11-R07 (§Launch checklist).
+- Tested: authenticated signed OIDC/History and current fresh dispatch RUNNING, then operational ledger UNKNOWN without a new POST. Automatic recovery left one engine child connected. Current HTTPS and internal readiness were observed. Chrome pipe, direct page WebSocket and standalone dump-dom stopped before Send; exact symptoms are in the report.
+- Implemented: browser transport alternative and safe diagnostics in check_session_browser.py and cumulative reporting. Formal 5/20, private 13/20, Chrome owner window and readiness pending. [Evidence](../../docs/codex_execution/MAC_FIRST_START_FA.md).

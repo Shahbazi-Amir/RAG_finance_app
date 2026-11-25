@@ -613,4 +613,25 @@ checkpoint `NB23-SESSION-RESUME-24`. هنگام ورود شش سرویس آزم�
 دو snapshot پین‌شده حاضر و بدون لینک شکسته بودند. خواندن mountها از UID Worker موفق بود. شمارندهٔ OOM/kill و throttling صفر بودند. یک نمونه disk sleep و مصرف زیاد هم‌زمان Keycloak مشاهده شد. علت قطعی timeout قدیمی اثبات نشد. فقط PostgreSQL موقت، شش سرویس نسخهٔ B و TLS/نقش‌های مستقل بازیابی شدند. Login و discovery هر دو ۲۰۰ با TLS معتبر داشتند و پورت‌های داخلی ۳۰۰۰، ۸۴۴۳ و ۸۴۴۴ پاسخ دادند. اتصال یونیکس API و Worker برقرار بود. یک فرایند گرم حدود ۱٫۲۷ GiB در انتظار درخواست بود. لاگ Docker برای API فقط پیام قدیمی timeout را نشان داد؛ زمان Startup جدید ثبت نمی‌شود و مسیر Send همچنان readiness را کنترل می‌کند.
 
 `infra/nb23-v4/check_session_browser.py` مشاهدهٔ وضعیت RUNNING را ثبت می‌کند و نرخ polling خود ابزار کاهش یافت. آزمون دو سؤال Chrome در حال اجراست. رسمی ۵/۲۰ → ۵/۲۰ [#####---------------]، خصوصی ۱۳/۲۰ → ۱۳/۲۰ [#############-------] تا رسیدن نتیجهٔ جدید. پذیرش و Freeze در انتظار، Generation غیرفعال و Golden حل‌نشده.</pre></section>
+<section dir="rtl"><pre style="white-space:pre-wrap">## Docker_3 — بازآزمایی جاری و موانع Chrome
+
+checkpoint `NB23-SESSION-RESUME-25`. ورود OIDC واقعی و History امضاشده روی پشتهٔ بازیافته موفق شدند. `--http-v4` از کنترل readiness گذشت و یک Send تازه را در Worker واقعی به RUNNING رساند. پس از ۱۰۵ ثانیه هنوز RUNNING بود. پیگیری فقط‌خواندنی SQLite بعداً UNKNOWN و نبود مدت یا نتیجه را ثبت کرد. Send دیگری صادر نشد. علت قطعی UNKNOWN از لاگ قدیمی قابل استنتاج نیست.
+
+بازیابی خودکار بدون replay یک فرایند موتور را دوباره وصل کرد. نمونهٔ عملی، ۱٫۲۹۳ GiB حافظه و ۰٫۱۳٪ CPU Worker و حالت متصل سوکت 03 را نشان داد. Docker backend در نمونهٔ میزبان بیش از ۲۵۰٪ CPU و swap حدود ۷٫۳۶ GB داشت. هیچ throttling یا OOM کانتینر مشاهده نشد. Restart اضافی انجام نشد. T02 از حیث راه‌اندازی جاری، HTTPS، listenerها و پذیرش واقعی Worker تأیید شد. موفقیت Retrieval جدید احراز نشد.
+
+آزمون Chrome قبل از Send متوقف شد. pipe در Runtime.evaluate timeout شد. `infra/nb23-v4/check_session_browser.py` مسیر جایگزین WebSocket با پورت تصادفی loopback، انتخاب target دقیق و خطاهای پالایش‌شده دارد. در headless ارزیابی timeout شد. در headed اتصال DevTools برقرار شد، اما فرم در URL امن مورد انتظار ظاهر نشد و navigation صریح timeout شد. آزمون مستقل `--dump-dom` نیز در ۳۰ ثانیه timeout داد. هیچ ارسال Chrome یا پنجرهٔ تحویل مالک ثبت نشد.
+
+رسمی ۵/۲۰ → ۵/۲۰ (۲۵٪) [#####---------------]. خصوصی ۱۳/۲۰ → ۱۳/۲۰ (۶۵٪) [#############-------].
+
+| آزمون باقیمانده | وضعیت فعلی |
+| --- | --- |
+| T07 | PARTIAL، RUNNING واقعی در API؛ مشاهده در Chrome جاری باز |
+| T13 | PARTIAL، بازیابی نتیجهٔ قبلی دیده شده؛ Refresh طبیعی در همین اجرای نهایی باز |
+| T14 | BLOCKED، دو سؤال متمایز در Chrome به مرحلهٔ Send نرسیدند |
+| T15 | PARTIAL، History فعلی موفق؛ انتخاب گفتگو در Chrome باز |
+| T16 | PARTIAL، Send قبلی موفق؛ کنترل‌های نهایی Chrome باز |
+| T18 | PARTIAL، ورود جاری موفق؛ انقضا و Logout همین نسخه در Chrome باز |
+| T20 | PARTIAL، URL و مسیر بازگشت مستند؛ پنجره تحویل در انتظار شروط |
+
+نسخهٔ C018، مخزن فاز دوم، Cache و چهار جریان موازی محفوظ‌اند. نسخهٔ B و Worker پس از بازیابی خاموش نشدند. Generation و Gateway غیرفعال و Golden حل‌نشده است. تحویل خصوصی کامل و Freeze اعلام نمی‌شوند. ادامه از checkpoint ۲۵، پس از تغییر قابل سنجش در قابلیت navigation محلی Chrome یا منابع عملیاتی، با `--chrome-v4 --websocket --headed` روی پشتهٔ موجود و با اثبات PID ثابت است. هیچ Restart کورکورانه یا آزمون داخلی موتور انجام نشود.</pre></section>
 </html>
