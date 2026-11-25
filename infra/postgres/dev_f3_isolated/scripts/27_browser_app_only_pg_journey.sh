@@ -166,6 +166,43 @@ const b=tls.connect({...material,host:"127.0.0.1",port:8444,checkServerIdentity:
   echo STACK_REAL_BOOTSTRAP_TLS_AND_PRODUCT_PG_READY_PASS
 }
 wait_stack
+# Inspect only selected properties of this lab's containers; never dump env,
+# full Docker inspect, mounted secret contents or credentials into the log.
+inspect_runtime(){
+  local role cid webid
+  webid="$(stack ps -q web)"
+  [[ -n "$webid" ]] || exit 70
+  for role in api web bootstrap ingress idp; do
+    cid="$(stack ps -q "$role")"
+    [[ -n "$cid" ]] || exit 70
+    docker inspect "$cid" | python3 -c '
+import json,sys
+role,webid,network=sys.argv[1:]
+d=json.load(sys.stdin)[0]
+h=d["HostConfig"];c=d["Config"]
+limits={"api":(512,1),"web":(768,1),"bootstrap":(512,1),"ingress":(256,.5),"idp":(1536,2)}
+m,cpu=limits[role]
+assert d["State"]["Running"] and h["Memory"]==m*1024*1024
+assert h["NanoCpus"]==int(cpu*1e9)
+assert not h.get("PortBindings") and not h["Privileged"]
+assert "ALL" in h["CapDrop"] and any(x.startswith("no-new-privileges") for x in h["SecurityOpt"])
+assert c["User"] and c["User"].split(":")[0] not in ("0","root")
+if role!="idp": assert h["ReadonlyRootfs"]
+if role=="bootstrap": assert h["NetworkMode"]=="container:"+webid
+else: assert set(d["NetworkSettings"]["Networks"])=={network}
+allowed={"api":{"/run/secrets"},"web":{"/run/web","/run/aliases"},"bootstrap":{"/run/bootstrap"},"ingress":{"/run/ingress"},"idp":{"/run/idp","/opt/keycloak/data/import"}}[role]
+for mount in d["Mounts"]:
+    if mount["Type"]=="bind":
+        assert mount["Destination"] in allowed
+        assert mount["RW"]==(mount["Destination"]=="/run/aliases")
+    else:
+        # Image-declared volumes, if any, cannot point to the host or engine.
+        assert mount["Type"] in ("tmpfs","volume")
+print("LAB_RUNTIME_LIMITS_NONROOT_PRIVATE_NO_PUBLISHED_PORTS_PASS",role)
+' "$role" "$webid" "$F3_PRIVATE_NETWORK"
+  done
+}
+inspect_runtime
 # Cross-service negative checks in the very same job as the browser witness.
 probe_boundary(){
   stack exec -T web node -e '
@@ -240,6 +277,7 @@ wait_stack
 [[ "$(snapshot)" == '4|2|0|0|0' && "$(lineage)" == "$before" ]] || exit 70
 # Stop live clients, restore populated database into independent cluster, then
 # recreate listeners with new DB hostname and fresh Web alias store.
+restore_started="$(python3 -c 'import time;print(time.monotonic_ns())')"
 stack stop ingress bootstrap web api
 stack rm -f ingress bootstrap web api
 bash "$BUNDLE_ROOT/scripts/06_backup_restore_independent.sh"
@@ -249,9 +287,15 @@ configs restore-db rag_finance_f3_lab_restore
 export F3_STORE="$F3_BROWSER_ROOT/store-restore"
 stack up -d --no-build api web bootstrap ingress
 wait_stack
+inspect_runtime
 probe_boundary
 stack run --rm --no-deps browser python /opt/probe.py restore
 [[ "$(snapshot)" == '4|2|0|0|0' && "$(lineage)" == "$before" && "$(revoked)" == 2 ]] || exit 70
+python3 - "$restore_started" <<'PY'
+import sys,time
+print("LAB_BACKUP_RESTORE_AND_BROWSER_REPLAY_ELAPSED_MS="+str((time.monotonic_ns()-int(sys.argv[1]))//1000000))
+print("LAB_HISTORY_ROWS_LOST=0; TARGET_RPO_RTO_NOT_MEASURED")
+PY
 printf 'BROWSER_SQL_LINEAGE_COUNTS_REVOKE_RESTORE=PASS\nSOURCE_SHA=%s\n' "$sha"
 for image in "$F3_SIGNED_IMAGE" "$F3_WEB_IMAGE" "$F3_BROWSER_IMAGE" quay.io/keycloak/keycloak@sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3; do
   printf 'IMAGE_ID=%s\n' "$(docker image inspect -f '{{.Id}}' "$image")"
