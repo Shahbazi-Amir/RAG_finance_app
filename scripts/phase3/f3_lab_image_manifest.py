@@ -40,11 +40,23 @@ def main():
            "infra/phase3_l1/lab/resolve_python_slim_base.sh","infra/phase3_l1/lab/Dockerfile.browser",
            "infra/phase3_l1/lab/patch_slim_os_ci.sh",
            "infra/phase3_l1/compose.app-only.browser-lab.yml",
-           "infra/postgres/dev_f3_isolated/scripts/27_browser_app_only_pg_journey.sh"]
+           "infra/postgres/dev_f3_isolated/scripts/27_browser_app_only_pg_journey.sh",
+           "packages/contracts/product.v1.schema.json",
+           "apps/api/private_app_only_asgi.py",
+           "apps/api/product_session_api.py",
+           "apps/web/src/ui/runtime-capability.ts",
+           "apps/web/src/history/proxy.ts"]
     manifest={"schema":"f3.app_only.ci_candidate_manifest.v1","commit":commit,
        "environment":"disposable Linux CI, not an approved deployment",
        "images":images,"source_file_sha256":{path:sha(Path(path)) for path in paths},
        "engine":"DISABLED","target_release_digest":"NOT_APPROVED",
+       "version_binding":{"product_contract":"product.v1",
+           "product_contract_sha256":sha(Path("packages/contracts/product.v1.schema.json")),
+           "app_only_policy_source_sha256":{path:sha(Path(path)) for path in (
+               "apps/api/private_app_only_asgi.py","apps/api/product_session_api.py",
+               "apps/web/src/ui/runtime-capability.ts","apps/web/src/history/proxy.ts")},
+           "policy_approval":"NOT_APPROVED","knowledge_release":"NOT_CONNECTED",
+           "retrieval_version":"NOT_CONNECTED","model_version":"NOT_CONNECTED"},
        "acceptance":"NOT_ACCEPTED"}
     (args.out/"ci_candidate_manifest.json").write_text(json.dumps(manifest,indent=2)+"\n")
     print("F3_ACTUAL_IMAGE_MANIFEST_PASS",commit,len(images))
