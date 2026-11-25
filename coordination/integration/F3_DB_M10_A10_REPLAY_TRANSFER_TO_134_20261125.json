@@ -1,0 +1,20 @@
+{
+  "scope": "DB_OWNER_TRANSFER_OF_VERIFIED_M10_A10_SLICE",
+  "source_sha": "f5460de02b4feb1802121014d107ec722677cc04",
+  "source_browser_run": 45524382984,
+  "source_pitr_run": 45524382965,
+  "source_browser_artifact": 14981599156,
+  "previous_green_foundation_child_sha": "7530b77a6ef027fc333a43498e35cbba5d2df94e",
+  "previous_green_foundation_browser_run": 45524227405,
+  "previous_green_foundation_pitr_run": 45524227364,
+  "source_blobs": {
+    "tests/phase3/integration/api/db_idempotency_owner_scope_ci.py": "e1d24250fada1d56716255f597a30105ba908ac4",
+    "tests/phase3/integration/api/db_common_compose_browser_journey.py": "f41ec4bb353a7398d3e1a24c27924d53b0495865"
+  },
+  "direct_repository_synthetic_only": true,
+  "engine_calls": 0,
+  "http_send_executed": false,
+  "sql_011": false,
+  "target_verified": false,
+  "accepted": false
+}

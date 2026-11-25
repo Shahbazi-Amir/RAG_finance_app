@@ -454,6 +454,15 @@ jobs:
               assert x["foreign_and_unknown_denials"]==16 and x["zero_send_attempt_answer"] is True
               assert x["no_owner_after_transaction"] is True
           print("DB_SCALE_EXACT_SHA_SANITIZED_RECEIPT=PASS")
+          replay=json.loads(Path("ci_receipts/db_idempotency_owner_scope.json").read_text())
+          assert replay["source_sha"]==sha and replay["distinct_tls_sessions_per_phase"]==16
+          assert replay["owner_scope_groups"]==4 and replay["initial_created"]==4 and replay["initial_replayed"]==12
+          assert replay["restart_created"]==0 and replay["restart_replayed"]==16
+          assert replay["answer_rows"]==0 and replay["engine_calls"]==0 and replay["http_send_executed"] is False
+          assert replay["accepted"] is False and replay["target_verified"] is False
+          for key in ("same_explicit_id_two_owners","null_and_explicit_scopes_independent","exact_t1_t2_ids_after_restart","exact_six_table_hashes_after_restart","cancelled_attempt_not_reopened"):
+              assert replay[key] is True,key
+          print("DB_IDEMPOTENCY_EXACT_SHA_SANITIZED_RECEIPT=PASS")
           PY
       - uses: actions/upload-artifact@v4
         with:
@@ -465,6 +474,7 @@ jobs:
             ci_receipts/db_common_image_archive.json
             ci_receipts/db_postcommit_migration.json
             ci_receipts/db_repository_scale.json
+            ci_receipts/db_idempotency_owner_scope.json
           if-no-files-found: error
       - name: Show bounded SQL permissions and container status
         if: always()
