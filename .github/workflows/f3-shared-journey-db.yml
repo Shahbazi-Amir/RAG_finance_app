@@ -6,6 +6,8 @@ on:
     branches: [integration/f3-app-only-four-pr-candidate-20261124]
     paths:
       - 'infra/postgres/dev_f3_isolated/scripts/26_shared_journey_sql.sh'
+      - 'infra/postgres/dev_f3_isolated/scripts/journey_receipt.py'
+      - 'infra/postgres/dev_f3_isolated/scripts/test_journey_receipt.py'
       - '.github/workflows/f3-shared-journey-db.yml'
 permissions:
   contents: read
@@ -28,6 +30,7 @@ jobs:
           export LAB_ROOT="$RUNNER_TEMP/f3-journey-db-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           export JOURNEY_IDENTITY_MODE=sql-only-ci
           bash -n scripts/26_shared_journey_sql.sh
+          python3 -B -m unittest discover -s scripts -p 'test_journey_receipt.py' -v
           bash tests/run_static.sh
           bash scripts/00_prepare_source.sh
           bash scripts/01_create_isolated_lab.sh
