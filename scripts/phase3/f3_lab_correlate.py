@@ -18,13 +18,22 @@ def match(browser, api, stage):
     if len(witness)!=1:
         print("F3_LAB_BROWSER_WITNESS_COUNT",len(witness),file=sys.stderr)
         raise ValueError("missing browser witness")
-    doc=json.loads(witness[0]); hashes=doc.get("hashes")
+    try:
+        doc=json.loads(witness[0])
+    except json.JSONDecodeError:
+        print("F3_LAB_TRACE_JSON_MALFORMED_BROWSER",file=sys.stderr)
+        raise
+    hashes=doc.get("hashes")
     if set(doc)!={"stage","hashes"} or doc["stage"]!=stage or not isinstance(hashes,list) or len(hashes)!=48 or not all(isinstance(x,str) and HASH.fullmatch(x) for x in hashes) or len(set(hashes))!=48:
         raise ValueError("invalid browser witness")
     counts=Counter()
     for line in api.splitlines():
         if "F3_HISTORY_EVENT " not in line: continue
-        event=json.loads(line.split("F3_HISTORY_EVENT ",1)[1])
+        try:
+            event=json.loads(line.split("F3_HISTORY_EVENT ",1)[1])
+        except json.JSONDecodeError:
+            print("F3_LAB_TRACE_JSON_MALFORMED_API",file=sys.stderr)
+            raise
         if set(event)!={"event","route","status","elapsed_ms","request_id","trace_id"} or event["event"]!="signed_history_read" or event["route"] not in {"list","detail","status"} or type(event["status"]) is not int or not 100<=event["status"]<=599 or type(event["elapsed_ms"]) is not int or event["elapsed_ms"]<0:
             raise ValueError("invalid event")
         a,b=event["request_id"],event["trace_id"]

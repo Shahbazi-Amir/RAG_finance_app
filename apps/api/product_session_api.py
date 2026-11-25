@@ -12,6 +12,7 @@ import os
 import re
 import sqlite3
 import time
+import threading
 from pathlib import Path
 
 import psycopg
@@ -198,6 +199,9 @@ _HISTORY_ERRORS = (PreflightDenied, sqlite3.Error,
                    psycopg.Error, RuntimeError, OSError, TypeError)
 
 
+_HISTORY_EVENT_LOCK = threading.Lock()
+
+
 def _signed_read(request, path, action, *, coherent_read=False):
     # Bounded correlation for ordinary signed History/status reads only.
     # No actor, header, URL, body or exception details enter this event.
@@ -229,7 +233,10 @@ def _signed_read(request, path, action, *, coherent_read=False):
                      status=response.status_code,
                      elapsed_ms=(time.monotonic_ns()-started)//1_000_000,
                      **correlation)
-        print("F3_HISTORY_EVENT " + json.dumps(event, sort_keys=True), flush=True)
+        # A complete structured line is one write, serialized among all
+        # signed History reader threads. Never expose actor or raw request.
+        with _HISTORY_EVENT_LOCK:
+            print("F3_HISTORY_EVENT " + json.dumps(event, sort_keys=True), flush=True)
     return response
 
 

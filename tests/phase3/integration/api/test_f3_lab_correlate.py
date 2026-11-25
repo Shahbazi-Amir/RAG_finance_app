@@ -10,6 +10,13 @@ class Tests(unittest.TestCase):
     def api(self,events):return "\n".join("api-1 | F3_HISTORY_EVENT "+json.dumps(e) for e in events)
     def test_match(self):
         b,e=self.fixture();self.assertEqual(match(b,self.api(e),"source"),48)
+    def test_concatenated_api_events_denied(self):
+        b,e=self.fixture()
+        joined=self.api(e).replace("\n","",1)
+        with self.assertRaises(ValueError):match(b,joined,"source")
+    def test_truncated_browser_event_denied(self):
+        b,e=self.fixture()
+        with self.assertRaises(ValueError):match(b[:-1],self.api(e),"source")
     def test_missing(self):
         b,e=self.fixture()
         with self.assertRaises(ValueError):match(b,self.api(e[:-1]),"source")
