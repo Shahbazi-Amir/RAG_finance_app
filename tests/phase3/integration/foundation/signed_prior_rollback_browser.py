@@ -1,10 +1,14 @@
 """Separate cross-SHA lab: current signed source -> fresh PG -> prior images.
-The prior and current runtime trees are identical; only CI/test/provenance
-changed. This proves image/session/SQL continuity, not a schema downgrade or
-a rollback of a different product implementation. No target, engine or 011.
+The prior API source differs by the exact API137 listener/contract transfer.
+Web, schema, locks, migrations and other runtime trees are unchanged.
+This proves bounded cross-version image/session/SQL continuity, not a schema downgrade. No target, engine or 011.
 """
 from __future__ import annotations
 import asyncio
+import hashlib
+import subprocess
+import uuid
+from browser_history_restore import protected_backup_roundtrip
 import json
 import os
 import re
@@ -14,7 +18,7 @@ import ssl
 from playwright.async_api import async_playwright
 from compose_restored_browser import BothSidesComposeBrowserDemo, ROOT, ORIGIN
 
-PRIOR = "c9f52669a5b86d89bd08b6992f1a150fba9b2a9f"
+PRIOR = "f2b743a1588cac76fddafc36e3b489deb59d42ac"
 BRANCH = "refs/heads/integration/f3-foundation-send-fence-restore-20261124"
 
 class SignedPriorRollback(BothSidesComposeBrowserDemo):
@@ -75,6 +79,24 @@ class SignedPriorRollback(BothSidesComposeBrowserDemo):
         # bootstrap audit store and BFF aliases intact. Do not delete volumes.
         run("docker","stop","--time","2",self.api_container)
         assert not json.loads(run("docker","inspect",self.api_container))[0]["State"]["Running"]
+        # Exact pre-switch backup of the same restored disposable PG.
+        dbs=run("docker","exec",self.restored_pg_id,"psql","-U","postgres","-d","postgres","-Atc","SELECT datname FROM pg_database WHERE datname LIKE 'history_browser_restore_ci_%'").decode().splitlines()
+        assert len(dbs)==1 and re.fullmatch(r"history_browser_restore_ci_[a-f0-9]{16}",dbs[0])
+        backup_dir=self.root/("pre-image-switch-"+uuid.uuid4().hex)
+        backup_dir.mkdir(mode=0o700)
+        dump=backup_dir/"before-image-switch.dump"
+        dump.write_bytes(run("docker","exec",self.restored_pg_id,"pg_dump","-U","postgres","-Fc",dbs[0]))
+        dump.chmod(0o600)
+        assert dump.read_bytes().startswith(b"PGDMP")
+        backup=protected_backup_roundtrip((dump,),backup_dir)[0]
+        proc=subprocess.run(["docker","exec","-i",self.restored_pg_id,"pg_restore","--list"],input=dump.read_bytes(),capture_output=True,timeout=30)
+        assert proc.returncode==0 and b"history_l1" in proc.stdout and b"auth_l1" in proc.stdout
+        assert hashlib.sha256(dump.read_bytes()).hexdigest()==backup["plaintext_sha256"]
+        dump.unlink();backup_dir.rmdir()
+        backup["catalog_verified"]=True
+        backup["created_before_version_switch"]=True
+        backup["restore_of_this_new_dump_tested"]=False
+        assert self.counts()==before
         start=time.monotonic_ns()
         self.compose("down","--remove-orphans",timeout=90)
         run("docker","rm",self.api_container)
@@ -134,7 +156,7 @@ class SignedPriorRollback(BothSidesComposeBrowserDemo):
             "same_restored_pg_volume":True,"both_existing_signed_sessions_survived":True,
             "durable_history_counts_equal":True,
             "switch_and_existing_session_checks_ms":(time.monotonic_ns()-start)//1_000_000,
-            "runtime_source_trees_identical":True,"target_verified":False,
+            "runtime_source_trees_identical":False,"exact_api137_runtime_delta_only":True,"pre_switch_backup":backup,"target_verified":False,
             "prior_approved_release":False,"accepted":False,"release":"HOLD",
         }
         print("F3_SIGNED_PRIOR_IMAGE_SWITCH_EXISTING_AB_SQL_PASS",flush=True)

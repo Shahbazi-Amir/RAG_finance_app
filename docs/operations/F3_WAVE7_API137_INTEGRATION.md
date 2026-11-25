@@ -1,0 +1,3 @@
+# Foundation — API137 exact source transfer and CI cross-version rollback
+
+Base f2b743a1588cac76fddafc36e3b489deb59d42ac (#113, descended from #84), API #137 20567ad525933f7168e8ea04b8599bd450c297bb, run 45529798552. Transfer seven exact source objects, not the other branch's workflows or historical runtime. Only two application files change. Preserve Wave4 historical pins, verify new owner blobs and predecessor explicitly. Prior rollback is now actual API source delta, immutable contracts/DB/Web/locks. Before switching, take a fresh encrypted-verified backup of disposable restored PG and check archive catalog. No approval, target deploy, Engine, SQL011 or external secrets. All results require this candidate's own CI; predecessor green is not current proof.

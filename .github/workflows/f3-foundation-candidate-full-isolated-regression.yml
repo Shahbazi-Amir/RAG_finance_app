@@ -77,9 +77,17 @@ jobs:
           set -euo pipefail
           git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git 23db3da6367e6a8279072ee96b56a2bd4b7f0fbc
           test "$(git rev-parse FETCH_HEAD)" = "23db3da6367e6a8279072ee96b56a2bd4b7f0fbc"
+          git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git 20567ad525933f7168e8ea04b8599bd450c297bb
+          test "$(git rev-parse FETCH_HEAD)" = "20567ad525933f7168e8ea04b8599bd450c297bb"
           python - <<'PY'
           import json, subprocess
           from pathlib import Path
+          wave7=json.loads(Path("coordination/integration/F3_WAVE7_API137_TRANSFER.json").read_text())
+          assert wave7["source_sha"]=="20567ad525933f7168e8ea04b8599bd450c297bb" and wave7["accepted"] is False
+          for r in wave7["rows"]:
+              owner=subprocess.check_output(["git","rev-parse",wave7["source_sha"]+":"+r["path"]],text=True).strip()
+              actual=subprocess.check_output(["git","hash-object",r["path"]],text=True).strip()
+              assert owner==r["source_blob"]==r["selected_blob"]==actual,r["path"]
           m=json.loads(Path("coordination/integration/F3_SIGNED_API_SOURCE_TRANSFER_20261124.json").read_text())
           assert m["source_sha"]=="23db3da6367e6a8279072ee96b56a2bd4b7f0fbc" and m["p0_1_accepted"] is False
           assert len(m["rows"])==len({r["path"] for r in m["rows"]})==10
@@ -94,7 +102,12 @@ jobs:
               assert source==row["source_blob_sha"]==row["candidate_blob_sha"],row["path"]
               if row["path"] in overrides:
                   derived=overrides[row["path"]]
-                  assert derived["source_blob_sha"]==source and derived["derived_blob_sha"]==current
+                  assert derived["source_blob_sha"]==source
+                  if row["path"]=="apps/api/private_app_only_asgi.py":
+                      newer=next(r for r in wave7["rows"] if r["path"]==row["path"])
+                      assert derived["derived_blob_sha"]==newer["prior_blob"] and newer["selected_blob"]==current
+                  else:
+                      assert derived["derived_blob_sha"]==current
               else:
                   assert source==current,row["path"]
           print("F3_TEN_EXACT_API_TRANSFER_BLOBS_NO_OWNER_ACCEPTANCE_PASS")

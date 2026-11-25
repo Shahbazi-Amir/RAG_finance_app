@@ -358,7 +358,7 @@ jobs:
           p.parent.mkdir(exist_ok=True)
           p.write_text(json.dumps({"source_sha":sha,"run_id":os.environ["GITHUB_RUN_ID"],
               "api_image_id":data["Id"],"source":"clean git archive",
-              "api_owner_source_sha":"23db3da6367e6a8279072ee96b56a2bd4b7f0fbc","scope":"CI_RUNNER_SOURCE_AND_RESTORED_SHARED_COMPOSE_CI_FIXTURE_BOOTSTRAP",
+              "api_owner_source_sha":"20567ad525933f7168e8ea04b8599bd450c297bb","scope":"CI_RUNNER_SOURCE_AND_RESTORED_SHARED_COMPOSE_CI_FIXTURE_BOOTSTRAP",
               "full_compose_verified":False,"target_verified":False,"accepted":False},indent=2)+"\n")
           r=json.loads(Path("ci_receipts/f3_post_restore_shared_compose.json").read_text())
           assert r["source_sha"]==sha and r["api_image_id"]==data["Id"]
@@ -384,10 +384,12 @@ jobs:
       - name: Build previous green signed images from exact clean source
         run: |
           set -euo pipefail
-          prior=c9f52669a5b86d89bd08b6992f1a150fba9b2a9f
+          prior=f2b743a1588cac76fddafc36e3b489deb59d42ac
           git fetch --no-tags --depth=1 https://github.com/Shahbazi-Amir/RAG_finance_app.git "$prior"
           test "$(git rev-parse FETCH_HEAD)" = "$prior"
-          for p in apps src/phase3 packages/contracts infra/phase3_l1 infra/postgres/migrations locks references/phase2; do
+          # Actual API source changed; enforce exact narrow owner diff, not a schema downgrade.
+          test "$(git diff --name-only "$prior" "$GITHUB_SHA" -- apps | sort | paste -sd ' ' -)" = "apps/api/private_app_only_asgi.py apps/api/private_history_contract.py"
+          for p in apps/web src/phase3 packages/contracts infra/phase3_l1 infra/postgres/migrations locks references/phase2; do
             test "$(git rev-parse "$prior:$p")" = "$(git rev-parse "$GITHUB_SHA:$p")"
           done
           clean="$(mktemp -d "$RUNNER_TEMP/f3-prior-signed.XXXXXXXX")"
