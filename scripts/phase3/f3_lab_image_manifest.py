@@ -5,6 +5,7 @@ Never claims registry or approved target release digests for local images.
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -24,7 +25,7 @@ def main():
         role,ref=item.split("=",1)
         info=json.loads(run("docker","image","inspect",ref))[0]
         label=(info.get("Config",{}).get("Labels") or {}).get("org.opencontainers.image.revision")
-        if role in ("api","web") and label!=commit:
+        if (role in ("api","web") or (role=="pg" and os.environ.get("F3_PG_IMAGE"))) and label!=commit:
             raise SystemExit("SOURCE_LABEL_MISMATCH_"+role)
         images.append({"role":role,"reference":ref,"local_image_id":info["Id"],
             "registry_digests":info.get("RepoDigests") or [],
@@ -46,6 +47,8 @@ def main():
            "apps/api/product_session_api.py",
            "apps/web/src/ui/runtime-capability.ts",
            "apps/web/src/history/proxy.ts"]
+    if os.environ.get("F3_PG_IMAGE"):
+        paths += ["infra/postgres/dev_f3_isolated/Dockerfile.pg-security-ci","infra/postgres/dev_f3_isolated/compose.lab.yaml","infra/postgres/dev_f3_isolated/scripts/06_backup_restore_independent.sh"]
     manifest={"schema":"f3.app_only.ci_candidate_manifest.v1","commit":commit,
        "environment":"disposable Linux CI, not an approved deployment",
        "images":images,"source_file_sha256":{path:sha(Path(path)) for path in paths},

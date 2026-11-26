@@ -1,0 +1,20 @@
+# syntax=docker/dockerfile:1.7
+# CI candidate only: retain exact PostgreSQL 17.11 base; rebuild only upstream gosu.
+# CVE-2025-68121 is in the Go stdlib embedded in gosu 1.19, not PostgreSQL SQL.
+FROM docker.io/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a AS gosu-build
+ADD --checksum=sha256:9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec https://go.dev/dl/go1.26.11.linux-amd64.tar.gz /tmp/go.tar.gz
+RUN set -eux; \
+    tar -xzf /tmp/go.tar.gz -C /opt; \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOTOOLCHAIN=local GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOBIN=/out \
+      /opt/go/bin/go install -trimpath -ldflags='-d -w' github.com/tianon/gosu@6456aaa0f3c854d199d0f037f068eb97515b7513; \
+    /opt/go/bin/go version -m /out/gosu | grep -F 'go1.26.11'; \
+    /out/gosu nobody true
+
+FROM docker.io/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a
+ARG SOURCE_SHA
+LABEL org.opencontainers.image.revision="${SOURCE_SHA}" \
+      org.opencontainers.image.base.name="docker.io/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a" \
+      org.ragfinance.gosu.source="6456aaa0f3c854d199d0f037f068eb97515b7513" \
+      org.ragfinance.gosu.go="1.26.11"
+COPY --from=gosu-build --chmod=0755 /out/gosu /usr/local/bin/gosu
+RUN set -eux; gosu --version | grep -F 'go1.26.11'; gosu nobody true; postgres --version | grep -F '17.11'

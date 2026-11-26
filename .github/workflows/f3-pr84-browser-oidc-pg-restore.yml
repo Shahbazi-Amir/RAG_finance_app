@@ -13,6 +13,8 @@ jobs:
     if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'integration/f3-pr84-foundation-signed-history-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 65
+    env:
+      F3_PG_IMAGE: f3-pg-security:${{ github.event.pull_request.head.sha || github.sha }}
     outputs:
       image_scan: ${{ steps.image-scan.outcome }}
     steps:
@@ -21,6 +23,15 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Build exact-source PG17.11 security candidate (gosu only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          test "$F3_PG_IMAGE" = "f3-pg-security:$sha"
+          docker build --platform linux/amd64 --file infra/postgres/dev_f3_isolated/Dockerfile.pg-security-ci --build-arg "SOURCE_SHA=$sha" -t "$F3_PG_IMAGE" infra/postgres/dev_f3_isolated
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$F3_PG_IMAGE")" = "$sha"
+          docker run --rm --network none --entrypoint /usr/local/bin/gosu "$F3_PG_IMAGE" --version | grep -F go1.26.11
       - name: One private network, real OIDC browser and SQL before and after populated restore
         shell: bash
         run: |
@@ -72,12 +83,23 @@ jobs:
     needs: browser-pg-restore
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    env:
+      F3_PG_IMAGE: f3-pg-security:${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Build exact-source PG17.11 security candidate (gosu only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          test "$F3_PG_IMAGE" = "f3-pg-security:$sha"
+          docker build --platform linux/amd64 --file infra/postgres/dev_f3_isolated/Dockerfile.pg-security-ci --build-arg "SOURCE_SHA=$sha" -t "$F3_PG_IMAGE" infra/postgres/dev_f3_isolated
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$F3_PG_IMAGE")" = "$sha"
+          docker run --rm --network none --entrypoint /usr/local/bin/gosu "$F3_PG_IMAGE" --version | grep -F go1.26.11
       - name: Same source SHA, independent clean empty DB lab (never browser data)
         shell: bash
         run: |

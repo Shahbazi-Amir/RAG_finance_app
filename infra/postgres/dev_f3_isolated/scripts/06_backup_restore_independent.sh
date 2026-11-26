@@ -18,6 +18,23 @@ if docker volume inspect "$LAB_RESTORE_VOLUME" >/dev/null 2>&1; then
   [[ "$owner" == "$LAB_PROJECT" ]] || { echo 'STOP_RESTORE_VOLUME_NOT_OWNED_BY_LAB' >&2; exit 70; }
 fi
 compose --profile restore up -d --pull missing restore-db
+# The security candidate must be the actual source and restore image, not a separately scanned substitute.
+if [[ -n "${F3_PG_IMAGE:-}" ]]; then
+  [[ "${GITHUB_ACTIONS:-}" == true && "${RUNNER_OS:-}" == Linux ]] || exit 70
+  [[ "$F3_PG_IMAGE" == "f3-pg-security:$(git -C "${SOURCE_REPO:?}" rev-parse HEAD)" ]] || exit 70
+  pg_image_id="$(docker image inspect -f '{{.Id}}' "$F3_PG_IMAGE")"
+  [[ "$pg_image_id" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 70
+  for svc in lab-db restore-db; do
+    cid="$(compose --profile restore ps -q "$svc")"
+    [[ -n "$cid" && "$(docker inspect -f '{{.Image}}' "$cid")" == "$pg_image_id" ]] || exit 70
+  done
+  printf '%s\n' "$pg_image_id" > "$LAB_WORK/security_pg_image_id.txt"
+  if [[ -n "${GITHUB_WORKSPACE:-}" ]]; then
+    mkdir -p "$GITHUB_WORKSPACE/ci_receipts"
+    printf '%s\n' "$pg_image_id" > "$GITHUB_WORKSPACE/ci_receipts/f3-tested-pg-image-id.txt"
+  fi
+  echo "F3_SOURCE_RESTORE_SECURITY_PG_IMAGE_ID=$pg_image_id"
+fi
 export DB_SERVICE=restore-db DB_NAME=rag_finance_f3_lab_restore
 for i in {1..45}; do
   if dbpsql -Atc 'SELECT current_database()' 2>/dev/null | grep -Fxq "$DB_NAME"; then break; fi
