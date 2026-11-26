@@ -1,0 +1,28 @@
+name: rag-arvan-nb23-worker
+services:
+  worker:
+    image: rag-nb23-worker:arvan-cp45
+    build:
+      context: ../..
+      dockerfile: infra/nb23-v4/Dockerfile.arvan-worker
+    init: true
+    stdin_open: true
+    tty: false
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cpus: 4.0
+    mem_limit: 6g
+    pids_limit: 256
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=256m
+      - /work:rw,nosuid,nodev,size=2g
+      - /inputs/artifacts/MVP_live_engine_requests:rw,nosuid,nodev,size=128m
+    volumes:
+      - /opt/rag-finance-staging/.venv-onnx-probe:/opt/rag-finance-staging/.venv-onnx-probe:ro
+      - /opt/rag-finance-staging/.python:/opt/rag-finance-staging/.python:ro
+      - /opt/rag-finance-staging/hf:/opt/rag-finance-staging/hf:ro
+      - /opt/rag-finance-staging/RAG_finance:/work/repo:ro
+      - /opt/rag-finance-staging/_RAG_finance_NB22E_v4_outputs:/inputs/artifacts:ro
+    command: ["/work/repo", "/inputs/artifacts"]
