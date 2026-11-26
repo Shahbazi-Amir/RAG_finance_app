@@ -1,7 +1,8 @@
 """Offline persistent V4 worker over inherited pipes; no public socket."""
 
 import argparse
-from contextlib import redirect_stdout
+import os
+from contextlib import ExitStack, redirect_stdout
 import hashlib
 import json
 from pathlib import Path
@@ -24,15 +25,29 @@ def terminate(*_):
 
 
 def run(args):
-    with args.engine.open("rb") as source:
-        if hashlib.file_digest(source, "sha256").hexdigest() != ENGINE_SHA:
-            raise ValueError("ENGINE_PIN_MISMATCH")
+    source = args.engine.read_bytes()
+    if hashlib.sha256(source).hexdigest() != ENGINE_SHA:
+        raise ValueError("ENGINE_PIN_MISMATCH")
+    with ExitStack() as resources:
+        _run(args, source, resources)
+
+
+def _run(args, source, resources):
     started = time.monotonic()
     with redirect_stdout(sys.stderr):
-        engine = runpy.run_path(str(args.engine))
+        if os.environ.get("NB23_CP45_STARTUP_STATE") == "1":
+            from worker_startup_state import prepare_engine
+
+            engine = prepare_engine(source.decode(), args.engine)
+        else:
+            engine = runpy.run_path(str(args.engine))
     try:
         with redirect_stdout(sys.stderr):
             counts = engine["d08_worker_initialize"](args.repo, args.artifacts)
+            if "_prepare_cp45_retrieval" in engine:
+                from worker_startup_state import initialize_retrieval
+
+                initialize_retrieval(engine, args.repo, args.artifacts, resources)
         if counts != {"E5": 1, "ONNX_SESSION": 1, "TOKENIZER": 1}:
             raise RuntimeError("INVALID_CONSTRUCTION_COUNTS")
         emit(event="ready", seconds=time.monotonic()-started, constructions=counts,
