@@ -215,3 +215,8 @@ REAL RAG INTEGRATION VALIDATED — EXTERNAL EGRESS BLOCKED. یک آزمون وا
 ### NB23-SESSION-RESUME-44
 
 REAL RAG INTEGRATION PRESERVED. OWNER BROWSER READY. PERFORMANCE DIAGNOSTICS DOCUMENTED. EXTERNAL EGRESS BLOCKED. Snapshot و Backup خصوصی CP43 با Checksum ثبت شده‌اند و آزمون Retrieval تکرار نشد.
+
+
+### NB23-SESSION-RESUME-45
+
+اصلاحات محلی Chat و History، Cache و حافظه محدود؛ Worker جاری آماده نیست

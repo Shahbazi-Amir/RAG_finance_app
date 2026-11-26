@@ -35,3 +35,10 @@
 
 - P3M14-A09/A11 and P3M15-A07. The signed History projection attaches the saved Worker duration only to the owner-matched blocked Attempt. The Web client validates the field and displays it together with the blocked explanation, including after a new sign-in.
 - Paths: `apps/api/product_session_api.py`, `apps/web/src/history/client.ts`, `apps/web/src/ui/product-chat.tsx` and `infra/nb23-v4/check_owner_saved_chrome.py`. Offline build and Chrome verification passed without a new Send. Keep the performance and timeout settings outside future UI cherry-picks. [Evidence](MAC_FIRST_START_FA.md).
+
+## CP45 — History فشرده و وضعیت Cache و ابهام
+
+- `apps/web/src/history/client.ts` و `apps/web/src/ui/product-chat.tsx` از بازپخش Cursor قدیمی هنگام Refresh جلوگیری می‌کنند و برای خطای صریح انقضا یک بار از صفحه اول شروع می‌کنند. Chrome با تزریق همان خطا بازیابی را تأیید کرد. خطای خاص گزارش‌شده مالک بازتولید نشد.
+- `apps/web/app/history/history.css` فهرست را فشرده و قابل جمع‌کردن می‌کند و اسکرول History را جدا نگه می‌دارد. باز و بسته شدن و پنهان بودن شناسه فنی در ردیف در Chrome تأیید شد.
+- وضعیت Cache و ابهام در `product-chat.tsx` به پیام همان Attempt متصل‌اند. آزمون یکپارچه آفلاین روی Worker ساختگی و آزمون ابهام با دومین حساب محلی موفق بودند.
+- برای انتقال انتخابی، مالک تخصصی UI و API تغییرهای Cursor و نمایش وضعیت را با قرارداد رسمی تطبیق دهد. نگاشت پیشنهادی P3M10-A01/A03، P3M14-A03/A09/A11، P3M15 و P3M17-A03/A04/A05/A08/A09 است. شواهد و محدودیت‌ها در PRODUCT_CHAT_COMPLETION_FA.md ثبت شده‌اند.
