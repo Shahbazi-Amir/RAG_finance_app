@@ -17,7 +17,10 @@ function parsePending(v:Record<string,unknown>,attemptId:string):Pending|null{
     return null;
   return {attemptId,receiptId:v.receipt_id,ownerId:v.owner_id,
     epoch:Number(v.epoch),generation:Number(v.generation),
-    sessionVerifier:v.session_verifier};
+    sessionVerifier:v.session_verifier,
+    ...(Array.isArray(v.account_keys)&&v.account_keys.length>=1&&v.account_keys.length<=2&&
+      v.account_keys.every(k=>typeof k==='string'&&/^[a-f0-9]{64}$/.test(k))
+      ?{accountKeys:v.account_keys}:{})};
 }
 function invalid():Response{return redirectLocal('/login?reason=auth_failed');}
 export async function GET(request:Request):Promise<Response>{

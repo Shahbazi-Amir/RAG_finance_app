@@ -234,3 +234,24 @@ boundaries without using the running staging services or making provider calls.
 resolution, quota decrements and repeat cache speed. Deployment must rebuild
 the worker offline before starting the updated API. No Module 00/01 or
 broader roadmap Gate is asserted.
+
+### ARVAN-CANDIDATE-01.3a · Staging account override handoff
+
+**Status** review · **Baseline** `c87b211` on
+`deploy/arvan-100users-candidate`, deployed with the offline worker
+`sha256:9d252a748ecb83a3d02a03a4076974839eda818ce6e9b518ab6aaf144b3a8d3e`.
+Same Module 05, 06, and 14 boundaries and release overlay as 01.3.
+
+**Implemented.** `apps/web/app/api/auth/callback/route.ts` now validates
+and retains the at-most-two SHA-256 account labels returned by trusted
+Bootstrap when creating the private alias. This corrects the live exemption
+check, which showed that the original callback parsed the pending session
+while omitting those labels. The underlying signed session verifier,
+admission role, and Bootstrap proof stay the same.
+
+**Tested.** `TMPDIR=/tmp npm --prefix apps/web test` passed 140 tests.
+`cd apps/web && npm run typecheck && npm run build` passed. The 01.3 release
+passed 51 tests (one skipped) in the pinned Linux security and mTLS suite.
+Remaining live evidence is the exemption recheck after replacing Web and
+completion of the authorized test1 conversation and cache requests.
+Supervisor acceptance is separate.
