@@ -1,0 +1,33 @@
+[Unit]
+Description=Arvan private Product API
+After=network-online.target rag-arvan-worker.service
+Wants=network-online.target
+
+[Service]
+User=rag-arvan-api
+Group=rag-arvan-api
+WorkingDirectory=/opt/rag-finance-staging/phase3/arvan-candidate
+Environment=PATH=/opt/rag-finance-staging/phase3/tools/bin:/usr/bin:/bin
+Environment=PYTHONPATH=/opt/rag-finance-staging/phase3/arvan-candidate
+Environment=API_RUNNER_EXECUTION_MODE=LIVE_DISPATCH
+Environment=ARVAN_INPUT_REPO=/opt/rag-finance-staging/RAG_finance
+Environment=ARVAN_DIAGNOSTIC_ROOT=/opt/rag-finance-staging/_RAG_finance_NB22E_v4_outputs
+Environment=ARVAN_ENGINE_FILE=/opt/rag-finance-staging/phase3/arvan-candidate/artifacts/nb23-v4-bundle/engine.py
+Environment=ARVAN_API_SCRATCH=/run/rag-arvan-api
+Environment=ARVAN_WORKER_SOCKET=/run/rag-arvan-worker/retrieval.sock
+ExecStart=/opt/rag-finance-staging/phase3/tools/bin/python3.13 -B -m apps.api.private_staging_asgi --config /etc/rag-arvan-candidate/api-private.json
+LoadCredential=arvan-gateway:/etc/rag-arvan-candidate/gateway.env
+RuntimeDirectory=rag-arvan-api
+RuntimeDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+LimitCORE=0
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=240
+
+[Install]
+WantedBy=multi-user.target

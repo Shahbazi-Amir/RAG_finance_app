@@ -1,9 +1,9 @@
 'use client';
 import {useCallback,useEffect,useRef,useState,type FormEvent} from 'react';
 import Link from 'next/link';
-import {conversations,messages,newSend,sendMessage,recoverStatus,recoverEngineStatus,recoverRetrievedSources,HistoryFailure,
+import {conversations,messages,newSend,sendMessage,recoverStatus,recoverLiveResult,recoverEngineStatus,recoverRetrievedSources,HistoryFailure,
   failureLabel,mergeUnique,type ConversationView,type MessageView,
-  type AnswerView,type HistoryStatus,type EngineStatus,type RetrievedSources} from '../history/client';
+  type AnswerView,type HistoryStatus,type EngineStatus,type RetrievedSources,type StagingLiveResult} from '../history/client';
 import type {Answer,Citation} from '../mock/transport';
 import {verifiedSourceUrl,verifiedSourceLocatorLabel,verifiedSourceTypeLabel} from './source-locator';
 import {sourceCredits,confidenceLabel} from './source-metadata';
@@ -11,7 +11,7 @@ import RetrievedSourcesPanel from './retrieved-sources-panel';
 import {OwnerFence} from './owner-fence';
 import {isVerifiedLiveAnswer,productOutcomeLabel} from './answer-visibility';
 import {blockedCapability,decodeRuntimeCapability,type RuntimeCapability} from './runtime-capability';
-import {readCheckpoints,retainCheckpoint,forgetCheckpoints,statusCorrelators,
+import {readCheckpoints,retainCheckpoint,forgetCheckpoint,forgetCheckpoints,statusCorrelators,
   type AttemptCheckpoint} from './attempt-checkpoints';
 
 type ListData={items:ConversationView[];next:string|null;more:boolean};
@@ -19,7 +19,7 @@ type ThreadData={items:MessageView[];answers:AnswerView[];next:string|null;more:
 type Attempt= {record:AttemptCheckpoint;viewId:string;question:string|null;phase:HistoryStatus|'sending'|'transport_unknown'|'invalid_answer'|'status_error';
   attemptId:string|null;messageId:string|null;answer:Answer|null;confirmed:boolean;
   engine:EngineStatus|null;engineUnavailable:boolean;
-  sources:RetrievedSources|null;sourcesUnavailable:boolean};
+  sources:RetrievedSources|null;sourcesUnavailable:boolean;live?:StagingLiveResult};
 const isTerminal=(phase:Attempt['phase'])=>
   ['answer_committed','invalid_answer','failed','cancelled'].includes(phase);
 function phaseLabel(attempt:Attempt):string {
@@ -107,7 +107,8 @@ export default function ProductChat(){
   const [busy,setBusy]=useState(false);
   const [runtimeCapability,setRuntimeCapability]=useState<RuntimeCapability>(blockedCapability());
   const [capabilityState,setCapabilityState]=useState<'loading'|'ready'|'unavailable'>('loading');
-  const canSend=capabilityState==='ready'&&runtimeCapability.send_mode==='NO_DISPATCH_ONLY';
+  const liveMode=capabilityState==='ready'&&runtimeCapability.send_mode==='LIVE_DISPATCH';
+  const canSend=capabilityState==='ready'&&runtimeCapability.send_mode!=='DISABLED';
   const lost=useRef(false);
   // Never mix a former account's in-flight History with a new owner's page.
   const ownerFence=useRef(new OwnerFence());
@@ -241,14 +242,17 @@ export default function ProductChat(){
         setAttempts(all=>privacyEpoch.current!==privacyAtStart?all:{...all,[record.client_message_id]:{
           ...all[record.client_message_id],phase:'status_error',
           sources:null,sourcesUnavailable:true,engine:null,engineUnavailable:true,
-          answer:null,attemptId:null,messageId:null}});
+          answer:null,live:undefined,attemptId:null,messageId:null}});
         return;
       }
       const resultPhase=status.status==='answer_committed'&&!isVerifiedLiveAnswer(status.answer)
         ?'invalid_answer':status.status;
+      const live=liveMode&&status.attemptId&&status.status==='attempt_pending'
+        ?await recoverLiveResult(statusCorrelators(record),status.attemptId,status.attemptTraceId)
+        :undefined;
       let technical:EngineStatus|null=null;
       let engineUnavailable=false;
-      if(status.status!=='not_found'){
+      if(!liveMode&&status.status!=='not_found'){
         try{
           technical=await recoverEngineStatus(statusCorrelators(record));
           if(technical&&status.attemptId&&technical.attemptId&&
@@ -264,7 +268,7 @@ export default function ProductChat(){
       }
       let sources:RetrievedSources|null=null;
       let sourcesUnavailable=false;
-      if(status.status!=='not_found'&&status.attemptId!==null){
+      if(!liveMode&&status.status!=='not_found'&&status.attemptId!==null){
         try{
           sources=await recoverRetrievedSources(statusCorrelators(record));
           if(sources&&(sources.attemptId!==status.attemptId||
@@ -283,7 +287,7 @@ export default function ProductChat(){
         if(!previous||isTerminal(previous.phase))return all;
         return {...all,[record.client_message_id]:{
           ...previous,phase:resultPhase,attemptId:status.attemptId??previous.attemptId,
-          messageId:status.messageId,answer:status.answer,
+          messageId:status.messageId,answer:status.answer,live,
           engine:technical,engineUnavailable,
           sources,sourcesUnavailable,
           record:status.id?{...previous.record,resolved_conversation_id:status.id}:previous.record,
@@ -305,11 +309,11 @@ export default function ProductChat(){
         setAttempts(all=>{
           const prev=all[record.client_message_id];
           return prev&&!isTerminal(prev.phase)?{...all,[record.client_message_id]:
-            {...prev,phase:'status_error',answer:null,engine:null,engineUnavailable:true,
+            {...prev,phase:'status_error',answer:null,live:undefined,engine:null,engineUnavailable:true,
                sources:null,sourcesUnavailable:true,attemptId:null,messageId:null}}:all;
         });
     }finally{polling.current.delete(record.client_message_id);}
-  },[invalidate,loadList,loadThread]);
+  },[invalidate,loadList,loadThread,liveMode]);
   useEffect(()=>{
     let active=true;
     queueMicrotask(()=>{
@@ -406,11 +410,11 @@ export default function ProductChat(){
     const timer=window.setInterval(()=>{
       if(lost.current||listState!=='ready'||document.visibilityState==='hidden')return;
       for(const attempt of Object.values(attemptsRef.current)){
-        if(!isTerminal(attempt.phase))void probe(attempt.record);
+        if(!isTerminal(attempt.phase)&&!(liveMode&&attempt.live&&attempt.live.state!=='PENDING'))void probe(attempt.record);
       }
     },4500);
     return ()=>window.clearInterval(timer);
-  },[probe,listState]);
+  },[probe,listState,liveMode]);
   function newConversation(){
     if(lost.current||listState!=='ready'||!canSend)return;
     const id='draft:'+crypto.randomUUID();
@@ -426,7 +430,7 @@ export default function ProductChat(){
     // Only a prior unresolved Send in the SAME persisted conversation
     // blocks a second send. An unrelated fresh draft may start independently.
     if(original!==null&&Object.values(attemptsRef.current).some(a=>
-        !isTerminal(a.phase)&&
+        !isTerminal(a.phase)&&!(liveMode&&a.live&&a.live.state!=='PENDING')&&
         (a.record.resolved_conversation_id??a.record.requested_conversation_id)===original))
       return;
     const request=newSend(question,original);
@@ -463,6 +467,17 @@ export default function ProductChat(){
       void probe(record); // GET only
     }catch(e){
       if(invalidate(e)||lost.current)return;
+      if(e instanceof HistoryFailure&&e.reason==='busy'){
+        forgetCheckpoint(s,record.client_message_id);
+        setAttempts(all=>{
+          const next={...all};
+          delete next[record.client_message_id];
+          return next;
+        });
+        setDrafts(all=>({...all,[selected]:all[selected]||question}));
+        setError('صف پردازش پر است. برای ارسال دوباره کمی صبر کنید.');
+        return;
+      }
       setAttempts(all=>{const prev=all[record.client_message_id];return prev?
         {...all,[record.client_message_id]:{...prev,phase:'transport_unknown'}}:all;});
       setError(e instanceof HistoryFailure&&e.reason==='conflict'?
@@ -543,7 +558,7 @@ export default function ProductChat(){
         <p>پرسش فارسی، تاریخچهٔ خصوصی و وضعیت واقعی هر Attempt؛ بدون پاسخ نمونه.</p>
         <p className="history-note" data-testid="educational-boundary">
           شواهد بازیابی فنی به‌تنهایی پاسخ یا توصیهٔ مالی تأییدشده نیستند.
-          در این نسخه تولید پاسخ و پیوند استناد از مشاهدات بازیابی فعال نیست.
+          {!liveMode&&'در این نسخه تولید پاسخ و پیوند استناد از مشاهدات بازیابی فعال نیست.'}
         </p>
         <p id="product-runtime-capability" role="status" className="history-note" data-testid="app-runtime-capability">
           {capabilityState==='loading'
@@ -552,6 +567,7 @@ export default function ProductChat(){
             ?'قابلیت ارسال از سرور قابل تأیید نیست؛ ارسال غیرفعال است.'
             :runtimeCapability.send_mode==='DISABLED'
             ?'برنامه در حالت بدون موتور فعال است؛ تاریخچه قابل مشاهده است، اما ارسال پرسش و تولید پاسخ غیرفعال است.'
+            :liveMode?'ارسال و تولید پاسخ آزمایشی در محیط مرحله‌بندی فعال است.'
             :'فقط ثبت و بازیابی فنی NO_DISPATCH_ONLY مجاز است؛ تولید پاسخ و موتور زنده فعال نیست.'}
         </p>
         <Link className="history-link" href="/account">حساب، حریم خصوصی و وضعیت قابلیت‌ها</Link>
@@ -586,7 +602,19 @@ export default function ProductChat(){
           data-testid={'attempt-'+a.record.client_message_id}>
           {a.question&&(!a.messageId||!renderedIds.has(a.messageId))&&
             <p className="history-message-text">{a.question}</p>}
-          <p role="status" className="history-note">{phaseLabel(a)}</p>
+          <p role="status" className="history-note">
+            {liveMode&&a.live?.state==='UNKNOWN'?'نتیجه در دسترس نیست؛ ارسال دوباره انجام نمی‌شود.'
+              :liveMode&&a.live?.state==='REVIEW_REQUIRED'?'پاسخ برای بررسی نگه داشته شد.'
+              :liveMode&&a.live?.state==='READY'?'نتیجهٔ آزمایشی آماده است.':phaseLabel(a)}
+          </p>
+          {liveMode&&a.live?.state==='READY'&&<section data-testid="arvan-live-result">
+            <p className="history-note">نتیجهٔ آزمایشی؛ اعتبار معنایی و محل استناد در انتظار بررسی است.</p>
+            {a.live.outcome==='NO_ANSWER'?<p>شواهد برای پاسخ کافی نبود.</p>:
+              <ol>{a.live.claims.map((claim,index)=><li key={index}>
+                <p>{claim.text}</p><blockquote>{claim.quote}</blockquote>
+                <code>{claim.chunk_id}</code>
+              </li>)}</ol>}
+          </section>}
           {a.attemptId&&<p className="history-note">شناسهٔ Attempt: <code>{a.attemptId}</code></p>}
           {a.engine&&<section className="history-note"
             data-testid={'engine-status-'+a.record.client_message_id}
@@ -597,7 +625,7 @@ export default function ProductChat(){
             </p>}
             <p>این گزارش فنی پاسخ مدل یا استناد قابل‌نمایش نیست.</p>
           </section>}
-          {a.attemptId&&<RetrievedSourcesPanel
+          {!liveMode&&a.attemptId&&<RetrievedSourcesPanel
             receipt={a.sources} unavailable={a.sourcesUnavailable}/>}
           {a.engineUnavailable&&<p role="status" className="history-note">
             وضعیت فنی جداگانه در دسترس نیست؛ فقط وضعیت اصلی پیگیری می‌شود.

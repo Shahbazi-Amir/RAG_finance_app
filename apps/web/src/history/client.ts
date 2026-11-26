@@ -30,8 +30,8 @@ type Wire = Record<string,unknown>;
 
 export class HistoryFailure extends Error {
   readonly status:number;
-  readonly reason:'unauthorized'|'conflict'|'invalid'|'unavailable'|'unknown';
-  constructor(status:number,reason:'unauthorized'|'conflict'|'invalid'|'unavailable'|'unknown') {
+  readonly reason:'unauthorized'|'conflict'|'invalid'|'unavailable'|'unknown'|'busy';
+  constructor(status:number,reason:'unauthorized'|'conflict'|'invalid'|'unavailable'|'unknown'|'busy') {
     super(reason);this.status=status;this.reason=reason;
   }
 }
@@ -127,7 +127,13 @@ async function api(path:string, method:'GET'|'POST'='GET',payload?:unknown):Prom
   if(!response.ok){
     if(response.status===401)throw new HistoryFailure(401,'unauthorized');
     if(response.status===409)throw new HistoryFailure(409,'conflict');
-    if(method==='POST'&&(response.status===503||response.status>=500))throw new HistoryFailure(response.status,'unknown');
+    if(method==='POST'&&response.status===503){
+      const body:unknown=await response.json().catch(()=>null);
+      if(conformsToProductV1(body,'error_response')&&
+         (body as {error:{code:string}}).error.code==='ENGINE_BUSY')
+        throw new HistoryFailure(503,'busy');
+    }
+    if(method==='POST'&&response.status>=500)throw new HistoryFailure(response.status,'unknown');
     throw new HistoryFailure(response.status,response.status>=500?'unavailable':'invalid');
   }
   try{return await response.json();}catch{throw new HistoryFailure(0,'invalid');}
@@ -213,6 +219,40 @@ export async function sendMessage(original:SendRequest):Promise<{id:string;messa
  * question or accept a newly created Send payload after refresh. */
 export type StatusCorrelation=Pick<SendRequest,
   'requested_conversation_id'|'client_message_id'|'idempotency_key'>;
+export type StagingLiveResult=Readonly<{
+  state:'PENDING'|'READY'|'UNKNOWN'|'REVIEW_REQUIRED';
+  outcome:'ANSWER'|'NO_ANSWER'|null;
+  claims:ReadonlyArray<Readonly<{text:string;quote:string;chunk_id:string}>>;
+}>;
+export async function recoverLiveResult(original:StatusCorrelation,attemptId:string,
+  traceId:string|null):Promise<StagingLiveResult>{
+  const value=await api('message-requests/live-result?'+params({
+    requested_conversation_id:original.requested_conversation_id??'',
+    client_message_id:original.client_message_id,idempotency_key:original.idempotency_key
+  }));
+  if(!value||typeof value!=='object')return invalid();
+  const o=value as Record<string,unknown>;
+  if(o.kind!=='arvan_staging_live_result'||o.contract_version!=='staging.arvan_live_result.v1'||
+     o.attempt_id!==attemptId||
+     o.attempt_trace_id!==traceId||!Array.isArray(o.claims))return invalid();
+  const {state,outcome,claims}=o;
+  if(state==='READY'){
+    if(outcome==='NO_ANSWER'&&claims.length===0)return {state,outcome,claims:[]};
+    if(outcome!=='ANSWER'||claims.length<1||claims.length>5)return invalid();
+    return {state,outcome,claims:claims.map(claim=>{
+      if(!claim||typeof claim!=='object'||Array.isArray(claim))return invalid();
+      const bounded=(key:string,max:number)=>{
+        const value=claim[key];
+        if(typeof value!=='string'||!value.trim()||[...value].length>max)return invalid();
+        return value;
+      };
+      return {text:bounded('text',2000),quote:bounded('quote',2000),chunk_id:bounded('chunk_id',256)};
+    })};
+  }
+  if((state!=='PENDING'&&state!=='UNKNOWN'&&state!=='REVIEW_REQUIRED')||
+     outcome!==null||claims.length!==0)return invalid();
+  return {state,outcome,claims:[]};
+}
 export async function recoverStatus(original:StatusCorrelation):Promise<{
   status:HistoryStatus;id:string|null;messageId:string|null;answer:Answer|null;
   attemptId:string|null;attemptRequestId:string|null;attemptTraceId:string|null

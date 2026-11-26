@@ -1,0 +1,50 @@
+name: rag-arvan-idp
+services:
+  keycloak:
+    image: mirror-docker.runflare.com/keycloak/keycloak@sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3
+    command: [start]
+    env_file: /etc/rag-arvan-candidate/keycloak.env
+    environment:
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME: https://idp-staging.ragfinance.ir
+      KC_HOSTNAME_STRICT: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_PROXY_TRUSTED_ADDRESSES: 172.29.237.1
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      JAVA_OPTS_KC_HEAP: "-XX:InitialRAMPercentage=35 -XX:MaxRAMPercentage=55"
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:18081:8080"
+    mem_limit: 1536m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    networks: [idp]
+  db:
+    image: docker.arvancloud.ir/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a
+    env_file: /etc/rag-arvan-candidate/keycloak-db.env
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+    volumes:
+      - keycloak-db:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD, pg_isready, -U, keycloak, -d, keycloak]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    mem_limit: 512m
+    restart: unless-stopped
+    networks: [idp]
+volumes:
+  keycloak-db:
+networks:
+  idp:
+    ipam:
+      config:
+        - subnet: 172.29.237.0/28
+          gateway: 172.29.237.1

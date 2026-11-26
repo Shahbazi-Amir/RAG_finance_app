@@ -8,15 +8,16 @@ export const runtime='nodejs';
 export const dynamic='force-dynamic';
 export function GET():Response{
   const appOnly=appOnlySendBlocked(process.env.PHASE3_APP_MODE);
-  let approvedNoDispatch=false;
+  let mode: string|undefined;
   // Fail closed if the private Ops-owned profile cannot be validated.
   if(!appOnly&&stagingRequested()){
-    try{approvedNoDispatch=stagingProfile().send_mode==='NO_DISPATCH_ONLY';}
-    catch{approvedNoDispatch=false;}
+    try{mode=stagingProfile().send_mode;}
+    catch{mode=undefined;}
   }
   // Fixture authorization belongs exclusively to Playwright interception,
   // not to any running Next server, even on CI.
   return Response.json(selectRuntimeCapability({
-    appOnly,approvedNoDispatch,ciFixture:false
+    appOnly,approvedNoDispatch:mode==='NO_DISPATCH_ONLY',
+    approvedLive:mode==='LIVE_DISPATCH',ciFixture:false
   }),{headers:{...noStore,'Content-Type':'application/json; charset=utf-8'}});
 }

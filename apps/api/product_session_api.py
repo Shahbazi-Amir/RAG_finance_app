@@ -1,9 +1,8 @@
-"""Isolated ASGI routes for Product-session History, Fixture send and revoke.
+"""Product-session History, scoped Send and revoke routes.
 
-Uses original History product.v1 implementation and DB 005/004 in ONE
-transaction on the actual history_app connection, not a FastAPI dependency
-override or browser-selected actor. CI-only configuration and runner mTLS.
-The answer producer is offline. These routes are not deployable as staging Auth.
+The original History product.v1 implementation and DB 005/004 share one
+transaction on the authorized history_app connection. Private staging uses
+trusted mTLS, signed session admission and explicit producer startup.
 """
 from __future__ import annotations
 
@@ -81,6 +80,7 @@ _CI_INVITED_RESULT_STORE = None
 # Only explicitly injected from a trusted Ops startup; never from an HTTP/env toggle.
 _PRIVATE_STAGING_PROFILE = None
 _PRIVATE_STAGING_VERIFIER = None
+_ARVAN_LIVE_DISPATCH = None
 _REVOKE_PATH = b"/internal/auth/session/v1/revoke-one"
 _HISTORY_PATH = b"/v1/conversations"
 _SEND_PATH = b"/v1/messages"
@@ -88,6 +88,7 @@ _STATUS_PATH = b"/v1/message-requests/status"
 _ENGINE_STATUS_PATH = b"/v1/message-requests/engine-status"
 _RETRIEVED_SOURCES_PATH = b"/v1/message-requests/retrieved-sources"
 _CLAIM_TEST_STATUS_PATH = b"/v1/message-requests/claim-test-status"
+_ARVAN_RESULT_PATH = b"/v1/message-requests/live-result"
 _INVITED_RESULT_PATH = b"/v1/message-requests/invited-live-result"
 _CONVERSATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -770,6 +771,86 @@ def _run_ci_claim_send(request, raw_body, payload, background_tasks):
     return history._send_success(receipt, 202 if created else 200)
 
 
+def _arvan_service():
+    if (os.getenv("API_RUNNER_EXECUTION_MODE") == "LIVE_DISPATCH"
+            and _PRIVATE_STAGING_PROFILE is not None
+            and os.getenv("CI") != "true" and os.getenv("GITHUB_ACTIONS") != "true"):
+        return _ARVAN_LIVE_DISPATCH
+    return None
+
+
+def _run_arvan_send(request, raw_body, payload):
+    service = _arvan_service()
+    if service is None or not 1 <= len(payload["question"].strip()) <= 2000:
+        raise DispatchClaimDenied()
+    admitted = False
+    queued = False
+    binding = None
+
+    def committed_operation():
+        def reserve(ctx):
+            nonlocal admitted, binding
+            admitted = service.slots.acquire(blocking=False)
+            if not admitted:
+                raise history.ApiFailure(503, "ENGINE_BUSY", "technical")
+            conn, owner = ctx["conn"], ctx["owner"]
+            receipt = history.send_t1(
+                conn, owner, payload, ctx["request_id"], ctx["trace_id"])
+            if receipt["disposition"] == "replayed":
+                return receipt, None
+            attempt = start_t2(
+                conn, owner, payload["requested_conversation_id"],
+                payload["client_message_id"], payload["idempotency_key"],
+                history.uid(), ctx["trace_id"])
+            permit = claim_within_signed_t2(conn, owner, attempt)
+            binding = _invited_binding_from_status(ctx, {
+                **receipt, "attempt_id": attempt["id"],
+                "attempt_request_id": attempt["attempt_request_id"],
+                "attempt_trace_id": attempt["attempt_trace_id"],
+            })
+            return receipt, permit
+        _, value = _signed_history(request, raw_body, _SEND_PATH, reserve)
+        return value
+
+    def enqueue(permit, question):
+        nonlocal queued
+        service.enqueue(permit, binding, question)
+        queued = True
+
+    try:
+        receipt, created = after_definitive_commit(
+            committed_operation, enqueue, payload["question"])
+        return history._send_success(receipt, 202 if created else 200)
+    finally:
+        if admitted and not queued:
+            service.slots.release()
+
+
+@app.get("/v1/message-requests/live-result")
+def session_arvan_live_result(request: Request):
+    def read(ctx):
+        service = _arvan_service()
+        if service is None:
+            raise DispatchClaimDenied()
+        query = history._query(request, "message_request_status_query")
+        doc = history.read_status(
+            ctx["conn"], ctx["owner"], query, ctx["request_id"], ctx["trace_id"],
+            session_transaction=True)
+        if doc["owner_user_id"] != ctx["owner"]:
+            raise TrustRejected()
+        if doc["attempt_id"] is None or doc["status"] != "attempt_pending":
+            raise history.NotFound()
+        result = service.read(_invited_binding_from_status(ctx, doc))
+        return JSONResponse({
+            "kind": "arvan_staging_live_result",
+            "contract_version": "staging.arvan_live_result.v1",
+            "attempt_id": doc["attempt_id"],
+            "attempt_trace_id": doc["attempt_trace_id"],
+            **result,
+        })
+    return _signed_read(request, _ARVAN_RESULT_PATH, read, coherent_read=True)
+
+
 @app.post("/v1/messages")
 async def session_send_message(request: Request, background_tasks: BackgroundTasks):
     try:
@@ -782,7 +863,9 @@ async def session_send_message(request: Request, background_tasks: BackgroundTas
             raise history.ApiFailure(422, "INVALID_REQUEST", "validation")
         payload, raw_body = await history._read_body(
             request, "send_message_request", include_raw=True)
-        if (_PRIVATE_STAGING_PROFILE is not None
+        if os.getenv("API_RUNNER_EXECUTION_MODE") == "LIVE_DISPATCH":
+            response = await run_in_threadpool(_run_arvan_send, request, raw_body, payload)
+        elif (_PRIVATE_STAGING_PROFILE is not None
                 and os.getenv("API_RUNNER_EXECUTION_MODE") != "NO_DISPATCH_ONLY"):
             # Never execute synthetic fixture inside private staging.
             response = history._safe_error(

@@ -7,7 +7,7 @@ import {createHash,createPrivateKey,randomBytes,sign} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {request as httpsRequest} from 'node:https';
 import type {IncomingMessage,ClientRequest} from 'node:http';
-import {stagingRequested,stagingProfile,stagingSecret} from './private-staging.ts';
+import {stagingRequested,stagingProfile,stagingSecret,stagingSendEnabled} from './private-staging.ts';
 
 export type TrustedActive=Readonly<{ownerId:string;epoch:number;generation:number;
   sessionVerifier:string}>;
@@ -52,7 +52,7 @@ async function privateConfig(){
     key:contents[3],issuer,audience,kid};
 }
 export async function productRequest(
-  operation:'history'|'revoke'|'messages'|'status'|'engine-status'|'retrieved-sources'|'send',active:TrustedActive,
+  operation:'history'|'revoke'|'messages'|'status'|'engine-status'|'retrieved-sources'|'live-result'|'send',active:TrustedActive,
   query='',operationId='',rawBody=''):Promise<ProductReply>{
   if(!/^[A-Za-z0-9_-]{43,256}$/.test(active.sessionVerifier)||
      !/^[A-Za-z0-9_-]{1,128}$/.test(active.ownerId)||
@@ -62,6 +62,8 @@ export async function productRequest(
   const isMessages=operation==='messages',isStatus=operation==='status';
   const isEngineStatus=operation==='engine-status';
   const isSources=operation==='retrieved-sources';
+  const isLiveResult=operation==='live-result';
+  if(isLiveResult&&(!stagingRequested()||stagingProfile().send_mode!=='LIVE_DISPATCH'))deny();
   const isSend=operation==='send';
   const paging=/^\?limit=(?:[1-9][0-9]?|100)(?:&cursor=[A-Za-z0-9_-]{1,512})?$/;
   const statusQuery=/^\?requested_conversation_id=(?:[A-Za-z0-9_-]{0,64})&client_message_id=[A-Za-z0-9_-]{1,64}&idempotency_key=[A-Za-z0-9_-]{8,128}$/;
@@ -69,10 +71,10 @@ export async function productRequest(
   if(isList&&(!paging.test(query)||operationId||rawBody))deny();
   if(isRevoke&&(query||rawBody||!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(operationId)))deny();
   if(isMessages&&(!paging.test(query)||!validId.test(operationId)||rawBody))deny();
-  if((isStatus||isEngineStatus||isSources)&&(!statusQuery.test(query)||operationId||rawBody))deny();
+  if((isStatus||isEngineStatus||isSources||isLiveResult)&&(!statusQuery.test(query)||operationId||rawBody))deny();
   if(isSend&&(query||operationId||!rawBody||
       Buffer.byteLength(rawBody,'utf8')>8192||
-      (stagingRequested()?stagingProfile().send_mode!=='NO_DISPATCH_ONLY':
+      (stagingRequested()?!stagingSendEnabled():
         process.env.AUTH_CI_PRODUCT_CHAT_MODE!=='NO_DISPATCH_ONLY')))deny();
   const c=await privateConfig();
   const rawPath=isList?'/v1/conversations':
@@ -80,8 +82,9 @@ export async function productRequest(
     isMessages?'/v1/conversations/'+operationId+'/messages':
     isStatus?'/v1/message-requests/status':
     isEngineStatus?'/v1/message-requests/engine-status':
+    isLiveResult?'/v1/message-requests/live-result':
     isSources?'/v1/message-requests/retrieved-sources':'/v1/messages';
-  const rawQuery=(isList||isMessages||isStatus||isEngineStatus||isSources)?query.slice(1):'';
+  const rawQuery=(isList||isMessages||isStatus||isEngineStatus||isSources||isLiveResult)?query.slice(1):'';
   const method=(isRevoke||isSend)?'POST':'GET';
   const body=isRevoke?Buffer.from(JSON.stringify({operation_id:operationId})):
     isSend?Buffer.from(rawBody,'utf8'):Buffer.alloc(0);

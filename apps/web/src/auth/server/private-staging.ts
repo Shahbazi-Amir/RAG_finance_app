@@ -1,6 +1,6 @@
 /** Server-side Ops profile. No CI emulation, no browser-supplied settings.
  * A secret 0600 config file must be installed by the authorized operator.
- * Loading it does not authorize live Runner dispatch or deployment.
+ * The Product API independently requires startup admission for dispatch.
  */
 import {lstatSync,readFileSync} from 'node:fs';
 import {isAbsolute} from 'node:path';
@@ -55,7 +55,7 @@ export function stagingProfile():PrivateStaging{
     !originOk(p.bootstrap_origin)||!originOk(p.product_origin)||
     ['bootstrap_origin','product_origin'].some(k=>
       new URL(p[k as Field]).hostname==='ragfinance.ir')||
-    !['DISABLED','NO_DISPATCH_ONLY'].includes(p.send_mode)||
+    !['DISABLED','NO_DISPATCH_ONLY','LIVE_DISPATCH'].includes(p.send_mode)||
     ![p.bootstrap_issuer,p.bootstrap_audience,p.product_issuer,p.product_audience]
       .every(v=>v.startsWith('urn:')&&v.length<=180)||
     ![p.bootstrap_kid,p.product_kid].every(v=>
@@ -68,3 +68,5 @@ export function stagingProfile():PrivateStaging{
     stagingSecret(p.proxy_proof_file).trim().length<32)denied();
  return p;
 }
+
+export const stagingSendEnabled=()=>['NO_DISPATCH_ONLY','LIVE_DISPATCH'].includes(stagingProfile().send_mode);

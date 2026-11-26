@@ -1,4 +1,5 @@
-FROM ubuntu:24.04
+ARG UBUNTU_IMAGE=ubuntu:24.04
+FROM ${UBUNTU_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
@@ -12,7 +13,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN mkdir -p /opt/nb23-v4 /opt/rag-finance-staging /work/repo /inputs/artifacts
 
-COPY --chmod=0444 infra/nb23-v4/worker.py infra/nb23-v4/worker_startup_state.py /opt/nb23-v4/
-COPY --chmod=0444 artifacts/nb23-v4-bundle/engine.py /opt/nb23-v4/engine.py
+COPY infra/nb23-v4/worker.py infra/nb23-v4/worker_startup_state.py /opt/nb23-v4/
+COPY artifacts/nb23-v4-bundle/engine.py /opt/nb23-v4/engine.py
+RUN chmod 0444 /opt/nb23-v4/*.py
 
 ENTRYPOINT ["/opt/rag-finance-staging/.venv-onnx-probe/bin/python", "-B", "/opt/nb23-v4/worker.py", "/opt/nb23-v4/engine.py"]

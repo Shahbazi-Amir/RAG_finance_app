@@ -1,4 +1,4 @@
-"""Private staging product API ASGI entrypoint. ONE NO_DISPATCH_ONLY worker.
+"""Single private staging Product API process.
 
 An Ops-owned 0600 JSON config is loaded BEFORE any socket is bound.
 TLS is terminated in this process: OpenSSL CERT_REQUIRED validates the BFF
@@ -6,8 +6,7 @@ chain, and src.phase3.auth.staging_transport_mtls verifies its pinned leaf
 fingerprint and injects an in-process object capability. We NEVER interpret
 forwarded client certificate / identity / issuer headers as trust evidence.
 
-This is an importable executable, NOT an authorized deployment, SQL grant,
-live Gateway client, product.v1 Answer, or confirmation of a host service.
+Runtime admission selects the offline C018 handler or the Arvan live queue.
 """
 from __future__ import annotations
 
@@ -76,6 +75,7 @@ class PrivateASGIConfig:
     revoke_dsn: str
     engine_version: str
     ledger_file: Path
+    execution_mode: str = "NO_DISPATCH_ONLY"
 
     def __repr__(self):
         return "PrivateASGIConfig(<redacted>)"
@@ -88,7 +88,10 @@ def load_private_config(config_path: Path) -> PrivateASGIConfig:
         doc = json.loads(config_path.read_text(encoding="utf-8"))
     except (ValueError, UnicodeError, OSError):
         raise StagingConfigDenied() from None
-    if (not isinstance(doc, dict) or set(doc) != REQUIRED_CONFIG_FIELDS
+    if (not isinstance(doc, dict) or set(doc) not in (REQUIRED_CONFIG_FIELDS,
+                                REQUIRED_CONFIG_FIELDS | {"execution_mode"})
+            or doc.get("execution_mode", "NO_DISPATCH_ONLY") not in (
+                "NO_DISPATCH_ONLY", "LIVE_DISPATCH")
             or doc.get("contract_version") != CONFIG_VERSION
             or doc.get("listen_host") != "127.0.0.1"
             or type(doc.get("listen_port")) is not int
@@ -126,6 +129,7 @@ def load_private_config(config_path: Path) -> PrivateASGIConfig:
         kid=doc["bff_kid"], public_key_file=paths["public_key_file"],
         history_dsn=doc["history_dsn"], revoke_dsn=doc["revoke_dsn"],
         engine_version=doc["engine_version"], ledger_file=paths["ledger_file"],
+        execution_mode=doc.get("execution_mode", "NO_DISPATCH_ONLY"),
     )
 
 
@@ -165,7 +169,7 @@ def _harden_tls_context(config, default_factory):
     return ctx
 
 
-def verify_staging_database_authority(profile: PrivateStagingProfile) -> None:
+def verify_staging_database_authority(profile: PrivateStagingProfile, *, live=False) -> None:
     """Read-only real DB role/004/005/revoke privilege pre-start admission.
 
     No migrations, grants, writes or SQL exposed to an HTTP caller. It verifies
@@ -187,6 +191,10 @@ def verify_staging_database_authority(profile: PrivateStagingProfile) -> None:
             "auth_l1.revoke_one(text,bigint)",
         ),
     }
+    if live:
+        procedures["history"] += (
+            "history_l1.claim_external_dispatch(text,text,text)",
+        )
     role_names = {"history": "history_app", "revoke": "auth_revoker"}
     for operation, names in procedures.items():
         dsn = profile.dsn(operation)
@@ -220,10 +228,15 @@ def read_only_preflight(cfg: PrivateASGIConfig, environ=None) -> None:
     do not run this on Arvan before Ops grants a safe inspection window.
     """
     environ = os.environ if environ is None else environ
-    _assert_no_dispatch_environment(environ)
+    live = cfg.execution_mode == "LIVE_DISPATCH"
+    if live:
+        if (environ.get("API_RUNNER_EXECUTION_MODE") != "LIVE_DISPATCH"
+                or environ.get("CI") == "true" or environ.get("GITHUB_ACTIONS") == "true"):
+            raise StagingConfigDenied()
+    else:
+        _assert_no_dispatch_environment(environ)
     _test_tls_material(cfg)
     from src.phase3.auth.service_proof import BFFServiceVerifier
-    from src.phase3.auth.staging_service_profile import StagingConfigDenied
     boundary = TrustedBFFTLSBoundary(cfg.bff_leaf_cert_sha256)
     profile = PrivateStagingProfile(
         issuer=cfg.issuer, audience=cfg.audience, kid=cfg.kid,
@@ -236,6 +249,9 @@ def read_only_preflight(cfg: PrivateASGIConfig, environ=None) -> None:
     BFFServiceVerifier(
         issuer=cfg.issuer, audience=cfg.audience,
         public_keys={cfg.kid: profile.load_public_key()})
+    if live:
+        verify_staging_database_authority(profile, live=True)
+        return
     verify_staging_database_authority(profile)
     folder = cfg.ledger_file.parent
     try:
@@ -272,6 +288,13 @@ def prepare_private_app(cfg: PrivateASGIConfig, environ=None):
     if str(module_dir) not in sys.path:
         sys.path.insert(0, str(module_dir))
     from apps.api import product_session_api
+    if cfg.execution_mode == "LIVE_DISPATCH":
+        from src.phase3.rag_runtime.arvan_live_dispatch import ArvanLiveDispatch
+
+        service = ArvanLiveDispatch.from_environment(environ)
+        product_session_api.install_private_staging_auth(profile)
+        product_session_api._ARVAN_LIVE_DISPATCH = service
+        return product_session_api.app, boundary
     engine = PrivateStagingEngineConfig(
         layout=RunnerLayout.pinned(),
         engine_version=cfg.engine_version,
@@ -302,12 +325,18 @@ def run_private_staging(config_file: Path) -> None:
         ssl_version=ssl.PROTOCOL_TLS_SERVER,
         ssl_context_factory=_harden_tls_context,
     )
-    uvicorn.Server(server_cfg).run()
+    try:
+        uvicorn.Server(server_cfg).run()
+    finally:
+        if cfg.execution_mode == "LIVE_DISPATCH":
+            from apps.api.product_session_api import _ARVAN_LIVE_DISPATCH
+
+            _ARVAN_LIVE_DISPATCH.close()
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
-        description="Pinned private no-dispatch Product API; Ops approval needed.")
+        description="Private staging Product API; Ops approval needed.")
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--preflight-only", action="store_true",
                         help="Read-only dependency checks, no listen or runner")

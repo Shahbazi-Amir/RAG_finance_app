@@ -1,13 +1,16 @@
 import canonical from '../../../../packages/contracts/ui.runtime_capabilities.v1.schema.json' with {type:'json'};
-/** App-only UI capability policy. This is NOT producer readiness or a
- * browser authority token. The signed BFF must independently reject Send
- * before body read or durable reservation in app-only mode.
- *
- * Only an explicitly trusted private NO_DISPATCH_ONLY profile or a pinned
- * CI-only intercepted browser fixture can expose the Send button. Neither
- * mode permits an Answer, Qdrant, model or Gateway dispatch.
- */
-export type RuntimeCapability=ReadOnlyCapability;
+/** Public display policy. The BFF and API independently enforce dispatch. */
+export type RuntimeCapability=ReadOnlyCapability|Readonly<{
+  kind:'ui_runtime_capabilities';
+  contract_version:'ui.runtime_capabilities.v2';
+  send_mode:'LIVE_DISPATCH';
+  engine_available:true;
+  generation_available:true;
+}>;
+const live:RuntimeCapability={
+  kind:'ui_runtime_capabilities',contract_version:'ui.runtime_capabilities.v2',
+  send_mode:'LIVE_DISPATCH',engine_available:true,generation_available:true
+};
 export type ReadOnlyCapability=Readonly<{
   kind:'ui_runtime_capabilities';
   contract_version:'ui.runtime_capabilities.v1';
@@ -25,17 +28,21 @@ export function selectRuntimeCapability(input:{
   appOnly:boolean;
   approvedNoDispatch:boolean;
   ciFixture:boolean;
-}):ReadOnlyCapability{
+  approvedLive?:boolean;
+}):RuntimeCapability{
+  if(!input.appOnly&&input.approvedLive)return live;
   return input.appOnly||!(input.approvedNoDispatch||input.ciFixture)
     ?disabled:{...disabled,send_mode:'NO_DISPATCH_ONLY'};
 }
-export function decodeRuntimeCapability(value:unknown):ReadOnlyCapability|null{
+export function decodeRuntimeCapability(value:unknown):RuntimeCapability|null{
   if(value===null||typeof value!=='object'||Array.isArray(value))return null;
   const o=value as Record<string,unknown>;
   const properties=canonical.properties;
-  if(Object.keys(o).sort().join('|')!==
-       Object.keys(properties).sort().join('|')||
-     o.kind!==properties.kind.const||
+  if(Object.keys(o).sort().join('|')!==Object.keys(properties).sort().join('|'))return null;
+  if(o.contract_version===live.contract_version)
+    return o.kind===live.kind&&o.send_mode===live.send_mode&&
+      o.engine_available===true&&o.generation_available===true?live:null;
+  if(o.kind!==properties.kind.const||
      o.contract_version!==properties.contract_version.const||
      typeof o.send_mode!=='string'||!properties.send_mode.enum.includes(o.send_mode)||
      o.engine_available!==properties.engine_available.const||

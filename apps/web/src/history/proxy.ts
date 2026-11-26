@@ -1,5 +1,5 @@
 /**
- * CI-only bounded History proxy core. Used by the actual Next route and its
+ * Bounded History proxy for private staging and isolated CI. Used by the Next route and its
  * Node regression tests; no test-only implementation of the forwarding path.
  * The core limits application-collected bytes, not upstream Node/proxy buffers.
  */
@@ -8,19 +8,26 @@ import {SESSION,cookie,secureBrowser,noStore,publicOrigin} from '../auth/server/
 import {getActive,revokeAlias} from '../auth/server/initial-store.ts';
 import {productRequest} from '../auth/server/product-session.ts';
 import {conformsToProductV1} from './product-validation.ts';
-import {stagingRequested,stagingProfile} from '../auth/server/private-staging.ts';
+import {stagingRequested,stagingProfile,stagingSendEnabled} from '../auth/server/private-staging.ts';
 import {appOnlySendBlocked} from '../ui/runtime-capability.ts';
 
 const allowed=(parts:string[],method:string):boolean=>
   (parts.length===1&&parts[0]==='conversations'&&['GET','POST'].includes(method))||
   (parts.length===1&&parts[0]==='messages'&&method==='POST')||
   (parts.length===2&&parts[0]==='message-requests'&&
-    ['status','engine-status','retrieved-sources'].includes(parts[1])&&method==='GET')||
+    ['status','engine-status','retrieved-sources','live-result'].includes(parts[1])&&method==='GET')||
   (parts.length===3&&parts[0]==='conversations'&&/^[A-Za-z0-9_-]{1,64}$/.test(parts[1])&&
     parts[2]==='messages'&&method==='GET');
 
 export async function forwardHistoryProxy(request:Request,path:string[]):Promise<Response>{
   if(!allowed(path,request.method))return new Response(null,{status:404});
+  const liveResult=path.length===2&&path[0]==='message-requests'&&path[1]==='live-result';
+  if(liveResult){
+    try{
+      if(!stagingRequested()||stagingProfile().send_mode!=='LIVE_DISPATCH'||
+         appOnlySendBlocked(process.env.PHASE3_APP_MODE))return new Response(null,{status:404,headers:noStore});
+    }catch{return new Response(null,{status:503,headers:noStore});}
+  }
   // App-only is a policy fence, not a display flag. Reject Send before body
   // read, upstream calls, durable T1/T2 reservation or any engine dispatch.
   // This check wins over CI stubs, private staging and legacy loopback proxy.
@@ -29,7 +36,7 @@ export async function forwardHistoryProxy(request:Request,path:string[]):Promise
     return Response.json({error:'ENGINE_NOT_AVAILABLE'},{
       status:503,headers:{'Cache-Control':'no-store'}
     });
-  // CI-only authenticated path. No browser-selected owner, upstream, or
+  // Authenticated path. No browser-selected owner, upstream, or
   // synthetic fallback. The API independently fences the signed session.
   if(process.env.AUTH_CI_LOGIN_MODE==='true'||stagingRequested()){
     if(!secureBrowser(request))return new Response(null,{status:503,headers:noStore});
@@ -51,9 +58,9 @@ export async function forwardHistoryProxy(request:Request,path:string[]):Promise
     const send=path.length===1&&path[0]==='messages'&&request.method==='POST';
     // The pinned #53 signed API has no POST create-conversation endpoint.
     // A new draft becomes a server conversation only with its first Send.
-    if(!(listed||thread||status||engineStatus||sources||send))
+    if(!(listed||thread||status||engineStatus||sources||liveResult||send))
       return Response.json({error:'PRODUCT_ROUTE_NOT_AVAILABLE'},{status:503,headers:noStore});
-    if(send&&(stagingRequested()?stagingProfile().send_mode!=='NO_DISPATCH_ONLY':
+    if(send&&(stagingRequested()?!stagingSendEnabled():
       process.env.AUTH_CI_PRODUCT_CHAT_MODE!=='NO_DISPATCH_ONLY'))
       return Response.json({error:'LIVE_RUNNER_NOT_APPROVED'},
         {status:503,headers:noStore});
@@ -67,7 +74,7 @@ export async function forwardHistoryProxy(request:Request,path:string[]):Promise
          (cursor!==null&&!/^[A-Za-z0-9_-]{1,512}$/.test(cursor)))
         return new Response(null,{status:422,headers:noStore});
       signedQuery='?limit='+limit+(cursor===null?'':'&cursor='+cursor);
-    }else if(status||engineStatus||sources){
+    }else if(status||engineStatus||sources||liveResult){
       const keys=['requested_conversation_id','client_message_id','idempotency_key'];
       if([...query.keys()].some(k=>!keys.includes(k)||query.getAll(k).length!==1)||
          keys.some(k=>!query.has(k)))
@@ -97,7 +104,7 @@ export async function forwardHistoryProxy(request:Request,path:string[]):Promise
     }
     try{
       const operation=listed?'history':thread?'messages':
-        engineStatus?'engine-status':sources?'retrieved-sources':status?'status':'send';
+        liveResult?'live-result':engineStatus?'engine-status':sources?'retrieved-sources':status?'status':'send';
       const actual=await productRequest(
         operation,active,signedQuery,thread?path[1]:'',rawBody);
       if(actual.status===401&&handle)await revokeAlias(handle);

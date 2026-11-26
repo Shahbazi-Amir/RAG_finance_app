@@ -1,0 +1,20 @@
+[Unit]
+Description=Arvan NB23 offline persistent retrieval worker
+Requires=docker.service
+After=docker.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+RuntimeDirectory=rag-arvan-worker
+RuntimeDirectoryMode=0700
+ExecStartPre=/usr/bin/chown rag-arvan-api:rag-arvan-api /run/rag-arvan-worker
+ExecStartPre=/usr/bin/rm -f /run/rag-arvan-worker/retrieval.sock
+ExecStart=/opt/rag-finance-staging/phase3/arvan-candidate/infra/arvan-staging/run-worker.sh
+ExecStop=/usr/bin/docker stop --time 15 rag-arvan-retrieval
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=25
+
+[Install]
+WantedBy=multi-user.target

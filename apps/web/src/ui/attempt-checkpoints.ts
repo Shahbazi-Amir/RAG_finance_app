@@ -49,6 +49,12 @@ export function retainCheckpoint(storage:StoragePort,record:AttemptCheckpoint):b
       p.idempotency_key===record.idempotency_key);
   }catch{return false;}
 }
+export function forgetCheckpoint(storage:StoragePort,id:string):void{
+  try{
+    storage.setItem(CHECKPOINT_KEY,JSON.stringify(
+      readCheckpoints(storage).filter(record=>record.client_message_id!==id)));
+  }catch{/* session might already be gone */}
+}
 export function forgetCheckpoints(storage:StoragePort):void{
   try{storage.removeItem(CHECKPOINT_KEY);}catch{/* session might already be gone */}
 }

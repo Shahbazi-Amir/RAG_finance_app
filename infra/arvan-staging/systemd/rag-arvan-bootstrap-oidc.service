@@ -1,0 +1,23 @@
+[Unit]
+Description=Arvan private mTLS OIDC Bootstrap
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=rag-arvan-bootstrap
+Group=rag-arvan-bootstrap
+WorkingDirectory=/opt/rag-finance-staging/phase3/arvan-candidate
+Environment=PATH=/opt/rag-finance-staging/phase3/tools/bin:/usr/bin:/bin
+Environment=PYTHONPATH=/opt/rag-finance-staging/phase3/arvan-candidate
+ExecStart=/opt/rag-finance-staging/phase3/tools/bin/python3.13 -B -m apps.api.private_staging_bootstrap_asgi --config /etc/rag-arvan-candidate/bootstrap-private.json
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+LimitCORE=0
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

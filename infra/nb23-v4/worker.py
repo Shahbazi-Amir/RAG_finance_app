@@ -9,6 +9,7 @@ from pathlib import Path
 import resource
 import runpy
 import signal
+import socketserver
 import sys
 import time
 
@@ -52,6 +53,9 @@ def _run(args, source, resources):
             raise RuntimeError("INVALID_CONSTRUCTION_COUNTS")
         emit(event="ready", seconds=time.monotonic()-started, constructions=counts,
              rss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        if getattr(args, "socket", None):
+            serve_retrieval(args, engine)
+            return
         while line := sys.stdin.buffer.readline(MAX_LINE + 1):
             if len(line) > MAX_LINE:
                 raise ValueError("REQUEST_TOO_LARGE")
@@ -75,10 +79,50 @@ def _run(args, source, resources):
         emit(event="closed")
 
 
+def serve_retrieval(args, engine):
+    """One serial retrieval service on a private, bind-mounted Unix socket."""
+    import re
+
+    class Handler(socketserver.StreamRequestHandler):
+        def handle(self):
+            self.connection.settimeout(5)
+            try:
+                line = self.rfile.readline(MAX_LINE + 1)
+                if not line or len(line) > MAX_LINE:
+                    return
+                request = json.loads(line)
+                if request == {"probe": True}:
+                    self.wfile.write(b'{"ready":true}\n')
+                    return
+                if (not isinstance(request, dict) or set(request) != {"attempt_id", "question"}
+                        or not isinstance(request["attempt_id"], str)
+                        or not re.fullmatch("[0-9a-f]{32}", request["attempt_id"])
+                        or not isinstance(request["question"], str)
+                        or not 1 <= len(request["question"].strip()) <= 2000):
+                    return
+                with redirect_stdout(sys.stderr):
+                    source = engine["retrieve_context"](
+                        args.repo.resolve(), args.artifacts.resolve(), request["question"].strip())
+                self.wfile.write(json.dumps({
+                    "attempt_id": request["attempt_id"], "source": source,
+                }, ensure_ascii=False).encode() + b"\n")
+            except Exception:
+                # The caller records UNKNOWN. Do not log the question or evidence.
+                return
+
+    os.umask(0o077)
+    with socketserver.UnixStreamServer(str(args.socket), Handler) as server:
+        try:
+            server.serve_forever()
+        finally:
+            args.socket.unlink(missing_ok=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("engine", "repo", "artifacts"):
         parser.add_argument(name, type=Path)
+    parser.add_argument("--socket", type=Path)
     signal.signal(signal.SIGTERM, terminate)
     try:
         run(parser.parse_args())
