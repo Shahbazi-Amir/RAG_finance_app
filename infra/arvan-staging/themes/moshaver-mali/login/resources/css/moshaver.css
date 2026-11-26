@@ -1,0 +1,221 @@
+:root,
+.pf-v5-theme-dark {
+  color-scheme: light !important;
+  --pf-v5-global--BackgroundColor--100: #ffffff !important;
+  --pf-v5-global--BackgroundColor--200: #f8fbff !important;
+  --pf-v5-global--Color--100: #0f172a !important;
+  --pf-v5-global--Color--200: #475569 !important;
+  --pf-v5-global--BorderColor--100: #dbeafe !important;
+  --pf-v5-global--primary-color--100: #3b82f6 !important;
+  --pf-v5-global--primary-color--200: #2563eb !important;
+  --pf-v5-global--link--Color: #2563eb !important;
+  --keycloak-card-top-color: transparent !important;
+}
+
+html, body {
+  direction: rtl !important;
+  text-align: right !important;
+  font-family: Tahoma, "Vazirmatn", system-ui, -apple-system, sans-serif !important;
+  background: linear-gradient(135deg, #f0f7ff 0%, #f8fbff 52%, #fefce8 100%) !important;
+  color: #0f172a !important;
+  min-height: 100vh !important;
+  margin: 0 !important;
+}
+
+.login-pf,
+.login-pf body,
+.pf-v5-c-login {
+  background: transparent !important;
+  color: #0f172a !important;
+}
+
+.login-pf-page {
+  padding-top: clamp(32px, 8vh, 84px) !important;
+}
+
+.pf-v5-c-login__container {
+  max-width: 420px !important;
+  margin: 0 auto !important;
+  padding: 16px !important;
+}
+
+/* Single cohesive brand header */
+.pf-v5-c-login__header,
+#kc-header {
+  text-align: center !important;
+  margin: 0 0 18px 0 !important;
+}
+
+#kc-header-wrapper {
+  padding: 4px 0 !important;
+  font-size: 24px !important;
+  font-weight: 800 !important;
+  color: #1e40af !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+
+.mm-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #1e3a8a;
+  font-weight: 800;
+  font-size: 22px;
+}
+
+/* Ascending 3-bar chart icon (left -> right increasing), matching chat */
+.mm-badge {
+  direction: ltr !important;
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3.5px;
+  width: 36px;
+  height: 36px;
+  padding-bottom: 8px;
+  box-sizing: border-box;
+  border-radius: 11px;
+  background: #fef9c3;
+  border: 1px solid #fde68a;
+  box-shadow: 0 2px 6px rgba(217, 119, 6, 0.08);
+}
+
+.mm-badge i {
+  display: block;
+  width: 4px;
+  border-radius: 99px;
+  font-style: normal;
+}
+.mm-badge i.b1 { height: 7px;  background: #93c5fd; }
+.mm-badge i.b2 { height: 12px; background: #60a5fa; }
+.mm-badge i.b3 { height: 17px; background: #3b82f6; }
+
+/* Remove Keycloak's duplicate top blue border lines completely */
+.login-pf-page .card-pf,
+.pf-v5-c-login__main,
+.card-pf {
+  background: #ffffff !important;
+  border: 1px solid #dbeafe !important;
+  border-top: 1px solid #dbeafe !important;
+  border-radius: 20px !important;
+  box-shadow: 0 14px 40px rgba(30, 64, 175, 0.06) !important;
+  padding: 26px 26px 28px !important;
+  color: #0f172a !important;
+  max-width: 420px !important;
+  margin: 0 auto !important;
+}
+
+.pf-v5-c-login__main::before,
+.card-pf::before {
+  display: none !important;
+  border: 0 !important;
+}
+
+.pf-v5-c-login__main-header {
+  padding: 0 0 14px 0 !important;
+  border-bottom: 1px solid #f1f5f9 !important;
+  margin-bottom: 18px !important;
+  text-align: center !important;
+}
+
+.pf-v5-c-title,
+#kc-page-title {
+  font-family: Tahoma, "Vazirmatn", system-ui, sans-serif !important;
+  font-size: 16.5px !important;
+  font-weight: 700 !important;
+  color: #334155 !important;
+  text-align: center !important;
+  margin: 0 !important;
+}
+
+.pf-v5-c-form__label-text,
+label {
+  color: #475569 !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+}
+
+/* Fix red error dot overlapping LTR input text */
+.pf-v5-c-form-control__icon.pf-m-status,
+.pf-c-form-control.pf-m-error::after {
+  display: none !important;
+}
+
+.pf-v5-c-form-control,
+.pf-v5-c-form-control input,
+input#username,
+input#password {
+  background-color: #f8fafc !important;
+  background-image: none !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+  border-radius: 12px !important;
+  font-size: 14.5px !important;
+  box-shadow: none !important;
+}
+
+input#username,
+input#password {
+  direction: ltr !important;
+  text-align: left !important;
+  padding: 10px 14px !important;
+}
+
+.pf-v5-c-form-control.pf-m-error,
+.pf-v5-c-form-control[aria-invalid="true"],
+input[aria-invalid="true"] {
+  border-color: #fca5a5 !important;
+  background-color: #fffafa !important;
+  background-image: none !important;
+}
+
+.pf-v5-c-form-control:focus-within,
+input#username:focus,
+input#password:focus {
+  border-color: #60a5fa !important;
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.22) !important;
+  background-color: #ffffff !important;
+}
+
+.pf-v5-c-button.pf-m-primary,
+#kc-login {
+  width: 100% !important;
+  background: #3b82f6 !important;
+  color: #ffffff !important;
+  border: 0 !important;
+  border-radius: 12px !important;
+  padding: 12px 20px !important;
+  font-family: Tahoma, "Vazirmatn", system-ui, sans-serif !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  margin-top: 10px !important;
+  cursor: pointer !important;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.22) !important;
+  transition: background 0.15s ease !important;
+}
+
+.pf-v5-c-button.pf-m-primary:hover,
+#kc-login:hover {
+  background: #2563eb !important;
+}
+
+.pf-v5-c-button.pf-m-control {
+  background: #f1f5f9 !important;
+  color: #475569 !important;
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 10px !important;
+}
+
+.pf-v5-c-helper-text__item.pf-m-error,
+.kc-feedback-text,
+#input-error {
+  color: #dc2626 !important;
+  font-size: 12.5px !important;
+  margin-top: 6px !important;
+}
+
+#kc-locale,
+.pf-v5-c-login__main-header-utilities {
+  display: none !important;
+}

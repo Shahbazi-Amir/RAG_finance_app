@@ -6,7 +6,7 @@ services:
     env_file: /etc/rag-arvan-candidate/keycloak.env
     environment:
       KC_HTTP_ENABLED: "true"
-      KC_HOSTNAME: https://idp-staging.ragfinance.ir
+      KC_HOSTNAME: https://ragfinance.ir
       KC_HOSTNAME_STRICT: "true"
       KC_PROXY_HEADERS: xforwarded
       KC_PROXY_TRUSTED_ADDRESSES: 172.29.237.1
@@ -14,6 +14,8 @@ services:
       KC_DB_URL: jdbc:postgresql://db:5432/keycloak
       KC_DB_USERNAME: keycloak
       JAVA_OPTS_KC_HEAP: "-XX:InitialRAMPercentage=35 -XX:MaxRAMPercentage=55"
+    volumes:
+      - /opt/rag-finance-staging/phase3/themes/moshaver-mali:/opt/keycloak/themes/moshaver-mali:ro
     depends_on:
       db:
         condition: service_healthy
