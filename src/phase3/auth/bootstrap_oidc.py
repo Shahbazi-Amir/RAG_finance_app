@@ -128,7 +128,8 @@ class BootstrapOIDC:
                  db_dsn: Mapping[str, str], oidc: dict, client_id: str,
                  redirect_uri: str, exchange: Callable | None = None,
                  runtime_profile: str = "loopback_fixture",
-                 idp_ca_file: str | None = None):
+                 idp_ca_file: str | None = None,
+                 session_absolute_seconds: int | None = None):
         if (not isinstance(service_issuer, str) or not service_issuer.startswith("urn:")
                 or len(service_issuer) > 128 or not audience.startswith("urn:")
                 or not cert_fingerprints or not service_keys or not db_dsn):
@@ -161,6 +162,12 @@ class BootstrapOIDC:
         self.client_id = client_id
         self.redirect_uri = redirect_uri
         self.runtime_profile = runtime_profile
+        if session_absolute_seconds is not None and (
+                runtime_profile != "private_staging" or type(session_absolute_seconds) is not int
+                or not 3600 <= session_absolute_seconds <= 28800):
+            raise BootstrapDenied()
+        self.session_idle = session_absolute_seconds or 120
+        self.session_absolute = session_absolute_seconds or 500
         from urllib.parse import urlsplit
         expected = self.oidc.get("issuer")
         try:
@@ -514,7 +521,7 @@ class BootstrapOIDC:
           %s,%s,%s,%s,%s,%s,%s,%s,%s,%s) AS value""", (
             _uuid(proof.attempt_id), proof.principal, proof.initiator_sha256,
             mapped["owner_id"], issuer, sub, mapped["epoch"],
-            _digest(opaque.encode("ascii")), 120, 500))
+            _digest(opaque.encode("ascii")), self.session_idle, self.session_absolute))
         return 201, {"state": "ISSUED_PENDING_BINDING", "attempt_id": proof.attempt_id,
                      "owner_id": issued["owner_id"], "epoch": issued["epoch"],
                      "generation": issued["generation"],

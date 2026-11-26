@@ -3,9 +3,9 @@
  * session verifier are independent secrets. No production multi-host claim.
  */
 import {createCipheriv,createDecipheriv,createHash,randomBytes,timingSafeEqual} from 'node:crypto';
-import {open,readFile,rename,mkdir,unlink} from 'node:fs/promises';
+import {open,readFile,rename,mkdir,unlink,stat,utimes} from 'node:fs/promises';
 import {join} from 'node:path';
-import {stagingRequested,stagingProfile,stagingSecret} from './private-staging.ts';
+import {stagingRequested,stagingProfile,stagingSecret,stagingSessionLifetime} from './private-staging.ts';
 
 const fail=():never=>{throw new Error('AUTH_STORE_UNAVAILABLE');};
 function config():{root:string;key:Buffer}{
@@ -121,10 +121,15 @@ export type Active=Readonly<{ownerId:string;epoch:number;generation:number;
   sessionVerifier:string;receiptId:string;attemptId:string}>;
 export async function getActive(alias:string):Promise<Active|null>{
   if(!valid(alias))return null;
-  const c=await dir(),x=await read(file(c.root,'alias',alias));
+  const c=await dir(),path=file(c.root,'alias',alias),x=await read(path);
+  const lifetime=stagingSessionLifetime();
+  const now=Date.now();
   if(!x||x.status!=='ACTIVE'||typeof x.created!=='number'||
-      Date.now()-x.created>500000)return null;
+      now-x.created>(lifetime?.absolute_seconds??500)*1000)return null;
   try{
+    // The file timestamp records activity without rewriting or recreating the alias.
+    const activity=lifetime?(await stat(path)).mtimeMs:0;
+    if(lifetime&&now-activity>=lifetime.idle_seconds*1000)return null;
     const dec=createDecipheriv('aes-256-gcm',c.key,
       Buffer.from(String(x.iv),'base64url'));
     dec.setAuthTag(Buffer.from(String(x.tag),'base64url'));
@@ -132,6 +137,7 @@ export async function getActive(alias:string):Promise<Active|null>{
       .toString('utf8');
     if(!valid(raw)||typeof x.ownerId!=='string'||
       !Number.isSafeInteger(x.epoch)||!Number.isSafeInteger(x.generation))return null;
+    if(lifetime&&now-activity>=30000)await utimes(path,now/1000,now/1000);
     return {ownerId:x.ownerId,epoch:Number(x.epoch),generation:Number(x.generation),
       sessionVerifier:raw,receiptId:String(x.receiptId),attemptId:String(x.attemptId)};
   }catch{return null;}

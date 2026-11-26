@@ -400,7 +400,8 @@ def conversations(request: Request, ctx=Depends(_session)):
     if not query["cursor"]:
         anchor = _initial_anchor(ctx["conn"], ctx["owner"], "conversations", None)
     response = list_conversations(ctx["conn"], ctx["owner"], limit=limit,
-                                  anchor=anchor, last=last)
+                                  anchor=anchor, last=last,
+                                  derive_title=ctx.get("derive_title", False))
     return _page("conversation_page", ctx, response, limit, anchor, "conversations")
 
 

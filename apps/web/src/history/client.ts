@@ -10,7 +10,7 @@ export type ConversationView = { id:string; title:string|null; state:string };
 export type MessageView = { id:string; conversationId:string; role:'user'|'assistant'; text:string; answerId:string|null };
 export type AnswerView = { id:string; conversationId:string; messageId:string; payload:Answer };
 export type HistoryPage<T> = { items:T[]; next:string|null; more:boolean; owner:string };
-export type MessagePage = HistoryPage<MessageView> & { answers:AnswerView[]; conversationId:string };
+export type MessagePage = HistoryPage<MessageView> & { answers:AnswerView[]; liveAnswers:Record<string,StagingLiveResult>; conversationId:string };
 export type CreateOperation = { kind:'create_conversation_request'; contract_version:'product.v1'; client_conversation_id:string; idempotency_key:string; title:string|null };
 export type PendingSend = { request:SendRequest; phase:'sending'|'unknown'|'unconfirmed'|'persisted'|'conflict'|'unauthorized'; messageId:string|null; serverId:string|null };
 export type HistoryStatus = 'not_found'|'persisted'|'attempt_pending'|'attempt_unknown'|'answer_committed'|'failed'|'cancelled';
@@ -162,8 +162,9 @@ export async function conversations(limit=2,cursor:string|null=null):Promise<His
   return {...pagination(o,limit,items.length),items,owner};
 }
 export async function messages(conversationId:string,limit=2,cursor:string|null=null):Promise<MessagePage>{
-  const o=doc(await api('conversations/'+encodeURIComponent(conversationId)+'/messages?'+
-    params({limit,cursor})),'conversation_messages_page');
+  const {staging_live_answers,...page}=object(await api('conversations/'+encodeURIComponent(conversationId)+'/messages?'+
+    params({limit,cursor})));
+  const o=doc(page,'conversation_messages_page');
   const owner=text(o.owner_user_id);
   if(o.conversation_id!==conversationId)invalid();
   const raw=list(o.items);
@@ -191,7 +192,16 @@ export async function messages(conversationId:string,limit=2,cursor:string|null=
   unique(answers.map(x=>x.id));
   // Exact page coverage: no missing, orphaned, duplicate or unrelated Answer.
   if(answers.length!==assistants.length)invalid();
-  return {...pagination(o,limit,items.length),items,answers,conversationId,owner};
+  const visibleQuestions=new Set(items.filter(x=>x.role==='user').map(x=>x.id));
+  const liveAnswers:Record<string,StagingLiveResult>=Object.create(null);
+  if(staging_live_answers!==undefined){
+    for(const [id,value] of Object.entries(object(staging_live_answers))){
+      const result=liveResult(value);
+      if(!visibleQuestions.has(id)||result.state!=='READY')invalid();
+      liveAnswers[id]=result;
+    }
+  }
+  return {...pagination(o,limit,items.length),items,answers,liveAnswers,conversationId,owner};
 }
 export async function createConversation(original:CreateOperation):Promise<string>{
   const o=doc(await api('conversations','POST',original),'create_conversation_receipt');
@@ -235,6 +245,11 @@ export async function recoverLiveResult(original:StatusCorrelation,attemptId:str
   if(o.kind!=='arvan_staging_live_result'||o.contract_version!=='staging.arvan_live_result.v1'||
      o.attempt_id!==attemptId||
      o.attempt_trace_id!==traceId||!Array.isArray(o.claims))return invalid();
+  return liveResult(o);
+}
+function liveResult(value:unknown):StagingLiveResult{
+  const o=object(value);
+  if(!Array.isArray(o.claims))return invalid();
   const {state,outcome,claims}=o;
   if(state==='READY'){
     if(outcome==='NO_ANSWER'&&claims.length===0)return {state,outcome,claims:[]};

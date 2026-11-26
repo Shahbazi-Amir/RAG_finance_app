@@ -1,5 +1,5 @@
 'use client';
-import {useCallback,useEffect,useRef,useState,type FormEvent} from 'react';
+import {useCallback,useEffect,useRef,useState,Fragment,type FormEvent} from 'react';
 import Link from 'next/link';
 import {conversations,messages,newSend,sendMessage,recoverStatus,recoverLiveResult,recoverEngineStatus,recoverRetrievedSources,HistoryFailure,
   failureLabel,mergeUnique,type ConversationView,type MessageView,
@@ -15,7 +15,7 @@ import {readCheckpoints,retainCheckpoint,forgetCheckpoint,forgetCheckpoints,stat
   type AttemptCheckpoint} from './attempt-checkpoints';
 
 type ListData={items:ConversationView[];next:string|null;more:boolean};
-type ThreadData={items:MessageView[];answers:AnswerView[];next:string|null;more:boolean};
+type ThreadData={items:MessageView[];answers:AnswerView[];liveAnswers:Record<string,StagingLiveResult>;next:string|null;more:boolean};
 type Attempt= {record:AttemptCheckpoint;viewId:string;question:string|null;phase:HistoryStatus|'sending'|'transport_unknown'|'invalid_answer'|'status_error';
   attemptId:string|null;messageId:string|null;answer:Answer|null;confirmed:boolean;
   engine:EngineStatus|null;engineUnavailable:boolean;
@@ -89,6 +89,29 @@ function AnswerPanel({answer}:{answer:Answer}){
   </div>;
 }
 
+function LiveAnswer({result}:{result:StagingLiveResult}){
+  return <section className="history-answer live-answer" data-testid="arvan-live-result">
+    {result.outcome==='NO_ANSWER'?<p>شواهد برای پاسخ کافی نبود.</p>:<>
+      <p className="history-message-text">{result.claims.map(claim=>claim.text.trim()).join(' ')}</p>
+      <details>
+        <summary>مشاهده منابع و نقل‌قول‌ها</summary>
+        {result.claims.map((claim,index)=><blockquote key={index}>{claim.quote}</blockquote>)}
+      </details>
+    </>}
+  </section>;
+}
+
+function LiveProgress({attempt}:{attempt:Attempt}){
+  if(attempt.live?.state==='READY')return <LiveAnswer result={attempt.live}/>;
+  if(attempt.live?.state==='REVIEW_REQUIRED')return <p role="status">پاسخ برای بررسی نگه داشته شد.</p>;
+  if(attempt.live?.state==='UNKNOWN'||isTerminal(attempt.phase)||
+      ['attempt_unknown','status_error'].includes(attempt.phase))
+    return <p role="status">پاسخ در دسترس نیست.</p>;
+  return <p className="live-waiting" role="status"><span aria-hidden="true"/>
+    در حال جستجو در منابع مالی و نگارش پاسخ...
+  </p>;
+}
+
 // Storage access is optional. Sending requires checkpoint persistence first.
 function sessionStore():Storage|null{
   try{return window.sessionStorage;}catch{return null;}
@@ -102,6 +125,8 @@ export default function ProductChat(){
   const [attempts,setAttempts]=useState<Record<string,Attempt>>({});
   const [error,setError]=useState('');
   const [mobileOpen,setMobileOpen]=useState(false);
+  const [sidebarCollapsed,setSidebarCollapsed]=useState(false);
+  const messageLog=useRef<HTMLDivElement>(null);
   const mobileMenu=useRef<HTMLElement|null>(null);
   const menuTrigger=useRef<HTMLButtonElement|null>(null);
   const [busy,setBusy]=useState(false);
@@ -216,6 +241,7 @@ export default function ProductChat(){
         return {...all,[id]:{
           items:append&&prev?mergeUnique(prev.items,page.items,x=>x.id):page.items,
           answers:append&&prev?mergeUnique(prev.answers,page.answers,x=>x.id):page.answers,
+          liveAnswers:append&&prev?{...prev.liveAnswers,...page.liveAnswers}:page.liveAnswers,
           next:page.next,more:page.more
         }};
       });
@@ -298,10 +324,15 @@ export default function ProductChat(){
       const confirmedId=status.id;
       if(privacyEpoch.current!==privacyAtStart)return;
       if(confirmedId&&status.status!=='not_found'){
-        const s=sessionStore();if(s)retainCheckpoint(s,{...record,resolved_conversation_id:confirmedId});
+        const s=sessionStore();
+        if(s){
+          if(live?.state==='READY')forgetCheckpoint(s,record.client_message_id);
+          else retainCheckpoint(s,{...record,resolved_conversation_id:confirmedId});
+        }
         setSelected(old=>old.startsWith('draft:')?confirmedId:old);
-        void loadList();
-        void loadThread(confirmedId);
+        if(!old?.confirmed||old.messageId!==status.messageId)void loadList();
+        if(!old?.confirmed||old.messageId!==status.messageId||live?.state==='READY'||
+            (!liveMode&&old.phase!==resultPhase))void loadThread(confirmedId);
       }
     }catch(e){
       if(privacyEpoch.current!==privacyAtStart)return;
@@ -377,7 +408,7 @@ export default function ProductChat(){
     const trigger=menuTrigger.current;
     const close=nav?.querySelector<HTMLButtonElement>('.history-mobile-close');
     close?.focus();
-    const desktop=window.matchMedia('(min-width: 761px)');
+    const desktop=window.matchMedia('(min-width: 768px)');
     const onDesktop=()=>{if(desktop.matches)setMobileOpen(false);};
     desktop.addEventListener('change',onDesktop);
     const onKeys=(event:KeyboardEvent)=>{
@@ -410,9 +441,19 @@ export default function ProductChat(){
     const timer=window.setInterval(()=>{
       if(lost.current||listState!=='ready'||document.visibilityState==='hidden')return;
       for(const attempt of Object.values(attemptsRef.current)){
-        if(!isTerminal(attempt.phase)&&!(liveMode&&attempt.live&&attempt.live.state!=='PENDING'))void probe(attempt.record);
+        if(isTerminal(attempt.phase)||(liveMode&&attempt.live&&attempt.live.state!=='PENDING'))continue;
+        if(liveMode&&Date.now()-attempt.record.created_at>=15*60*1000){
+          setAttempts(all=>{
+            const current=all[attempt.record.client_message_id];
+            if(!current||current.live?.state==='READY')return all;
+            return {...all,[attempt.record.client_message_id]:{...current,
+              live:{state:'UNKNOWN',outcome:null,claims:[]}}};
+          });
+          continue;
+        }
+        void probe(attempt.record);
       }
-    },4500);
+    },liveMode?2000:4500);
     return ()=>window.clearInterval(timer);
   },[probe,listState,liveMode]);
   function newConversation(){
@@ -493,7 +534,15 @@ export default function ProductChat(){
   const selectedAttempts=verifiedPage?Object.values(attempts).filter(a=>a.viewId===selected):[];
   const pendingDrafts=verifiedPage?[...new Set(Object.values(attempts).filter(a=>
     a.viewId.startsWith('draft:')&&!isTerminal(a.phase)).map(a=>a.viewId))]:[];
-  return <main className="history-shell product-shell" dir="rtl">
+  const liveByMessage=new Map(selectedAttempts.filter(a=>a.messageId).map(a=>[a.messageId,a]));
+  const latestActivity=selectedAttempts.map(a=>a.phase+':'+(a.live?.state??'')).join(',');
+  const messageCount=messagesFor?.items.length??0;
+  const liveAnswerCount=Object.keys(messagesFor?.liveAnswers??{}).length;
+  useEffect(()=>{
+    const log=messageLog.current;
+    if(log)log.scrollTop=log.scrollHeight;
+  },[selected,messageCount,liveAnswerCount,latestActivity]);
+  return <main className={'history-shell product-shell'+(sidebarCollapsed?' sidebar-collapsed':'')} dir="rtl">
     <a href="#product-main" className="history-skip" inert={mobileOpen}>
       رفتن به محتوای اصلی گفت‌وگو
     </a>
@@ -511,6 +560,7 @@ export default function ProductChat(){
         </button>
         <span className="history-note">گفت‌وگو با ثبت اولین پرسش در سرور ایجاد می‌شود.</span>
       </div>
+      <div className="history-sidebar-scroll">
       <p className="nav-section-title">گفت‌وگوهای حساب شما</p>
       {pendingDrafts.length>0&&<div className="history-list" aria-label="پرسش‌های در انتظار دریافت شناسهٔ گفتگو">
         {pendingDrafts.map(draft=><button type="button" key={draft}
@@ -531,14 +581,12 @@ export default function ProductChat(){
           data-testid={'conversation-'+c.id}
           aria-current={selected===c.id?'page':undefined}
           onClick={()=>{setSelected(c.id);setMobileOpen(false);}}>
-          <span className="nav-thread-text">{c.title??'گفت‌وگوی بدون عنوان'}</span>
-          <span className="history-thread-detail">{c.id.slice(-8)}</span>
+          <span className="nav-thread-text">{c.title??'گفت‌وگو'}</span>
         </button>)}
       </nav>
       {list.more&&<button type="button" className="secondary"
         onClick={()=>void loadList(true,list.next)}>نمایش گفت‌وگوهای بیشتر</button>}
-      <button type="button" className="secondary" data-testid="refresh-history"
-        onClick={()=>void loadList()} disabled={listState==='unauthorized'}>بازخوانی</button>
+      </div>
       <div className="history-sidebar-bottom">
         <Link href="/login" className="history-link">حساب کاربری و خروج امن</Link>
       </div>
@@ -551,15 +599,20 @@ export default function ProductChat(){
           ref={menuTrigger} aria-label="بازکردن فهرست گفت‌وگوها" aria-controls="product-chat-sidebar"
           aria-expanded={mobileOpen} onClick={()=>setMobileOpen(true)}>☰</button>
         <span className="mobile-brand">راگ مالی</span>
-        <Link href="/login" className="history-link">حساب و خروج</Link>
+        <Link href="/login" className="history-link">حساب کاربری و خروج امن</Link>
       </header>
       <header className="history-heading">
+        <button className="history-desktop-toggle" type="button" aria-controls="product-chat-sidebar"
+          aria-expanded={!sidebarCollapsed} aria-label={sidebarCollapsed?'بازکردن فهرست گفت‌وگوها':'بستن فهرست گفت‌وگوها'}
+          onClick={()=>setSidebarCollapsed(value=>!value)}>{sidebarCollapsed?'←':'→'}</button>
         <h1 id="product-main" tabIndex={-1}>گفت‌وگوی مالی</h1>
-        <p>پرسش فارسی، تاریخچهٔ خصوصی و وضعیت واقعی هر Attempt؛ بدون پاسخ نمونه.</p>
-        <p className="history-note" data-testid="educational-boundary">
+        {sidebarCollapsed&&<Link href="/login" className="history-link history-collapsed-account">
+          حساب کاربری و خروج امن
+        </Link>}
+        {!liveMode&&<p className="history-note" data-testid="educational-boundary">
           شواهد بازیابی فنی به‌تنهایی پاسخ یا توصیهٔ مالی تأییدشده نیستند.
-          {!liveMode&&'در این نسخه تولید پاسخ و پیوند استناد از مشاهدات بازیابی فعال نیست.'}
-        </p>
+          در این نسخه تولید پاسخ و پیوند استناد از مشاهدات بازیابی فعال نیست.
+        </p>}
         <p id="product-runtime-capability" role="status" className="history-note" data-testid="app-runtime-capability">
           {capabilityState==='loading'
             ?'در حال بررسی قابلیت اجرای پرسش از سرور…'
@@ -570,7 +623,6 @@ export default function ProductChat(){
             :liveMode?'ارسال و تولید پاسخ آزمایشی در محیط مرحله‌بندی فعال است.'
             :'فقط ثبت و بازیابی فنی NO_DISPATCH_ONLY مجاز است؛ تولید پاسخ و موتور زنده فعال نیست.'}
         </p>
-        <Link className="history-link" href="/account">حساب، حریم خصوصی و وضعیت قابلیت‌ها</Link>
       </header>
       {listState==='unauthorized'&&<p role="alert" data-testid="history-login-required">
         برای مشاهدهٔ گفت‌وگوها باید <Link href="/login">وارد حساب شوید</Link>.
@@ -581,41 +633,35 @@ export default function ProductChat(){
         اتصال برای تأیید مالک و نشست برقرار نیست؛ پیام‌های قبلی موقتاً پنهان
         و ارسال پرسش تا بازخوانی موفق غیرفعال است.
       </p>}
-      <div className="history-messages" role="log" aria-label="پیام‌های گفت‌وگوی انتخاب‌شده" aria-live="polite">
+      <div ref={messageLog} className="history-messages" role="log" aria-label="پیام‌های گفت‌وگوی انتخاب‌شده" aria-live="polite">
         {!messagesFor&&!selectedAttempts.length&&listState!=='unauthorized'&&
           <p className="history-empty">{canSend
             ?'پرسشتان را بنویسید یا گفت‌وگویی از فهرست باز کنید.'
             :'برای مشاهدهٔ پیام‌ها گفت‌وگویی از فهرست باز کنید؛ ارسال پرسش غیرفعال است.'}</p>}
-        {(messagesFor?.items??[]).map(m=><article key={m.id}
-          data-testid={'history-message-'+m.id}
-          className={m.role==='user'?'history-user':'history-answer'}>
-          {m.role==='user'
-            ?<p className="history-message-text">{m.text}</p>
-            :answers.has(m.id)
-            ?<AnswerPanel answer={answers.get(m.id)!}/>
-            :<p role="status" className="history-note">
-              پاسخ فاقد شاهد معتبر است؛ محتوای آن نمایش داده نمی‌شود.
-            </p>}
-        </article>)}
-        {selectedAttempts.map(a=><article key={a.record.client_message_id}
+        {(messagesFor?.items??[]).map(m=>{
+          const liveAnswer=messagesFor?.liveAnswers[m.id];
+          const attempt=liveByMessage.get(m.id);
+          return <Fragment key={m.id}>
+            <article data-testid={'history-message-'+m.id}
+              className={m.role==='user'?'history-user':'history-answer'}>
+              {m.role==='user'?<p className="history-message-text">{m.text}</p>:
+                answers.has(m.id)?<AnswerPanel answer={answers.get(m.id)!}/>:
+                <p role="status" className="history-note">پاسخ فاقد شاهد معتبر است؛ محتوای آن نمایش داده نمی‌شود.</p>}
+            </article>
+            {liveAnswer?<LiveAnswer result={liveAnswer}/>:liveMode&&attempt&&<LiveProgress attempt={attempt}/>}
+          </Fragment>;
+        })}
+        {liveMode&&selectedAttempts.filter(a=>!a.messageId||!renderedIds.has(a.messageId)).map(a=>
+          <Fragment key={a.record.client_message_id}>
+            {a.question&&<article className="history-user"><p className="history-message-text">{a.question}</p></article>}
+            {a.question&&<LiveProgress attempt={a}/>}
+          </Fragment>)}
+        {!liveMode&&selectedAttempts.map(a=><article key={a.record.client_message_id}
           className="history-answer product-attempt"
           data-testid={'attempt-'+a.record.client_message_id}>
           {a.question&&(!a.messageId||!renderedIds.has(a.messageId))&&
             <p className="history-message-text">{a.question}</p>}
-          <p role="status" className="history-note">
-            {liveMode&&a.live?.state==='UNKNOWN'?'نتیجه در دسترس نیست؛ ارسال دوباره انجام نمی‌شود.'
-              :liveMode&&a.live?.state==='REVIEW_REQUIRED'?'پاسخ برای بررسی نگه داشته شد.'
-              :liveMode&&a.live?.state==='READY'?'نتیجهٔ آزمایشی آماده است.':phaseLabel(a)}
-          </p>
-          {liveMode&&a.live?.state==='READY'&&<section data-testid="arvan-live-result">
-            <p className="history-note">نتیجهٔ آزمایشی؛ اعتبار معنایی و محل استناد در انتظار بررسی است.</p>
-            {a.live.outcome==='NO_ANSWER'?<p>شواهد برای پاسخ کافی نبود.</p>:
-              <ol>{a.live.claims.map((claim,index)=><li key={index}>
-                <p>{claim.text}</p><blockquote>{claim.quote}</blockquote>
-                <code>{claim.chunk_id}</code>
-              </li>)}</ol>}
-          </section>}
-          {a.attemptId&&<p className="history-note">شناسهٔ Attempt: <code>{a.attemptId}</code></p>}
+          <p role="status" className="history-note">{phaseLabel(a)}</p>
           {a.engine&&<section className="history-note"
             data-testid={'engine-status-'+a.record.client_message_id}
             aria-label="وضعیت فنی همین درخواست">
@@ -635,10 +681,6 @@ export default function ProductChat(){
           {a.phase==='invalid_answer'&&<p className="history-note">
             محتوای دریافت‌شده از منبع آزمایشی قابل ارائه نیست.
           </p>}
-          {!isTerminal(a.phase)&&<button type="button" className="secondary"
-            data-testid="recover-status" onClick={()=>void probe(a.record)}>
-            بررسی وضعیت همین Attempt
-          </button>}
         </article>)}
         {messagesFor?.more&&<button type="button" className="secondary"
           data-testid="more-messages"
@@ -652,15 +694,18 @@ export default function ProductChat(){
           <textarea id="product-question" rows={2} data-testid="history-question"
             aria-describedby="product-runtime-capability"
             value={drafts[selected]??''} disabled={busy||!verifiedPage||!canSend}
+            onKeyDown={e=>{
+              if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing&&e.keyCode!==229){
+                e.preventDefault();
+                e.currentTarget.form?.requestSubmit();
+              }
+            }}
             onChange={e=>setDrafts(all=>({...all,[selected]:e.target.value}))}
             placeholder="سؤال خود را به فارسی بنویسید…"/>
           <button type="submit" className="primary" data-testid="history-send"
             aria-describedby="product-runtime-capability"
             disabled={busy||!verifiedPage||!canSend||!(drafts[selected]??'').trim()}>ارسال پرسش</button>
         </div>
-        <p className="under-composer">
-          با Refresh یا قطع ارتباط، درخواست تکرار نمی‌شود؛ فقط وضعیت آن از سرور خوانده می‌شود.
-        </p>
       </form>}
     </section>
   </main>;

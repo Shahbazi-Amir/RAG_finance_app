@@ -1,10 +1,12 @@
-"""Single-process, bounded staging dispatch with volatile owner-bound results."""
+"""Single-process, bounded staging dispatch with durable owner-scoped answers."""
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 import hashlib
 import json
 import os
 from pathlib import Path
 import socket
+import sqlite3
 import stat
 import sys
 from tempfile import TemporaryDirectory
@@ -20,10 +22,58 @@ MAX_RESULTS = 128
 TTL_SECONDS = 900
 
 
+class LiveAnswerStore:
+    """Durable results keyed by the authenticated owner and original question."""
+
+    def __init__(self, folder):
+        info = folder.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
+                or info.st_mode & 0o077):
+            raise DispatchClaimDenied()
+        self.path = folder / "answers.sqlite3"
+        fd = os.open(self.path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+        try:
+            info = os.fstat(fd)
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                    or info.st_mode & 0o777 != 0o600):
+                raise DispatchClaimDenied()
+        finally:
+            os.close(fd)
+        with closing(sqlite3.connect(self.path)) as conn:
+            conn.execute("""CREATE TABLE IF NOT EXISTS answers (
+                owner TEXT NOT NULL, conversation TEXT NOT NULL, message TEXT NOT NULL,
+                attempt TEXT NOT NULL, result TEXT NOT NULL, metadata TEXT NOT NULL,
+                PRIMARY KEY (owner, conversation, message)
+            )""")
+            conn.commit()
+
+    def save(self, binding, message, result, producer):
+        metadata = {key: producer[key] for key in
+                    ("model", "usage", "semantic_support", "locator_openability")
+                    if key in producer}
+        with closing(sqlite3.connect(self.path)) as conn, conn:
+            conn.execute("INSERT INTO answers VALUES (?, ?, ?, ?, ?, ?)",
+                         (binding.owner_user_id, binding.resolved_conversation_id,
+                          message, binding.attempt_id, json.dumps(result),
+                          json.dumps(metadata)))
+
+    def read(self, owner, conversation, messages):
+        if not messages:
+            return {}
+        placeholders = ", ".join("?" for _ in messages)
+        with closing(sqlite3.connect(self.path)) as conn:
+            rows = conn.execute(
+                "SELECT message, attempt, result FROM answers "
+                f"WHERE owner = ? AND conversation = ? AND message IN ({placeholders})",
+                (owner, conversation, *messages)).fetchall()
+        return {message: (attempt, json.loads(result)) for message, attempt, result in rows}
+
+
 class ArvanLiveDispatch:
-    def __init__(self, worker_socket, generate):
+    def __init__(self, worker_socket, generate, store=None):
         self.worker_socket = worker_socket
         self.generate = generate
+        self.store = store
         self.slots = BoundedSemaphore(4)
         self.retrieval = ThreadPoolExecutor(max_workers=1)
         self.generation = ThreadPoolExecutor(max_workers=2)
@@ -73,7 +123,10 @@ class ArvanLiveDispatch:
                     root, Path(outputs), source, attempt_id,
                     diagnostic_root=diagnostic_root, gateway_settings=gateway_settings)
 
-        service = cls(worker_socket, generate)
+        state = Path(environ.get("STATE_DIRECTORY", ""))
+        if not state.is_absolute():
+            raise DispatchClaimDenied()
+        service = cls(worker_socket, generate, LiveAnswerStore(state))
         if service._exchange({"probe": True}, 5) != {"ready": True}:
             raise DispatchClaimDenied()
         return service
@@ -89,7 +142,7 @@ class ArvanLiveDispatch:
             raise DispatchClaimDenied()
         return json.loads(response)
 
-    def enqueue(self, permit, binding, question):
+    def enqueue(self, permit, binding, question, message_id=None):
         if (not isinstance(permit, CommittedDispatchPermit)
                 or binding.attempt_id != permit.binding.engine_request_id
                 or binding.attempt_request_id != permit.binding.product_request_id
@@ -102,25 +155,29 @@ class ArvanLiveDispatch:
                 raise DispatchClaimDenied()
             self.results[key] = (None, self._result("PENDING"))
         try:
-            self.retrieval.submit(self._retrieve, key, binding.attempt_id, question)
+            self.retrieval.submit(self._retrieve, key, binding, message_id, question)
         except RuntimeError:
             # Queue ownership stays with the sender until submit succeeds.
             self._finish(key, self._result("UNKNOWN"), release=False)
             raise DispatchClaimDenied() from None
 
-    def _retrieve(self, key, attempt_id, question):
+    def _retrieve(self, key, binding, message_id, question):
+        attempt_id = binding.attempt_id
         try:
             reply = self._exchange({"attempt_id": attempt_id, "question": question}, 120)
             if (reply["attempt_id"] != attempt_id
                     or reply["source"]["question"] != question.strip()):
                 raise DispatchClaimDenied()
-            self.generation.submit(self._generate, key, attempt_id, reply["source"])
+            self.generation.submit(self._generate, key, binding, message_id, reply["source"])
         except Exception:
             self._finish(key, self._result("UNKNOWN"))
 
-    def _generate(self, key, attempt_id, source):
+    def _generate(self, key, binding, message_id, source):
         try:
-            result = public_result(self.generate(source, attempt_id))
+            producer = self.generate(source, binding.attempt_id)
+            result = public_result(producer)
+            if self.store and result["state"] == "READY":
+                self.store.save(binding, message_id, result, producer)
         except Exception:
             result = self._result("UNKNOWN")
         self._finish(key, result)
@@ -159,7 +216,18 @@ class ArvanLiveDispatch:
         if release:
             self.slots.release()
 
-    def read(self, binding):
+    def history(self, owner, conversation, messages):
+        if not self.store:
+            return {}
+        return {message: result for message, (_, result) in
+                self.store.read(owner, conversation, messages).items()}
+
+    def read(self, binding, message_id=None):
+        if self.store and message_id:
+            saved = self.store.read(binding.owner_user_id, binding.resolved_conversation_id,
+                                    (message_id,)).get(message_id)
+            if saved and saved[0] == binding.attempt_id:
+                return saved[1]
         with self.lock:
             deadline, result = self.results.get(binding.digest(), (0, None))
             if deadline is None or deadline > monotonic():

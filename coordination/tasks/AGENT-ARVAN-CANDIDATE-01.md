@@ -103,3 +103,72 @@ authorization, Gateway data/budget scope and two-account verification. No
 Arvan mutation, benchmark, migration, provider request, or E2E staging test was
 run. No Module 00/01, full security, durable live Product history, or 100-user
 Gate is accepted.
+
+## ARVAN-CANDIDATE-01.2 · Durable staging turns and responsive chat
+
+**Status** review · **Implemented** source and test changes below · **Tested**
+as scoped below · **Accepted** pending supervisor acceptance and live evidence.
+
+**Baseline.** Observed `RAG_finance_app` on `deploy/arvan-100users-candidate`
+at `b9880d60b6c379a2241a8772d6be208940885cb0`. The existing Arvan engine pin
+and 011 dispatch contract from checkpoint 01.1 are reused. Browser symptoms
+were reported by the user. Runtime policy and deployment checks are separate
+from fixture evidence.
+
+**Roadmap.** Module 05 activities 4 and 8 (`P3M05-A04/A08`, session cookie
+and expiry), Module 06 activity 3 (`P3M06-A03`, signed owner scope), Module 10
+activities 5 and 8–10 (`P3M10-A05/A08/A09/A10`, answer evidence, storage
+and retry), Module 14 activities 1–3, 5, 9–12
+(`P3M14-A01/A02/A03/A05/A09/A10/A11/A12`, authenticated RTL chat),
+and Module 18 activity 9 (`P3M18-A09`, staging release).
+See [modular roadmap](../../references/phase2/roadmaps/RAG_finance_phase3_modular_execution_plan.md).
+`P3OP06-R09` is the deployment overlay.
+
+**Implemented paths.**
+
+- `apps/api/history_api.py`, `apps/api/product_session_api.py`,
+  `src/phase3/storage/postgres/repository.py`,
+  `src/phase3/rag_runtime/arvan_live_dispatch.py`, and
+  `infra/arvan-staging/systemd/rag-arvan-api.service`.
+  Store newly completed producer-checked answers under the API's private
+  persistent state directory, keyed by owner, conversation and original
+  message, with attempt and producer metadata. Attach only results for user
+  messages on the already owner-fenced History page. Derive missing titles
+  from the first user question on the same signed owner scope.
+- `apps/api/private_staging_bootstrap_asgi.py`,
+  `src/phase3/auth/bootstrap_oidc.py`,
+  `apps/web/app/api/auth/callback/route.ts`,
+  `apps/web/src/auth/server/initial-store.ts`, and
+  `apps/web/src/auth/server/private-staging.ts`.
+  Opt-in longer staging policy keeps the signed Product session database
+  ceiling and browser cookie aligned. Web enforces rolling inactivity at the
+  private alias and leaves the existing SQL admission, mTLS and RS256 checks
+  in place. Defaults are unchanged for the isolated fixture.
+- `apps/web/src/history/client.ts`, `apps/web/src/ui/product-chat.tsx` and
+  `apps/web/app/history/history.css`. Pair each answer with its question,
+  poll with GET only, render collapsed exact quotes, and keep the composer and
+  account controls in the viewport. Hide raw runtime IDs in chat text.
+- `tests/phase3/api/test_arvan_live_dispatch.py` and
+  `tests/phase3/ui/history-client.test.mjs`. Cover reopening the durable store,
+  cross-owner and conversation isolation, attempt matching, and validating
+  that a durable reply attaches only to a visible user message.
+
+**Checks.** Mac `TMPDIR=/tmp npm --prefix apps/web test`: 139 passed.
+`cd apps/web && npm run typecheck && npm run build`: passed (existing
+Turbopack tracing warnings). Mac
+`python -m pytest -q tests/phase3/api --ignore=tests/phase3/api/test_staging_private_asgi.py`:
+216 passed, 10 skipped, with the test dependency path provisioned in /tmp.
+The macOS OpenSSL executable rejected the TLS fixture's `-addext`. Rechecked
+under Arvan's pinned Uvicorn/Python in an isolated /var/tmp source tree using
+`python -m pytest -q` on `test_staging_private_asgi.py`,
+`test_arvan_live_dispatch.py`, `test_staging_bootstrap_asgi.py`,
+`test_staging_mtls_h11_network.py`, `test_staging_bootstrap_network.py`,
+and `test_app_only_mtls_network.py`: 36 passed, 1 skipped (fixture engine
+artifact omitted). Initial Linux test transfer omitted Pygments. Adding the
+test-only dependency resolved collection. These runs make no live model calls.
+
+**Open evidence.** Existing results evicted by the pre-update volatile cache
+cannot be backfilled. Live two-turn/refresh/re-login verification requires
+two approved paid requests. Loading the new Bootstrap lifetime on the host
+requires permission to restart the Bootstrap unit in addition to API and Web.
+No Module 00/01 or broader roadmap Gate is asserted.

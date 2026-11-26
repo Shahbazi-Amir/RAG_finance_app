@@ -281,7 +281,7 @@ def read_status(conn,owner,query,request_id,trace_id, *, session_transaction=Fal
             answer_id=result["id"] if result else None,
             answer=result["payload"] if result else None)
 
-def list_conversations(conn,owner,limit=20,anchor=None,last=None):
+def list_conversations(conn,owner,limit=20,anchor=None,last=None, *, derive_title=False):
     if not 1<=limit<=100:
         raise ValueError("limit")
     with conn.transaction():
@@ -299,7 +299,18 @@ def list_conversations(conn,owner,limit=20,anchor=None,last=None):
         params.append(limit+1)
         rows=conn.execute(q,params).fetchall()
         items=rows[:limit]
-        return {"items":[_conv(r) for r in items],"has_more":len(rows)>limit,
+        documents=[_conv(row) for row in items]
+        untitled=[item["conversation_id"] for item in documents if not item["title"]]
+        if derive_title and untitled:
+            titles=conn.execute("""SELECT DISTINCT ON (conversation_id) conversation_id, body
+                FROM history_l1.messages WHERE owner_id=%s AND conversation_id=ANY(%s)
+                AND role='user' ORDER BY conversation_id, created_at, id""",
+                (owner, untitled)).fetchall()
+            first_question={row["conversation_id"]: " ".join(row["body"].split()) for row in titles}
+            for item in documents:
+                if not item["title"] and (title := first_question.get(item["conversation_id"])):
+                    item["title"] = title if len(title) <= 42 else title[:41].rstrip() + "…"
+        return {"items":documents,"has_more":len(rows)>limit,
                 "last":(items[-1]["created_at"],items[-1]["id"]) if items else None}
 
 def list_messages(conn,owner,conversation_id,limit=20,anchor=None,last=None, *, session_transaction=False):

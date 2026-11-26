@@ -244,7 +244,9 @@ def _signed_read(request, path, action, *, coherent_read=False):
 @app.get("/v1/conversations")
 def session_conversations(request: Request):
     return _signed_read(request, _HISTORY_PATH,
-                        lambda ctx: history.conversations(request, ctx), coherent_read=True)
+                        lambda ctx: history.conversations(
+                            request, {**ctx, "derive_title": _arvan_service() is not None}),
+                        coherent_read=True)
 
 
 @app.get("/v1/conversations/{conversation_id}/messages")
@@ -252,9 +254,17 @@ def session_messages(conversation_id: str, request: Request):
     if not _CONVERSATION_ID.fullmatch(conversation_id):
         return _history_error(history.NotFound())
     path = _HISTORY_PATH + b"/" + conversation_id.encode("ascii") + b"/messages"
-    return _signed_read(request, path,
-                        lambda ctx: history.messages(conversation_id, request, ctx),
-                        coherent_read=True)
+    def read(ctx):
+        response = history.messages(conversation_id, request, ctx)
+        service = _arvan_service()
+        if service is None:
+            return response
+        document = json.loads(response.body)
+        questions = [item["message_id"] for item in document["items"] if item["role"] == "user"]
+        document["staging_live_answers"] = service.history(ctx["owner"], conversation_id, questions)
+        return JSONResponse(document)
+
+    return _signed_read(request, path, read, coherent_read=True)
 
 
 @app.get("/v1/message-requests/status")
@@ -786,10 +796,11 @@ def _run_arvan_send(request, raw_body, payload):
     admitted = False
     queued = False
     binding = None
+    message_id = None
 
     def committed_operation():
         def reserve(ctx):
-            nonlocal admitted, binding
+            nonlocal admitted, binding, message_id
             admitted = service.slots.acquire(blocking=False)
             if not admitted:
                 raise history.ApiFailure(503, "ENGINE_BUSY", "technical")
@@ -798,6 +809,7 @@ def _run_arvan_send(request, raw_body, payload):
                 conn, owner, payload, ctx["request_id"], ctx["trace_id"])
             if receipt["disposition"] == "replayed":
                 return receipt, None
+            message_id = receipt["message_id"]
             attempt = start_t2(
                 conn, owner, payload["requested_conversation_id"],
                 payload["client_message_id"], payload["idempotency_key"],
@@ -814,7 +826,7 @@ def _run_arvan_send(request, raw_body, payload):
 
     def enqueue(permit, question):
         nonlocal queued
-        service.enqueue(permit, binding, question)
+        service.enqueue(permit, binding, question, message_id)
         queued = True
 
     try:
@@ -840,7 +852,7 @@ def session_arvan_live_result(request: Request):
             raise TrustRejected()
         if doc["attempt_id"] is None or doc["status"] != "attempt_pending":
             raise history.NotFound()
-        result = service.read(_invited_binding_from_status(ctx, doc))
+        result = service.read(_invited_binding_from_status(ctx, doc), doc["message_id"])
         return JSONResponse({
             "kind": "arvan_staging_live_result",
             "contract_version": "staging.arvan_live_result.v1",

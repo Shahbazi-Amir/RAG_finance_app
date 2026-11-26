@@ -35,7 +35,7 @@
 .history-compose .composer textarea{font-size:16px;line-height:1.9;max-height:140px;min-height:56px}
 .history-compose .under-composer{text-align:center}
 /* Mobile History reuses the Mock overlay/dialog keyboard pattern. */
-@media(max-width:760px){
+@media(max-width:767px){
   .history-shell{flex-direction:column}
   .history-sidebar{display:none}
   .history-sidebar.is-mobile-open{
@@ -86,7 +86,7 @@
 .product-citation a{color:#175b42;text-decoration:underline}
 .product-attempt{border:1px solid #e2d6bd;background:#fffcf6}
 .product-shell .history-mobile-topbar .history-link{font-size:12px}
-@media(max-width:760px){
+@media(max-width:767px){
  .product-shell .history-sidebar.is-mobile-open{z-index:49}
  .product-shell .history-mobile-scrim{z-index:48}
 }
@@ -139,3 +139,43 @@
 .history-list .nav-thread-text,.history-message-text,.product-claim p{
   unicode-bidi:plaintext;overflow-wrap:anywhere;
 }
+
+.product-shell{height:100dvh;min-height:0;overflow:hidden}
+.product-shell .history-main{height:100%;min-height:0;flex:1;padding-block:12px 0}
+.product-shell .history-sidebar{height:100%;min-height:0;overflow:hidden}
+.history-sidebar-scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
+.history-sidebar-scroll .history-list{overflow:visible}
+.product-shell .history-sidebar-bottom{flex:none;margin-top:0;padding-top:12px}
+.product-shell .history-messages{min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.product-shell .history-compose{position:static;flex:none;padding-bottom:max(12px,env(safe-area-inset-bottom))}
+.product-shell .history-heading{flex:none;padding:0 0 8px}
+.product-shell .history-heading h1{display:inline-block;font-size:20px;margin:0}
+.history-desktop-toggle{margin-inline-end:8px;min-width:34px;min-height:34px;
+  border:1px solid #b8cdbb;border-radius:8px;background:white;color:#245e3e}
+.history-collapsed-account{float:inline-end}
+.live-answer details{margin-top:12px;color:#285b43}
+.live-answer summary{cursor:pointer;font-size:14px}
+.live-answer blockquote{margin:8px 0;padding-inline-start:12px;border-inline-start:3px solid #bfd5c3;
+  white-space:pre-wrap;overflow-wrap:anywhere;color:#24332b}
+.live-waiting{display:flex;align-items:center;gap:8px;color:#43584b;font-size:14px}
+.live-waiting span{width:14px;height:14px;border:2px solid #d6e6db;border-top-color:#286446;
+  border-radius:50%;animation:history-spin .9s linear infinite}
+@keyframes history-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.live-waiting span{animation:none}}
+@media(min-width:768px){.product-shell.sidebar-collapsed .history-sidebar{display:none}}
+@media(max-width:767px){
+  .product-shell .history-main{width:100%;padding-block:0}
+  .product-shell .history-mobile-topbar{display:flex;align-items:center;gap:10px;min-height:44px}
+  .product-shell .history-mobile-topbar .history-link{margin-inline-start:auto}
+  .product-shell .history-sidebar:not(.is-mobile-open){display:none}
+  .product-shell .history-sidebar.is-mobile-open{display:flex;position:fixed;inset:0 0 0 auto;z-index:49;
+    width:min(86vw,304px);height:100dvh;box-shadow:-10px 0 30px #0003}
+  @media(prefers-reduced-motion:no-preference){
+    .product-shell .history-sidebar.is-mobile-open{animation:history-slide-in .18s ease-out}
+  }
+  .product-shell .history-mobile-close{display:block}
+  .product-shell .history-mobile-scrim{display:block;position:fixed;inset:0;z-index:48;
+    border:0;border-radius:0;background:#081d1194}
+  .history-desktop-toggle,.history-collapsed-account{display:none}
+}
+@keyframes history-slide-in{from{transform:translateX(100%)}}

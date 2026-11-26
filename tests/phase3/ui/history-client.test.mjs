@@ -60,6 +60,21 @@ function answeredPage(){
  assert.ok(conformsToProductV1(v,'conversation_messages_page'));
  return v;
 }
+test('durable staging answers may only attach to visible user questions',async()=>{
+ const page=answeredPage();
+ const question=page.items.find(item=>item.role==='user');
+ const assistant=page.items.find(item=>item.role==='assistant');
+ const answer={state:'READY',outcome:'ANSWER',claims:[{text:'پاسخ',quote:'نقل‌قول',chunk_id:'internal'}]};
+ await withFetch(async()=>reply({...page,staging_live_answers:{[question.message_id]:answer}}),async()=>{
+  const result=await messages(page.conversation_id,2);
+  assert.deepEqual(result.liveAnswers[question.message_id],answer);
+ });
+ for(const id of [assistant.message_id,'missing']){
+  await reject(()=>messages(page.conversation_id,2),{...page,staging_live_answers:{[id]:answer}});
+ }
+ await reject(()=>messages(page.conversation_id,2),{...page,staging_live_answers:{
+  [question.message_id]:{state:'PENDING',outcome:null,claims:[]}}});
+});
 test('wire IDs original null, contract version and replay scope',()=>{
  const first=newSend('پرسش اول',null),second=newSend('پرسش دوم','conv_1');
  assert.ok(conformsToProductV1(first,'send_message_request'));

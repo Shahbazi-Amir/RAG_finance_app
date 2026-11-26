@@ -96,6 +96,7 @@ class StagingBootstrapConfig:
     client_id: str
     redirect_uri: str
     dsns: dict
+    session_absolute_seconds: int | None = None
 
     def __repr__(self):
         return "StagingBootstrapConfig(<redacted>)"
@@ -108,7 +109,7 @@ def load_staging_bootstrap_config(path: Path) -> StagingBootstrapConfig:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, UnicodeError):
         raise StagingConfigDenied() from None
-    if (not isinstance(data, dict) or set(data) != CONFIG_FIELDS
+    if (not isinstance(data, dict) or set(data) not in (CONFIG_FIELDS, CONFIG_FIELDS | {"session_absolute_seconds"})
             or data.get("contract_version") != CONFIG_VERSION
             or data.get("listen_host") != "127.0.0.1"
             or type(data.get("listen_port")) is not int
@@ -120,6 +121,9 @@ def load_staging_bootstrap_config(path: Path) -> StagingBootstrapConfig:
             or not KID.fullmatch(data["bff_kid"])
             or not isinstance(data.get("seal_key_kid"), str)
             or not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", data["seal_key_kid"])):
+        raise StagingConfigDenied()
+    lifetime = data.get("session_absolute_seconds")
+    if "session_absolute_seconds" in data and (type(lifetime) is not int or not 3600 <= lifetime <= 28800):
         raise StagingConfigDenied()
     paths = {}
     for key in ("server_tls_cert_file", "server_tls_key_file",
@@ -160,7 +164,7 @@ def load_staging_bootstrap_config(path: Path) -> StagingBootstrapConfig:
             "jwks_uri": data["oidc_jwks_uri"],
         },
         client_id=data["oidc_client_id"],
-        redirect_uri=data["oidc_redirect_uri"], dsns=dsns,
+        redirect_uri=data["oidc_redirect_uri"], dsns=dsns, session_absolute_seconds=lifetime,
     )
 
 
@@ -247,6 +251,7 @@ def build_bootstrap_service(cfg: StagingBootstrapConfig, *, check_db=True):
         db_dsn=cfg.dsns, oidc=cfg.oidc, client_id=cfg.client_id,
         redirect_uri=cfg.redirect_uri,
         runtime_profile="private_staging", idp_ca_file=str(cfg.idp_ca),
+        session_absolute_seconds=cfg.session_absolute_seconds,
     )
     if check_db:
         verify_bootstrap_roles(cfg.dsns)

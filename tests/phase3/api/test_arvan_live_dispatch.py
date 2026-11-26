@@ -4,12 +4,13 @@ import hashlib
 import inspect
 from pathlib import Path
 import sys
+from tempfile import TemporaryDirectory
 from threading import Event
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-from src.phase3.rag_runtime.arvan_live_dispatch import ArvanLiveDispatch, public_result
+from src.phase3.rag_runtime.arvan_live_dispatch import ArvanLiveDispatch, LiveAnswerStore, public_result
 from src.phase3.rag_runtime.dispatch_claim_bridge import CommittedDispatchPermit
 from src.phase3.rag_runtime.staging_invited_result_fixture import InvitedBinding
 from src.phase3.rag_runtime.staging_preflight import AttemptBinding
@@ -111,6 +112,29 @@ class ArvanQueueTests(unittest.TestCase):
             "claims": [{"text": "پاسخ", "quote": "نقل‌قول", "chunk_id": "c1"}]})
         self.assertEqual(service.read(second)["outcome"], "NO_ANSWER")
         service.close()
+
+    def test_completed_answer_reopens_by_owner_and_original_message(self):
+        binding = InvitedBinding("owner", "3" * 64, 0, 1, None, "conversation",
+                                 "client", "key12345", "a" * 32, "b" * 32, "c" * 32)
+        result = {"state": "READY", "outcome": "ANSWER", "claims": [
+            {"text": "پاسخ", "quote": "نقل‌قول", "chunk_id": "internal"}]}
+        with TemporaryDirectory() as folder:
+            store = LiveAnswerStore(Path(folder))
+            store.save(binding, "message", result, {"model": "pinned"})
+            self.assertEqual(store.path.stat().st_mode & 0o777, 0o600)
+            service = ArvanLiveDispatch(Path("/unused"), None, LiveAnswerStore(Path(folder)))
+            try:
+                later = replace(binding, session_ref_sha256="f" * 64, session_generation=2)
+                self.assertEqual(service.read(later, "message"), result)
+                self.assertEqual(service.history("owner", "conversation", ["message"]),
+                                 {"message": result})
+                self.assertEqual(service.history("other", "conversation", ["message"]), {})
+                self.assertEqual(service.history("owner", "another", ["message"]), {})
+                self.assertEqual(service.history("owner", "conversation", ["unknown"]), {})
+                self.assertEqual(service.read(replace(later, attempt_id="e" * 32),
+                                              "message")["state"], "UNKNOWN")
+            finally:
+                service.close()
 
     def test_review_output_exposes_no_raw_provider_data(self):
         self.assertEqual(public_result({

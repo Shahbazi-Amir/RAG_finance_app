@@ -1,3 +1,4 @@
+import {stagingSessionLifetime} from '../../../../src/auth/server/private-staging.ts';
 import {bootstrap} from '../../../../src/auth/initial/index.ts';
 import {findInitForState,claimInit,digest,equals,fresh,writePending,
   activate,revokeAlias} from '../../../../src/auth/initial/index.ts';
@@ -72,7 +73,7 @@ export async function GET(request:Request):Promise<Response>{
       return new Response('Login unavailable',{status:503,headers:noStore});
     }
     const response=redirectLocal('/');
-    appendCookie(response,SESSION,alias,500); // CI-only TTL; policy NOT approved
+    appendCookie(response,SESSION,alias,stagingSessionLifetime()?.absolute_seconds??500);
     appendCookie(response,INIT,'',0);
     return response;
   }catch{

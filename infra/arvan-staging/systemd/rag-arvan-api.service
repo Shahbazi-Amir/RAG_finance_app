@@ -17,6 +17,8 @@ Environment=ARVAN_API_SCRATCH=/run/rag-arvan-api
 Environment=ARVAN_WORKER_SOCKET=/run/rag-arvan-worker/retrieval.sock
 ExecStart=/opt/rag-finance-staging/phase3/tools/bin/python3.13 -B -m apps.api.private_staging_asgi --config /etc/rag-arvan-candidate/api-private.json
 LoadCredential=arvan-gateway:/etc/rag-arvan-candidate/gateway.env
+StateDirectory=rag-arvan-api
+StateDirectoryMode=0700
 RuntimeDirectory=rag-arvan-api
 RuntimeDirectoryMode=0700
 UMask=0077

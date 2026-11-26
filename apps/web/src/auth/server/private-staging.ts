@@ -15,7 +15,8 @@ const fields=[
  'product_kid','send_mode'
 ] as const;
 type Field=typeof fields[number];
-export type PrivateStaging=Readonly<Record<Field,string>>;
+type SessionLifetime=Readonly<{idle_seconds:number;absolute_seconds:number}>;
+export type PrivateStaging=Readonly<Record<Field,string>&{session_lifetime?:SessionLifetime}>;
 export const stagingRequested=()=>process.env.AUTH_RUNTIME_PROFILE==='private-staging';
 function owned(path:string,kind:'file'|'dir'):void{
  if(!isAbsolute(path)||path.includes('/../')||path.endsWith('/..'))denied();
@@ -47,8 +48,15 @@ export function stagingProfile():PrivateStaging{
  try{parsed=JSON.parse(raw);}catch{return denied();}
  if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))denied();
  const x=parsed as Record<string,unknown>;
- if(Object.keys(x).sort().join('|')!==[...fields].sort().join('|')||
+ if(Object.keys(x).some(k=>k!=='session_lifetime'&&!fields.includes(k as Field))||
     fields.some(k=>typeof x[k]!=='string'||!x[k]))denied();
+ const lifetime=x.session_lifetime;
+ if(Object.hasOwn(x,'session_lifetime')){
+   if(!lifetime||typeof lifetime!=='object'||Array.isArray(lifetime))return denied();
+   const {idle_seconds:idle,absolute_seconds:absolute}=lifetime as SessionLifetime;
+   if(Object.keys(lifetime).length!==2||!Number.isInteger(idle)||!Number.isInteger(absolute)||
+      idle<3600||absolute<idle||absolute>28800)return denied();
+ }
  const p=x as unknown as PrivateStaging;
  if(p.public_origin!=='https://ragfinance.ir'||
     !originOk(p.public_origin)||!originOk(p.idp_authorization_origin)||
@@ -70,3 +78,7 @@ export function stagingProfile():PrivateStaging{
 }
 
 export const stagingSendEnabled=()=>['NO_DISPATCH_ONLY','LIVE_DISPATCH'].includes(stagingProfile().send_mode);
+
+export function stagingSessionLifetime():SessionLifetime|undefined{
+ return stagingRequested()?stagingProfile().session_lifetime:undefined;
+}
