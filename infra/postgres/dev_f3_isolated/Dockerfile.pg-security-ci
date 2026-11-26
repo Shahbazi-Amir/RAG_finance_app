@@ -3,6 +3,9 @@
 # CVE-2025-68121 is in the Go stdlib embedded in gosu 1.19, not PostgreSQL SQL.
 FROM docker.io/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a AS gosu-build
 ADD --checksum=sha256:9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec https://go.dev/dl/go1.26.11.linux-amd64.tar.gz /tmp/go.tar.gz
+# The upstream PG image removes temporary CA packages after installing gosu.
+# Build stage only; verify module proxy/sumdb TLS with normal system roots.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN set -eux; \
     tar -xzf /tmp/go.tar.gz -C /opt; \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOTOOLCHAIN=local GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOBIN=/out \
