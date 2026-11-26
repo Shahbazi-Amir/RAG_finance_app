@@ -11,7 +11,12 @@ import {stagingRequested,stagingProfile,stagingSecret} from './private-staging.t
 
 export type TrustedActive=Readonly<{ownerId:string;epoch:number;generation:number;
   sessionVerifier:string}>;
-export type ProductReply=Readonly<{status:number;body:string}>;
+export type ProductReply=Readonly<{status:number;body:string;correlation?:Readonly<Record<string,string>>}>;
+// Only an exact pair from the verified private peer, never browser input.
+export function historyCorrelation(requestId:unknown,traceId:unknown):Readonly<Record<string,string>>|undefined{
+  const valid=(v:unknown):v is string=>typeof v==='string'&&/^[0-9a-f]{32}$/.test(v);
+  return valid(requestId)&&valid(traceId)&&requestId!==traceId?{'X-Request-ID':requestId,'X-Trace-ID':traceId}:undefined;
+}
 const sha=(data:Buffer|string)=>createHash('sha256').update(data).digest('hex');
 const b64=(x:unknown)=>Buffer.from(JSON.stringify(x),'utf8').toString('base64url');
 function deny():never{throw new Error('DEMO_PRODUCT_PRIVATE_API_UNAVAILABLE');}
@@ -123,6 +128,7 @@ export async function productRequest(
         });
         response.on('end',()=>{if(!finished)settle({
           status:response.statusCode??0,body:Buffer.concat(chunks).toString('utf8'),
+          ...((isList||isMessages||isStatus)?{correlation:historyCorrelation(response.headers['x-request-id'],response.headers['x-trace-id'])}:{}),
         });});
         response.on('error',()=>settle());
         response.on('aborted',()=>settle());

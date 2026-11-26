@@ -1,0 +1,196 @@
+name: Foundation PR84 real browser OIDC SQL restore journey
+on:
+  push:
+    branches: [integration/f3-pr84-foundation-signed-history-20261125]
+  pull_request:
+    branches: [integration/f3-app-only-four-pr-candidate-20261124]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser-pg-restore:
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'integration/f3-pr84-foundation-signed-history-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    env:
+      F3_PG_IMAGE: f3-pg-security:${{ github.event.pull_request.head.sha || github.sha }}
+    outputs:
+      image_scan: ${{ steps.image-scan.outcome }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build exact-source PG17.11 security candidate (gosu only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          test "$F3_PG_IMAGE" = "f3-pg-security:$sha"
+          docker build --platform linux/amd64 --file infra/postgres/dev_f3_isolated/Dockerfile.pg-security-ci --build-arg "SOURCE_SHA=$sha" -t "$F3_PG_IMAGE" infra/postgres/dev_f3_isolated
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$F3_PG_IMAGE")" = "$sha"
+          docker run --rm --network none --entrypoint /usr/local/bin/gosu "$F3_PG_IMAGE" --version | grep -F go1.26.11
+      - name: One private network, real OIDC browser and SQL before and after populated restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SOURCE_REPO="$GITHUB_WORKSPACE"
+          export LAB_ROOT="$RUNNER_TEMP/f3-browser-pg-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cd infra/postgres/dev_f3_isolated
+          bash -n scripts/27_browser_app_only_pg_journey.sh
+          python3 -m py_compile "$SOURCE_REPO/tests/phase3/integration/api/browser_app_only_pg_probe.py"
+          python3 -m unittest discover -s "$SOURCE_REPO/tests/phase3/integration/api" -p 'test_f3_lab_*.py' -v
+          bash tests/run_static.sh
+          bash scripts/00_prepare_source.sh
+          bash scripts/01_create_isolated_lab.sh
+          bash scripts/02_provision_roles.sh
+          bash scripts/03_apply_pinned_001_010.sh
+          bash scripts/04_bridge_and_db55.sh
+          bash scripts/05_test_roles_tls_rls.sh
+          bash scripts/27_browser_app_only_pg_journey.sh
+      - name: Actual tested image manifest, CycloneDX and vulnerability reports
+        id: image-scan
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/phase3/f3_lab_image_supply_chain.sh
+          python3 -m py_compile scripts/phase3/f3_lab_image_manifest.py
+          bash scripts/phase3/f3_lab_image_supply_chain.sh
+      - name: Upload only allowlisted manifest, image SBOM and sanitized advisory summaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3-tested-image-supply-chain
+          path: |
+            ci_receipts/lab_image_supply_chain/ci_candidate_manifest.json
+            ci_receipts/lab_image_supply_chain/*.cdx.json
+            ci_receipts/lab_image_supply_chain/*.vulnerability_summary.json
+            ci_receipts/f3-lab-health.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Evidence boundary
+        if: always()
+        run: |
+          echo "CHECKED_OUT_SHA=$(git rev-parse HEAD)"
+          echo 'CI-only standard Keycloak, no external traffic or Mac/CENTRAL acceptance.'
+          echo 'IMAGE_SCAN_OUTCOME=${{ steps.image-scan.outcome }}'
+
+  clean-install-rollback:
+    name: Post-journey clean install, DB replay, rollback and crash recovery
+    needs: browser-pg-restore
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      F3_PG_IMAGE: f3-pg-security:${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build exact-source PG17.11 security candidate (gosu only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          test "$F3_PG_IMAGE" = "f3-pg-security:$sha"
+          docker build --platform linux/amd64 --file infra/postgres/dev_f3_isolated/Dockerfile.pg-security-ci --build-arg "SOURCE_SHA=$sha" -t "$F3_PG_IMAGE" infra/postgres/dev_f3_isolated
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$F3_PG_IMAGE")" = "$sha"
+          docker run --rm --network none --entrypoint /usr/local/bin/gosu "$F3_PG_IMAGE" --version | grep -F go1.26.11
+      - name: Same source SHA, independent clean empty DB lab (never browser data)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SOURCE_REPO="$GITHUB_WORKSPACE"
+          export LAB_ROOT="$RUNNER_TEMP/f3-post-journey-db-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cd infra/postgres/dev_f3_isolated
+          bash tests/run_static.sh
+          bash scripts/00_prepare_source.sh
+          bash scripts/01_create_isolated_lab.sh
+          bash scripts/02_provision_roles.sh
+          bash scripts/03_apply_pinned_001_010.sh
+          bash scripts/03_apply_pinned_001_010.sh | grep -F ALREADY_APPLIED_EXACT_PINS_NO_RERUN
+          bash scripts/04_bridge_and_db55.sh
+          bash scripts/05_test_roles_tls_rls.sh
+          bash scripts/09_shared_stack_db_preflight.sh
+          bash scripts/06_backup_restore_independent.sh
+          bash scripts/10_restored_stack_db_preflight.sh
+          bash scripts/22_restore_catalog_parity_probe.sh
+          bash scripts/13_catalog_erd_inventory.sh
+          bash scripts/12_rollback_rls_constraints_probe.sh
+          bash scripts/14_synthetic_owner_lifecycle_restore.sh
+          bash scripts/15_populated_pre009_upgrade_restore.sh
+          bash scripts/24_m10_idempotency_concurrency_probe.sh
+          bash scripts/23_m04_migration_full_cycle.sh
+          bash scripts/16_fault_injected_migration_ledger.sh
+          bash scripts/17_populated_query_plan_and_owner.sh
+          bash scripts/19_history_rls_negative_matrix.sh
+          bash scripts/20_backup_integrity_corruption_probe.sh
+          bash scripts/25_pg_crash_recovery_probe.sh
+          bash scripts/21_history_cursor_race_probe.sh
+          bash scripts/11_export_sanitized_receipt.sh
+          echo "SOURCE_SHA=$(git rev-parse HEAD)"
+          echo 'M10 DB uniqueness/concurrency only; no approved positive Send HTTP admission in APP_ONLY.'
+      - name: Upload only existing sanitized DB receipt files
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3-post-journey-db-sanitized
+          path: ci_receipts/*
+          if-no-files-found: error
+          retention-days: 14
+
+  image-scan-verdict:
+    name: Explicit tested-image scan completion verdict (not release approval)
+    needs: browser-pg-restore
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fail independently if scanner failed or was unavailable
+        env:
+          SCAN_OUTCOME: ${{ needs.browser-pg-restore.outputs.image_scan }}
+        run: |
+          echo "IMAGE_SCAN_OUTCOME=$SCAN_OUTCOME"
+          test "$SCAN_OUTCOME" = success
+
+  source-supply-chain:
+    name: Exact-source lock SBOM, secret scan and production npm advisory review
+    needs: browser-pg-restore
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Existing source scan, lock inventory and parser self-test
+        run: |
+          set -euo pipefail
+          python3 scripts/f3_source_supply_chain.py --self-test
+          python3 scripts/f3_source_supply_chain.py --repo . --out ci_receipts/supply_chain
+      - name: Existing production npm audit policy
+        shell: bash
+        run: |
+          set -uo pipefail
+          npm audit --prefix apps/web --package-lock-only --omit=dev --json > "$RUNNER_TEMP/f3-npm-audit.json"
+          echo "NPM_AUDIT_EXIT=$?"
+          python3 scripts/f3_source_supply_chain.py --npm-audit-json "$RUNNER_TEMP/f3-npm-audit.json" --out ci_receipts/supply_chain
+          status=$?
+          rm -f "$RUNNER_TEMP/f3-npm-audit.json"
+          exit "$status"
+      - name: Upload only sanitized source evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3-post-journey-source-supply-chain
+          path: |
+            ci_receipts/supply_chain/source_web_api_cyclonedx.json
+            ci_receipts/supply_chain/source_secret_scan.json
+            ci_receipts/supply_chain/source_supply_chain_status.json
+            ci_receipts/supply_chain/npm_production_audit_summary.json
+          if-no-files-found: warn
+          retention-days: 14

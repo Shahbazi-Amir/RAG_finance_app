@@ -1,0 +1,540 @@
+name: F3 DB common exact-tree both-side Compose 31 messages and restricted SQL
+
+on:
+  push:
+    branches: [integration/f3-pr84-foundation-signed-history-20261125]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api-session-011:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_PASSWORD: synthetic_ci_only_not_a_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: 'true'
+      F3_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      PGPASSWORD: synthetic_ci_only_not_a_secret
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      AUTH_MAP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_mapper password=synthetic_mapper_only connect_timeout=5
+      AUTH_SESSION_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_sessions password=synthetic_session_only connect_timeout=5
+      AUTH_REVOKER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_revoker password=synthetic_revoker_only connect_timeout=5
+      AUTH_REAUTH_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reauth password=synthetic_reauth_only connect_timeout=5
+      AUTH_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_migrator password=synthetic_auth_migrator_only connect_timeout=5
+      AUTH_RESET_ISSUER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reset_issuer password=synthetic_reset_issuer_only connect_timeout=5
+      AUTH_RESET_EXEC_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reset_executor password=synthetic_reset_executor_only connect_timeout=5
+      AUTH_RESET_LOOKUP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reset_lookup password=synthetic_reset_lookup_only connect_timeout=5
+      AUTH_RESET_IDP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reset_idp_recorder password=synthetic_reset_idp_recorder_only connect_timeout=5
+      LOGIN_BOOTSTRAP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_bootstrap password=synthetic_login_bootstrap_only connect_timeout=5
+      LOGIN_CLAIM_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_claim_reader password=synthetic_login_claim_reader_only connect_timeout=5
+      LOGIN_ISSUER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_issuer password=synthetic_login_issuer_only connect_timeout=5
+      LOGIN_BINDER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_binder password=synthetic_login_binder_only connect_timeout=5
+      LOGIN_READER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_reader password=synthetic_login_reader_only connect_timeout=5
+      LOGIN_CLEANER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_cleaner password=synthetic_login_cleaner_only connect_timeout=5
+      REPLAY_API_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_trust_api password=synthetic_replay_api_only connect_timeout=5
+      REPLAY_CLEANER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_replay_cleaner password=synthetic_replay_clean_only connect_timeout=5
+      DB_APP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB55_CI_AUDITOR_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=f3_db55_ci_auditor password=synthetic_db55_auditor_only connect_timeout=5
+      DB_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+      DB_SEEDED_APP_DSN: host=127.0.0.1 port=5432 dbname=history_seeded_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB_SEEDED_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_seeded_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+      DB_LEGACY_APP_DSN: host=127.0.0.1 port=5432 dbname=history_legacy_ci user=history_app password=synthetic_app_only connect_timeout=5
+      DB_LEGACY_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_legacy_ci user=history_migrator password=synthetic_mig_only connect_timeout=5
+    steps:
+      - name: Checkout exact commit (read only)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Reject unversioned source overlays; bind tested OIDC workers and SQL 009-010 to this exact Git tree
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$F3_EXACT_SHA"
+          test ! -f infra/postgres/migrations/011_product_answer_claims.up.sql
+          test "$(git rev-parse "HEAD:src/phase3/auth/initial_oidc_login.py")" = "2bff474c880c0e48616a27e15e38779a8f9d260c"
+          test "$(git rev-parse "HEAD:tests/phase3/integration/api/bootstrap_010_worker.py")" = "5631dc200075f2da2a9f865589210ac4c5e972e3"
+          test "$(git rev-parse "HEAD:tests/phase3/integration/api/initial_oidc_harness.py")" = "6528947a9fd5ed79178ece866dea98160a8de1ac"
+          test "$(git rev-parse "HEAD:tests/phase3/integration/api/test_bootstrap_oidc_010.py")" = "9df717ca72957c094ba7aebda4414ed6fbba9e95"
+          test "$(git rev-parse "HEAD:infra/postgres/migrations/009_initial_login_attempt_binding.up.sql")" = "2a694f871bf45aa5540b458bcaea1b2bd343036d"
+          test "$(git rev-parse "HEAD:infra/postgres/migrations/009_initial_login_attempt_binding.down.sql")" = "3bf47d1b4021fec916a4ad93f3b0c40b0a6638ff"
+          test "$(git rev-parse "HEAD:infra/postgres/migrations/010_initial_login_claim_material.up.sql")" = "3a8ec114ff29c9d8ef795fb85c32b57aecfa8f27"
+          test "$(git rev-parse "HEAD:infra/postgres/migrations/010_initial_login_claim_material.down.sql")" = "6327b13dc99d23f93188dea6a89d75387f08eec9"
+          git diff --exit-code -- apps/api src/phase3/auth infra/postgres/migrations tests/phase3/integration/api
+          echo F3_84_CANDIDATE_NO_REMOTE_OVERLAY_EXACT_EIGHT_SOURCE_BLOBS_PASS
+      - name: Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Node for the actual Web BFF signer (no npm or engine)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Install pinned CI-only Python adapters
+        run: python -m pip install --no-cache-dir --index-url https://pypi.org/simple -r apps/api/requirements-ci.txt 'PyJWT[crypto]==2.15.1' 'uvicorn==0.48.0'
+      - name: Verify only temporary loopback database and versions
+        run: |
+          set -euo pipefail
+          python --version
+          python -c "import psycopg,jsonschema; print('psycopg',psycopg.__version__); print('jsonschema',jsonschema.__version__)"
+          psql --version
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'SHOW server_version;'
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'SELECT inet_server_addr(),inet_server_port();'
+      - name: Bootstrap disposable DBs and separate least-privilege roles
+        run: |
+          set -euo pipefail
+          psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE history_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_mig_only';
+          CREATE ROLE history_app LOGIN PASSWORD 'synthetic_app_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE f3_db55_ci_auditor LOGIN PASSWORD 'synthetic_db55_auditor_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_migrator LOGIN BYPASSRLS PASSWORD 'synthetic_auth_migrator_only' NOSUPERUSER;
+          GRANT pg_read_all_stats TO auth_migrator;
+          CREATE ROLE auth_mapper LOGIN PASSWORD 'synthetic_mapper_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_sessions LOGIN PASSWORD 'synthetic_session_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_revoker LOGIN PASSWORD 'synthetic_revoker_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reauth LOGIN PASSWORD 'synthetic_reauth_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_trust_api LOGIN PASSWORD 'synthetic_replay_api_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_replay_cleaner LOGIN PASSWORD 'synthetic_replay_clean_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_issuer LOGIN PASSWORD 'synthetic_reset_issuer_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_executor LOGIN PASSWORD 'synthetic_reset_executor_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_lookup LOGIN PASSWORD 'synthetic_reset_lookup_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_idp_recorder LOGIN PASSWORD 'synthetic_reset_idp_recorder_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_bootstrap LOGIN PASSWORD 'synthetic_login_bootstrap_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_claim_reader LOGIN PASSWORD 'synthetic_login_claim_reader_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_issuer LOGIN PASSWORD 'synthetic_login_issuer_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_binder LOGIN PASSWORD 'synthetic_login_binder_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_reader LOGIN PASSWORD 'synthetic_login_reader_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_cleaner LOGIN PASSWORD 'synthetic_login_cleaner_only' NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE DATABASE history_ci;
+          CREATE DATABASE history_legacy_ci;
+          CREATE DATABASE history_seeded_ci;
+          CREATE DATABASE history_rollback_ci;
+          CREATE DATABASE auth_rollback_ci;
+          CREATE DATABASE auth_empty_ci;
+          CREATE DATABASE reset_c1_empty_ci;
+          CREATE DATABASE reset_c1_seeded_ci;
+          CREATE DATABASE reset_c1_issue_commit_ci;
+          CREATE DATABASE reset_c1_issue_abort_ci;
+          CREATE DATABASE reset_c1_exec_commit_ci;
+          CREATE DATABASE reset_c1_exec_abort_ci;
+          CREATE DATABASE reset_c1_down_first_ci;
+          CREATE DATABASE reset_lookup_empty_ci;
+          CREATE DATABASE reset_lookup_seeded_ci;
+          CREATE DATABASE reset_idp_empty_ci;
+          CREATE DATABASE reset_idp_seeded_ci;
+          CREATE DATABASE reset_idp_race_attempt_commit_ci;
+          CREATE DATABASE reset_idp_race_attempt_abort_ci;
+          CREATE DATABASE reset_idp_race_outcome_ci;
+          CREATE DATABASE reset_idp_race_down_first_ci;
+          CREATE DATABASE login_009_empty_ci;
+          CREATE DATABASE login_009_evidence_ci;
+          GRANT CONNECT,CREATE ON DATABASE history_ci TO history_migrator;
+          GRANT CONNECT,CREATE ON DATABASE history_legacy_ci TO history_migrator;
+          GRANT CONNECT,CREATE ON DATABASE history_seeded_ci TO history_migrator;
+          GRANT CONNECT,CREATE ON DATABASE history_rollback_ci TO history_migrator;
+          GRANT CONNECT ON DATABASE history_ci TO history_app,f3_db55_ci_auditor;
+          GRANT CONNECT ON DATABASE history_legacy_ci TO history_app;
+          GRANT CONNECT ON DATABASE history_seeded_ci TO history_app;
+          GRANT CONNECT ON DATABASE history_rollback_ci TO history_app;
+          GRANT CONNECT,CREATE ON DATABASE history_ci TO auth_migrator;
+          GRANT CONNECT,CREATE ON DATABASE login_009_empty_ci,login_009_evidence_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE login_009_empty_ci,login_009_evidence_ci
+            TO auth_login_bootstrap,auth_login_issuer,auth_login_binder,
+               auth_login_reader,auth_login_cleaner,auth_mapper;
+          GRANT CONNECT,CREATE ON DATABASE auth_rollback_ci TO auth_migrator;
+          GRANT CONNECT,CREATE ON DATABASE auth_empty_ci TO auth_migrator;
+          GRANT CONNECT,CREATE ON DATABASE reset_c1_empty_ci,reset_c1_seeded_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE reset_c1_seeded_ci TO auth_reset_issuer,auth_reset_executor;
+          GRANT CONNECT,CREATE ON DATABASE
+            reset_c1_issue_commit_ci,reset_c1_issue_abort_ci,reset_c1_exec_commit_ci,
+            reset_c1_exec_abort_ci,reset_c1_down_first_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE
+            reset_c1_issue_commit_ci,reset_c1_issue_abort_ci,reset_c1_exec_commit_ci,
+            reset_c1_exec_abort_ci,reset_c1_down_first_ci
+            TO auth_reset_issuer,auth_reset_executor;
+          GRANT CONNECT ON DATABASE history_ci TO auth_mapper,auth_sessions,auth_revoker,auth_reauth;
+          GRANT CONNECT ON DATABASE history_ci TO auth_trust_api,auth_replay_cleaner;
+          GRANT CONNECT ON DATABASE history_ci TO auth_reset_issuer,auth_reset_executor,auth_reset_lookup,auth_reset_idp_recorder;
+          GRANT CONNECT ON DATABASE history_ci TO
+            auth_login_bootstrap,auth_login_claim_reader,auth_login_issuer,auth_login_binder,
+            auth_login_reader,auth_login_cleaner;
+          GRANT CONNECT,CREATE ON DATABASE reset_idp_empty_ci,reset_idp_seeded_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE reset_idp_seeded_ci TO auth_reset_issuer,auth_reset_executor,auth_reset_idp_recorder;
+          GRANT CONNECT ON DATABASE reset_idp_empty_ci TO auth_reset_idp_recorder;
+          GRANT CONNECT,CREATE ON DATABASE
+            reset_idp_race_attempt_commit_ci,reset_idp_race_attempt_abort_ci,
+            reset_idp_race_outcome_ci,reset_idp_race_down_first_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE
+            reset_idp_race_attempt_commit_ci,reset_idp_race_attempt_abort_ci,
+            reset_idp_race_outcome_ci,reset_idp_race_down_first_ci
+            TO auth_reset_issuer,auth_reset_executor,auth_reset_idp_recorder;
+          GRANT CONNECT,CREATE ON DATABASE reset_lookup_empty_ci,reset_lookup_seeded_ci TO auth_migrator;
+          GRANT CONNECT ON DATABASE reset_lookup_empty_ci,reset_lookup_seeded_ci TO auth_reset_lookup,auth_reset_issuer;
+          SQL
+      - name: Apply versioned History base, and 003 on data-bearing product DB
+        run: |
+          set -euo pipefail
+          bash -n scripts/phase3/f3_browser_pinned_migration_ledger.sh
+          source scripts/phase3/f3_browser_pinned_migration_ledger.sh
+          f3_ledger_init
+          export PGUSER=history_migrator PGPASSWORD=synthetic_mig_only
+          f3_ledger_apply 001 infra/postgres/migrations/001_history_l1.up.sql
+          PGUSER=history_app PGPASSWORD=synthetic_app_only psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          SELECT set_config('app.owner_id','synthetic_pre002_upgrade',true);
+          INSERT INTO history_l1.conversations(owner_id,id,title)
+            VALUES('synthetic_pre002_upgrade','synthetic_pre002_conversation','synthetic retained title');
+          INSERT INTO history_l1.messages(owner_id,id,conversation_id,role,body)
+            VALUES('synthetic_pre002_upgrade','synthetic_pre002_message','synthetic_pre002_conversation','user','synthetic retained message');
+          COMMIT;
+          SQL
+          f3_prove_failed_migration_intent
+          PGPASSWORD="$F3_LEDGER_ADMIN_PASSWORD" python tests/phase3/integration/api/db_actual_migration_interrupt_ci.py
+          PGPASSWORD="$F3_LEDGER_ADMIN_PASSWORD" python tests/phase3/integration/api/db_post_commit_ledger_interrupt_ci.py
+          test "$(cat "$RUNNER_TEMP/f3-postcommit-migration-interrupt-verified.txt")" = PASS
+          f3_ledger_apply 002 infra/postgres/migrations/002_one_attempt.up.sql
+          psql -d history_legacy_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          # Separate synthetic chain seed: 001 first; acceptance test applies 002.
+          psql -d history_seeded_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/001_history_l1.up.sql
+          psql -d history_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/002_one_attempt.up.sql
+          # Pre-existing synthetic History rows before new product auth migration 003.
+          PGUSER=history_app PGPASSWORD=synthetic_app_only psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          SELECT set_config('app.owner_id','synthetic_auth_migration',true);
+          INSERT INTO history_l1.conversations(owner_id,id)
+            VALUES('synthetic_auth_migration','synthetic_auth_preexisting_history');
+          COMMIT;
+          SQL
+          export PGUSER=auth_migrator PGPASSWORD=synthetic_auth_migrator_only
+          f3_ledger_apply 003 infra/postgres/migrations/003_auth_session.up.sql
+          psql -d auth_rollback_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          psql -d auth_empty_ci -v ON_ERROR_STOP=1 -f infra/postgres/migrations/003_auth_session.up.sql
+          # Data-bearing product DB before 004: synthetic session chain, never a real user.
+          psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO auth_l1.owners(owner_id) VALUES('synthetic_fence_preexisting');
+          INSERT INTO auth_l1.identity_links(issuer,subject,owner_id)
+            VALUES('https://synthetic.invalid/bnd02','synthetic_fence_subject','synthetic_fence_preexisting');
+          INSERT INTO auth_l1.sessions(digest_sha256,owner_id,session_epoch,generation,status,
+              created_at,last_activity_at,idle_expires_at,absolute_expires_at,idle_seconds)
+            VALUES(repeat('b',64),'synthetic_fence_preexisting',0,0,'active',
+              clock_timestamp(),clock_timestamp(),
+              clock_timestamp()+interval '15 minutes',
+              clock_timestamp()+interval '1 hour',900);
+          SQL
+          f3_ledger_apply 004 infra/postgres/migrations/004_session_aware_fence.up.sql
+          f3_ledger_apply 005 infra/postgres/migrations/005_service_assertion_replay.up.sql
+          f3_ledger_apply 006 infra/postgres/migrations/006_atomic_reset_c1.up.sql -1
+          f3_ledger_apply 007 infra/postgres/migrations/007_scoped_reset_identity_lookup.up.sql -1
+          f3_ledger_apply 008 infra/postgres/migrations/008_durable_idp_attempt_outcome.up.sql -1
+          f3_ledger_apply 009 infra/postgres/migrations/009_initial_login_attempt_binding.up.sql
+          f3_ledger_apply 010 infra/postgres/migrations/010_initial_login_claim_material.up.sql
+          # Match existing 04_bridge_and_db55.sh catalog-only auditor scope.
+          PGUSER=postgres PGPASSWORD="$F3_LEDGER_ADMIN_PASSWORD" psql -X -d history_ci -v ON_ERROR_STOP=1 -c 'GRANT USAGE ON SCHEMA auth_l1,history_l1 TO f3_db55_ci_auditor'
+          f3_ledger_complete
+          # Separate synthetic protected SQL table: CI ONLY, INSERT role, no History grants.
+          psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA service_replay_ci;
+          REVOKE ALL ON SCHEMA service_replay_ci FROM PUBLIC;
+          CREATE TABLE service_replay_ci.protected_actions(marker text PRIMARY KEY);
+          GRANT USAGE ON SCHEMA service_replay_ci TO auth_trust_api;
+          GRANT INSERT ON service_replay_ci.protected_actions TO auth_trust_api;
+          SQL
+          test "$(psql -d history_ci -Aqt -c "SELECT count(*) FROM auth_l1.sessions WHERE owner_id='synthetic_fence_preexisting'")" = "1"
+          # Only disposable CI Harness role may insert synthetic protected markers.
+          # NO History or Auth table grants to auth_sessions are added.
+          psql -d history_ci -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA auth_fence_ci;
+          REVOKE ALL ON SCHEMA auth_fence_ci FROM PUBLIC;
+          CREATE TABLE auth_fence_ci.protected_actions(
+            owner_id text NOT NULL,marker text PRIMARY KEY);
+          GRANT USAGE ON SCHEMA auth_fence_ci TO auth_sessions;
+          GRANT INSERT ON auth_fence_ci.protected_actions TO auth_sessions;
+          SQL
+          # Verify History persistence using its OWN migrator; auth_migrator has zero History grants.
+          PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -d history_ci -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'"
+          test "$(PGUSER=history_migrator PGPASSWORD=synthetic_mig_only psql -d history_ci -Aqt -c "SELECT count(*) FROM history_l1.conversations WHERE id='synthetic_auth_preexisting_history'")" = "1"
+      - name: Fail fast on restored PostgreSQL TLS and restart lifecycle
+        env:
+          API_F3_ISOLATED_PG_CID: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          python -m pip install --no-cache-dir --index-url https://pypi.org/simple 'playwright==1.64.1'
+          python -u tests/phase3/integration/api/db_common_compose_browser_journey.py --pg-preflight
+      - name: Compile and real Keycloak mTLS two-process 009+010 Claim material tests
+        run: |
+          set -euo pipefail
+          python -m compileall -q src/phase3/auth tests/phase3/integration/api
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_bootstrap_oidc_010.py' -v
+      - name: Import actual product-session ASGI for isolated CI dependency integrity
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import apps.api.product_session_api as app
+          assert app.app is not None
+          print("API_F3_PRODUCT_ASGI_IMPORT_READY", flush=True)
+          PY
+      - name: Real HTTPS Callback plus Product-session API 005 004 History/revoke tests
+        env:
+          # Exact Actions service identity: never discover/stop arbitrary PG.
+          API_F3_ISOLATED_PG_CID: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          python -m compileall -q apps/api/product_session_api.py src/phase3/auth tests/phase3/integration/api/test_product_session_011.py
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_product_session_011.py' -v
+      - name: Verify full identity T2 ledger positive and negative (offline subset)
+        run: |
+          python -m unittest discover -s tests/phase3/api -p 'test_full_binding_fence.py' -v
+      - name: Real Next build for ordinary browser app-only journey
+        working-directory: apps/web
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm test
+          npm run typecheck
+          npm run build
+      - name: Compile restored Compose lab before expensive OCI builds
+        run: |
+          set -euo pipefail
+          python -m py_compile tests/phase3/integration/foundation/db_common_compose_restored_browser.py
+          node --check tests/phase3/integration/foundation/ci_loopback_relay.mjs
+          docker compose version
+      - name: Build exact-SHA non-root API image for restored-browser journey
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$F3_EXACT_SHA"
+          # The API/DB bootstrap fixture overlay above is CI-only. Never
+          # bake untracked or overlay source into an image labeled this SHA.
+          clean="$(mktemp -d "$RUNNER_TEMP/api-f3-source.XXXXXXXX")"
+          trap 'rm -rf "$clean"' EXIT
+          git archive "$F3_EXACT_SHA" | tar -xf - -C "$clean"
+          base="$(bash "$clean/infra/phase3_l1/lab/resolve_python_slim_base.sh")"
+          [[ "$base" =~ @sha256:[a-f0-9]{64}$ ]]
+          echo "API_F3_BROWSER_CI_BASE_DIGEST=$base"
+          docker build --platform linux/amd64 --file "$clean/infra/phase3_l1/Dockerfile.api.slim-lab" \
+            --build-arg "BASE=$base" \
+            --build-arg "SOURCE_SHA=$F3_EXACT_SHA" -t "api-f3-browser:$F3_EXACT_SHA" "$clean"
+          echo "API_F3_BROWSER_IMAGE=api-f3-browser:$F3_EXACT_SHA" >> "$GITHUB_ENV"
+          docker build --platform linux/amd64 --file "$clean/infra/phase3_l1/Dockerfile.web" \
+            --build-arg "SOURCE_SHA=$F3_EXACT_SHA" -t "f3-compose-browser-web:$F3_EXACT_SHA" "$clean"
+          echo "F3_COMPOSE_BROWSER_WEB_IMAGE=f3-compose-browser-web:$F3_EXACT_SHA" >> "$GITHUB_ENV"
+      - name: Save remove and reload the exact two images used by the real journey
+        run: |
+          set -euo pipefail
+          test "$CI" = true && test "$GITHUB_ACTIONS" = true
+          test "$(git rev-parse HEAD)" = "$F3_EXACT_SHA"
+          api="api-f3-browser:$F3_EXACT_SHA"
+          web="f3-compose-browser-web:$F3_EXACT_SHA"
+          ai="$(docker image inspect -f '{{.Id}}' "$api")"
+          wi="$(docker image inspect -f '{{.Id}}' "$web")"
+          [[ "$ai" =~ ^sha256:[a-f0-9]{64}$ && "$wi" =~ ^sha256:[a-f0-9]{64}$ && "$ai" != "$wi" ]]
+          for tag in "$api" "$web"; do
+            test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$tag")" = "$F3_EXACT_SHA"
+            test "$(docker image inspect -f '{{.Os}}/{{.Architecture}}' "$tag")" = linux/amd64
+          done
+          tmp="$(mktemp -d "$RUNNER_TEMP/f3-common-image-rehydrate.XXXXXXXX")"
+          trap 'rm -rf "$tmp"' EXIT
+          docker image save -o "$tmp/images.tar" "$api" "$web"
+          digest="$(sha256sum "$tmp/images.tar" | awk '{print $1}')"
+          bytes="$(stat -c %s "$tmp/images.tar")"
+          docker image rm "$api" "$web"
+          if docker image inspect "$api" "$web" >/dev/null 2>&1; then exit 70; fi
+          for id in "$ai" "$wi"; do
+            if docker image inspect "$id" >/dev/null 2>&1; then
+              echo DB_COMMON_OCI_IMAGE_NOT_REMOVED >&2; exit 70
+            fi
+          done
+          test "$(sha256sum "$tmp/images.tar" | awk '{print $1}')" = "$digest"
+          docker image load -i "$tmp/images.tar"
+          test "$(docker image inspect -f '{{.Id}}' "$api")" = "$ai"
+          test "$(docker image inspect -f '{{.Id}}' "$web")" = "$wi"
+          export F3_ARCHIVE_SHA="$digest" F3_ARCHIVE_BYTES="$bytes" F3_API_ID="$ai" F3_WEB_ID="$wi"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path("ci_receipts/db_common_image_archive.json")
+          p.parent.mkdir(exist_ok=True)
+          p.write_text(json.dumps({"source_sha":os.environ["F3_EXACT_SHA"],"api_image_id":os.environ["F3_API_ID"],
+              "web_image_id":os.environ["F3_WEB_ID"],"archive_sha256":os.environ["F3_ARCHIVE_SHA"],
+              "archive_bytes":int(os.environ["F3_ARCHIVE_BYTES"]),"both_images_removed_then_loaded":True,
+              "archive_exported":False,"registry_release_verified":False,"accepted":False},indent=2)+"\n")
+          PY
+          echo DB_COMMON_EXACT_JOURNEY_TWO_IMAGES_SAVE_REMOVE_LOAD=PASS
+      - name: Real Chromium ordinary login and signed app-only History journey
+        env:
+          API_F3_ISOLATED_PG_CID: ${{ job.services.postgres.id }}
+          PHASE3_APP_MODE: APP_ONLY
+          API_RUNNER_EXECUTION_MODE: APP_ONLY
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libnss3-tools ca-certificates
+          command -v certutil
+          python -m playwright install --with-deps chromium
+          python -u tests/phase3/integration/foundation/db_common_compose_restored_browser.py
+      - name: Write minimal exact-source journey receipt (post-restore Compose subset only)
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          sha=os.environ["F3_EXACT_SHA"]
+          assert subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()==sha
+          image="api-f3-browser:"+sha
+          data=json.loads(subprocess.check_output(["docker","image","inspect",image]))[0]
+          assert data["Config"]["Labels"]["org.opencontainers.image.revision"]==sha
+          p=Path("ci_receipts/f3_integrated_signed_oci_browser.json")
+          p.parent.mkdir(exist_ok=True)
+          p.write_text(json.dumps({"source_sha":sha,"run_id":os.environ["GITHUB_RUN_ID"],
+              "api_image_id":data["Id"],"source":"clean git archive",
+              "api_owner_source_sha":"23db3da6367e6a8279072ee96b56a2bd4b7f0fbc","scope":"CI_RUNNER_SOURCE_AND_RESTORED_SHARED_COMPOSE_CI_FIXTURE_BOOTSTRAP",
+              "full_compose_verified":False,"target_verified":False,"accepted":False},indent=2)+"\n")
+          r=json.loads(Path("ci_receipts/f3_post_restore_shared_compose.json").read_text())
+          assert r["source_sha"]==sha and r["api_image_id"]==data["Id"]
+          assert r["post_restore_ordinary_browser_replay_passed"] is True
+          assert r["shared_compose_before_after_lab_verified"] is True
+          assert r["two_independent_pg_volumes"] is True and r["source_pg_id_distinct_from_restore"] is True
+          assert r["source_witness"]["source_browser_sql_http_dom_and_send_passed"] is True
+          assert r["source_witness"]["web_image_id"] == r["web_image_id"]
+          assert r["source_witness"]["api_image_id"] == r["api_image_id"]
+          assert r["full_compose_verified"] is False and r["accepted"] is False
+          third=r["post_revoke_third_volume"]
+          assert third["three_distinct_volumes"] and third["three_distinct_pg_containers"] and third["committed_revoke_a_denied_b_replayed"]
+          assert third["source_sha"]==sha and third["api_image_id"]==r["api_image_id"] and third["web_image_id"]==r["web_image_id"]
+          assert third["approved_operational_rpo_rto"] is False and third["accepted"] is False
+          boundary=third["third_restore_boundary_witness"]
+          expected_counts={"own_200":3,"foreign_404":3,"unknown_404":3,"revoked_401":9,"disabled_send_503":6}
+          expected_flags={"restricted_sql_controls":True,"no_store":True,"positive_send_idempotency":False,"timing_leak_proven_absent":False}
+          assert set(boundary)==set(expected_counts)|set(expected_flags)
+          for key,value in expected_counts.items():
+              assert type(boundary[key]) is int and boundary[key]==value,key
+          for key,value in expected_flags.items():
+              assert boundary[key] is value,key
+          print("DB_COMMON_THIRD_RESTORE_BOUNDARY_EXACT_SHA_RECEIPT=PASS")
+          role=third["third_restore_role_witness"]
+          counts={"valid_admission_controls":2,"invalid_admission_denials":5,
+              "unrelated_role_repository_denials":16,"product_role_invalid_admission_denials":4,
+              "product_role_raw_auth_read_denials":3,"product_role_raw_auth_privilege_denials":12}
+          flags={"no_transaction_denied":True,"product_role_pinned_bridge_admission":True,
+              "product_role_same_tx_repository":True,"raw_guc_spoof_resolved":False}
+          assert set(role)==set(counts)|set(flags)
+          for key,value in counts.items():
+              assert type(role[key]) is int and role[key]==value,key
+          for key,value in flags.items():
+              assert role[key] is value,key
+          cursor=third["third_restore_cursor_witness"]
+          assert cursor=={"pre_cutover_cursor_replayed":True,"page2_exact":True,
+              "malformed_422":True,"revoked_401":True,"no_store":True}
+          assert all(value is True for value in cursor.values())
+          print("DB_COMMON_THIRD_RESTORE_ROLE_SESSION_CURSOR_EXACT_SHA_RECEIPT=PASS")
+          assert r["strict_browser_tls"] is True
+          print("DB_COMMON_STRICT_TLS_POST_REVOKE_THIRD_COMPOSE_RECEIPT=PASS")
+          db=json.loads(Path("ci_receipts/db_oci_browser_restricted_parity.json").read_text())
+          assert db["source_sha"]==sha and db["api_image_id"]==data["Id"]
+          assert db["checkpoints"]==8 and db["exact_row_parity"] is True and db["accepted"] is False
+          assert db["post_revoke_independent_compose_restore"] is True and db["strict_browser_tls"] is True
+          assert db["real_31_message_page2_before_after"] is True and db["signed_mobile_320_focus"] is True
+          assert db["actual_oci_read_revoke_blocking_pid_chain"] is True
+          assert db["migration_ledger_rows"]==10 and db["force_rls_tables"]==14 and db["data_bearing_up"]==9
+          postcommit=json.loads(Path("ci_receipts/db_postcommit_migration.json").read_text())
+          assert postcommit["source_sha"]==sha and postcommit["run_id"]==os.environ["GITHUB_RUN_ID"]
+          assert postcommit["accepted"] is False and postcommit["target_verified"] is False
+          for k in ("actual_committed_index_observed","actual_applied_updater_terminated","started_retained","auto_retry_refused","history_rows_exact","ambiguous_clone_discarded","fresh_clone_distinct_database_oid","fresh_clone_002_applied","source_unchanged"):
+              assert postcommit[k] is True,k
+          assert db["actual_failed_002_no_autoretry"] is True
+          assert db["actual_interrupted_002_no_autoretry"] is True and db["db55_pinned_readonly_auditor_checkpoints"]==8
+          assert db["source_tls"]==db["restored_tls"]=="VERIFY_FULL_NO_PLAINTEXT_WRONG_SAN"
+          web=json.loads(subprocess.check_output(["docker","image","inspect","f3-compose-browser-web:"+sha]))[0]
+          assert web["Id"]==r["web_image_id"] and web["Config"]["Labels"]["org.opencontainers.image.revision"]==sha
+          archive=json.loads(Path("ci_receipts/db_common_image_archive.json").read_text())
+          assert archive["source_sha"]==sha and archive["api_image_id"]==data["Id"] and archive["web_image_id"]==web["Id"]
+          assert archive["both_images_removed_then_loaded"] is True and archive["accepted"] is False
+          print("DB_COMMON_ACTUAL_REHYDRATED_IMAGE_IDS_MATCH_BOTH_SIDE_BROWSER_RECEIPT=PASS")
+          print("DB_COMPOSE_EXACT_SHA_TWO_IMAGE_IDS_SQL_TLS_RECEIPT=PASS")
+          assert db["migration_install_origin"]=="ACTIONS_PG_BEFORE_FIRST_CLONE"
+          assert db["two_journey_clusters_distinct_from_installer"] is True
+          scale=json.loads(Path("ci_receipts/db_repository_scale.json").read_text())
+          assert scale["source_sha"]==sha and scale["exact_restart_parity"] is True
+          assert scale["synthetic_conversations"]==12000 and scale["synthetic_messages"]==49200
+          assert scale["approved_workload"] is False and scale["http_latency"] is False and scale["accepted"] is False
+          for stage in ("before","after"):
+              x=scale[stage]
+              assert x["distinct_tls_logins"]==8 and x["repository_page_samples"]==536
+              assert x["foreign_and_unknown_denials"]==16 and x["zero_send_attempt_answer"] is True
+              assert x["no_owner_after_transaction"] is True
+          print("DB_SCALE_EXACT_SHA_SANITIZED_RECEIPT=PASS")
+          replay=json.loads(Path("ci_receipts/db_idempotency_owner_scope.json").read_text())
+          assert replay["source_sha"]==sha and replay["distinct_tls_sessions_per_phase"]==16
+          assert replay["owner_scope_groups"]==4 and replay["initial_created"]==4 and replay["initial_replayed"]==12
+          assert replay["restart_created"]==0 and replay["restart_replayed"]==16
+          assert replay["answer_rows"]==0 and replay["engine_calls"]==0 and replay["http_send_executed"] is False
+          assert replay["accepted"] is False and replay["target_verified"] is False
+          for key in ("same_explicit_id_two_owners","null_and_explicit_scopes_independent","exact_t1_t2_ids_after_restart","exact_six_table_hashes_after_restart","cancelled_attempt_not_reopened"):
+              assert replay[key] is True,key
+          restored_replay=replay["independent_restore"]
+          assert restored_replay["independent_pg_cluster"] and restored_replay["independent_volume"]
+          assert restored_replay["distinct_tls_sessions"]==16 and restored_replay["owner_scope_groups"]==4
+          assert restored_replay["created"]==0 and restored_replay["replayed"]==16
+          assert restored_replay["conflicting_payload_denials"]==4 and restored_replay["foreign_unknown_status_denials"]==8
+          for key in ("exact_t1_t2_ids","exact_six_table_hashes","terminal_cancelled_not_reopened","source_unchanged"):
+              assert restored_replay[key] is True,key
+          assert restored_replay["answer_rows"]==0 and restored_replay["engine_calls"]==0
+          assert not restored_replay["http_send_executed"] and not restored_replay["target_verified"] and not restored_replay["accepted"]
+          assert db["app_only_bff_send_retry_denials"]=={"SOURCE":{"A":6,"B":6},"RESTORED":{"A":6,"B":6}}
+          print("DB_IDEMPOTENCY_INDEPENDENT_RESTORE_AND_24_BFF_DENIALS_EXACT_SHA_RECEIPT=PASS")
+          print("DB_IDEMPOTENCY_EXACT_SHA_SANITIZED_RECEIPT=PASS")
+          concurrency=json.loads(Path("ci_receipts/db_concurrent_append_disconnect.json").read_text())
+          assert concurrency["source_sha"]==sha and concurrency["repository_blob"]==scale["repository_blob"]
+          assert concurrency["distinct_fixture_sets"] and not concurrency["accepted"] and not concurrency["target_verified"]
+          assert concurrency["engine_calls"]==0 and not concurrency["sql_011"]
+          for phase in ("before","after"):
+              append=concurrency[phase]["append"]
+              assert append["owners"]==2 and append["independent_reader_writer_pairs"]==2
+              for key in ("uncommitted_invisible","old_anchor_exact","fresh_read_sees_append","foreign_denied","scope_cleared"):
+                  assert append[key] is True,key
+              assert append["arbitrary_backdated_insert_snapshot_claim"] is False
+              disconnect=concurrency[phase]["disconnect"]
+              assert disconnect["owners"]==2 and disconnect["uncommitted_disconnects"]==4 and disconnect["successful_retries"]==4
+              assert disconnect["terminal_winners"]==2 and disconnect["terminal_conflicts"]==6 and disconnect["foreign_terminal_denials"]==2
+              assert disconnect["zero_duplicate_rows"] and disconnect["terminal_replay_preserved"] and disconnect["uncommitted_rows_invisible"]
+              assert disconnect["answer_rows"]==0 and disconnect["http_send_executed"] is False
+          for phase in ("SOURCE","RESTORED"):
+              enum=db["signed_history_enumeration"][phase]
+              assert enum["own_200"]==enum["foreign_404"]==enum["unknown_404"]==6
+              assert enum["normalized_error_parity"] and enum["restricted_sql_controls"] and enum["counts_unchanged"]
+              assert enum["timing_leak_proven_absent"] is False
+          print("DB_CONCURRENT_APPEND_DISCONNECT_AND_ENUMERATION_EXACT_SHA_RECEIPTS=PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: foundation-integrated-signed-oci-browser-restore
+          path: |
+            ci_receipts/f3_integrated_signed_oci_browser.json
+            ci_receipts/f3_post_restore_shared_compose.json
+            ci_receipts/db_oci_browser_restricted_parity.json
+            ci_receipts/db_common_image_archive.json
+            ci_receipts/db_postcommit_migration.json
+            ci_receipts/db_repository_scale.json
+            ci_receipts/db_idempotency_owner_scope.json
+            ci_receipts/db_concurrent_append_disconnect.json
+          if-no-files-found: error
+      - name: Show bounded SQL permissions and container status
+        if: always()
+        run: |
+          echo 'API_BOOTSTRAP_ONLY_NO_PRODUCTION_GRANTS'
+          echo 'NO_BROWSER_COOKIE_NO_REAL_NEXT_NO_RESET_C2'

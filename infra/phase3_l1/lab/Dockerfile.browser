@@ -1,0 +1,12 @@
+# CI-only browser witness; never a release image.
+ARG BASE=docker.io/library/python:3.13.5
+FROM ${BASE}
+ARG BASE
+LABEL org.opencontainers.image.base.name="${BASE}"
+COPY infra/phase3_l1/lab/patch_slim_os_ci.sh /tmp/f3-patch-os.sh
+RUN sh /tmp/f3-patch-os.sh && rm /tmp/f3-patch-os.sh
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright PYTHONUNBUFFERED=1
+RUN pip install --no-cache-dir playwright==1.64.1 && python -m playwright install --with-deps chromium && apt-get update && apt-get install -y --no-install-recommends libnss3-tools && rm -rf /var/lib/apt/lists/* && groupadd -g 11005 browser && useradd -m -u 11005 -g 11005 browser
+COPY tests/phase3/integration/api/browser_app_only_pg_probe.py /opt/probe.py
+USER 11005:11005
+CMD ["python","/opt/probe.py"]

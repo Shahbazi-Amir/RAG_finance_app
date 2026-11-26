@@ -88,7 +88,18 @@
       "integrated_blob_sha": "c30b5bf4c58c79ff350b02924b814405d0b2db84",
       "decision": "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
       "selected_owner_blobs": [],
-      "owner_signed_acceptance": false
+      "owner_signed_acceptance": false,
+      "foundation_candidate_review": {
+        "canonical_ids": [
+          "P3M19-A02",
+          "P3M19-A04"
+        ],
+        "proposed_disposition": "KEEP_EXISTING_CANDIDATE",
+        "reason": "Existing workflow avoids historical C018 audit pins; no real Runner in app-only. Preserve; defer engine-specific workflow change.",
+        "reviewed_against": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+        "evidence_scope": "source comparison; source browser witness run 45545517771 before restore timeout; no owner approval",
+        "owner_signed_acceptance": false
+      }
     },
     {
       "path": ".github/workflows/ui-f3-post62-owner-fence.yml",
@@ -135,7 +146,20 @@
       "integrated_blob_sha": "a1d19754703ebe3704b0127e0274f09b214dd894",
       "decision": "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
       "selected_owner_blobs": [],
-      "owner_signed_acceptance": false
+      "owner_signed_acceptance": false,
+      "foundation_candidate_review": {
+        "canonical_ids": [
+          "P3M05-A03",
+          "P3M05-A07",
+          "P3M06-A03",
+          "P3M10-A05"
+        ],
+        "proposed_disposition": "KEEP_EXISTING_CANDIDATE",
+        "reason": "Older option removes private no-store middleware, peer checks and citation graph; retain security implementation, API owner review.",
+        "reviewed_against": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+        "evidence_scope": "source comparison; source browser witness run 45545517771 before restore timeout; no owner approval",
+        "owner_signed_acceptance": false
+      }
     },
     {
       "path": "apps/web/app/api/auth/logout/route.ts",
@@ -211,7 +235,18 @@
       "integrated_blob_sha": "f0837fc491dda654a3cfe58404275af1ea0e2b5f",
       "decision": "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
       "selected_owner_blobs": [],
-      "owner_signed_acceptance": false
+      "owner_signed_acceptance": false,
+      "foundation_candidate_review": {
+        "canonical_ids": [
+          "P3M14-A01",
+          "P3M15-A03"
+        ],
+        "proposed_disposition": "KEEP_EXISTING_CANDIDATE",
+        "reason": "Older DB branch has separate historical History component; retain single ProductChat; actual source journey exercises it.",
+        "reviewed_against": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+        "evidence_scope": "source comparison; source browser witness run 45545517771 before restore timeout; no owner approval",
+        "owner_signed_acceptance": false
+      }
     },
     {
       "path": "apps/web/app/layout.tsx",
@@ -226,7 +261,18 @@
       "integrated_blob_sha": "06e3b46a3fc33398a03b0ffb1bf069d24d686f51",
       "decision": "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
       "selected_owner_blobs": [],
-      "owner_signed_acceptance": false
+      "owner_signed_acceptance": false,
+      "foundation_candidate_review": {
+        "canonical_ids": [
+          "P3M14-A01",
+          "P3M14-A12"
+        ],
+        "proposed_disposition": "KEEP_EXISTING_CANDIDATE",
+        "reason": "Older layout labels app as artificial preview; keep actual product metadata.",
+        "reviewed_against": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+        "evidence_scope": "source comparison; source browser witness run 45545517771 before restore timeout; no owner approval",
+        "owner_signed_acceptance": false
+      }
     },
     {
       "path": "apps/web/app/login/route.ts",
@@ -258,7 +304,18 @@
       "integrated_blob_sha": "fd99583bc67fd886da575acec55108bb9538f8ba",
       "decision": "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
       "selected_owner_blobs": [],
-      "owner_signed_acceptance": false
+      "owner_signed_acceptance": false,
+      "foundation_candidate_review": {
+        "canonical_ids": [
+          "P3M14-A01",
+          "P3M20-A06"
+        ],
+        "proposed_disposition": "KEEP_EXISTING_CANDIDATE",
+        "reason": "Older root imports MockTransport; retain real ProductChat route, no fixture in acceptance.",
+        "reviewed_against": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+        "evidence_scope": "source comparison; source browser witness run 45545517771 before restore timeout; no owner approval",
+        "owner_signed_acceptance": false
+      }
     },
     {
       "path": "apps/web/README.md",
@@ -283,7 +340,18 @@
       "integrated_blob_sha": "bcd80728e2e1023b00dbf07008f48660db2f3a67",
       "decision": "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
       "selected_owner_blobs": [],
-      "owner_signed_acceptance": false
+      "owner_signed_acceptance": false,
+      "foundation_candidate_review": {
+        "canonical_ids": [
+          "P3M14-A05",
+          "P3M19-A10"
+        ],
+        "proposed_disposition": "KEEP_EXISTING_CANDIDATE",
+        "reason": "Older README options predate evidence notes; preserve cumulative instructions and distinguish preview from product.",
+        "reviewed_against": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+        "evidence_scope": "source comparison; source browser witness run 45545517771 before restore timeout; no owner approval",
+        "owner_signed_acceptance": false
+      }
     },
     {
       "path": "apps/web/src/history/client.ts",
@@ -298,7 +366,19 @@
       "integrated_blob_sha": "6e057e4d097dd76f36bc41843b17c63dfb96e313",
       "decision": "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
       "selected_owner_blobs": [],
-      "owner_signed_acceptance": false
+      "owner_signed_acceptance": false,
+      "foundation_candidate_review": {
+        "canonical_ids": [
+          "P3M13-A04",
+          "P3M14-A09",
+          "P3M15-A03"
+        ],
+        "proposed_disposition": "KEEP_EXISTING_CANDIDATE",
+        "reason": "Older client drops attempt identity/recovery and retrieval checks; preserve current consumer.",
+        "reviewed_against": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+        "evidence_scope": "source comparison; source browser witness run 45545517771 before restore timeout; no owner approval",
+        "owner_signed_acceptance": false
+      }
     },
     {
       "path": "apps/web/src/history/product-validation.ts",
@@ -531,7 +611,18 @@
       "integrated_blob_sha": "8e3eccd5fe8048585226818a8a998a08356b84e0",
       "decision": "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
       "selected_owner_blobs": [],
-      "owner_signed_acceptance": false
+      "owner_signed_acceptance": false,
+      "foundation_candidate_review": {
+        "canonical_ids": [
+          "P3M10-A05",
+          "P3M20-A07"
+        ],
+        "proposed_disposition": "KEEP_EXISTING_CANDIDATE",
+        "reason": "Older decisions omit provenance pre-release policy; keep cumulative decisions, no policy approval.",
+        "reviewed_against": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+        "evidence_scope": "source comparison; source browser witness run 45545517771 before restore timeout; no owner approval",
+        "owner_signed_acceptance": false
+      }
     },
     {
       "path": "coordination/phase3_checklist.md",
@@ -556,7 +647,18 @@
       "integrated_blob_sha": "ad05c08e3853b7c2f71f3e339deea762b46d5d2b",
       "decision": "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
       "selected_owner_blobs": [],
-      "owner_signed_acceptance": false
+      "owner_signed_acceptance": false,
+      "foundation_candidate_review": {
+        "canonical_ids": [
+          "P3M19-A10",
+          "P3M20-A06"
+        ],
+        "proposed_disposition": "KEEP_EXISTING_CANDIDATE",
+        "reason": "Older checklist omits 105 crosswalk correction and limited source evidence; preserve canonical ledger and no acceptance.",
+        "reviewed_against": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+        "evidence_scope": "source comparison; source browser witness run 45545517771 before restore timeout; no owner approval",
+        "owner_signed_acceptance": false
+      }
     },
     {
       "path": "coordination/tasks/AGENT-API-AUTH-BOUNDARY-01.md",
@@ -571,7 +673,19 @@
       "integrated_blob_sha": "2203444c27b1d2e88a33df38d3776c630cae9cf2",
       "decision": "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
       "selected_owner_blobs": [],
-      "owner_signed_acceptance": false
+      "owner_signed_acceptance": false,
+      "foundation_candidate_review": {
+        "canonical_ids": [
+          "P3M05-A03",
+          "P3M05-A07",
+          "P3M06-A03"
+        ],
+        "proposed_disposition": "KEEP_EXISTING_CANDIDATE",
+        "reason": "Older task ledger omits authenticated History/Logout contract and checkpoints; preserve cumulative API notes.",
+        "reviewed_against": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+        "evidence_scope": "source comparison; source browser witness run 45545517771 before restore timeout; no owner approval",
+        "owner_signed_acceptance": false
+      }
     },
     {
       "path": "coordination/tasks/AGENT-FOUNDATION-01.md",
@@ -586,7 +700,18 @@
       "integrated_blob_sha": "51e568acb7fca4222470e780aa5bd4b6b5437118",
       "decision": "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
       "selected_owner_blobs": [],
-      "owner_signed_acceptance": false
+      "owner_signed_acceptance": false,
+      "foundation_candidate_review": {
+        "canonical_ids": [
+          "P3M19-A02",
+          "P3M19-A10"
+        ],
+        "proposed_disposition": "KEEP_EXISTING_CANDIDATE",
+        "reason": "Older task ledger omits Foundation reconciliation evidence; preserve checkpoint history.",
+        "reviewed_against": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+        "evidence_scope": "source comparison; source browser witness run 45545517771 before restore timeout; no owner approval",
+        "owner_signed_acceptance": false
+      }
     },
     {
       "path": "coordination/tasks/AGENT-UI-01.md",
@@ -601,7 +726,18 @@
       "integrated_blob_sha": "033efae463b04abbfc23bef5975c071f034f7db6",
       "decision": "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
       "selected_owner_blobs": [],
-      "owner_signed_acceptance": false
+      "owner_signed_acceptance": false,
+      "foundation_candidate_review": {
+        "canonical_ids": [
+          "P3M14-A01",
+          "P3M05-A04"
+        ],
+        "proposed_disposition": "KEEP_EXISTING_CANDIDATE",
+        "reason": "Older UI ledger omits login/Bootstrap checkpoint; retain cumulative records.",
+        "reviewed_against": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+        "evidence_scope": "source comparison; source browser witness run 45545517771 before restore timeout; no owner approval",
+        "owner_signed_acceptance": false
+      }
     },
     {
       "path": "infra/postgres/dev_f3_isolated/contracts/DBF3_EXACT_PINS_SCRIPT11_PREREQUISITES_20261123.md",
@@ -823,7 +959,18 @@
       "integrated_blob_sha": "4fda0ddb066f4318b238c4c5c0f3323bf7bb343e",
       "decision": "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
       "selected_owner_blobs": [],
-      "owner_signed_acceptance": false
+      "owner_signed_acceptance": false,
+      "foundation_candidate_review": {
+        "canonical_ids": [
+          "P3M07-A05",
+          "P3M10-A05"
+        ],
+        "proposed_disposition": "KEEP_EXISTING_CANDIDATE",
+        "reason": "Older runtime drops duplicate-chunk rejection; preserve, engine execution remains prohibited.",
+        "reviewed_against": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+        "evidence_scope": "source comparison; source browser witness run 45545517771 before restore timeout; no owner approval",
+        "owner_signed_acceptance": false
+      }
     },
     {
       "path": "src/phase3/storage/postgres/repository.py",
@@ -870,7 +1017,18 @@
       "integrated_blob_sha": "4efdb55056cc232095f38f11de8e410370045e3f",
       "decision": "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
       "selected_owner_blobs": [],
-      "owner_signed_acceptance": false
+      "owner_signed_acceptance": false,
+      "foundation_candidate_review": {
+        "canonical_ids": [
+          "P3M10-A05",
+          "P3M19-A04"
+        ],
+        "proposed_disposition": "KEEP_EXISTING_CANDIDATE",
+        "reason": "Older test drops duplicate-ranked chunk denial; preserve negative test.",
+        "reviewed_against": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+        "evidence_scope": "source comparison; source browser witness run 45545517771 before restore timeout; no owner approval",
+        "owner_signed_acceptance": false
+      }
     },
     {
       "path": "tests/phase3/integration/api/test_product_session_011.py",
@@ -997,7 +1155,18 @@
       "integrated_blob_sha": "f0e1a8aaa0790d5680be82abdebcb425dc666c87",
       "decision": "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
       "selected_owner_blobs": [],
-      "owner_signed_acceptance": false
+      "owner_signed_acceptance": false,
+      "foundation_candidate_review": {
+        "canonical_ids": [
+          "P3M14-A05",
+          "P3M19-A04"
+        ],
+        "proposed_disposition": "KEEP_EXISTING_CANDIDATE",
+        "reason": "Older test expects unresolved citation live Answer accepted; preserve stricter negative and valid positive case.",
+        "reviewed_against": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+        "evidence_scope": "source comparison; source browser witness run 45545517771 before restore timeout; no owner approval",
+        "owner_signed_acceptance": false
+      }
     },
     {
       "path": "tests/phase3/ui/README.md",
@@ -1012,7 +1181,18 @@
       "integrated_blob_sha": "ca2cae029e0832edaa8165f96173bc32165863a5",
       "decision": "FOUNDATION_BASELINE_RETAINED_REQUIRES_OWNER_REVIEW",
       "selected_owner_blobs": [],
-      "owner_signed_acceptance": false
+      "owner_signed_acceptance": false,
+      "foundation_candidate_review": {
+        "canonical_ids": [
+          "P3M14-A09",
+          "P3M19-A10"
+        ],
+        "proposed_disposition": "KEEP_EXISTING_CANDIDATE",
+        "reason": "Older UI test README drops product Attempt recovery and L1/L2 scope; retain instructions.",
+        "reviewed_against": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+        "evidence_scope": "source comparison; source browser witness run 45545517771 before restore timeout; no owner approval",
+        "owner_signed_acceptance": false
+      }
     },
     {
       "path": "tests/phase3/ui/runtime-capability.test.mjs",
@@ -1031,5 +1211,12 @@
       ],
       "owner_signed_acceptance": false
     }
-  ]
+  ],
+  "candidate_review": {
+    "reviewed_paths": 16,
+    "proposed_keep": 16,
+    "owner_signed": 0,
+    "base": "0fd1066945ef91a3913e040ab4c350bb645ea502",
+    "note": "Original 58-path snapshot and decision counts unchanged; no source blobs overwritten. Non-security historical options retained as archive; owner review and final integrated behavioral evidence remain open."
+  }
 }

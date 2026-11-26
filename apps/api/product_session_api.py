@@ -11,6 +11,8 @@ import json
 import os
 import re
 import sqlite3
+import time
+import threading
 from pathlib import Path
 
 import psycopg
@@ -197,20 +199,51 @@ _HISTORY_ERRORS = (PreflightDenied, sqlite3.Error,
                    psycopg.Error, RuntimeError, OSError, TypeError)
 
 
+_HISTORY_EVENT_LOCK = threading.Lock()
+
+
 def _signed_read(request, path, action, *, coherent_read=False):
+    # Bounded correlation for ordinary signed History/status reads only.
+    # No actor, header, URL, body or exception details enter this event.
+    route = ("list" if path == _HISTORY_PATH else
+             "status" if path == _STATUS_PATH else
+             "detail" if path.startswith(_HISTORY_PATH + b"/") and path.endswith(b"/messages") else None)
+    started = time.monotonic_ns()
+    correlation = {}
+    def observe(ctx):
+        if route is not None:
+            correlation.update(request_id=ctx["request_id"], trace_id=ctx["trace_id"])
+        return action(ctx)
     try:
-        _, response = _signed_history(request, b"", path, action,
+        _, response = _signed_history(request, b"", path, observe,
                                       coherent_read=coherent_read)
     except _HISTORY_ERRORS as exc:
         response = _history_error(exc)
+        if route is not None:
+            doc = json.loads(response.body)
+            correlation = {k: doc[k] for k in ("request_id", "trace_id")}
     response.headers["Cache-Control"] = "no-store"
+    if route is not None:
+        assert all(isinstance(correlation.get(k), str) and
+                   re.fullmatch(r"[0-9a-f]{32}", correlation[k])
+                   for k in ("request_id", "trace_id"))
+        response.headers["X-Request-ID"] = correlation["request_id"]
+        response.headers["X-Trace-ID"] = correlation["trace_id"]
+        event = dict(event="signed_history_read", route=route,
+                     status=response.status_code,
+                     elapsed_ms=(time.monotonic_ns()-started)//1_000_000,
+                     **correlation)
+        # A complete structured line is one write, serialized among all
+        # signed History reader threads. Never expose actor or raw request.
+        with _HISTORY_EVENT_LOCK:
+            print("F3_HISTORY_EVENT " + json.dumps(event, sort_keys=True), flush=True)
     return response
 
 
 @app.get("/v1/conversations")
 def session_conversations(request: Request):
     return _signed_read(request, _HISTORY_PATH,
-                        lambda ctx: history.conversations(request, ctx))
+                        lambda ctx: history.conversations(request, ctx), coherent_read=True)
 
 
 @app.get("/v1/conversations/{conversation_id}/messages")

@@ -1,0 +1,15 @@
+{
+  "contract_version": "api.private_app_only_asgi.v1",
+  "listen_host": "0.0.0.0",
+  "listen_port": 8443,
+  "server_tls_cert_file": "/run/secrets/api-server.crt",
+  "server_tls_key_file": "/run/secrets/api-server.key",
+  "trusted_bff_ca_file": "/run/secrets/bff-client-ca.crt",
+  "bff_leaf_cert_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "bff_issuer": "urn:rag-finance:bff",
+  "bff_audience": "urn:rag-finance:api",
+  "bff_kid": "CHANGE_TO_APPROVED_KEY_ID",
+  "bff_rs256_public_key_file": "/run/secrets/bff-rs256-public.pem",
+  "history_dsn": "host=postgres.internal port=5432 dbname=rag_stage user=history_app sslmode=verify-full sslrootcert=/run/secrets/postgres-ca.crt",
+  "revoke_dsn": "host=postgres.internal port=5432 dbname=rag_stage user=auth_revoker sslmode=verify-full sslrootcert=/run/secrets/postgres-ca.crt"
+}

@@ -1,0 +1,60 @@
+name: Foundation PR84 signed listener transfer
+on:
+  push:
+    branches: [integration/f3-pr84-foundation-signed-history-20261125]
+  pull_request:
+    branches: [integration/f3-app-only-four-pr-candidate-20261124]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  signed-listener-boundary:
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.ref == 'integration/f3-pr84-foundation-signed-history-20261125' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact six transferred blobs
+        run: |
+          set -euo pipefail
+          test "$(git hash-object apps/api/private_app_only_asgi.py)" = "f69e8938c4c11969e1c9707fe827739eee631f5b"
+          test "$(git hash-object apps/api/app_only_socket_probe.py)" = "36c5e45d79547d1cfc27ff97862b339adcc7c854"
+          test "$(git hash-object tests/phase3/api/test_app_only_no_engine.py)" = "d665f3a4e489ec5906da683ef7624422a5280eb9"
+          test "$(git hash-object tests/phase3/integration/api/test_app_only_mtls_network.py)" = "3d9e3c2b3b241d88326578feabda55387c94571f"
+          test "$(git hash-object infra/phase3_l1/app-only.config.example.json)" = "1a40cfc81f53805f4ba1720d01de4c22813b8f86"
+          test "$(git hash-object infra/phase3_l1/Dockerfile.api.signed)" = "5ac06a6fe225f578bcdecc63e2cdff8c5c4b80c6"
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - name: Install exact API dependencies only
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r locks/requirements-api.lock
+          python -m pip check
+      - name: Source and transport regression (DB check mocked, not joint journey)
+        run: |
+          python -m compileall -q apps/api src/phase3
+          python -m unittest discover -s tests/phase3/api -p 'test_app_only_no_engine.py' -v
+          python -m unittest discover -s tests/phase3/api -p 'test_staging_private_asgi.py' -v
+          python -m unittest discover -s tests/phase3/api -p 'test_app_only_privacy_contract_boundary.py' -v
+          python -m unittest discover -s tests/phase3/integration/api -p 'test_app_only_mtls_network.py' -v
+      - name: Build opt-in signed API image and verify unconfigured denial
+        run: |
+          set -euo pipefail
+          docker build --platform linux/amd64 -f infra/phase3_l1/Dockerfile.api.signed --build-arg BASE=docker.io/library/python:3.13.5 --build-arg "SOURCE_SHA=$(git rev-parse HEAD)" -t "f3-signed:$(git rev-parse HEAD)" .
+          test "$(docker image inspect -f '{{.Config.User}}' "f3-signed:$(git rev-parse HEAD)")" = "11001:11001"
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "f3-signed:$(git rev-parse HEAD)")" = "$(git rev-parse HEAD)"
+          set +e
+          docker run --rm --network none "f3-signed:$(git rev-parse HEAD)" > /tmp/f3-signed.stdout 2> /tmp/f3-signed.stderr
+          rc=$?
+          set -e
+          test "$rc" = 78
+          grep -Fx APP_ONLY_STARTUP_DENIED /tmp/f3-signed.stderr
+          echo "SIGNED_IMAGE_LOCAL_ID=$(docker image inspect -f '{{.Id}}' "f3-signed:$(git rev-parse HEAD)")"
+      - name: Evidence scope
+        if: always()
+        run: |
+          echo "SOURCE_SHA=$(git rev-parse HEAD)"
+          echo 'Transport regression only; Browser/OIDC/SQL/Restore joint journey NOT RUN by this job.'

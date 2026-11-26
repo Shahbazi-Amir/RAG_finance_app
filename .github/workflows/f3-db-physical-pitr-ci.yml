@@ -1,0 +1,65 @@
+name: F3 DB physical WAL timestamp PITR (disposable only)
+on:
+  push:
+    branches: [integration/f3-pr84-foundation-signed-history-20261125]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+jobs:
+  real-pg17-pitr:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify isolated source and exact pinned migrations
+        run: |
+          set -euo pipefail
+          bash -n infra/postgres/dev_f3_isolated/scripts/29_physical_pitr_ci.sh
+          bash infra/postgres/dev_f3_isolated/tests/run_static.sh
+          test ! -f infra/postgres/migrations/011_product_answer_claims.up.sql
+          echo "DB_PITR_EXACT_SHA=$(git rev-parse HEAD)"
+      - name: Real PostgreSQL 17.11 physical basebackup WAL replay and timestamp recovery
+        run: |
+          set -euo pipefail
+          cd infra/postgres/dev_f3_isolated
+          export SOURCE_REPO="$GITHUB_WORKSPACE"
+          export LAB_ROOT="$RUNNER_TEMP/f3-db-pitr-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          image='docker.io/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a'
+          docker pull --platform linux/amd64 "$image"
+          test "$(docker image inspect -f '{{.Os}}/{{.Architecture}}' "$image")" = linux/amd64
+          docker image inspect -f '{{range .RepoDigests}}{{println .}}{{end}}' "$image" | grep -E '^((docker.io/)?library/)?postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a$'
+          echo DB_COMMON_PG_IMMUTABLE_MIRROR_DIGEST_VERIFIED=PASS
+          bash scripts/00_prepare_source.sh
+          bash scripts/01_create_isolated_lab.sh
+          bash scripts/02_provision_roles.sh
+          bash scripts/03_apply_pinned_001_010.sh
+          bash scripts/04_bridge_and_db55.sh
+          bash scripts/05_test_roles_tls_rls.sh
+          bash scripts/29_physical_pitr_ci.sh
+      - name: Verify exact source sanitized receipt
+        run: |
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          r=json.loads(Path("ci_receipts/f3_db_physical_pitr.json").read_text())
+          assert r["source_sha"]==subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
+          for k in ("basebackup_manifest_verified","wal_after_basebackup_replayed","later_commit_excluded","same_physical_system_identifier","new_volume_promoted_timeline","ledger_exact","history_exact","restricted_set_role_rls","a_revoked_at_target","b_post_target_revocation_absent"):
+              assert r[k] is True,k
+          assert r["network"]=="NONE" and r["stale_session_admission"] is False
+          for k in ("detached_backup_volume_verified","source_stopped_before_recovery","source_volume_not_mounted_on_target","tampered_base_rejected","missing_post_base_wal_rejected_no_promotion","original_detached_backup_verified_after_faults"):
+              assert r[k] is True,k
+          assert r["operational_rpo_rto"]=="NOT_ATTESTED"
+          assert r["accepted"] is False and r["engine_calls"]==0 and r["sql_011"] is False
+          print("DB_PITR_EXACT_SHA_SANITIZED_RECEIPT=PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f3-db-physical-pitr-ci
+          path: ci_receipts/f3_db_physical_pitr.json
+          if-no-files-found: error
+          retention-days: 14

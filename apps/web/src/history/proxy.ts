@@ -103,7 +103,7 @@ export async function forwardHistoryProxy(request:Request,path:string[]):Promise
       if(actual.status===401&&handle)await revokeAlias(handle);
       return new Response(actual.body,{
         status:actual.status,
-        headers:{...noStore,'Content-Type':'application/json; charset=utf-8'},
+        headers:{...noStore,'Content-Type':'application/json; charset=utf-8',...actual.correlation},
       });
     }catch{
       return Response.json({error:'SIGNED_PRODUCT_API_UNAVAILABLE'},

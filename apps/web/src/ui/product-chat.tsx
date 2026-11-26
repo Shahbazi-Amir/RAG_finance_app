@@ -491,7 +491,7 @@ export default function ProductChat(){
         <strong>راگ مالی</strong></div>
       <div className="history-actions">
         <button type="button" className="nav-new-chat" onClick={newConversation}
-          data-testid="create-conversation" disabled={!verifiedPage||!canSend}>
+          data-testid="create-conversation" aria-describedby="product-runtime-capability" disabled={!verifiedPage||!canSend}>
           گفت‌وگوی تازه
         </button>
         <span className="history-note">گفت‌وگو با ثبت اولین پرسش در سرور ایجاد می‌شود.</span>
@@ -545,7 +545,7 @@ export default function ProductChat(){
           شواهد بازیابی فنی به‌تنهایی پاسخ یا توصیهٔ مالی تأییدشده نیستند.
           در این نسخه تولید پاسخ و پیوند استناد از مشاهدات بازیابی فعال نیست.
         </p>
-        <p role="status" className="history-note" data-testid="app-runtime-capability">
+        <p id="product-runtime-capability" role="status" className="history-note" data-testid="app-runtime-capability">
           {capabilityState==='loading'
             ?'در حال بررسی قابلیت اجرای پرسش از سرور…'
             :capabilityState==='unavailable'
@@ -565,9 +565,11 @@ export default function ProductChat(){
         اتصال برای تأیید مالک و نشست برقرار نیست؛ پیام‌های قبلی موقتاً پنهان
         و ارسال پرسش تا بازخوانی موفق غیرفعال است.
       </p>}
-      <div className="history-messages" aria-live="polite">
+      <div className="history-messages" role="log" aria-label="پیام‌های گفت‌وگوی انتخاب‌شده" aria-live="polite">
         {!messagesFor&&!selectedAttempts.length&&listState!=='unauthorized'&&
-          <p className="history-empty">پرسشتان را بنویسید یا گفت‌وگویی از فهرست باز کنید.</p>}
+          <p className="history-empty">{canSend
+            ?'پرسشتان را بنویسید یا گفت‌وگویی از فهرست باز کنید.'
+            :'برای مشاهدهٔ پیام‌ها گفت‌وگویی از فهرست باز کنید؛ ارسال پرسش غیرفعال است.'}</p>}
         {(messagesFor?.items??[]).map(m=><article key={m.id}
           data-testid={'history-message-'+m.id}
           className={m.role==='user'?'history-user':'history-answer'}>
@@ -611,6 +613,7 @@ export default function ProductChat(){
           </button>}
         </article>)}
         {messagesFor?.more&&<button type="button" className="secondary"
+          data-testid="more-messages"
           onClick={()=>void loadThread(selected,true,messagesFor.next)}>
           پیام‌های بیشتر
         </button>}
@@ -619,10 +622,12 @@ export default function ProductChat(){
         <label htmlFor="product-question" className="sr-only">پرسش فارسی</label>
         <div className="composer">
           <textarea id="product-question" rows={2} data-testid="history-question"
+            aria-describedby="product-runtime-capability"
             value={drafts[selected]??''} disabled={busy||!verifiedPage||!canSend}
             onChange={e=>setDrafts(all=>({...all,[selected]:e.target.value}))}
             placeholder="سؤال خود را به فارسی بنویسید…"/>
           <button type="submit" className="primary" data-testid="history-send"
+            aria-describedby="product-runtime-capability"
             disabled={busy||!verifiedPage||!canSend||!(drafts[selected]??'').trim()}>ارسال پرسش</button>
         </div>
         <p className="under-composer">
