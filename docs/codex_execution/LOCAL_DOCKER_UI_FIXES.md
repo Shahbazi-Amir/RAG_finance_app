@@ -24,3 +24,9 @@
 - UI-03/UI-05/UI-06, Module 14 and 15. The saved card is now read through a signed owner-scoped History projection keyed to Message, Attempt and Trace. Existing client-only correlators no longer determine whether a saved response is visible. Both legacy flower and financial answers survived refresh and sign-in in Chrome.
 - UI-10/UI-11, Module 14 and P3M10. The synthetic profile labels stored Generation and its initial latency, shows a persisted failure when applicable and stops new submissions after the package cap. The signed API also refuses before T1/T2. No Gateway request was made in the regression checks.
 - Local paths: `apps/api/product_session_api.py`, `apps/web/src/history/client.ts`, `apps/web/src/ui/product-chat.tsx`, and the dedicated Chrome scripts under `infra/nb23-v4/`. For a future specialist handoff, move only the owner-bound read projection or UX change after API/UI review. Keep the synthetic cap policy and temporary test profile local. [Evidence](MAC_FIRST_START_FA.md).
+
+### Checkpoint 43 — real retrieval and disabled Generation boundary
+
+- P3M14-A09/A11 and P3M15-A07. The local real-context Web profile displays the blocked external Generation state under the matching historical Message and accepts the measured real Worker duration. It retains archived synthetic results independently of the real retrieval state.
+- Paths: `apps/web/src/history/client.ts`, `apps/web/src/ui/product-chat.tsx` and the signed projection in `apps/api/product_session_api.py`. Offline Next/TypeScript and signed BFF-to-Worker-to-History tests passed for the completed real Attempt. Two earlier timeouts were left UNKNOWN.
+- A specialist handoff should review the reusable owner/Trace projection and accessible status copy. The 600-second diagnostic deadline and archive-only provider mode remain local. [Evidence](MAC_FIRST_START_FA.md).

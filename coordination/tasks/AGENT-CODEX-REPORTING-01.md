@@ -506,3 +506,8 @@ READY FOR HUMAN LIVE GENERATION TEST — SYNTHETIC CONTEXT ONLY. ماندگار�
 ### NB23-SESSION-RESUME-42
 
 پروفایل Worker واقعی و محصور روی پشته پایدار فعال شد. دو سؤال بدون Gateway پذیرفته شدند اما به مهلت محلی رسیدند. بستهٔ ۳/۳ ثابت و CP41 معتبر است. آزمون تشخیصی یک سؤال تازه در جریان است. P3M10، P3M13، P3M14-A03/A09 و P3M15-A01/A07. [نسخه مبنا، مسیرهای تغییر، فرمان آزمون و نتیجه به‌همراه اقدام بعدی](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+
+### NB23-SESSION-RESUME-43
+
+REAL RAG INTEGRATION VALIDATED — EXTERNAL EGRESS BLOCKED. یک آزمون واقعی کامل با ۱۰ شاهد و receipt ماندگار موفق شد. دو UNKNOWN قبل تکرار نشدند. بسته Gateway روی ۳/۳ ثابت است. P3M10، P3M13، P3M14-A03/A09 و P3M15-A01/A07. [نسخه مبنا، مسیرهای تغییر، فرمان آزمون و نتیجه به‌همراه اقدام بعدی](../../docs/codex_execution/MAC_FIRST_START_FA.md).

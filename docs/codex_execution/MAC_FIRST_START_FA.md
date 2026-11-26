@@ -1112,3 +1112,16 @@ Build آفلاین Next/TypeScript موفق بود. ایمیج مشتق `rag-fin
 آزمون تازه `python3 -m unittest -v infra.nb23-v4.test_session_generation_bridge.BridgeTests.test_real_boundary_preserves_only_owner_bound_blocked_receipt` در کانتینر بدون شبکه موفق بود. فراخوانی یکتای Worker، عدم استفاده از Provider، رد owner و Trace ناسازگار و عدم وجود متن Context در SQLite بررسی شد. `git diff --check` موفق بود. `LC_ALL=C shasum -c SHA256SUMS` برای بسته CP41 و Backup خصوصی، هر هشت فایل را بدون Restore تأیید کرد. Restore کامل انجام نشد. `infra/nb23-v4/REAL_RAG_GENERATION_HANDOFF.md` overlay، توپولوژی واقعی و مسیر برگشت CP41 را ثبت می‌کند.
 
 برای فعال‌سازی پاسخ با منابع اصلی، مجوز مستقل ارسال منابع مشخص و سؤال به مقصد Gateway لازم است. سیاست مجوز منبع/Locator، کنترل انتساب شاهد و اعتبارسنجی ساختاری و معنایی پاسخ واقعی روی همان Context قبل از نمایش بازند. هیچ پاسخ DeepSeek تازه، Mock جایگزین یا انتشار Context واقعی انجام نشد. Golden، Freeze و پذیرش رسمی فاز سوم مستقل باقی ماندند.
+
+
+### NB23-SESSION-RESUME-43
+
+مبنای گزارش 922d8b9، اجرای ops/nb23-v4-staging روی af57f26 با WIP محفوظ و Worker پین‌شده f49f536f4d82 است. P3M10 (Attempt و منع Replay)، P3M13 (مرز API)، P3M14-A09/A11 و P3M15-A07 (وضعیت و مالکیت). هیچ API خارجی یا آزمون موفق ساختگی تکرار نشد.
+
+برای تشخیص پایان مهلت‌های ۱۸۰ و ۳۶۰ ثانیه، `infra/nb23-v4/worker.py` فقط نام ثابت مرحله و زمان نسبی را در /tmp همان کانتینر ثبت می‌کند. Engine و کد و مدل ONNX تغییر نکردند. `infra/nb23-v4/session_product_api.py` مهلت Unix socket را در پروفایل واقعی به ۶۰۰ ثانیه محدود کرد. `apps/web/src/history/client.ts` همین حد را برای زمان واقعی می‌پذیرد. BFF با `docker build --network none --pull=false` و Next/TypeScript موفق ساخته شد. شناسه فعال Web f113f65b9cb04e48278cc697dc5be15f66a4e7390c440cdb78601d9c15632fd5 است. `REAL_RAG_GENERATION_HANDOFF.md` نسخه و راه بازگشت را ثبت کرده است.
+
+`python3 -u -B infra/nb23-v4/check_real_context_product.py <private-material>` با Keycloak و BFF واقعی به همان حساب وارد شد، بقای دو پاسخ CP41 را تأیید کرد و هر دو سؤال با Attempt نامعلوم قبلی را بدون Send مجدد رد کرد. فقط یک سؤال عمومی تازه پذیرفته شد. مرحله کنترل مدل محلی در ۱۰٫۶۸۵، Embedding در ۳۷٫۱۲۲، Dense در ۴۰٫۸۱۹، Hybrid در ۸۰٫۶۶۳ و شروع Rerank در ۸۳٫۶۲۵ ثانیه ثبت شد. هیچ متن سؤال، Locator یا Context از ثبت تشخیصی منتشر نشد.
+
+آزمون با REAL_CONTEXT_BOUNDARY_OK case=3 و خروجی صفر پایان یافت. شروع Context Builder در ۵۸۵٫۷۶۹ ثانیه ثبت شد و مرحله Rerank حدود ۵۰۲٫۱۴۴ ثانیه طول کشید. Worker در ۵۸۸٫۲۹۴ ثانیه ۱۰ شاهد و پاکت Context معتبر همان پرسش را تحویل داد. زمان Send تا شاهد تعیین‌وضعیت ۵۹۴٫۳۳۲ ثانیه بود. تطبیق digest سؤال/Context و مالک/Attempt/Trace از transport خصوصی لازم بود. History همان Message/Attempt/Trace را با EGRESS_BLOCKED در GET اولیه و تکراری نشان داد. generation_calls صفر و answer تهی بودند. ۳ گفت‌وگوی آزمون ۳ عنوان داشتند. دو سؤال اول در UNKNOWN باقی ماندند. هیچ سناریوی Chrome جدید برای CP43 اجرا نشد؛ شاهد یکپارچه این نوبت از TLS و BFF امضاشده است.
+
+مشخصات شبکه بدون تغییر است: API فقط شبکه internal، Worker بدون شبکه، بدون کلید Gateway و Provider Volume فقط‌خواندنی. CP41 و Backup خصوصی حفظ شدند، Restore کامل انجام نشد. بسته تاریخی ۳/۳ باقی ماند. نسخه‌های A و B، CP30، مخزن فاز دوم و جریان‌های موازی دست نخورده‌اند. این گزارش پذیرش Golden، Freeze یا Gate رسمی فاز سوم را تغییر نمی‌دهد.
