@@ -12,7 +12,7 @@ scanner=aquasec/trivy:0.67.2
 
 # Immutable image IDs and registry digests observed locally, not release pins.
 idp=quay.io/keycloak/keycloak@sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3
-pg=public.ecr.aws/docker/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a
+pg=docker.io/library/postgres@sha256:73bedc9eaa0121b92b9b26bb52e5141b3f6f37479c7ef913c0160455763ca80a
 api="f3-browser-api:$sha"
 web="f3-browser-web:$sha"
 browser="f3-browser-probe:$sha"
