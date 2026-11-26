@@ -613,6 +613,7 @@ export default function ProductChat(){
           </button>}
         </article>)}
         {messagesFor?.more&&<button type="button" className="secondary"
+          data-testid="more-messages"
           onClick={()=>void loadThread(selected,true,messagesFor.next)}>
           پیام‌های بیشتر
         </button>}

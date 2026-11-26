@@ -58,6 +58,20 @@ function list(v:unknown):Wire[]{
 function unique(values:string[]):void{
   if(new Set(values).size!==values.length)invalid();
 }
+function timestampMicros(value:string):number{
+  // PostgreSQL timestamps have microsecond precision. Date.parse() truncates
+  // fractional seconds to milliseconds, which silently destroys the actual
+  // SQL (created_at,id) sort order for rapid consecutive History messages.
+  // This is critical for cursor pages of 31+ messages and real owner reads.
+  const millis=Date.parse(value);
+  const fractional=/\.(\d+)(?:Z|[+-]\d\d:\d\d)$/i.exec(value)?.[1]??'';
+  if(!Number.isFinite(millis)||
+     (fractional.length>6&&/[1-9]/.test(fractional.slice(6))))invalid();
+  const submillis=Number(fractional.padEnd(6,'0').slice(3,6));
+  const micros=millis*1000+submillis;
+  if(!Number.isSafeInteger(micros))invalid();
+  return micros;
+}
 function pagination(o:Wire,requestedLimit:number,numberOfItems:number):{next:string|null;more:boolean}{
   const p=object(o.page);
   if(p.limit!==requestedLimit||numberOfItems>requestedLimit)invalid();
@@ -135,7 +149,7 @@ export async function conversations(limit=2,cursor:string|null=null):Promise<His
   });
   unique(seen);
   // Cross-document pagination semantics: owner, size, newest-first ordering.
-  const order=raw.map(v=>[Date.parse(text(v.created_at)),text(v.conversation_id)] as const);
+  const order=raw.map(v=>[timestampMicros(text(v.created_at)),text(v.conversation_id)] as const);
   for(let i=1;i<order.length;i++)
     if(order[i-1][0]<order[i][0]||
        (order[i-1][0]===order[i][0]&&order[i-1][1]<order[i][1]))invalid();
@@ -156,7 +170,7 @@ export async function messages(conversationId:string,limit=2,cursor:string|null=
       text:text(m.text),answerId:maybeText(m.answer_id)};
   });
   unique(items.map(x=>x.id));
-  const order=raw.map(v=>[Date.parse(text(v.created_at)),text(v.message_id)] as const);
+  const order=raw.map(v=>[timestampMicros(text(v.created_at)),text(v.message_id)] as const);
   for(let i=1;i<order.length;i++)
     if(order[i-1][0]>order[i][0]||
        (order[i-1][0]===order[i][0]&&order[i-1][1]>order[i][1]))invalid();
