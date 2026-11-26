@@ -521,3 +521,8 @@ REAL RAG INTEGRATION PRESERVED. OWNER BROWSER READY. PERFORMANCE DIAGNOSTICS DOC
 ### NB23-SESSION-RESUME-45
 
 اصلاحات محلی Chat و History، Cache و حافظه محدود؛ Worker جاری آماده نیست P3M10، P3M13، P3M14-A03/A09 و P3M15-A01/A07. [نسخه مبنا، مسیرهای تغییر، فرمان آزمون و نتیجه به‌همراه اقدام بعدی](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+
+### NB23-SESSION-RESUME-46
+
+تشخیص timeout پیش از ready و احیای ورود، آزمون آفلاین انتساب P3M10، P3M13، P3M14-A03/A09 و P3M15-A01/A07. [نسخه مبنا، مسیرهای تغییر، فرمان آزمون و نتیجه به‌همراه اقدام بعدی](../../docs/codex_execution/MAC_FIRST_START_FA.md).

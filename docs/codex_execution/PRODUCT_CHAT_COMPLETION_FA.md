@@ -70,3 +70,22 @@ Adapter HTTPS موجود و پرامپت پین‌شده NB22E حفظ شدند. 
 ## بازیابی و وضعیت
 
 CP45 snapshot، image IDs و Backup خوانا محلی‌اند. Cache پس از restart خالی می‌شود. داده‌های اصلی با CP43/CP41 و pg_dump جدید قابل طرح برای بازیابی‌اند. Restore کامل و بازیابی Keycloak در پشته مستقل در این نوبت اجرا نشدند. جزئیات دقیق فرمان‌ها، شمار آزمون و وضعیت نهایی در گزارش تجمعی CP45 ثبت می‌شوند.
+
+## CP46 — تشخیص startup، اعتبارسنجی انتساب و آزمون هدفمند باقی‌مانده
+
+| مسیر | شواهد | اقدام / محدودیت |
+| --- | --- | --- |
+| Worker واقعی | سوکت listen روی Volume مشترک، مالک 11001 و mode 0700. API بعد از بالا آمدن، child واقعی پدید آورد. در ۱۷۱ ثانیه، child حدود ۱۶۷ ثانیه CPU گرفته و ۱۷۷٫۶ MB خواندن منطقی ثبت کرده بود. در نمونه‌ای `read_bytes=0` و RSS حدود ۳۵۳ MiB بود. پایان handshake دوباره Timeout شد. | مانع مشاهده‌شده تکمیل نشدن initialization تا پیام ready است. علت دقیق کندی داخل startup معلوم نیست. هیچ inference یا تلاش دوم این نوبت اجرا نشد. |
+| منابع | میزبان x86_64، ایمیج linux/amd64 و Docker x86_64. Docker چهار vCPU و ۵٫۷۸۵ GiB حافظه، Worker سقف ۴ GiB و بدون CPU quota. شمارنده OOM و throttling صفر. Swap میزبان ۶۵۴۳٫۵ MiB؛ I/O disk0 در دو نمونه ۱۸٫۶ و ۲۴٫۹ MB/s. فشار I/O در نمونه‌های آغازین پایین و در یک نمونه کوتاه بالاتر بود. | شواهد CPU فعال و بعضی نوسان‌های I/O را نشان می‌دهند. Swap، دیسک، ORT و مراحل import به‌تنهایی علت قطعی شناخته نشدند. عملکرد موفق قبلی CP43 ثابت است و زمان Cache Miss جدید اندازه‌گیری نشد. |
+| تشخیص انتقال | `src/phase3/rag_runtime/persistent_v4_pipe.py` و `infra/nb23-v4/session_product_api.py` برای بودجه موجود startup دو کد ثابت ثبت می‌کنند: `V4_CONNECT_DEADLINE` و `V4_READY_FRAME_DEADLINE`. | مهلت افزایش نیافت. تست سوکت موقت تمایز را پوشش داد. اجرای پایش‌شده از کد پیش از این اصلاح شروع شده بود. برای فعال‌سازی کد تشخیصی در چرخه مجاز بعدی، API و وابسته‌های شبکه را با هم راه‌اندازی کنید. |
+| Cache و حافظه | `infra/nb23-v4/check_real_chat_cache.py` برای حساب آزمایشی موجود، یک سؤال، یک Attempt تازه برای همان سؤال، و یک پیگیری در گفت‌وگوی اول را بررسی می‌کند. | از CP45 عیناً استفاده می‌کند. دو Miss حداکثری، رسید Hit مستقل، زمان Worker منشأ، متن اصلی سؤال پیگیری در History و صفر Generation. تا احراز WORKER_READY اجرا نشود. |
+| اعتبارسنجی پاسخ | `infra/nb23-v4/local_answer_validation.py` برای کاندید ساختاریافته، تطبیق دقیق شاهد با شناسه تأمین‌شده از سمت سرور و متن معتبر را بررسی می‌کند. ورودی دارای شناسه ناشناخته، نقل‌قول جعلی یا شناسه مبهم رد می‌شود؛ طول و تعداد ارجاع محدودند. | سه تست fixture گذشتند. رسید، ارزیابی معنایی PENDING و grounded=false دارد. قالب خروجی موجود NB22E تغییر نکرده و مسیر پاسخ واقعی این اعتبارسنج را فراخوانی نمی‌کند. اتصال صنعتی به نگاشت شاهد معتبر و سیاست معنایی و خروج داده وابسته است. |
+| Answer Cache و Semantic Cache | پذیرش ساختاری یا انطباق نقل‌قول به‌تنهایی اجازه ثبت در Answer Cache نمی‌دهد. Semantic Cache همچنان تشخیصی و خارج از سرویس است. | Cache پاسخ عملیاتی همچنان بسته است. کلیدها و شرایط CP45 حفظ شدند. هیچ History یا Context واقعی به بیرون ارسال نشد. |
+
+روش آزمون transport از Worktree، `python3 -B -m unittest discover -s tests/phase3/api -p test_persistent_v4_pipe.py -v` است. اجرای اول sandbox در bind سوکت موقت خطای EPERM داد. همان آزمون با تأیید محدود سوکت ۵ از ۵ موفق شد. سه آزمون انتساب با `PYTHONPATH=infra/nb23-v4 python3 -B -m unittest -v infra/nb23-v4/test_local_answer_validation.py` موفق شدند.
+
+Snapshot محلی CP46 یک delta شش‌فایلی با SHA256 تأییدشده بر CP45 است. قبل از استخراج، CP45 و Backup خصوصی متناظر را نگه دارید. Restore کامل اجرا نشده است. پذیرش عملکرد، آزمون RAG با Cache واقعی و ارزیابی مجوز منابع برای بهره‌برداری عمومی باز هستند. هیچ استقرار یا تغییر DNS انجام نشد.
+
+### ورود و وابستگی شبکه در CP46
+
+بعد از restart منفرد API، Engine startup در جریان بود ولی Edge برای `GET /login` اتصال upstream را ردشده دید و 502 داد. BFF و Bootstrap به namespace همان API وصل‌اند. با فایل‌های `session-compose.yaml` و `session-real-context.compose.yaml` برای پروژه `docker3-cp36-live` فقط `up -d --no-deps --force-recreate bff bootstrap edge` انجام شد. در زمان گرم‌شدن Bootstrap، ورود 503 داد. بعد از مشاهده listen، ورود HTTPS، PKCE، callback Keycloak و History امضاشده با دو ردیف موفق بودند. فرایند اختصاصی Chrome برقرار بود. تأیید مالک، علت رخداد اصلی History و علت تأخیر بستن Chrome باز هستند. تغییر عملکردی تازه‌ای در UI انجام نشد.

@@ -116,3 +116,8 @@ REAL RAG INTEGRATION PRESERVED. OWNER BROWSER READY. PERFORMANCE DIAGNOSTICS DOC
 ### NB23-SESSION-RESUME-45
 
 اصلاحات محلی Chat و History، Cache و حافظه محدود؛ Worker جاری آماده نیست برای مسیر ادامه، گزارش اجرای همین checkpoint را ببینید.
+
+
+### NB23-SESSION-RESUME-46
+
+تشخیص timeout پیش از ready و احیای ورود، آزمون آفلاین انتساب برای مسیر ادامه، گزارش اجرای همین checkpoint را ببینید.
