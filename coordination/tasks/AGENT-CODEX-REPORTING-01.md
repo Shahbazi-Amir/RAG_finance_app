@@ -511,3 +511,8 @@ READY FOR HUMAN LIVE GENERATION TEST — SYNTHETIC CONTEXT ONLY. ماندگار�
 ### NB23-SESSION-RESUME-43
 
 REAL RAG INTEGRATION VALIDATED — EXTERNAL EGRESS BLOCKED. یک آزمون واقعی کامل با ۱۰ شاهد و receipt ماندگار موفق شد. دو UNKNOWN قبل تکرار نشدند. بسته Gateway روی ۳/۳ ثابت است. P3M10، P3M13، P3M14-A03/A09 و P3M15-A01/A07. [نسخه مبنا، مسیرهای تغییر، فرمان آزمون و نتیجه به‌همراه اقدام بعدی](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+
+### NB23-SESSION-RESUME-44
+
+REAL RAG INTEGRATION PRESERVED. OWNER BROWSER READY. PERFORMANCE DIAGNOSTICS DOCUMENTED. EXTERNAL EGRESS BLOCKED. Snapshot و Backup خصوصی CP43 با Checksum ثبت شده‌اند و آزمون Retrieval تکرار نشد. P3M10، P3M13، P3M14-A03/A09 و P3M15-A01/A07. [نسخه مبنا، مسیرهای تغییر، فرمان آزمون و نتیجه به‌همراه اقدام بعدی](../../docs/codex_execution/MAC_FIRST_START_FA.md).

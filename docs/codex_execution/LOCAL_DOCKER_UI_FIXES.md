@@ -30,3 +30,8 @@
 - P3M14-A09/A11 and P3M15-A07. The local real-context Web profile displays the blocked external Generation state under the matching historical Message and accepts the measured real Worker duration. It retains archived synthetic results independently of the real retrieval state.
 - Paths: `apps/web/src/history/client.ts`, `apps/web/src/ui/product-chat.tsx` and the signed projection in `apps/api/product_session_api.py`. Offline Next/TypeScript and signed BFF-to-Worker-to-History tests passed for the completed real Attempt. Two earlier timeouts were left UNKNOWN.
 - A specialist handoff should review the reusable owner/Trace projection and accessible status copy. The 600-second diagnostic deadline and archive-only provider mode remain local. [Evidence](MAC_FIRST_START_FA.md).
+
+### Checkpoint 44 — measured retrieval duration in saved History
+
+- P3M14-A09/A11 and P3M15-A07. The signed History projection attaches the saved Worker duration only to the owner-matched blocked Attempt. The Web client validates the field and displays it together with the blocked explanation, including after a new sign-in.
+- Paths: `apps/api/product_session_api.py`, `apps/web/src/history/client.ts`, `apps/web/src/ui/product-chat.tsx` and `infra/nb23-v4/check_owner_saved_chrome.py`. Offline build and Chrome verification passed without a new Send. Keep the performance and timeout settings outside future UI cherry-picks. [Evidence](MAC_FIRST_START_FA.md).
