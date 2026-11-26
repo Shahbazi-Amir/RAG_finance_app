@@ -324,11 +324,10 @@ jobs:
           clean="$(mktemp -d "$RUNNER_TEMP/api-f3-source.XXXXXXXX")"
           trap 'rm -rf "$clean"' EXIT
           git archive "$F3_EXACT_SHA" | tar -xf - -C "$clean"
-          docker pull --platform linux/amd64 docker.io/library/python:3.13.5
-          base="$(docker image inspect -f '{{index .RepoDigests 0}}' docker.io/library/python:3.13.5)"
+          base="$(bash "$clean/infra/phase3_l1/lab/resolve_python_slim_base.sh")"
           [[ "$base" =~ @sha256:[a-f0-9]{64}$ ]]
           echo "API_F3_BROWSER_CI_BASE_DIGEST=$base"
-          docker build --platform linux/amd64 --file "$clean/infra/phase3_l1/Dockerfile.api.signed_history" \
+          docker build --platform linux/amd64 --file "$clean/infra/phase3_l1/Dockerfile.api.slim-lab" \
             --build-arg "BASE=$base" \
             --build-arg "SOURCE_SHA=$F3_EXACT_SHA" -t "api-f3-browser:$F3_EXACT_SHA" "$clean"
           echo "API_F3_BROWSER_IMAGE=api-f3-browser:$F3_EXACT_SHA" >> "$GITHUB_ENV"
