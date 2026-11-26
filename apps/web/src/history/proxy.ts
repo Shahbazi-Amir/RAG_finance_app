@@ -14,6 +14,7 @@ import {appOnlySendBlocked} from '../ui/runtime-capability.ts';
 const allowed=(parts:string[],method:string):boolean=>
   (parts.length===1&&parts[0]==='conversations'&&['GET','POST'].includes(method))||
   (parts.length===1&&parts[0]==='messages'&&method==='POST')||
+  (parts.length===1&&parts[0]==='daily-quota'&&method==='GET')||
   (parts.length===2&&parts[0]==='message-requests'&&
     ['status','engine-status','retrieved-sources','live-result'].includes(parts[1])&&method==='GET')||
   (parts.length===3&&parts[0]==='conversations'&&/^[A-Za-z0-9_-]{1,64}$/.test(parts[1])&&
@@ -22,7 +23,8 @@ const allowed=(parts:string[],method:string):boolean=>
 export async function forwardHistoryProxy(request:Request,path:string[]):Promise<Response>{
   if(!allowed(path,request.method))return new Response(null,{status:404});
   const liveResult=path.length===2&&path[0]==='message-requests'&&path[1]==='live-result';
-  if(liveResult){
+  const quota=path.length===1&&path[0]==='daily-quota';
+  if(liveResult||quota){
     try{
       if(!stagingRequested()||stagingProfile().send_mode!=='LIVE_DISPATCH'||
          appOnlySendBlocked(process.env.PHASE3_APP_MODE))return new Response(null,{status:404,headers:noStore});
@@ -58,7 +60,7 @@ export async function forwardHistoryProxy(request:Request,path:string[]):Promise
     const send=path.length===1&&path[0]==='messages'&&request.method==='POST';
     // The pinned #53 signed API has no POST create-conversation endpoint.
     // A new draft becomes a server conversation only with its first Send.
-    if(!(listed||thread||status||engineStatus||sources||liveResult||send))
+    if(!(listed||thread||status||engineStatus||sources||liveResult||send||quota))
       return Response.json({error:'PRODUCT_ROUTE_NOT_AVAILABLE'},{status:503,headers:noStore});
     if(send&&(stagingRequested()?!stagingSendEnabled():
       process.env.AUTH_CI_PRODUCT_CHAT_MODE!=='NO_DISPATCH_ONLY'))
@@ -88,6 +90,8 @@ export async function forwardHistoryProxy(request:Request,path:string[]):Promise
         return new Response(null,{status:422,headers:noStore});
       signedQuery='?requested_conversation_id='+original+
         '&client_message_id='+client+'&idempotency_key='+key;
+    }else if(quota){
+      if(query.size!==0)return new Response(null,{status:422,headers:noStore});
     }else{
       if(query.size!==0||request.headers.get('origin')!==publicOrigin()||
          request.headers.get('sec-fetch-site')!=='same-origin'||
@@ -103,7 +107,7 @@ export async function forwardHistoryProxy(request:Request,path:string[]):Promise
       }catch{return new Response(null,{status:422,headers:noStore});}
     }
     try{
-      const operation=listed?'history':thread?'messages':
+      const operation=quota?'daily-quota':listed?'history':thread?'messages':
         liveResult?'live-result':engineStatus?'engine-status':sources?'retrieved-sources':status?'status':'send';
       const actual=await productRequest(
         operation,active,signedQuery,thread?path[1]:'',rawBody);

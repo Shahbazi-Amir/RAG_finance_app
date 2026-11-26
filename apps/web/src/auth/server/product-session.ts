@@ -10,7 +10,7 @@ import type {IncomingMessage,ClientRequest} from 'node:http';
 import {stagingRequested,stagingProfile,stagingSecret,stagingSendEnabled} from './private-staging.ts';
 
 export type TrustedActive=Readonly<{ownerId:string;epoch:number;generation:number;
-  sessionVerifier:string}>;
+  sessionVerifier:string;accountKeys?:string[]}>;
 export type ProductReply=Readonly<{status:number;body:string;correlation?:Readonly<Record<string,string>>}>;
 // Only an exact pair from the verified private peer, never browser input.
 export function historyCorrelation(requestId:unknown,traceId:unknown):Readonly<Record<string,string>>|undefined{
@@ -52,7 +52,7 @@ async function privateConfig(){
     key:contents[3],issuer,audience,kid};
 }
 export async function productRequest(
-  operation:'history'|'revoke'|'messages'|'status'|'engine-status'|'retrieved-sources'|'live-result'|'send',active:TrustedActive,
+  operation:'history'|'revoke'|'messages'|'status'|'engine-status'|'retrieved-sources'|'live-result'|'daily-quota'|'send',active:TrustedActive,
   query='',operationId='',rawBody=''):Promise<ProductReply>{
   if(!/^[A-Za-z0-9_-]{43,256}$/.test(active.sessionVerifier)||
      !/^[A-Za-z0-9_-]{1,128}$/.test(active.ownerId)||
@@ -64,7 +64,8 @@ export async function productRequest(
   const isSources=operation==='retrieved-sources';
   const isLiveResult=operation==='live-result';
   if(isLiveResult&&(!stagingRequested()||stagingProfile().send_mode!=='LIVE_DISPATCH'))deny();
-  const isSend=operation==='send';
+  const isSend=operation==='send', isQuota=operation==='daily-quota';
+  if(isQuota&&(!stagingRequested()||query||operationId||rawBody))deny();
   const paging=/^\?limit=(?:[1-9][0-9]?|100)(?:&cursor=[A-Za-z0-9_-]{1,512})?$/;
   const statusQuery=/^\?requested_conversation_id=(?:[A-Za-z0-9_-]{0,64})&client_message_id=[A-Za-z0-9_-]{1,64}&idempotency_key=[A-Za-z0-9_-]{8,128}$/;
   const validId=/^[A-Za-z0-9_-]{1,64}$/;
@@ -77,7 +78,7 @@ export async function productRequest(
       (stagingRequested()?!stagingSendEnabled():
         process.env.AUTH_CI_PRODUCT_CHAT_MODE!=='NO_DISPATCH_ONLY')))deny();
   const c=await privateConfig();
-  const rawPath=isList?'/v1/conversations':
+  const rawPath=isQuota?'/v1/daily-quota':isList?'/v1/conversations':
     isRevoke?'/internal/auth/session/v1/revoke-one':
     isMessages?'/v1/conversations/'+operationId+'/messages':
     isStatus?'/v1/message-requests/status':
@@ -96,6 +97,9 @@ export async function productRequest(
     body_sha256:sha(body),body_len:body.length,
     session_ref:active.sessionVerifier,owner_id:active.ownerId,
     epoch:active.epoch,generation:active.generation,
+    ...((isSend||isQuota)&&stagingRequested()&&stagingProfile().send_mode==='LIVE_DISPATCH'&&
+      active.accountKeys?.length&&active.accountKeys.length<=2&&active.accountKeys.every(k=>/^[a-f0-9]{64}$/.test(k))
+      ?{account_keys:active.accountKeys}:{}),
   };
   const tokenInput=b64({typ:'JWT',alg:'RS256',kid:c.kid})+'.'+b64(claims);
   const token=tokenInput+'.'+sign('RSA-SHA256',

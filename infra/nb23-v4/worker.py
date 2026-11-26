@@ -83,6 +83,10 @@ def serve_retrieval(args, engine):
     """One serial retrieval service on a private, bind-mounted Unix socket."""
     import re
 
+    version = hashlib.sha256(b"".join(path.read_bytes() for path in (
+        args.engine, Path(__file__), Path(__file__).with_name("worker_startup_state.py")
+    ))).hexdigest()
+
     class Handler(socketserver.StreamRequestHandler):
         def handle(self):
             self.connection.settimeout(5)
@@ -91,6 +95,9 @@ def serve_retrieval(args, engine):
                 if not line or len(line) > MAX_LINE:
                     return
                 request = json.loads(line)
+                if request == {"version": True}:
+                    self.wfile.write(json.dumps({"fingerprint": version}).encode() + b"\n")
+                    return
                 if request == {"probe": True}:
                     self.wfile.write(b'{"ready":true}\n')
                     return

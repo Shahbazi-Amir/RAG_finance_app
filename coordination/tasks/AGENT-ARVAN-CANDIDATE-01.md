@@ -172,3 +172,65 @@ cannot be backfilled. Live two-turn/refresh/re-login verification requires
 two approved paid requests. Loading the new Bootstrap lifetime on the host
 requires permission to restart the Bootstrap unit in addition to API and Web.
 No Module 00/01 or broader roadmap Gate is asserted.
+
+## ARVAN-CANDIDATE-01.3 · Conversation continuity, repeat cache and daily admission
+
+**Status** review · **Implemented** source and tests below · **Tested** local
+and isolated Linux checks below · **Accepted** pending live verification.
+
+**Baseline.** Observed `RAG_finance_app`, branch
+`deploy/arvan-100users-candidate`, starting HEAD
+`6046f9f0c61cd14cfc0596b1e5a69286c838d88c`. Existing NB23 engine/C028 pins,
+011 claim contract, public PKCE client, and privately signed History are reused.
+
+**Roadmap.** Module 05 activity 10 (`P3M05-A10`, proof/replay),
+Module 06 activities 3–4 (`P3M06-A03/A04`, owner and background scope),
+Module 10 activities 1, 3, 5, 8–10 (`P3M10-A01/A03/A05/A08/A09/A10`,
+query context, evidence and admission), Module 14 activities 2–3 and 9
+(`P3M14-A02/A03/A09`, History, chat and errors), and Module 18 activities 1
+and 9 (`P3M18-A01/A09`, worker and release). See
+[modular roadmap](../../references/phase2/roadmaps/RAG_finance_phase3_modular_execution_plan.md).
+`P3OP06-R01/R09` are deployment overlays.
+
+**Implemented paths and decisions.**
+
+- `src/phase3/rag_runtime/arvan_live_dispatch.py`,
+  `src/phase3/rag_runtime/arvan_turn_policy.py`,
+  `apps/api/product_session_api.py`,
+  `infra/nb23-v4/arvan_gateway.py`, and `infra/nb23-v4/worker.py`.
+  Select four completed owner/conversation turns before committing the
+  existing 011 claim. Run the C028-pinned rewrite after commit. Keep thread
+  history out of the shared cache and out of the set of evidence eligible
+  for quotes. Cache only successful standalone corpus answers under the
+  worker, engine and overlay fingerprint. Read cache hits into the new
+  owner's own durable turn. Quota SQLite admission is serialized and
+  idempotent per owner, Tehran day and operation. An ambiguous PostgreSQL
+  commit preserves its quota reservation.
+- `apps/api/private_staging_asgi.py`,
+  `src/phase3/auth/bootstrap_oidc.py`, `src/phase3/auth/service_proof.py`,
+  `apps/web/app/api/auth/callback/route.ts`,
+  `apps/web/src/auth/server/initial-store.ts`,
+  `apps/web/src/auth/server/product-session.ts`,
+  `apps/web/src/history/proxy.ts`, `apps/web/src/history/client.ts` and
+  `apps/web/src/ui/product-chat.tsx`. Quota overrides match only account
+  hashes derived from verified Keycloak claims and carried in private
+  LIVE_DISPATCH RS256 proofs. Current aliases need a fresh login to acquire
+  those hashes. API default and overrides load from the protected config;
+  authenticated quota reads and 429 expose counts without identity labels.
+- `tests/phase3/api/test_arvan_turn_policy.py` and
+  `tests/phase3/ui/history-client.test.mjs` cover scoped memory, rewriting,
+  cache bypass, expiry, quota/admission invariants and localized 429.
+
+**Checks.** Mac `TMPDIR=/tmp npm --prefix apps/web test` 140 passed after
+replacing an unsupported strip-only TypeScript constructor property.
+`cd apps/web && npm run typecheck && npm run build` passed with the existing
+Turbopack tracing warnings. Mac focused `pytest -q` on
+`test_arvan_turn_policy.py` and `test_arvan_live_dispatch.py` 12 passed.
+Isolated Arvan pinned-runtime pytest on the private ASGI, Arvan policy,
+service proof, and real Bootstrap/ASGI mTLS tests exercises the network
+boundaries without using the running staging services or making provider calls.
+
+**Open evidence.** Live Arvan checks cover three approved sends, memory
+resolution, quota decrements and repeat cache speed. Deployment must rebuild
+the worker offline before starting the updated API. No Module 00/01 or
+broader roadmap Gate is asserted.

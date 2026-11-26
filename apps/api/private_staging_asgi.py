@@ -76,9 +76,31 @@ class PrivateASGIConfig:
     engine_version: str
     ledger_file: Path
     execution_mode: str = "NO_DISPATCH_ONLY"
+    config_path: Path | None = None
+    response_cache_ttl_seconds: int = 604800
 
     def __repr__(self):
         return "PrivateASGIConfig(<redacted>)"
+
+
+def quota_policy(document):
+    from src.phase3.rag_runtime.arvan_turn_policy import account_key
+
+    default = document.get("default_daily_limit", 20)
+    overrides = document.get("user_daily_limit_overrides", {})
+    if (type(default) is not int or not 1 <= default <= 100000 or not isinstance(overrides, dict)
+            or len(overrides) > 1000):
+        raise StagingConfigDenied()
+    result = {}
+    for key, value in overrides.items():
+        if (not isinstance(key, str) or not 1 <= len(key.strip()) <= 254
+                or (value is not None and (type(value) is not int or not 0 <= value <= 100000))):
+            raise StagingConfigDenied()
+        hashed = account_key(key)
+        if hashed in result:
+            raise StagingConfigDenied()
+        result[hashed] = value
+    return default, result
 
 
 def load_private_config(config_path: Path) -> PrivateASGIConfig:
@@ -88,8 +110,9 @@ def load_private_config(config_path: Path) -> PrivateASGIConfig:
         doc = json.loads(config_path.read_text(encoding="utf-8"))
     except (ValueError, UnicodeError, OSError):
         raise StagingConfigDenied() from None
-    if (not isinstance(doc, dict) or set(doc) not in (REQUIRED_CONFIG_FIELDS,
-                                REQUIRED_CONFIG_FIELDS | {"execution_mode"})
+    if (not isinstance(doc, dict) or not REQUIRED_CONFIG_FIELDS <= set(doc) <= REQUIRED_CONFIG_FIELDS | {
+                "execution_mode", "response_cache_ttl_seconds", "default_daily_limit",
+                "user_daily_limit_overrides"}
             or doc.get("execution_mode", "NO_DISPATCH_ONLY") not in (
                 "NO_DISPATCH_ONLY", "LIVE_DISPATCH")
             or doc.get("contract_version") != CONFIG_VERSION
@@ -98,6 +121,10 @@ def load_private_config(config_path: Path) -> PrivateASGIConfig:
             or not 1 <= doc["listen_port"] <= 65535
             or not isinstance(doc.get("bff_leaf_cert_sha256"), str)
             or _SHA256.fullmatch(doc["bff_leaf_cert_sha256"]) is None):
+        raise StagingConfigDenied()
+    quota_policy(doc)
+    cache_ttl = doc.get("response_cache_ttl_seconds", 604800)
+    if type(cache_ttl) is not int or not 1 <= cache_ttl <= 2592000:
         raise StagingConfigDenied()
     names = {
         "cert_file": "server_tls_cert_file",
@@ -130,6 +157,7 @@ def load_private_config(config_path: Path) -> PrivateASGIConfig:
         history_dsn=doc["history_dsn"], revoke_dsn=doc["revoke_dsn"],
         engine_version=doc["engine_version"], ledger_file=paths["ledger_file"],
         execution_mode=doc.get("execution_mode", "NO_DISPATCH_ONLY"),
+        config_path=config_path, response_cache_ttl_seconds=cache_ttl,
     )
 
 
@@ -291,8 +319,21 @@ def prepare_private_app(cfg: PrivateASGIConfig, environ=None):
     if cfg.execution_mode == "LIVE_DISPATCH":
         from src.phase3.rag_runtime.arvan_live_dispatch import ArvanLiveDispatch
 
-        service = ArvanLiveDispatch.from_environment(environ)
-        product_session_api.install_private_staging_auth(profile)
+        from src.phase3.rag_runtime.arvan_turn_policy import DailyQuota
+
+        def policy():
+            _protected_file(cfg.config_path, secret=True)
+            try:
+                doc = json.loads(cfg.config_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                raise StagingConfigDenied() from None
+            if not isinstance(doc, dict):
+                raise StagingConfigDenied()
+            return quota_policy(doc)
+
+        service = ArvanLiveDispatch.from_environment(environ, cache_ttl=cfg.response_cache_ttl_seconds)
+        service.quota = DailyQuota(service.store.path.parent, policy)
+        product_session_api.install_private_staging_auth(profile, allow_account_keys=True)
         product_session_api._ARVAN_LIVE_DISPATCH = service
         return product_session_api.app, boundary
     engine = PrivateStagingEngineConfig(

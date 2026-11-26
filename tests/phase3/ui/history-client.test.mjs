@@ -216,3 +216,15 @@ test('401 unauthorized and network unknown never become Mock success',async()=>{
     e=>e instanceof HistoryFailure&&e.reason==='unknown'));
  assert.match(failureLabel(new HistoryFailure(401,'unauthorized')),/ورود/);
 });
+
+test('429 uses the trusted quota body and localized exhaustion message',async()=>{
+ const body={code:'DAILY_QUOTA_EXCEEDED',daily_quota:{limit:20,remaining:0}};
+ await withFetch(async()=>reply(body,429),async()=>{
+  await assert.rejects(()=>sendMessage(newSend('پرسش',null)),e=>{
+   assert.equal(e.status,429);
+   assert.deepEqual(e.dailyQuota,body.daily_quota);
+   assert.equal(failureLabel(e),'سقف مجاز پرسش روزانه شما (۲۰ پرسش) تکمیل شده است؛ فردا دوباره تلاش کنید.');
+   return true;
+  });
+ });
+});

@@ -450,7 +450,16 @@ class BootstrapOIDC:
                 or claims.get("email_verified") is not True):
             # Missing/false email Verified => NO Owner mapping / NO session.
             raise BootstrapDenied(403)
-        return claims["iss"], claims["sub"]
+        keys = []
+        if self.runtime_profile == "private_staging":
+            for field in ("email", "preferred_username"):
+                label = claims.get(field)
+                if (isinstance(label, str) and 1 <= len(label.strip()) <= 254
+                        and ("@" in label) == (field == "email")):
+                    key = _digest(label.strip().lower().encode("utf-8"))
+                    if key not in keys:
+                        keys.append(key)
+        return claims["iss"], claims["sub"], keys
 
     def _complete(self, p, proof):
         _fields(p, {"attempt_id", "initiator_sha256", "bff_attempt_id",
@@ -509,7 +518,7 @@ class BootstrapOIDC:
                 _uuid(proof.attempt_id), proof.principal, proof.initiator_sha256))
             return 202, {"state": "UNKNOWN_RECONCILIATION_REQUIRED"}
         try:
-            issuer, sub = self._validate_idp(reply, nonce)
+            issuer, sub, account_keys = self._validate_idp(reply, nonce)
         except (jwt.PyJWTError, ValueError, KeyError, TypeError):
             raise BootstrapDenied(403) from None
         with self._conn("mapper") as c:
@@ -528,7 +537,8 @@ class BootstrapOIDC:
                      "receipt_id": str(issued["receipt_id"]),
                      "session_verifier": opaque,
                      "idle_expires_at": issued["idle_expires_at"],
-                     "absolute_expires_at": issued["absolute_expires_at"]}
+                     "absolute_expires_at": issued["absolute_expires_at"],
+                     **({"account_keys": account_keys} if account_keys else {})}
 
     def _status(self, p, proof):
         _fields(p, {"attempt_id", "initiator_sha256"})

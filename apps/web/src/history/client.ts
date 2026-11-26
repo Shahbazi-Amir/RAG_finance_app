@@ -27,12 +27,28 @@ export type RetrievedSources=Readonly<{attemptId:string|null;attemptTraceId:stri
   generationCalls:0|null;rows:readonly RetrievedRow[]}>;
 
 type Wire = Record<string,unknown>;
+export type DailyQuota={limit:number;remaining:number}|{limit:null;remaining:null};
+
+function validateQuota(value:unknown):DailyQuota {
+  const q=object(value);
+  if(q.limit===null&&q.remaining===null)return {limit:null,remaining:null};
+  if(typeof q.limit==='number'&&Number.isSafeInteger(q.limit)&&q.limit>0&&
+     typeof q.remaining==='number'&&Number.isSafeInteger(q.remaining)&&q.remaining>=0&&q.remaining<=q.limit)
+    return {limit:q.limit,remaining:q.remaining};
+  return invalid();
+}
+
+export async function dailyQuota():Promise<DailyQuota>{
+  return validateQuota(await api('daily-quota'));
+}
+
 
 export class HistoryFailure extends Error {
   readonly status:number;
-  readonly reason:'unauthorized'|'conflict'|'invalid'|'unavailable'|'unknown'|'busy';
-  constructor(status:number,reason:'unauthorized'|'conflict'|'invalid'|'unavailable'|'unknown'|'busy') {
-    super(reason);this.status=status;this.reason=reason;
+  readonly reason:'unauthorized'|'conflict'|'invalid'|'unavailable'|'unknown'|'busy'|'quota';
+  readonly dailyQuota?:DailyQuota;
+  constructor(status:number,reason:'unauthorized'|'conflict'|'invalid'|'unavailable'|'unknown'|'busy'|'quota',dailyQuota?:DailyQuota) {
+    super(reason);this.status=status;this.reason=reason;this.dailyQuota=dailyQuota;
   }
 }
 function invalid():never{throw new HistoryFailure(0,'invalid');}
@@ -126,6 +142,11 @@ async function api(path:string, method:'GET'|'POST'='GET',payload?:unknown):Prom
   }catch{throw new HistoryFailure(0,'unknown');}
   if(!response.ok){
     if(response.status===401)throw new HistoryFailure(401,'unauthorized');
+    if(method==='POST'&&response.status===429){
+      const body=object(await response.json().catch(()=>null));
+      if(body.code!=='DAILY_QUOTA_EXCEEDED')return invalid();
+      throw new HistoryFailure(429,'quota',validateQuota(body.daily_quota));
+    }
     if(response.status===409)throw new HistoryFailure(409,'conflict');
     if(method==='POST'&&response.status===503){
       const body:unknown=await response.json().catch(()=>null);
@@ -402,6 +423,8 @@ export async function recoverRetrievedSources(original:StatusCorrelation):Promis
 export function failureLabel(err:unknown):string{
   if(!(err instanceof HistoryFailure))return 'خطای نامشخص؛ وضعیت ثبت تأیید نشده است.';
   if(err.reason==='unauthorized')return 'نشست شما معتبر نیست؛ دوباره از صفحهٔ ورود وارد شوید.';
+  if(err.reason==='quota'&&err.dailyQuota?.limit!==null&&err.dailyQuota?.limit!==undefined)
+    return `سقف مجاز پرسش روزانه شما (${err.dailyQuota.limit.toLocaleString('fa-IR')} پرسش) تکمیل شده است؛ فردا دوباره تلاش کنید.`;
   if(err.reason==='conflict')return 'تعارض درخواست؛ این پیام ثبت موفق جدید نیست.';
   if(err.reason==='unknown')return 'نتیجهٔ شبکه نامعلوم است؛ ثبت پیام تأیید نشده است.';
   if(err.reason==='unavailable')return 'ارتباط تاریخچه با API در دسترس نیست؛ به Mock منتقل نمی‌شوید.';

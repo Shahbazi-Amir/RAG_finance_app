@@ -52,6 +52,7 @@ class VerifiedServiceProof:
     owner_id: str
     epoch: int
     generation: int
+    account_keys: tuple[str, ...] = ()
 
     def __repr__(self) -> str:
         return "VerifiedServiceProof(<redacted>)"
@@ -65,7 +66,7 @@ class BFFServiceVerifier:
     Only RS256 with >=2048-bit RSA public keys is allowed. No network access.
     """
 
-    def __init__(self, *, issuer: str, audience: str, public_keys: Mapping[str, bytes]):
+    def __init__(self, *, issuer: str, audience: str, public_keys: Mapping[str, bytes], allow_account_keys=False):
         if (not isinstance(issuer, str) or not issuer.startswith("urn:")
                 or len(issuer) > 180 or not isinstance(audience, str)
                 or not audience.startswith("urn:") or len(audience) > 180
@@ -87,6 +88,7 @@ class BFFServiceVerifier:
         self._issuer = issuer
         self._audience = audience
         self._keys = verified_keys
+        self._allow_account_keys = allow_account_keys
 
     def verify(self, compact_jwt: str, *, method: str, raw_path: bytes,
                raw_query: bytes, raw_body: bytes, now: int | None = None) -> VerifiedServiceProof:
@@ -111,7 +113,14 @@ class BFFServiceVerifier:
                 options={"require": list(_REQUIRED), "strict_aud": True},
                 leeway=0,
             )
-            if set(payload) != _REQUIRED:
+            keys = ()
+            if self._allow_account_keys and set(payload) == _REQUIRED | {"account_keys"}:
+                items = payload["account_keys"]
+                if (not isinstance(items, list) or not 1 <= len(items) <= 2
+                        or any(not isinstance(x, str) or not _SHA.fullmatch(x) for x in items)):
+                    raise TrustRejected()
+                keys = tuple(items)
+            elif set(payload) != _REQUIRED:
                 raise TrustRejected()
             timestamp = int(time.time()) if now is None else now
             if not isinstance(timestamp, int) or isinstance(timestamp, bool):
@@ -147,7 +156,7 @@ class BFFServiceVerifier:
             return VerifiedServiceProof(
                 self._issuer, payload["jti"], payload["iat"], payload["nbf"],
                 payload["exp"], payload["session_ref"], payload["owner_id"],
-                payload["epoch"], payload["generation"],
+                payload["epoch"], payload["generation"], keys,
             )
         except (jwt.PyJWTError, ValueError, TypeError, KeyError, TrustRejected):
             raise TrustRejected() from None

@@ -92,9 +92,9 @@ export async function claimInit(attempt:string):Promise<boolean>{
 }
 type Alias=Readonly<{attemptId:string;receiptId:string;ownerId:string;epoch:number;
   generation:number;ciphertext:string;iv:string;tag:string;status:'NOT_SERVE'|'ACTIVE';
-  created:number}>;
+  created:number;accountKeys?:string[]}>;
 export type Pending=Readonly<{attemptId:string;receiptId:string;ownerId:string;
-  epoch:number;generation:number;sessionVerifier:string}>;
+  epoch:number;generation:number;sessionVerifier:string;accountKeys?:string[]}>;
 export async function writePending(alias:string,p:Pending):Promise<string>{
   if(!valid(alias)||!valid(p.sessionVerifier))fail();
   const c=await dir(),iv=randomBytes(12);
@@ -103,7 +103,7 @@ export async function writePending(alias:string,p:Pending):Promise<string>{
   const x:Alias={attemptId:p.attemptId,receiptId:p.receiptId,ownerId:p.ownerId,
     epoch:p.epoch,generation:p.generation,ciphertext:ciphertext.toString('base64url'),
     iv:iv.toString('base64url'),tag:cipher.getAuthTag().toString('base64url'),
-    status:'NOT_SERVE',created:Date.now()};
+    status:'NOT_SERVE',created:Date.now(),accountKeys:p.accountKeys};
   await putNew(file(c.root,'alias',alias),x);
   return digest(alias);
 }
@@ -118,7 +118,7 @@ export async function revokeAlias(alias:string):Promise<void>{
   try{await unlink(file(c.root,'alias',alias));}catch{}
 }
 export type Active=Readonly<{ownerId:string;epoch:number;generation:number;
-  sessionVerifier:string;receiptId:string;attemptId:string}>;
+  sessionVerifier:string;receiptId:string;attemptId:string;accountKeys?:string[]}>;
 export async function getActive(alias:string):Promise<Active|null>{
   if(!valid(alias))return null;
   const c=await dir(),path=file(c.root,'alias',alias),x=await read(path);
@@ -139,6 +139,7 @@ export async function getActive(alias:string):Promise<Active|null>{
       !Number.isSafeInteger(x.epoch)||!Number.isSafeInteger(x.generation))return null;
     if(lifetime&&now-activity>=30000)await utimes(path,now/1000,now/1000);
     return {ownerId:x.ownerId,epoch:Number(x.epoch),generation:Number(x.generation),
-      sessionVerifier:raw,receiptId:String(x.receiptId),attemptId:String(x.attemptId)};
+      sessionVerifier:raw,receiptId:String(x.receiptId),attemptId:String(x.attemptId),
+      ...(Array.isArray(x.accountKeys)?{accountKeys:x.accountKeys}:{} )};
   }catch{return null;}
 }

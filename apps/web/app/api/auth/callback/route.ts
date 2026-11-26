@@ -8,7 +8,7 @@ import {INIT,SESSION,cookie,secureBrowser,appendCookie,noStore,
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
 type Pending={attemptId:string;receiptId:string;ownerId:string;epoch:number;
-  generation:number;sessionVerifier:string};
+  generation:number;sessionVerifier:string;accountKeys?:string[]};
 function parsePending(v:Record<string,unknown>,attemptId:string):Pending|null{
   if(v.state!=='ISSUED_PENDING_BINDING'||v.attempt_id!==attemptId||
      typeof v.receipt_id!=='string'||typeof v.owner_id!=='string'||

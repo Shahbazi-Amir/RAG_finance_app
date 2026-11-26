@@ -1,9 +1,9 @@
 'use client';
 import {useCallback,useEffect,useRef,useState,Fragment,type FormEvent} from 'react';
 import Link from 'next/link';
-import {conversations,messages,newSend,sendMessage,recoverStatus,recoverLiveResult,recoverEngineStatus,recoverRetrievedSources,HistoryFailure,
+import {conversations,dailyQuota,messages,newSend,sendMessage,recoverStatus,recoverLiveResult,recoverEngineStatus,recoverRetrievedSources,HistoryFailure,
   failureLabel,mergeUnique,type ConversationView,type MessageView,
-  type AnswerView,type HistoryStatus,type EngineStatus,type RetrievedSources,type StagingLiveResult} from '../history/client';
+  type AnswerView,type DailyQuota,type HistoryStatus,type EngineStatus,type RetrievedSources,type StagingLiveResult} from '../history/client';
 import type {Answer,Citation} from '../mock/transport';
 import {verifiedSourceUrl,verifiedSourceLocatorLabel,verifiedSourceTypeLabel} from './source-locator';
 import {sourceCredits,confidenceLabel} from './source-metadata';
@@ -124,6 +124,7 @@ export default function ProductChat(){
   const [threads,setThreads]=useState<Record<string,ThreadData>>({});
   const [attempts,setAttempts]=useState<Record<string,Attempt>>({});
   const [error,setError]=useState('');
+  const [quota,setQuota]=useState<DailyQuota|null>(null);
   const [mobileOpen,setMobileOpen]=useState(false);
   const [sidebarCollapsed,setSidebarCollapsed]=useState(false);
   const messageLog=useRef<HTMLDivElement>(null);
@@ -188,9 +189,25 @@ export default function ProductChat(){
     privacyEpoch.current++;
     setAttempts({});setList({items:[],next:null,more:false});
     setThreads({});setSelected('draft:new');setDrafts({});
-    setListState('unauthorized');setError('');setMobileOpen(false);setBusy(false);
+    setListState('unauthorized');setQuota(null);setError('');setMobileOpen(false);setBusy(false);
     return true;
   },[]);
+  const refreshQuota=useCallback(async()=>{
+    if(!liveMode||lost.current)return;
+    const epoch=privacyEpoch.current;
+    try{
+      const value=await dailyQuota();
+      if(!lost.current&&privacyEpoch.current===epoch)setQuota(value);
+    }catch(e){if(!invalidate(e)&&privacyEpoch.current===epoch)setQuota(null);}
+  },[invalidate,liveMode]);
+  useEffect(()=>{
+    if(listState!=='ready'||!liveMode){setQuota(null);return;}
+    const refresh=()=>{if(document.visibilityState==='visible')void refreshQuota();};
+    refresh();
+    const timer=window.setInterval(refresh,60000);
+    window.addEventListener('focus',refresh);
+    return ()=>{window.clearInterval(timer);window.removeEventListener('focus',refresh);};
+  },[listState,liveMode,refreshQuota]);
   const matchOwner=useCallback((owner:string):boolean=>{
     if(ownerFence.current.observe(owner))return true;
     invalidate(new HistoryFailure(401,'unauthorized'));
@@ -493,6 +510,7 @@ export default function ProductChat(){
     setAttempts(all=>({...all,[record.client_message_id]:attempt}));
     try{
       const receipt=await sendMessage(request); // exactly one POST per user action
+      void refreshQuota();
       if(lost.current)return;
       setAttempts(all=>{const prev=all[record.client_message_id];return prev?
         {...all,[record.client_message_id]:{
@@ -508,7 +526,7 @@ export default function ProductChat(){
       void probe(record); // GET only
     }catch(e){
       if(invalidate(e)||lost.current)return;
-      if(e instanceof HistoryFailure&&e.reason==='busy'){
+      if(e instanceof HistoryFailure&&(e.reason==='busy'||e.reason==='quota')){
         forgetCheckpoint(s,record.client_message_id);
         setAttempts(all=>{
           const next={...all};
@@ -516,7 +534,8 @@ export default function ProductChat(){
           return next;
         });
         setDrafts(all=>({...all,[selected]:all[selected]||question}));
-        setError('صف پردازش پر است. برای ارسال دوباره کمی صبر کنید.');
+        if(e.reason==='quota'&&e.dailyQuota)setQuota(e.dailyQuota);
+        setError(e.reason==='quota'?failureLabel(e):'صف پردازش پر است. برای ارسال دوباره کمی صبر کنید.');
         return;
       }
       setAttempts(all=>{const prev=all[record.client_message_id];return prev?
@@ -689,6 +708,9 @@ export default function ProductChat(){
         </button>}
       </div>
       {listState!=='unauthorized'&&<form className="history-compose" onSubmit={e=>void submit(e)}>
+        {liveMode&&quota?.limit!=null&&<p className="history-note" data-testid="daily-quota">
+          {quota.remaining.toLocaleString('fa-IR')} از {quota.limit.toLocaleString('fa-IR')} پرسش روزانه باقی‌مانده
+        </p>}
         <label htmlFor="product-question" className="sr-only">پرسش فارسی</label>
         <div className="composer">
           <textarea id="product-question" rows={2} data-testid="history-question"

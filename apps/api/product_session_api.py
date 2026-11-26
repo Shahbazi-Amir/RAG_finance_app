@@ -32,6 +32,7 @@ from src.phase3.rag_runtime.dispatch_claim_bridge import (
     DispatchClaimDenied, claim_within_signed_t2,
     after_definitive_commit, owner_scoped_claim_status, flag_reporter_unknown,
 )
+from src.phase3.rag_runtime.arvan_turn_policy import QuotaExceeded
 from src.phase3.rag_runtime.dispatch_claim_test_stub import CountOnlyGatewayStub
 from src.phase3.rag_runtime.staging_invited_result_fixture import (
     InvitedBinding, FixedInvitedGatewayStub, PrivateFixtureResultLedger,
@@ -173,7 +174,8 @@ def _signed_history(request, raw_body, expected_path, action, *, coherent_read=F
                    "trace_id": history.uid(), "session_transaction": True,
                    "session_ref_sha256": session_ref_digest(proof.session_ref),
                    "session_epoch": proof.epoch,
-                   "session_generation": proof.generation}
+                   "session_generation": proof.generation,
+                   "account_keys": proof.account_keys}
             result = action(ctx)
     return proof, result
 
@@ -273,7 +275,7 @@ def session_message_status(request: Request):
                         lambda ctx: history.status(request, ctx), coherent_read=True)
 
 
-def install_private_staging_auth(profile: PrivateStagingProfile) -> None:
+def install_private_staging_auth(profile: PrivateStagingProfile, *, allow_account_keys=False) -> None:
     """Ops-only explicit injection; real BFF public key and DB roles required.
 
     No CI flags, injected headers, local fixture, or browser requests authorize
@@ -293,7 +295,7 @@ def install_private_staging_auth(profile: PrivateStagingProfile) -> None:
             raise StagingConfigDenied()
     verifier = BFFServiceVerifier(
         issuer=profile.issuer, audience=profile.audience,
-        public_keys={profile.kid: profile.load_public_key()})
+        public_keys={profile.kid: profile.load_public_key()}, allow_account_keys=allow_account_keys)
     if (_SERVER_NO_DISPATCH_TASK is not None
             and _SERVER_NO_DISPATCH_TASK.profile.runner_file_sha256
                 != profile.runner_sha256):
@@ -789,6 +791,34 @@ def _arvan_service():
     return None
 
 
+@app.get("/v1/daily-quota")
+def session_daily_quota(request: Request):
+    def read(ctx):
+        service = _arvan_service()
+        if service is None or service.quota is None or request.scope.get("query_string"):
+            raise history.NotFound()
+        return JSONResponse(service.quota.read(ctx["owner"], ctx["account_keys"]))
+
+    return _signed_read(request, b"/v1/daily-quota", read)
+
+
+def _recent_arvan_turns(conn, service, owner, conversation):
+    if not conversation or not service.store:
+        return ()
+    eligible = service.store.answered_messages(owner, conversation)
+    if not eligible:
+        return ()
+    # This is inside the same signed owner transaction as T1/T2. Match
+    # the actual, still-visible user messages and order by their chronology.
+    rows = conn.execute("""SELECT id,body FROM history_l1.messages
+         WHERE owner_id=%s AND conversation_id=%s AND role='user' AND id=ANY(%s)
+         ORDER BY created_at DESC,id DESC LIMIT 4""", (owner, conversation, eligible)).fetchall()
+    completed = service.history(owner, conversation, [row["id"] for row in rows])
+    return tuple({"question": row["body"][:500],
+                  "answer": " ".join(c["text"] for c in completed[row["id"]]["claims"])[:500]}
+                 for row in reversed(rows))
+
+
 def _run_arvan_send(request, raw_body, payload):
     service = _arvan_service()
     if service is None or not 1 <= len(payload["question"].strip()) <= 2000:
@@ -797,10 +827,11 @@ def _run_arvan_send(request, raw_body, payload):
     queued = False
     binding = None
     message_id = None
+    turns = ()
 
     def committed_operation():
         def reserve(ctx):
-            nonlocal admitted, binding, message_id
+            nonlocal admitted, binding, message_id, turns
             admitted = service.slots.acquire(blocking=False)
             if not admitted:
                 raise history.ApiFailure(503, "ENGINE_BUSY", "technical")
@@ -815,18 +846,21 @@ def _run_arvan_send(request, raw_body, payload):
                 payload["client_message_id"], payload["idempotency_key"],
                 history.uid(), ctx["trace_id"])
             permit = claim_within_signed_t2(conn, owner, attempt)
+            turns = _recent_arvan_turns(conn, service, owner, payload["requested_conversation_id"])
             binding = _invited_binding_from_status(ctx, {
                 **receipt, "attempt_id": attempt["id"],
                 "attempt_request_id": attempt["attempt_request_id"],
                 "attempt_trace_id": attempt["attempt_trace_id"],
             })
+            if service.quota is not None:
+                service.quota.reserve(owner, ctx["account_keys"], payload)
             return receipt, permit
         _, value = _signed_history(request, raw_body, _SEND_PATH, reserve)
         return value
 
     def enqueue(permit, question):
         nonlocal queued
-        service.enqueue(permit, binding, question, message_id)
+        service.enqueue(permit, binding, question, message_id, turns)
         queued = True
 
     try:
@@ -896,6 +930,9 @@ async def session_send_message(request: Request, background_tasks: BackgroundTas
         else:
             response = await run_in_threadpool(
                 _run_fixture_send, request, raw_body, payload)
+    except QuotaExceeded as exc:
+        response = JSONResponse({"code": "DAILY_QUOTA_EXCEEDED", "daily_quota": exc.quota},
+                                status_code=429)
     except PreflightDenied:
         response = history._safe_error(
             503, "ENGINE_NOT_CONFIGURED", "technical", "History unavailable.")
