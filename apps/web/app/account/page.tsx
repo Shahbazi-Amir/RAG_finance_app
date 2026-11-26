@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import '../history/history.css';
-export const metadata={title:'حساب و حریم خصوصی | راگ مالی'};
+export const metadata={title:'حساب و حریم خصوصی | مشاور مالی'};
 export default function AccountPage(){
   return <main className="history-shell" dir="rtl">
     <section className="history-main" aria-labelledby="account-title">

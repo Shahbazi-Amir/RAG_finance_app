@@ -1,5 +1,5 @@
 'use client';
-import {useCallback,useEffect,useRef,useState,Fragment,type FormEvent} from 'react';
+import {useCallback,useEffect,useLayoutEffect,useRef,useState,Fragment,type FormEvent} from 'react';
 import Link from 'next/link';
 import {conversations,dailyQuota,messages,newSend,sendMessage,recoverStatus,recoverLiveResult,recoverEngineStatus,recoverRetrievedSources,HistoryFailure,
   failureLabel,mergeUnique,type ConversationView,type MessageView,
@@ -91,7 +91,8 @@ function AnswerPanel({answer}:{answer:Answer}){
 
 function LiveAnswer({result}:{result:StagingLiveResult}){
   return <section className="history-answer live-answer" data-testid="arvan-live-result">
-    {result.outcome==='NO_ANSWER'?<p>شواهد برای پاسخ کافی نبود.</p>:<>
+    {result.outcome==='CONVERSATIONAL'?<p className="history-message-text">{result.reply}</p>:
+      result.outcome==='NO_ANSWER'?<p>شواهد برای پاسخ کافی نبود.</p>:<>
       <p className="history-message-text">{result.claims.map(claim=>claim.text.trim()).join(' ')}</p>
       <details>
         <summary>مشاهده منابع و نقل‌قول‌ها</summary>
@@ -128,6 +129,9 @@ export default function ProductChat(){
   const [mobileOpen,setMobileOpen]=useState(false);
   const [sidebarCollapsed,setSidebarCollapsed]=useState(false);
   const messageLog=useRef<HTMLDivElement>(null);
+  const nearBottom=useRef(true);
+  const jumpOnSend=useRef(false);
+  const seenReplies=useRef(new Set<string>());
   const mobileMenu=useRef<HTMLElement|null>(null);
   const menuTrigger=useRef<HTMLButtonElement|null>(null);
   const [busy,setBusy]=useState(false);
@@ -501,6 +505,7 @@ export default function ProductChat(){
       setError('این مرورگر امکان ذخیرهٔ شناسهٔ پیگیری را ندارد؛ پرسش ارسال نشد.');
       return;
     }
+    jumpOnSend.current=true;
     sending.current=true;setBusy(true);setError('');
     setDrafts(all=>({...all,[selected]:''}));
     const attempt:Attempt={record,viewId:selected,question,phase:'sending',attemptId:null,
@@ -554,13 +559,23 @@ export default function ProductChat(){
   const pendingDrafts=verifiedPage?[...new Set(Object.values(attempts).filter(a=>
     a.viewId.startsWith('draft:')&&!isTerminal(a.phase)).map(a=>a.viewId))]:[];
   const liveByMessage=new Map(selectedAttempts.filter(a=>a.messageId).map(a=>[a.messageId,a]));
-  const latestActivity=selectedAttempts.map(a=>a.phase+':'+(a.live?.state??'')).join(',');
-  const messageCount=messagesFor?.items.length??0;
-  const liveAnswerCount=Object.keys(messagesFor?.liveAnswers??{}).length;
-  useEffect(()=>{
-    const log=messageLog.current;
-    if(log)log.scrollTop=log.scrollHeight;
-  },[selected,messageCount,liveAnswerCount,latestActivity]);
+  const title=list.items.find(c=>c.id===selected)?.title??'مشاور مالی';
+  useLayoutEffect(()=>{
+    const pane=messageLog.current;
+    let finishedHere=false;
+    for(const a of Object.values(attempts)){
+      const done=a.live?.state==='READY'||a.phase==='answer_committed';
+      const id=a.record.client_message_id;
+      if(!done||seenReplies.current.has(id))continue;
+      seenReplies.current.add(id);
+      if(a.viewId===selected)finishedHere=true;
+    }
+    if(pane&&(jumpOnSend.current||(finishedHere&&nearBottom.current))){
+      pane.scrollTop=pane.scrollHeight;
+      nearBottom.current=true;
+    }
+    jumpOnSend.current=false;
+  },[attempts,selected]);
   return <main className={'history-shell product-shell'+(sidebarCollapsed?' sidebar-collapsed':'')} dir="rtl">
     <a href="#product-main" className="history-skip" inert={mobileOpen}>
       رفتن به محتوای اصلی گفت‌وگو
@@ -570,14 +585,13 @@ export default function ProductChat(){
       aria-label="فهرست گفتگوها">
       <button type="button" className="history-mobile-close" aria-label="بستن فهرست"
         onClick={()=>setMobileOpen(false)}>×</button>
-      <div className="history-brand"><span className="brand-mark" aria-hidden="true">ف</span>
-        <strong>راگ مالی</strong></div>
+      <div className="history-brand"><span className="advisor-mark" aria-hidden="true"><i/><i/><i/></span>
+        <strong>مشاور مالی</strong></div>
       <div className="history-actions">
         <button type="button" className="nav-new-chat" onClick={newConversation}
           data-testid="create-conversation" aria-describedby="product-runtime-capability" disabled={!verifiedPage||!canSend}>
           گفت‌وگوی تازه
         </button>
-        <span className="history-note">گفت‌وگو با ثبت اولین پرسش در سرور ایجاد می‌شود.</span>
       </div>
       <div className="history-sidebar-scroll">
       <p className="nav-section-title">گفت‌وگوهای حساب شما</p>
@@ -613,21 +627,16 @@ export default function ProductChat(){
     {mobileOpen&&<button type="button" className="history-mobile-scrim"
       aria-hidden="true" tabIndex={-1} onClick={()=>setMobileOpen(false)}/>}
     <section className="history-main" aria-labelledby="product-main" inert={mobileOpen}>
-      <header className="history-mobile-topbar">
-        <button className="mobile-menu-trigger" type="button"
-          ref={menuTrigger} aria-label="بازکردن فهرست گفت‌وگوها" aria-controls="product-chat-sidebar"
-          aria-expanded={mobileOpen} onClick={()=>setMobileOpen(true)}>☰</button>
-        <span className="mobile-brand">راگ مالی</span>
-        <Link href="/login" className="history-link">حساب کاربری و خروج امن</Link>
-      </header>
       <header className="history-heading">
+        <button className="history-mobile-toggle" type="button" ref={menuTrigger}
+          aria-label="بازکردن فهرست گفت‌وگوها" aria-controls="product-chat-sidebar"
+          aria-expanded={mobileOpen} onClick={()=>setMobileOpen(true)}>←</button>
         <button className="history-desktop-toggle" type="button" aria-controls="product-chat-sidebar"
           aria-expanded={!sidebarCollapsed} aria-label={sidebarCollapsed?'بازکردن فهرست گفت‌وگوها':'بستن فهرست گفت‌وگوها'}
           onClick={()=>setSidebarCollapsed(value=>!value)}>{sidebarCollapsed?'←':'→'}</button>
-        <h1 id="product-main" tabIndex={-1}>گفت‌وگوی مالی</h1>
-        {sidebarCollapsed&&<Link href="/login" className="history-link history-collapsed-account">
-          حساب کاربری و خروج امن
-        </Link>}
+        <h1 id="product-main" tabIndex={-1}>{title}</h1>
+      </header>
+      <div className="history-feedback">
         {!liveMode&&<p className="history-note" data-testid="educational-boundary">
           شواهد بازیابی فنی به‌تنهایی پاسخ یا توصیهٔ مالی تأییدشده نیستند.
           در این نسخه تولید پاسخ و پیوند استناد از مشاهدات بازیابی فعال نیست.
@@ -639,10 +648,9 @@ export default function ProductChat(){
             ?'قابلیت ارسال از سرور قابل تأیید نیست؛ ارسال غیرفعال است.'
             :runtimeCapability.send_mode==='DISABLED'
             ?'برنامه در حالت بدون موتور فعال است؛ تاریخچه قابل مشاهده است، اما ارسال پرسش و تولید پاسخ غیرفعال است.'
-            :liveMode?'ارسال و تولید پاسخ آزمایشی در محیط مرحله‌بندی فعال است.'
-            :'فقط ثبت و بازیابی فنی NO_DISPATCH_ONLY مجاز است؛ تولید پاسخ و موتور زنده فعال نیست.'}
+            :liveMode?'':
+            'فقط ثبت و بازیابی فنی NO_DISPATCH_ONLY مجاز است؛ تولید پاسخ و موتور زنده فعال نیست.'}
         </p>
-      </header>
       {listState==='unauthorized'&&<p role="alert" data-testid="history-login-required">
         برای مشاهدهٔ گفت‌وگوها باید <Link href="/login">وارد حساب شوید</Link>.
       </p>}
@@ -652,7 +660,12 @@ export default function ProductChat(){
         اتصال برای تأیید مالک و نشست برقرار نیست؛ پیام‌های قبلی موقتاً پنهان
         و ارسال پرسش تا بازخوانی موفق غیرفعال است.
       </p>}
-      <div ref={messageLog} className="history-messages" role="log" aria-label="پیام‌های گفت‌وگوی انتخاب‌شده" aria-live="polite">
+      </div>
+      <div ref={messageLog} className="history-message-pane" onScroll={e=>{
+        const pane=e.currentTarget;
+        nearBottom.current=pane.scrollHeight-pane.clientHeight-pane.scrollTop<96;
+      }}>
+      <div className="history-messages" role="log" aria-label="پیام‌های گفت‌وگوی انتخاب‌شده" aria-live="polite">
         {!messagesFor&&!selectedAttempts.length&&listState!=='unauthorized'&&
           <p className="history-empty">{canSend
             ?'پرسشتان را بنویسید یا گفت‌وگویی از فهرست باز کنید.'
@@ -707,10 +720,16 @@ export default function ProductChat(){
           پیام‌های بیشتر
         </button>}
       </div>
+      </div>
       {listState!=='unauthorized'&&<form className="history-compose" onSubmit={e=>void submit(e)}>
+        <div className="composer-meta">
         {liveMode&&quota?.limit!=null&&<p className="history-note" data-testid="daily-quota">
           {quota.remaining.toLocaleString('fa-IR')} از {quota.limit.toLocaleString('fa-IR')} پرسش روزانه باقی‌مانده
         </p>}
+        <Link href="/login" className={'composer-account'+(sidebarCollapsed?' is-sidebar-collapsed':'')}>
+          حساب کاربری و خروج امن
+        </Link>
+        </div>
         <label htmlFor="product-question" className="sr-only">پرسش فارسی</label>
         <div className="composer">
           <textarea id="product-question" rows={2} data-testid="history-question"

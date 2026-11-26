@@ -252,7 +252,8 @@ export type StatusCorrelation=Pick<SendRequest,
   'requested_conversation_id'|'client_message_id'|'idempotency_key'>;
 export type StagingLiveResult=Readonly<{
   state:'PENDING'|'READY'|'UNKNOWN'|'REVIEW_REQUIRED';
-  outcome:'ANSWER'|'NO_ANSWER'|null;
+  outcome:'ANSWER'|'NO_ANSWER'|'CONVERSATIONAL'|null;
+  reply?:string;
   claims:ReadonlyArray<Readonly<{text:string;quote:string;chunk_id:string}>>;
 }>;
 export async function recoverLiveResult(original:StatusCorrelation,attemptId:string,
@@ -273,6 +274,8 @@ function liveResult(value:unknown):StagingLiveResult{
   if(!Array.isArray(o.claims))return invalid();
   const {state,outcome,claims}=o;
   if(state==='READY'){
+    if(outcome==='CONVERSATIONAL'&&claims.length===0&&typeof o.reply==='string'&&
+       o.reply.trim().length>0&&o.reply.length<=800)return {state,outcome,claims:[],reply:o.reply};
     if(outcome==='NO_ANSWER'&&claims.length===0)return {state,outcome,claims:[]};
     if(outcome!=='ANSWER'||claims.length<1||claims.length>5)return invalid();
     return {state,outcome,claims:claims.map(claim=>{

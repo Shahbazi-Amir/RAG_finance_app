@@ -29,3 +29,16 @@ test('live result is a GET and checks the persisted attempt and trace',async t=>
   assert.deepEqual(await recoverLiveResult(record,attempt,trace),{state:'READY',outcome:'ANSWER',claims});
   await assert.rejects(recoverLiveResult(record,attempt,'c'.repeat(32)),/invalid/);
 });
+
+test('the live result accepts conversational text without grounded claims',async t=>{
+  const attempt='a'.repeat(32),trace='b'.repeat(32);
+  const record={requested_conversation_id:null,client_message_id:'client',idempotency_key:'key12345'};
+  const reply='سلام! من مشاور مالی‌ات هستم.';
+  const body={kind:'arvan_staging_live_result',contract_version:'staging.arvan_live_result.v1',
+    attempt_id:attempt,attempt_trace_id:trace,state:'READY',outcome:'CONVERSATIONAL',claims:[],reply};
+  const fetch=t.mock.method(globalThis,'fetch',async ()=>Response.json(body));
+  assert.deepEqual(await recoverLiveResult(record,attempt,trace),
+    {state:'READY',outcome:'CONVERSATIONAL',claims:[],reply});
+  fetch.mock.mockImplementation(async ()=>Response.json({...body,reply:''}));
+  await assert.rejects(recoverLiveResult(record,attempt,trace));
+});

@@ -25,6 +25,29 @@ MAX_RESULTS = 128
 TTL_SECONDS = 900
 
 
+def conversational_reply(question):
+    """Only route complete, recognized social prompts without financial content."""
+    clean = re.sub(r"[^\w\s]", " ", question.replace("\u200c", " ").translate(
+        str.maketrans("يك", "یک")))
+    words = " ".join(clean.split())
+    greeting = r"(?:سلام|درود|وقت بخیر|صبح بخیر|عصر بخیر|شب بخیر)"
+    smalltalk = r"(?:چطوری|چه طوری|حالت چطوره|حال شما چطوره|خوبی|خوب هستی|حال شما خوبه)"
+    thanks = r"(?:مرسی|ممنونم?|متشکرم|سپاس(?:گزارم)?|خیلی ممنون|دستت درد نکنه)"
+    intro = (r"(?:(?:تو |شما )?(?:کی هستی|کی هستید|کیستی)|خودت رو معرفی کن|"
+             r"چه کمکی می تونی بکنی|چه کمکی می توانی بکنی|چه کمکی می کنی|چه کاری می تونی انجام بدی)")
+    if not re.fullmatch(rf"(?:{greeting}|{smalltalk}|{thanks}|{intro})(?: (?:{greeting}|{smalltalk}|{thanks}|{intro}))*",
+                        words):
+        return None
+    if re.fullmatch(thanks, words):
+        lead = "خواهش می‌کنم، خوشحالم که تونستم کمک کنم."
+    elif re.search(smalltalk, words):
+        lead = "سلام! من مشاور مالی‌ات هستم. ممنون که پرسیدی، خوشحالم که اینجایی."
+    else:
+        lead = "سلام! من مشاور مالی‌ات هستم. خوشحالم که اینجایی."
+    return (lead + " اگر دوست داری، دربارهٔ سواد مالی، بودجه‌بندی، مدیریت بدهی، پس‌انداز یا "
+            "سرمایه‌گذاری با هم صحبت کنیم.")
+
+
 class LiveAnswerStore:
     """Durable results keyed by the authenticated owner and original question."""
 
@@ -111,7 +134,7 @@ class ArvanLiveDispatch:
         infra = Path(__file__).resolve().parents[3] / "infra/nb23-v4"
         sys.path.insert(0, str(infra))
         try:
-            from arvan_gateway import contextualizer, metadata_issues, overlay_generation, thread_guidance
+            from arvan_gateway import advisory_style, contextualizer, metadata_issues, overlay_generation, thread_guidance
             from worker import ENGINE_SHA
         finally:
             sys.path.remove(str(infra))
@@ -119,7 +142,7 @@ class ArvanLiveDispatch:
         if hashlib.sha256(source).hexdigest() != ENGINE_SHA:
             raise DispatchClaimDenied()
         namespace = {"__name__": "arvan_pinned_engine", "metadata_issues": metadata_issues,
-                     "thread_guidance": thread_guidance}
+                     "thread_guidance": thread_guidance, "advisory_style": advisory_style}
         exec(compile(overlay_generation(source.decode()), str(engine_file), "exec"), namespace)
 
         def generate(source, attempt_id, turns=()):
@@ -167,7 +190,16 @@ class ArvanLiveDispatch:
                 raise DispatchClaimDenied()
             self.results[key] = (None, self._result("PENDING"))
         try:
-            if turns:
+            reply = conversational_reply(question)
+            if reply and self.store is not None:
+                result = {"state": "READY", "outcome": "CONVERSATIONAL", "claims": [], "reply": reply}
+                try:
+                    self.store.save(binding, message_id, result, {
+                        "cache_hit": False, "contextualized": False})
+                except sqlite3.Error:
+                    result = self._result("UNKNOWN")
+                self._finish(key, result)
+            elif turns:
                 self.generation.submit(self._contextualize, key, binding, message_id, question, turns)
             else:
                 self._schedule_retrieval(key, binding, message_id, question, ())

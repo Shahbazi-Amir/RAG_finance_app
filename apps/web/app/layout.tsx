@@ -13,7 +13,7 @@ const vazirmatn = localFont({
   preload: true,
 });
 export const metadata: Metadata = {
-  title: 'راگ مالی | گفت‌وگوی فارسی',
+  title: 'مشاور مالی | گفت‌وگوی فارسی',
   description: 'گفت‌وگوی فارسی و تاریخچهٔ خصوصی با وضعیت پیگیری درخواست از API.',
   robots: { index: false, follow: false }
 };

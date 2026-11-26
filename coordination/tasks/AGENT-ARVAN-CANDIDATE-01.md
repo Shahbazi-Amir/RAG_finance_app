@@ -255,3 +255,56 @@ passed 51 tests (one skipped) in the pinned Linux security and mTLS suite.
 Remaining live evidence is the exemption recheck after replacing Web and
 completion of the authorized test1 conversation and cache requests.
 Supervisor acceptance is separate.
+
+## ARVAN-CANDIDATE-01.4 · Full-pane advisor chat and social routing
+
+**Status** review · **Implemented** source below · **Tested** local/pinned
+checks below · **Accepted** pending supervisor review of live evidence.
+
+**Baseline.** Observed `RAG_finance_app` on
+`deploy/arvan-100users-candidate` at
+`f877e10aa8ad678952df2f603f9cf4d71de318ed`. The existing NB23 engine, worker
+input pins, C028/C340 Gateway controls, and 011 claim boundary are reused.
+
+**Roadmap.** Module 10 activities 2, 4 and 5
+(`P3M10-A02/A04/A05`, intent, grounded synthesis and citations),
+Module 14 activities 3, 5 and 9–12 (`P3M14-A03/A05/A09/A10/A11/A12`,
+responsive chat and evidence), and Module 18 activities 1 and 9
+(`P3M18-A01/A09`, offline worker and release). See
+[modular roadmap](../../references/phase2/roadmaps/RAG_finance_phase3_modular_execution_plan.md).
+`P3OP06-R01/R09` remain operational overlays.
+
+**Implemented paths and decisions.**
+
+- `apps/web/app/history/history.css` and `apps/web/src/ui/product-chat.tsx`
+  separate the full-width scrollport from the centered reading column.
+  Auto-scroll is tied to user Send or first observation of a completed
+  reply when already near the bottom. Apply the blue/yellow advisor palette
+  and keep the header to the toggle and active title.
+- `apps/web/app/layout.tsx`, `apps/web/app/login/route.ts`,
+  `apps/web/app/account/page.tsx`, and `apps/web/src/history/client.ts`
+  rebrand page titles and parse the separate, claim-free conversational
+  result shape. Existing grounded result and quote validation is retained.
+- `src/phase3/rag_runtime/arvan_live_dispatch.py` uses a bounded whole-prompt
+  recognizer with a fixed Persian response for pure social turns. Replies
+  use the existing durable owner/conversation store after the Send commit,
+  and bypass CPU retrieval, Gateway and cache. Mixed financial prompts
+  retain the grounded route. `infra/nb23-v4/arvan_gateway.py` adds advisory
+  tone within the pinned synthesis overlay. The change invalidates old
+  cached prompt outputs without editing the verified engine bytes.
+- `tests/phase3/api/test_arvan_turn_policy.py` and
+  `tests/phase3/ui/arvan-live-dispatch.test.mjs` cover router inclusion and
+  exclusion, durable conversational projection, and provider/cache bypass.
+
+**Checks.** `TMPDIR=/tmp npm --prefix apps/web test` passed 141.
+`cd apps/web && npm run typecheck && npm run build` passed with existing
+Turbopack tracing warnings. Mac focused API suite
+`python -m pytest -q tests/phase3/api --ignore=tests/phase3/api/test_staging_private_asgi.py`
+passed 233 (10 skipped). The isolated Arvan pinned-runtime private-ASGI,
+Bootstrap, Service Proof, Arvan dispatch/policy and real network mTLS suite
+passed 63 (one skipped). See the test paths above for the focused regressions.
+
+**Open evidence.** Deploy the worker offline because the gateway prompt
+changed. Live checks cover one approved greeting and responsive/pending-scroll
+behavior. No additional paid grounded financial Send or Module 00/01 Gate is
+asserted.

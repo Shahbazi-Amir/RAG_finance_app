@@ -135,3 +135,52 @@ def test_cache_hit_persists_new_turn_without_retrieval_or_provider():
             generate.assert_not_called()
         finally:
             service.close()
+
+
+@pytest.mark.parametrize("text", [
+    "سلام", "سلام چه طوری؟", "سلام چطوری؟", "خوبی؟", "مرسی", "ممنون",
+    "تو کی هستی؟ چه کمکی می‌تونی بکنی؟",
+])
+def test_pure_social_turn_gets_fast_persian_reply(text):
+    from src.phase3.rag_runtime.arvan_live_dispatch import conversational_reply
+
+    reply = conversational_reply(text)
+    assert reply and "سواد مالی" in reply and "شواهد" not in reply
+
+
+@pytest.mark.parametrize("text", [
+    "سلام، سود مرکب چطور محاسبه می‌شود؟", "ممنون، اگر بدهی دارم چه کنم؟",
+    "چه کمکی برای بودجه‌بندی می‌تونی بکنی؟", "خب بیشتر توضیح بده",
+])
+def test_financial_and_follow_up_turns_remain_grounded(text):
+    from src.phase3.rag_runtime.arvan_live_dispatch import conversational_reply
+
+    assert conversational_reply(text) is None
+
+
+def test_social_reply_with_thread_is_durable_and_bypasses_provider_and_cache():
+    with TemporaryDirectory() as folder:
+        path = Path(folder)
+        binding = InvitedBinding("owner", "a" * 64, 0, 1, None, "chat",
+                                 "client", "key12345", "b" * 32, "c" * 32, "d" * 32)
+        store = LiveAnswerStore(path)
+        service = ArvanLiveDispatch(path / "worker", Mock(), store, rewrite=Mock())
+        service._exchange = Mock()
+        service.cache = Mock()
+        permit = CommittedDispatchPermit("owner", AttemptBinding(
+            binding.attempt_id, binding.attempt_request_id, binding.attempt_trace_id), uuid4())
+        try:
+            assert service.slots.acquire(blocking=False)
+            service.enqueue(permit, binding, "سلام چه طوری؟", "msg", ({"question": "مالی"},))
+            result = service.read(binding, "msg")
+            assert result["outcome"] == "CONVERSATIONAL"
+            assert result["claims"] == []
+            assert "مشاور مالی" in result["reply"]
+            assert store.read("owner", "chat", ["msg"])["msg"][1] == result
+            assert store.answered_messages("owner", "chat") == []
+            assert service.cache.mock_calls == []
+            service.generate.assert_not_called()
+            service.rewrite.assert_not_called()
+            service._exchange.assert_not_called()
+        finally:
+            service.close()

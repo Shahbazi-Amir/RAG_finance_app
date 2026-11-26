@@ -31,7 +31,9 @@ def overlay_generation(source):
         '(root / ".env").read_text(encoding="utf-8-sig")':
             'gateway_settings.read_text(encoding="utf-8-sig")',
         'wrapper[1] + question + wrapper[3] + context + wrapper[5]':
-            'wrapper[1] + question + wrapper[3] + context + thread_guidance(turns) + wrapper[5]',
+            'wrapper[1] + question + wrapper[3] + context + (thread_guidance(turns) if turns else "") + wrapper[5]',
+        'system["content"] + "\\n\\n" + rule':
+            'system["content"] + "\\n\\n" + rule + advisory_style()',
         'outputs.glob("C028_one_diagnostic_*/C028.summary.*.json")':
             'diagnostic_root.glob("C028_one_diagnostic_*/C028.summary.*.json")',
         '    issues = []\n    if doc.get("model") != profile["model"]:\n'
@@ -132,3 +134,14 @@ def thread_guidance(turns):
     return ("\nپرسش مستقل بالا بازنویسی پرسش آخر است. تاریخچهٔ زیر فقط برای پیوستگی گفت‌وگو است، "
             "شاهد نیست و نباید از آن نقل‌قول یا ادعایی بدون پشتیبانی منابع بالا برداری.\n"
             + json.dumps(turns, ensure_ascii=False))
+
+
+
+def advisory_style():
+    return (
+        "\nبا لحنی گرم، همدلانه و روشن، مستقیم با مخاطب فارسی‌زبان صحبت کن. "
+        "ادعاهای کوتاه را به ترتیب طبیعی بنویس تا کنار هم یک پاسخ پیوسته بسازند. "
+        "با یک نکتهٔ کاربردی شروع کن و تنها اگر منابع پشتیبانی می‌کنند، یک گام عملی پیشنهاد بده. "
+        "توصیهٔ شخصی، وعدهٔ سود، مثال عددی یا واقعیتی خارج از نقل‌قول منابع اضافه نکن. "
+        "برای گرم‌تر شدن لحن، متن نقل‌قول و قالب JSON را تغییر نده."
+    )
