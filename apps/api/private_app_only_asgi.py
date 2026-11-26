@@ -198,6 +198,60 @@ class AppOnlyASGI:
                 response = history_api._safe_error(
                     503, "TEMPORARILY_UNAVAILABLE", "technical", "History unavailable.")
             return await response(scope, receive, private_send)
+        if scope.get("path") == "/health/ready":
+            # Strict readiness checks the *same* signed 004/005 session
+            # admission and owner-bound PostgreSQL transaction as History.
+            # PG-role-only /internal/ready is NOT proof the BFF signer works.
+            lengths = [value for name, value in scope.get("headers", ())
+                       if name.lower() == b"content-length"]
+            if (scope.get("raw_path") != b"/health/ready"
+                    or scope.get("method") != "GET"
+                    or scope.get("query_string")
+                    or lengths not in ([], [b"0"])
+                    or any(name.lower() == b"transfer-encoding"
+                           for name, _ in scope.get("headers", ()))):
+                return await JSONResponse(
+                    {"kind": "api_app_only_readiness", "state": "unavailable"},
+                    status_code=503)(scope, receive, private_send)
+            try:
+                from starlette.requests import Request
+                from apps.api import product_session_api, history_api
+                request = Request(scope, receive)
+
+                def probe_history(ctx):
+                    # Verify the actual canonical owner-scoped History read,
+                    # including cursor config and response validation. Do not
+                    # expose the returned conversations in a readiness DTO.
+                    history_api._cursor_config()
+                    page = history_api.conversations(request, ctx)
+                    if page.status_code != 200:
+                        raise StagingConfigDenied()
+
+                # No synthetic owner, no Auth override. Cryptographic
+                # issuer/audience/method/path/session/PG binding is checked
+                # inside the original signed, transaction-fenced function.
+                # The real PG session/replay transaction is synchronous.
+                # Never block the ASGI event loop for a slow dependency:
+                # separate requests (including deny-before-body Send) must
+                # remain schedulable while readiness probes PG.
+                await run_in_threadpool(
+                    product_session_api._signed_history,
+                    request, b"", b"/health/ready", probe_history,
+                    coherent_read=True,
+                )
+            except Exception:
+                # Signature, role, session, revoked user, PG outage and
+                # uncertain transaction results are all fail-closed.
+                return await JSONResponse(
+                    {"kind": "api_app_only_readiness", "state": "unavailable"},
+                    status_code=503)(scope, receive, private_send)
+            return await JSONResponse({
+                "kind": "api_app_only_readiness",
+                "state": "ready",
+                "signed_actor_pg": "verified",
+                "bootstrap_idp": "not_probed",
+                "retrieval": "unavailable", "generation": "unavailable",
+            })(scope, receive, private_send)
         if (scope.get("raw_path") == b"/internal/ready"
                 and scope.get("method") == "GET"
                 and not scope.get("query_string")):

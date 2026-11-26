@@ -21,7 +21,7 @@ jobs:
       - name: Verify exact six transferred blobs
         run: |
           set -euo pipefail
-          test "$(git hash-object apps/api/private_app_only_asgi.py)" = "0a8aa4cdd5766cf495d184c46d5c451fbc007c99"
+          test "$(git hash-object apps/api/private_app_only_asgi.py)" = "f69e8938c4c11969e1c9707fe827739eee631f5b"
           test "$(git hash-object apps/api/app_only_socket_probe.py)" = "36c5e45d79547d1cfc27ff97862b339adcc7c854"
           test "$(git hash-object tests/phase3/api/test_app_only_no_engine.py)" = "d665f3a4e489ec5906da683ef7624422a5280eb9"
           test "$(git hash-object tests/phase3/integration/api/test_app_only_mtls_network.py)" = "3d9e3c2b3b241d88326578feabda55387c94571f"
