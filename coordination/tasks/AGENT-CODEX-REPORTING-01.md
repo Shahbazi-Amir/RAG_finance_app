@@ -501,3 +501,8 @@ READY FOR HUMAN LIVE GENERATION TEST — SYNTHETIC CONTEXT ONLY. ماندگار�
 ### NB23-SESSION-RESUME-41
 
 پاسخ گل و مالی از سرور زیر Message مربوط بازیابی شدند. Chrome خروج، ۴۰۱، ورود مجدد و History را گذراند. بسته ۳/۳ بسته است؛ شمار Gateway ثابت. نقطه بازیابی CP41 و نقشه اتصال RAG ثبت شدند. P3M10، P3M13، P3M14-A03/A09 و P3M15-A01/A07. [نسخه مبنا، مسیرهای تغییر، فرمان آزمون و نتیجه به‌همراه اقدام بعدی](../../docs/codex_execution/MAC_FIRST_START_FA.md).
+
+
+### NB23-SESSION-RESUME-42
+
+پروفایل Worker واقعی و محصور روی پشته پایدار فعال شد. دو سؤال بدون Gateway پذیرفته شدند اما به مهلت محلی رسیدند. بستهٔ ۳/۳ ثابت و CP41 معتبر است. آزمون تشخیصی یک سؤال تازه در جریان است. P3M10، P3M13، P3M14-A03/A09 و P3M15-A01/A07. [نسخه مبنا، مسیرهای تغییر، فرمان آزمون و نتیجه به‌همراه اقدام بعدی](../../docs/codex_execution/MAC_FIRST_START_FA.md).
