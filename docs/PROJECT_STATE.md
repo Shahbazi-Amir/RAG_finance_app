@@ -1,6 +1,6 @@
 # RAG Finance — Master Project State & Coordination
 
-- **Last Updated:** 2026-11-27
+- **Last Updated:** 2026-11-28
 - **Live Staging URL:** `https://ragfinance.ir` (SSH alias: `rag-finance-arvan`)
 - **App Repo (Codex-1):** `/Users/macbookpro/AMIR_DATA/00_WORKS/01_PROJECTS/AI-Agent-projects/RAG_finance_app`
   - Active Branch: `deploy/arvan-100users-candidate`
@@ -14,11 +14,17 @@
 
 | Priority | Track | Owner Agent | Repo / Allowed Paths | Status |
 | :---: | :--- | :--- | :--- | :--- |
-| **1** | **100-User Candidate + Repeatable Arvan Deploy** | Codex-1 | `RAG_finance_app`: `apps/web/`, `infra/arvan-staging/`, `tests/phase3/ui/` | Next (6 backlog items in `ARVAN_STAGING_HANDOFF.md` + `deploy-arvan.sh`) |
+| **1** | **100-User Candidate + Repeatable Arvan Deploy** | Codex-1 | `RAG_finance_app`: `apps/web/`, `infra/arvan-staging/`, `tests/phase3/ui/` | Partially complete (4 of 6 handoff items deployed, `deploy-arvan.sh` exercised, live #143 PASS) |
 | **2** | **Engine Latency Optimization (Zero Recall Drop)** | Codex-2 | `/Users/macbookpro/AMIR_DATA/00_WORKS/01_PROJECTS/RAG-projects/RAG_finance` (and later `RAG_finance_app/infra/nb23-v4/` via separate PR) | Next (Step 1: frozen baseline Latency + Recall benchmark) |
 | **3** | **Complete Phase 3 Roadmap Gates** | Codex-1 | `RAG_finance_app`: `apps/`, `src/phase3/`, `tests/phase3/` (after Track 1 merge) | Pending Track 1 completion |
 | **4** | **Engine Score & Recall Upgrade (Danesh-Bonyan)** | Codex-2 | `/Users/macbookpro/AMIR_DATA/00_WORKS/01_PROJECTS/RAG-projects/RAG_finance` (corpus fixes, index, retrieval, formal evaluation report) | Pending Track 2 baseline |
 | **5** | **Phase 4: Admin Panel + Measurement & Learning Loop** | Codex-1 & 2 | New Phase 4 modules after Phase 3 sign-off (use `git worktree` if concurrent) | Locked until Track 3 complete |
+
+### Priority 1 closeout status
+
+- **Live #143 PASS on `ragfinance.ir`** — The updated `protected-profile-check.py` verified anonymous handshake rejection and an authenticated HTTP response on both private ports `18443` and `18444`. Live RS256, enforced PKCE S256, the exact callback and required 404 boundaries passed.
+- **Delivered** — Keycloak logout cookie expiration, one-click CSRF-protected sidebar logout, the Keycloak theme fixes, and the chat/login palette and chart direction. The repeatable `deploy-arvan.sh` flow built and deployed the candidate from the offline cache. [Live verification report](reports/SPEC-01B-arvan-live-deploy.md)
+- **Open** — Password reset with SMTP and the source corpus typo/index rebuild remain open, so Priority 1 is 4 of 6 handoff items complete plus the deployment script. The live gate did not include a 100-user workload test. [Arvan handoff](../infra/arvan-staging/ARVAN_STAGING_HANDOFF.md#3-remaining-backlog)
 
 ## 2. Codex Account Isolation & Recovery
 

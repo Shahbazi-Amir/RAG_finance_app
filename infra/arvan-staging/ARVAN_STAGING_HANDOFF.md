@@ -1,7 +1,7 @@
 # Arvan Staging Handoff & Status Report (`ragfinance.ir`)
 
 - **Branch:** `deploy/arvan-100users-candidate`
-- **Last app commit before infra sync:** `7f0c54d`
+- **Deployed application commit:** `355c66460b96f415456cc5c10ba7a9e85a03898c` with SPEC-01B-R5 deployment updates
 - **Live URL:** `https://ragfinance.ir`
 - **Server backup before same-domain cutover:** `/root/rag-arvan-backups/pre-same-domain-auth-20261126-204507`
 
@@ -23,25 +23,20 @@
 - **Chat UX & Runtime (`7f0c54d`):**
   - Full-pane scroll without poll scroll-lock, «مشاور مالی» branding, social/greeting fast router (< 3s), conversational advisor tone, multi-turn history, answer cache, offline worker build.
 
-## 2. Remaining Backlog (Next Pass)
+## 2. SPEC-01B live deployment
 
-1. **Clear Keycloak SSO cookies on logout (`KEYCLOAK_IDENTITY`, `KEYCLOAK_SESSION` on path `/realms/finance-staging/`):**
-   - Currently `/api/auth/logout` clears only the BFF session cookie, so re-login triggers Keycloak re-authentication locked to the previous user unless the user clicks restart.
-2. **One-click logout from chat sidebar:**
-   - Replace two-step navigation (`/login` -> click logout again) with direct CSRF-protected logout action (and align Playwright test selectors if needed).
-3. **Keycloak login theme (`moshaver-mali`) visual polish:**
-   - Remove inherited `styles.css` duplicate top blue border on `.pf-v5-c-login__main`.
-   - Hide `.pf-v5-c-form-control__utilities` (error icon overlapping LTR username text on invalid password).
-   - Fix `.mm-badge` 3-bar ascending chart icon visibility and unify card header spacing.
-4. **Chat UI palette & chart icon direction:**
-   - Soften blue accents (`#2563eb` -> lighter sky/soft blue + very light yellow) across both chat (`apps/web/app/history/history.css`, `apps/web/app/login/route.ts`) and login theme.
-   - Add `direction: ltr` to `.advisor-mark` in `history.css` so the 3 bars ascend left-to-right.
-5. **Password Reset (Forgot Password):**
+- Deployed Keycloak SSO cookie expiration on logout and the CSRF-protected one-click chat sidebar form.
+- Deployed the polished Keycloak theme, the lighter chat and login palette, and left-to-right chart bars.
+- The live gate verified PKCE S256 on the client, the exact callback, RS256, both private mTLS endpoints, the public HTTP boundaries and the served theme. See the [live deployment report](../../docs/reports/SPEC-01B-arvan-live-deploy.md).
+
+## 3. Remaining Backlog
+
+1. **Password Reset (Forgot Password):**
    - Configure SMTP in Keycloak `finance-staging` realm and enable `resetPasswordAllowed=true` once real user emails & SMTP credentials are ready.
-6. **Source Corpus Typo:**
+2. **Source Corpus Typo:**
    - Fix raw dataset typo (`واریس` -> `واریز`) in a future corpus/index rebuild.
 
-## 3. Deploy Reminder for Future Syncs
+## 4. Deploy Reminder for Future Syncs
 
 - Do NOT overwrite `/opt/rag-finance-staging/phase3/themes/moshaver-mali` or `/etc/nginx/conf.d/ragfinance.ir.conf` with legacy `idp-staging.ragfinance.ir` configs.
 - Always sync `infra/arvan-staging/themes/moshaver-mali/` to `/opt/rag-finance-staging/phase3/themes/moshaver-mali/` before recreating `rag-arvan-idp-keycloak-1`.

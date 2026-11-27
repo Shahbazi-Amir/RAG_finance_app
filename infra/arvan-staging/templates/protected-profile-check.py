@@ -2,6 +2,7 @@
 import http.client
 import json
 from pathlib import Path
+import socket
 import ssl
 import stat
 import sys
@@ -34,6 +35,7 @@ def profile(name):
 def probe_mtls(origin, web):
     endpoint = urlsplit(origin)
     context = ssl.create_default_context(cafile=web["tls_ca_file"])
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.maximum_version = ssl.TLSVersion.TLSv1_2
 
     def request():
@@ -46,17 +48,24 @@ def probe_mtls(origin, web):
         finally:
             connection.close()
 
-    try:
-        request()
-    except ssl.SSLError as error:
-        require(error.reason in {
-            "SSLV3_ALERT_HANDSHAKE_FAILURE", "SSLV3_ALERT_BAD_CERTIFICATE",
-            "TLSV13_ALERT_CERTIFICATE_REQUIRED",
-        })
-    else:
-        raise ValueError("private TLS accepted an anonymous client")
+    # Accept a cleanly classified TLS rejection only after TCP has connected.
+    with socket.create_connection((endpoint.hostname, endpoint.port), timeout=5) as tcp:
+        with context.wrap_socket(
+            tcp, server_hostname=endpoint.hostname, do_handshake_on_connect=False
+        ) as anonymous:
+            try:
+                anonymous.do_handshake()
+            except ssl.SSLEOFError as error:
+                require(error.reason == "UNEXPECTED_EOF_WHILE_READING")
+            except ssl.SSLError as error:
+                require(error.reason in {
+                    "SSLV3_ALERT_HANDSHAKE_FAILURE", "SSLV3_ALERT_BAD_CERTIFICATE",
+                    "TLSV13_ALERT_CERTIFICATE_REQUIRED",
+                })
+            else:
+                raise ValueError("private TLS accepted an anonymous client")
     context.load_cert_chain(web["tls_client_cert_file"], web["tls_client_key_file"])
-    require(100 <= request() < 600)
+    require(200 <= request() < 600)
 
 
 def main():

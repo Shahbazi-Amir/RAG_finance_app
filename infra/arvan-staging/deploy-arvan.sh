@@ -16,6 +16,7 @@ infra=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 release=/opt/rag-finance-staging/phase3/arvan-candidate
 tools=/opt/rag-finance-staging/phase3/tools/bin
 config=/etc/rag-arvan-candidate
+admin_env=${KEYCLOAK_ADMIN_ENV_FILE:-/root/rag-arvan-backups/keycloak-admin.env}
 theme=/opt/rag-finance-staging/phase3/themes/moshaver-mali
 compose=$infra/keycloak.compose.yml
 units=(rag-arvan-worker rag-arvan-api rag-arvan-bootstrap-oidc rag-arvan-web)
@@ -23,11 +24,11 @@ vhosts=(ragfinance.ir idp-staging.ragfinance.ir)
 
 if "$dry_run"; then
     cat <<'PLAN'
-Preflight Linux host, staged release, offline build tools, restricted inputs and Keycloak admin session.
+Preflight Linux host, staged release, offline build tools, restricted inputs and Keycloak admin credentials.
 Build and check Web as the release operator using offline dependencies.
 Install the four versioned systemd units and reload the systemd manager.
 Sync the read-only Keycloak theme and restart Keycloak if the theme changed.
-Reconcile existing realm theme, locale and registration policy over container loopback.
+Reconcile existing realm theme, locale, registration policy and client PKCE S256 over container loopback.
 Render the protected Nginx proof include, install same-domain and deny-only vhosts, validate with nginx -t.
 Restart candidate services and reload Nginx.
 Smoke active services, public login/discovery/capabilities, ingress 404s and private mTLS.
@@ -37,8 +38,15 @@ fi
 
 [[ $EUID == 0 && $infra == "$release/infra/arvan-staging" ]] ||
     fail 'run as root from the staged candidate directory'
-export PATH="$tools:/usr/sbin:/usr/bin:/sbin:/bin"
-for cmd in npm node python3.13 systemctl nginx docker curl jq rsync runuser stat flock install     cmp mv mktemp sha256sum sort find xargs; do
+
+node_bin_dir=""
+if [[ -e $tools/node ]]; then
+    node_bin_dir=$(dirname -- "$(readlink -f -- "$tools/node")")
+fi
+export PATH="$tools${node_bin_dir:+:$node_bin_dir}:/usr/sbin:/usr/bin:/sbin:/bin"
+export KEYCLOAK_ADMIN_ENV_FILE="$admin_env"
+
+for cmd in npm node python3.13 systemctl nginx docker curl jq rsync runuser stat flock install cmp mv mktemp sha256sum sort find xargs readlink getent; do
     command -v "$cmd" >/dev/null || fail "missing tool $cmd"
 done
 exec 9>/run/lock/rag-arvan-deploy.lock
@@ -49,25 +57,34 @@ for name in api-private.json bootstrap-private.json web-private.json gateway.env
     [[ -f $file && ! -L $file && -s $file && $(stat -c %a -- "$file") == 600 ]] ||
         fail "missing or insecure credential input $name"
 done
+[[ -f $admin_env && ! -L $admin_env && -s $admin_env && $(stat -c %a -- "$admin_env") == 600 ]] ||
+    fail 'missing or insecure keycloak admin env input'
+
 python3.13 "$infra/templates/protected-profile-check.py" ||
     fail 'private profile, same-domain issuer or referenced credentials failed preflight'
 docker compose -f "$compose" version >/dev/null
 bash "$infra/templates/realm-sync.sh" "$compose" --check ||
-    fail 'establish the approved container-local kcadm session and verify realm/client settings'
+    fail 'Keycloak realm/client #143 preflight check failed (verify PKCE S256 and admin env)'
 
 build_user=${ARVAN_BUILD_USER:-$(stat -c %U -- "$release")}
 [[ $build_user != root ]] || fail 'select an unprivileged release operator'
+build_home=$(getent passwd "$build_user" | cut -d: -f6)
+[[ -n $build_home && -d $build_home ]] || fail "missing home directory for $build_user"
+npm_cache=${ARVAN_NPM_CACHE:-$build_home/.npm}
+[[ -d $npm_cache ]] || fail "missing offline npm cache at $npm_cache"
+
 step 'Checking and building staged Web release'
 (
     cd "$release/apps/web"
-    runuser -u "$build_user" -- env PATH="$PATH" NEXT_TELEMETRY_DISABLED=1 \
+    runuser -u "$build_user" -- env PATH="$PATH" HOME="$build_home" npm_config_cache="$npm_cache" NEXT_TELEMETRY_DISABLED=1 \
         npm ci --offline --no-audit --no-fund
-    runuser -u "$build_user" -- env PATH="$PATH" NEXT_TELEMETRY_DISABLED=1 \
+    runuser -u "$build_user" -- env PATH="$PATH" HOME="$build_home" npm_config_cache="$npm_cache" NEXT_TELEMETRY_DISABLED=1 \
         node node_modules/next/dist/bin/next typegen
     for check in lint typecheck build; do
-        runuser -u "$build_user" -- env PATH="$PATH" NEXT_TELEMETRY_DISABLED=1 npm run "$check"
+        runuser -u "$build_user" -- env PATH="$PATH" HOME="$build_home" npm_config_cache="$npm_cache" NEXT_TELEMETRY_DISABLED=1 \
+            npm run "$check"
     done
-) >/dev/null 2>&1 || fail 'offline Web install, lint, typecheck or build'
+) || fail 'offline Web install, lint, typecheck or build'
 
 step 'Installing systemd units'
 for unit in "${units[@]}"; do
@@ -92,8 +109,6 @@ fi
 bash "$infra/templates/realm-sync.sh" "$compose" --apply || fail 'realm reconciliation'
 
 step 'Installing and testing Nginx configuration'
-# The protected include is generated in place by the existing renderer.
-# Back up only vhosts, and restore them if nginx rejects the candidate.
 backup=$(mktemp -d)
 cleanup() {
     rm -f -- "$backup/"*.conf
