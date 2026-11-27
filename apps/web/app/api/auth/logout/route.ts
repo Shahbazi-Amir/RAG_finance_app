@@ -1,12 +1,8 @@
-/**
- * Explicit fail-closed Logout boundary.
- * API #48 exposes START/COMPLETE/STATUS/ACK/ABORT only; none revokes ACTIVE.
- * A successful Logout route is intentionally NOT manufactured here.
- */
 import {SESSION,cookie,csrf,mutationAllowed,noStore} from
   '../../../../src/auth/initial/index.ts';
 import {getActive,revokeAlias,appendCookie,redirectLocal} from '../../../../src/auth/initial/index.ts';
 import {productRequest} from '../../../../src/auth/initial/index.ts';
+import {keycloakCookieExpiry} from './keycloak-cookies.ts';
 import {randomUUID} from 'node:crypto';
 import {stagingRequested,stagingProfile} from '../../../../src/auth/server/private-staging.ts';
 export const runtime='nodejs';
@@ -29,6 +25,7 @@ export async function POST(request:Request):Promise<Response>{
     if(stagingRequested())stagingProfile();
     if(!stagingRequested()&&process.env.AUTH_CI_DEMO_MODE!=='true')return new Response(
       'خروج هنوز به ابطال سروری متصل نشده است.',{status:503,headers:noStore});
+    const keycloakCookies=keycloakCookieExpiry();
     const operationId=randomUUID();
     const result=await productRequest('revoke',active,'',operationId);
     if(result.status!==200)return new Response('تأیید ابطال دریافت نشد؛ نتیجهٔ خروج نامعلوم است.',
@@ -43,6 +40,7 @@ export async function POST(request:Request):Promise<Response>{
     await revokeAlias(handle);
     const response=redirectLocal('/login?reason=logged_out');
     appendCookie(response,SESSION,'',0);
+    for(const value of keycloakCookies)response.headers.append('Set-Cookie',value);
     return response;
   }catch{return new Response('Logout unavailable',{status:503,headers:noStore});}
 }

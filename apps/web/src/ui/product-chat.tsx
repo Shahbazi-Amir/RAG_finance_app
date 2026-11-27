@@ -117,7 +117,7 @@ function LiveProgress({attempt}:{attempt:Attempt}){
 function sessionStore():Storage|null{
   try{return window.sessionStorage;}catch{return null;}
 }
-export default function ProductChat(){
+export default function ProductChat({logoutCsrf}:{logoutCsrf?:string}){
   const [list,setList]=useState<ListData>({items:[],next:null,more:false});
   const [listState,setListState]=useState<'loading'|'ready'|'error'|'unauthorized'>('loading');
   const [selected,setSelected]=useState<string>('draft:new');
@@ -205,7 +205,7 @@ export default function ProductChat(){
     }catch(e){if(!invalidate(e)&&privacyEpoch.current===epoch)setQuota(null);}
   },[invalidate,liveMode]);
   useEffect(()=>{
-    if(listState!=='ready'||!liveMode){setQuota(null);return;}
+    if(listState!=='ready'||!liveMode)return;
     const refresh=()=>{if(document.visibilityState==='visible')void refreshQuota();};
     refresh();
     const timer=window.setInterval(refresh,60000);
@@ -244,7 +244,7 @@ export default function ProductChat(){
       privacyEpoch.current++;
       threadEpochs.current={};
       setThreads({});
-      setListState('error');setError(failureLabel(e));
+      setListState('error');setQuota(null);setError(failureLabel(e));
     }
   },[invalidate,matchOwner]);
   const loadThread=useCallback(async (id:string,append=false,cursor:string|null=null)=>{
@@ -621,7 +621,10 @@ export default function ProductChat(){
         onClick={()=>void loadList(true,list.next)}>نمایش گفت‌وگوهای بیشتر</button>}
       </div>
       <div className="history-sidebar-bottom">
-        <Link href="/login" className="history-link">حساب کاربری و خروج امن</Link>
+        {logoutCsrf?<form action="/api/auth/logout" method="post">
+          <input type="hidden" name="csrf" value={logoutCsrf}/>
+          <button type="submit" className="history-link" data-testid="sidebar-logout">خروج امن از حساب</button>
+        </form>:<Link href="/login" className="history-link">حساب کاربری و خروج امن</Link>}
       </div>
     </aside>
     {mobileOpen&&<button type="button" className="history-mobile-scrim"
@@ -723,7 +726,7 @@ export default function ProductChat(){
       </div>
       {listState!=='unauthorized'&&<form className="history-compose" onSubmit={e=>void submit(e)}>
         <div className="composer-meta">
-        {liveMode&&quota?.limit!=null&&<p className="history-note" data-testid="daily-quota">
+        {liveMode&&listState==='ready'&&quota?.limit!=null&&<p className="history-note" data-testid="daily-quota">
           {quota.remaining.toLocaleString('fa-IR')} از {quota.limit.toLocaleString('fa-IR')} پرسش روزانه باقی‌مانده
         </p>}
         <Link href="/login" className={'composer-account'+(sidebarCollapsed?' is-sidebar-collapsed':'')}>

@@ -399,14 +399,22 @@ class Demo:
             # Same browser context as A, second tab starts a real native
             # Logout form POST with CSRF and verified server-only session.
             other_tab=await ctx_a.new_page()
-            await other_tab.goto(ORIGIN+"/login")
-            await expect(other_tab.get_by_test_id("logout-submit")).to_be_visible()
+            await other_tab.goto(ORIGIN+"/")
+            if mobile:
+                await other_tab.get_by_role("button",name="بازکردن فهرست گفت‌وگوها").click()
+            logout=other_tab.get_by_test_id("sidebar-logout")
+            await expect(logout).to_be_visible()
             async with other_tab.expect_response(
                 lambda r: r.url.endswith("/api/auth/logout") and
                 r.request.method=="POST",timeout=25000) as posted:
-                await other_tab.get_by_test_id("logout-submit").click()
+                await logout.click()
             receipt=await posted.value
             assert receipt.status==303,("NO_COMMIT_RECEIPT",receipt.status)
+            headers=await receipt.header_values("set-cookie")
+            for name in ("KEYCLOAK_IDENTITY", "KEYCLOAK_SESSION"):
+                assert any(value.startswith(name + "=;") and
+                           "Path=/realms/finance-staging/;" in value and
+                           "Max-Age=0" in value for value in headers)
             await expect(other_tab.get_by_test_id("logout-success")).to_be_visible()
             print("DEMO_"+mode+"_REAL_LOGOUT_COMMITTED_RECEIPT_PASS",flush=True)
             # API-level post-revoke check uses actual Product verifier recovered

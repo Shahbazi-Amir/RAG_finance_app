@@ -193,24 +193,25 @@
 
 /* The product chat palette is scoped away from the fixture and Account routes. */
 .product-shell,.product-shell .history-compose{background:#f8fafc;color:#0f172a}
-.product-shell .history-sidebar{background:#f0f7ff;border-color:#dbeafe}
+.product-shell .history-sidebar{background:#f3f8ff;border-color:#dbeafe}
 .product-shell .history-sidebar-bottom{border-color:#dbeafe}
 .product-shell .history-brand,.product-shell .nav-section-title{color:#0f172a}
-.advisor-mark{display:flex;align-items:end;justify-content:center;gap:3px;flex:none;
-  width:34px;height:34px;padding-bottom:8px;background:#fef9c3;border:1px solid #fde68a;border-radius:10px}
-.advisor-mark i{width:3px;background:#1d4ed8;border-radius:2px;height:6px}
+.advisor-mark{direction:ltr;display:flex;align-items:end;justify-content:center;gap:3px;flex:none;
+  width:34px;height:34px;padding-bottom:8px;background:#fff8d9;border:1px solid #ead58d;border-radius:10px}
+.advisor-mark i{width:3px;background:#164173;border-radius:2px;height:6px}
 .advisor-mark i:nth-child(2){height:10px}
 .advisor-mark i:nth-child(3){height:15px}
-.product-shell .nav-new-chat,.product-shell .history-compose .primary{background:#2563eb;color:#fff}
-.product-shell .nav-new-chat:hover:not(:disabled),.product-shell .history-compose .primary:hover:not(:disabled){background:#1d4ed8}
-.product-shell .history-list .nav-thread.is-current{background:#fef9c3;color:#0f172a;
+.product-shell .nav-new-chat,.product-shell .history-compose .primary{background:#dbeafe;color:#12355c}
+.product-shell .nav-new-chat:hover:not(:disabled),.product-shell .history-compose .primary:hover:not(:disabled){background:#bfdbfe}
+.product-shell .history-list .nav-thread.is-current{background:#fff8d9;color:#0f172a;
   box-shadow:inset -3px 0 #d97706}
 .product-shell .history-list .nav-thread:not(.is-current):hover{background:#dbeafe}
 .product-shell .history-user{background:#e0f2fe;color:#0f172a}
 .product-shell .history-answer,.product-shell .composer{background:#fff;border-color:#dbeafe;color:#0f172a}
-.product-shell :is(.history-link,.history-mobile-close,.secondary){border-color:#bfdbfe;color:#1d4ed8}
+.product-shell :is(.history-link,.history-mobile-close,.secondary){border-color:#bfdbfe;color:#164173}
 .product-shell .history-note,.product-shell .history-empty,.product-shell .history-state,.product-shell .live-waiting{color:#475569}
 .product-shell .live-answer summary{display:list-item;width:fit-content;padding:4px 10px;
-  border:1px solid #fde68a;border-radius:8px;background:#fef9c3;color:#713f12}
-.product-shell .live-answer blockquote{border-color:#fde68a;color:#334155}
+  border:1px solid #ead58d;border-radius:8px;background:#fff8d9;color:#713f12}
+.product-shell .live-answer blockquote{border-color:#ead58d;color:#334155}
 .product-shell .live-waiting span{border-color:#dbeafe;border-top-color:#2563eb}
+.product-shell button.history-link{cursor:pointer;font-family:inherit}
