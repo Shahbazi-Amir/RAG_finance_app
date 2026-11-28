@@ -100,7 +100,7 @@ class DailyQuota:
         default, overrides = self.config()
         matches = [overrides[key] for key in keys if key in overrides]
         # Resolve conflicting aliases conservatively.
-        finite = [value for value in matches if value]
+        finite = [value for value in matches if value is not None]
         return min(finite) if finite else None if matches else default
 
     def _day(self):

@@ -94,6 +94,18 @@ def test_quota_replay_persistence_exemption_and_tehran_midnight():
         assert quota.path.stat().st_mode & 0o777 == 0o600
 
 
+@pytest.mark.parametrize("aliases", [("blocked",), ("unlimited", "standard", "blocked")])
+def test_zero_quota_override_is_most_restrictive(tmp_path, aliases):
+    quota = DailyQuota(tmp_path, lambda: (20, {"blocked": 0, "standard": 3, "unlimited": None}))
+    assert quota.read("owner", aliases) == {"limit": 0, "remaining": 0}
+    payload = {"requested_conversation_id": None, "client_message_id": "fixture",
+               "idempotency_key": "fixture"}
+    with pytest.raises(QuotaExceeded) as denied:
+        quota.reserve("owner", aliases, payload)
+    assert denied.value.quota == {"limit": 0, "remaining": 0}
+    assert quota.read("other", ()) == {"limit": 20, "remaining": 20}
+
+
 def test_live_api_exhaustion_response_is_429_without_retry(monkeypatch):
     from fastapi.testclient import TestClient
     from apps.api import product_session_api as api
