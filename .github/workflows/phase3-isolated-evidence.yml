@@ -158,6 +158,51 @@ jobs:
           docker exec "$PG_CONTAINER" rm -- /tmp/spec-p309.dump
           printf '%s\n' 'PG16_MIGRATION_001_011_ROLLBACK_001_010_RLS_RESTORE_PASS'
 
+  postgres-populated-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Full original DB59 test on isolated synthetic PG17.11 with real client preflight and restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/phase3/completion
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          cd infra/postgres/dev_f3_isolated
+          bash tests/run_static.sh
+          export SOURCE_REPO="$GITHUB_WORKSPACE"
+          export LAB_ROOT="$RUNNER_TEMP/f3-completion-db-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          bash scripts/00_prepare_source.sh
+          bash scripts/01_create_isolated_lab.sh
+          bash scripts/02_provision_roles.sh
+          bash scripts/03_apply_pinned_001_010.sh
+          bash scripts/03_apply_pinned_001_010.sh | grep -F ALREADY_APPLIED_EXACT_PINS_NO_RERUN
+          bash scripts/04_bridge_and_db55.sh
+          bash scripts/05_test_roles_tls_rls.sh
+          bash scripts/09_shared_stack_db_preflight.sh
+          bash scripts/06_backup_restore_independent.sh
+          bash scripts/10_restored_stack_db_preflight.sh
+          bash scripts/13_catalog_erd_inventory.sh
+          bash scripts/12_rollback_rls_constraints_probe.sh
+          bash scripts/14_synthetic_owner_lifecycle_restore.sh
+          bash scripts/15_populated_pre009_upgrade_restore.sh
+          bash scripts/16_fault_injected_migration_ledger.sh
+          bash scripts/17_populated_query_plan_and_owner.sh
+          bash scripts/19_history_rls_negative_matrix.sh
+          bash scripts/20_backup_integrity_corruption_probe.sh
+          bash scripts/21_history_cursor_race_probe.sh
+          bash scripts/11_export_sanitized_receipt.sh
+          echo 'P311_POPULATED_MIGRATION_RLS_RESTORE_PASS'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f3-completion-sanitized-db-receipt
+          path: infra/postgres/dev_f3_isolated/ci_receipts/f3_db_candidate_consumption.json
+          if-no-files-found: warn
+
   python-security-and-api:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -218,6 +263,9 @@ jobs:
           python -B -m unittest discover -s tests/phase3/contracts -p 'test_*.py'
           python -B -m unittest discover -s tests/phase3/foundation -p 'test_*.py'
           python -B -m pytest -q -p no:cacheprovider tests/phase3/api/test_arvan_turn_policy.py
+      - name: Audit log guards and alert transition contracts
+        run: |
+          python -B -m unittest discover -s tests/phase3/integration/api -p 'test_f3_lab_*.py'
       - name: API suite and private transport witnesses
         run: |
           python -B -m unittest discover -s tests/phase3/api -p 'test_*.py'
@@ -371,6 +419,44 @@ jobs:
             docker image inspect --format '{{.Id}}' "$tag" > "$RUNNER_TEMP/p309-evidence/$component-image-id.txt"
           done
           printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/p309-evidence/source-sha.txt"
+      - name: Scan both built images and their installed dependencies
+        run: |
+          set -euo pipefail
+          version=0.69.3
+          archive="$RUNNER_TEMP/trivy.tar.gz"
+          curl -fsSL --retry 3 -o "$archive" "https://github.com/aquasecurity/trivy/releases/download/v${version}/trivy_${version}_Linux-64bit.tar.gz"
+          printf '%s  %s\n' 1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75 "$archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" trivy
+          scanner="$RUNNER_TEMP/trivy"
+          evidence="$RUNNER_TEMP/p309-evidence"
+          for component in api web; do
+            tag="p309-$component:$GITHUB_SHA"
+            "$scanner" image --image-src docker --scanners vuln --format json \
+              --output "$evidence/$component-vulnerabilities.json" "$tag"
+          done
+          python3 - "$evidence" <<'PYTHON'
+          import json
+          import sys
+          from collections import Counter
+          from pathlib import Path
+
+          evidence = Path(sys.argv[1])
+          blocked = False
+          for component in ("api", "web"):
+              report = json.loads((evidence / f"{component}-vulnerabilities.json").read_text())
+              image_id = (evidence / f"{component}-image-id.txt").read_text().strip()
+              if report["Metadata"]["ImageID"] != image_id or not report["Results"]:
+                  raise SystemExit(f"{component}: scan evidence does not match built image")
+              counts = Counter(
+                  issue["Severity"]
+                  for target in report["Results"]
+                  for issue in target.get("Vulnerabilities", [])
+              )
+              print(f"{component}: vulnerability counts {dict(sorted(counts.items()))}")
+              blocked |= bool(counts["HIGH"] or counts["CRITICAL"])
+          if blocked:
+              raise SystemExit("Unresolved HIGH or CRITICAL image vulnerabilities")
+          PYTHON
       - uses: actions/upload-artifact@v4
         if: always()
         with:

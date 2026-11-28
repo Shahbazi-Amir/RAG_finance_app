@@ -34,3 +34,11 @@
    - Confirmed deferrals remain in effect:
      - Password reset via SMTP: `DEFERRED` to post-pilot / Phase 4 (manual Keycloak admin reset remains active).
      - Corpus typo (`واریس ← واریز`) and index rebuild: `DEFERRED` to Priority 4 in `RAG_finance` (Owner: Codex-2).
+
+## SPEC-P3-11 addendum — App-only governance and engine baseline
+
+Approval recorded from the owner instructions for SPEC-P3-11. Approver: امیر شهبازی آراللو (Primary Owner). Owner-specified approval date: 2026-11-27.
+
+7. **App-only governance approval.** The owner approves the Phase 3 App-only architecture, scope, SLO and applicable ADRs for this baseline, and signs the governance and other nontechnical requirements within the owner's authority for P3M01–P3M06, P3M16, P3M18, P3M19 and P3M21. Release control requires a test report, immutable image digest, migration verification and explicit release approval. This approval covers policy and ownership. Technical evidence, upstream Gate dependencies and supervisor acceptance are recorded separately. **Production: NO-GO. Phase 4: LOCKED.**
+
+8. **NB23-v4 baseline and Track 4 waiver.** The owner selects the live-frozen `NB23-v4` App-side integration under `infra/nb23-v4/`, as found at `v0.1-arvan-100users-live` commit `4edadd3e784e1f9500dd9da8d4b6f6e40833cd13`, tree `ed2df0b52510e9ec58e50f86d73fcf8fde1077bf`. Future recall and knowledge-quality uplift goes to Codex-2 Track 4. Existing baseline regression, provenance, safety, authoritative release acceptance and operational controls remain acceptance requirements. The Git tree identifies the App-side integration. External engine assets and their authoritative release manifest still require separate verification.
