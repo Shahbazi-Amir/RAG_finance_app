@@ -17,9 +17,9 @@
 | :---: | :--- | :--- | :--- | :--- |
 | **1** | **100-User Candidate + Repeatable Arvan Deploy** | Codex-1 | `RAG_finance_app`: `apps/web/`, `infra/arvan-staging/`, `tests/phase3/ui/` | Closed and frozen for the pilot (4 items delivered, 2 formally deferred, `deploy-arvan.sh` exercised, live #143 PASS) |
 | **2** | **Engine Latency Optimization (Zero Recall Drop)** | Codex-2 | `/Users/macbookpro/AMIR_DATA/00_WORKS/01_PROJECTS/RAG-projects/RAG_finance` (and later `RAG_finance_app/infra/nb23-v4/` via separate PR) | Next (Step 1: frozen baseline Latency + Recall benchmark) |
-| **3** | **Complete Phase 3 Roadmap Gates** | Codex-1 | `RAG_finance_app`: `apps/`, `src/phase3/`, `tests/phase3/` (after Track 1 merge) | App-only Spec sequence P3-00–P3-08 documented; production NO-GO pending evidence and owner decisions |
+| **3** | **Complete Phase 3 Roadmap Gates** | Codex-1 | `RAG_finance_app`: `apps/`, `src/phase3/`, `tests/phase3/` (after Track 1 merge) | App-only P3-00–P3-08 documented; P3-09 owner decisions recorded and isolated CI configured; Production: NO-GO |
 | **4** | **Engine Score & Recall Upgrade (Danesh-Bonyan)** | Codex-2 | `/Users/macbookpro/AMIR_DATA/00_WORKS/01_PROJECTS/RAG-projects/RAG_finance` (corpus fixes, index, retrieval, formal evaluation report) | Pending Track 2 baseline |
-| **5** | **Phase 4: Admin Panel + Measurement & Learning Loop** | Codex-1 & 2 | New Phase 4 modules after Phase 3 sign-off (use `git worktree` if concurrent) | Locked until Track 3 complete |
+| **5** | **Phase 4: Admin Panel + Measurement & Learning Loop** | Codex-1 & 2 | New Phase 4 modules after Phase 3 sign-off (use `git worktree` if concurrent) | Phase 4: LOCKED |
 
 ### Priority 1 freeze and Phase 3 transition
 
@@ -33,9 +33,13 @@
 
 ### Phase 3 App-only handoff
 
-- The local Spec sequence ends at SPEC-P3-08. No SPEC-P3-09 is defined in the approved audit map. The documented sequence is ready for supervisor review. Open checks remain prerequisites for acceptance.
+- The original local audit sequence ended at SPEC-P3-08. The owner authorized SPEC-P3-09 separately for evidence collection on an isolated GitHub-hosted runner. Open checks remain prerequisites for acceptance. [Workflow](../.github/workflows/phase3-isolated-evidence.yml)
 - The 26 independent Gate totals are **DONE 0 / PARTIAL 22 / PENDING 4**, with 16 producer-dependent labels overlapping those statuses. M24 and M25 remain PENDING. The frozen pilot's live #143 PASS remains scoped to that deployment.
 - Remaining local prerequisites include pinned Docker/PostgreSQL/Keycloak and Python/browser toolchains, same-SHA runtime/restore/load receipts, and owner decisions for SLO, UAT, risk and hypercare. Codex-2 owns the accepted engine Release and producer evidence. [App-only closeout matrix](reports/SPEC-P3-08-production-readiness-handoff.md) · [Production decision runbook](operations/phase3-production-readiness-handoff.md)
+
+- **Owner decisions approved 2026-11-27.** امیر شهبازی آراللو (Primary Owner) covers Ops, Security, DBA, UAT, Release and Hypercare until the operations team is formed. **Production: NO-GO. Phase 4: LOCKED.** The frozen pilot tag remains in force.
+- **Targets.** Monthly availability ≥99.5%, non-engine API p95 ≤500 ms, 5xx <1%, 100 invited users with at most 10 concurrent. PostgreSQL RPO ≤24 h with daily backup, then ≤15 min after PITR/WAL activation, and RTO ≤2 h.
+- **Operating window.** Hypercare lasts 14 days after Go-Live, with P0/security initial response ≤30 min and P1 ≤4 h. Thursday/Friday 02:00–05:00 Tehran time. Immediate rollback on any #143 smoke failure or 5xx >2%. SMTP reset stays deferred to Phase 4 with manual pilot reset, and the corpus correction stays with Codex-2 under Priority 4. [Signed decisions](../coordination/OWNER_DECISIONS_20261127.md) · [P3-09 report](reports/SPEC-P3-09-owner-decisions-and-ci-runner.md)
 
 ## 2. Codex Account Isolation & Recovery
 

@@ -1,0 +1,377 @@
+name: Phase 3 isolated evidence
+"on":
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  postgres-migrations-rls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          # Disposable fixture only. The service is scoped to this hosted job.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify selected source
+        run: |
+          test "$GITHUB_REF" = refs/heads/phase3/completion
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install hashed API lock
+        run: |
+          (cd locks && sha256sum -c requirements-api.lock.sha256)
+          python -m pip install --require-hashes --only-binary=:all: -r locks/requirements-api.lock
+          python -m pip check
+      - name: Validate pinned migration bytes
+        run: |
+          bash infra/postgres/dev_f3_isolated/tests/run_static.sh
+          while IFS=$'\t' read -r id direction source path blob; do
+            [[ "$id" == migration_id ]] && continue
+            test "$(git hash-object "$path")" = "$blob"
+          done < infra/postgres/dev_f3_isolated/MIGRATIONS_001_010_PINNED.tsv
+          test "$(git hash-object infra/postgres/migrations/011_external_dispatch_claim.up.sql)" = 031d2f438f000154eb4e2b374ce42181b3d812b3
+      - name: Apply migrations, check rollback, owner isolation and restore
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          pg() { docker exec -i "$PG_CONTAINER" psql -X -U postgres -v ON_ERROR_STOP=1 "$@"; }
+          pg -d postgres <<'SQL'
+          CREATE ROLE history_migrator LOGIN BYPASSRLS;
+          CREATE ROLE history_app LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_migrator LOGIN BYPASSRLS NOSUPERUSER;
+          CREATE ROLE auth_mapper LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_sessions LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_revoker LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reauth LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_trust_api LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_replay_cleaner LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_issuer LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_executor LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_lookup LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_idp_recorder LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_bootstrap LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_claim_reader LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_issuer LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_binder LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_reader LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_cleaner LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE history_dispatch_reporter NOLOGIN NOBYPASSRLS;
+          CREATE ROLE history_dispatch_reconciler NOLOGIN NOBYPASSRLS;
+          GRANT pg_read_all_stats TO auth_migrator;
+          SQL
+          create_db() {
+            local db=$1
+            pg -d postgres -c "CREATE DATABASE $db"
+            pg -d postgres -c "GRANT CONNECT,CREATE ON DATABASE $db TO history_migrator,auth_migrator"
+          }
+          apply_migration() {
+            local db=$1 sql=$2 id=$3 role=auth_migrator
+            local transaction=()
+            case "$id" in
+              001|002|011) role=history_migrator ;;
+              006|007|008) transaction=(-1) ;;
+            esac
+            # SET ROLE persists for this connection, including explicit SQL transactions.
+            pg -d "$db" "${transaction[@]}" -c "SET ROLE $role" -f - < "$sql"
+          }
+          apply_base() {
+            local db=$1
+            for sql in infra/postgres/migrations/0{01,02,03,04,05,06,07,08,09,10}_*.up.sql; do
+              file=${sql##*/}
+              apply_migration "$db" "$sql" "${file%%_*}"
+            done
+          }
+          test "$(pg -d postgres -Atqc "SELECT current_setting('server_version_num')::int / 10000")" = 16
+          create_db history_ci
+          apply_base history_ci
+          apply_migration history_ci infra/postgres/migrations/011_external_dispatch_claim.up.sql 011
+          # 011 has no DOWN file. Keep it out of the disposable 001-010 rollback DB.
+          create_db rollback_ci
+          apply_base rollback_ci
+          for id in 010 009 008 007 006 005 004 003 002 001; do
+            files=(infra/postgres/migrations/${id}_*.down.sql)
+            test "${#files[@]}" -eq 1
+            apply_migration rollback_ci "${files[0]}" "$id"
+          done
+          test "$(pg -d rollback_ci -Atqc "SELECT count(*) FROM pg_namespace WHERE nspname IN ('auth_l1','history_l1')")" = 0
+          apply_base rollback_ci
+
+          # Exercise the 011 duplicate operation through its function and real constraints.
+          pg -d history_ci <<'SQL'
+          INSERT INTO history_l1.conversations(owner_id,id) VALUES ('owner_a','conv_a'),('owner_b','conv_b');
+          INSERT INTO history_l1.messages(owner_id,id,conversation_id,role,body)
+            VALUES ('owner_a','msg_a','conv_a','user','fixture');
+          INSERT INTO history_l1.send_receipts(
+            id,owner_id,resolved_conversation_id,user_message_id,client_message_id,
+            idempotency_key,payload_sha256,initial_request_id,initial_trace_id)
+            VALUES ('send_a','owner_a','conv_a','msg_a','client_a','key_a',repeat('b',64),'req_a','trace_a');
+          INSERT INTO history_l1.execution_attempts(
+            owner_id,id,send_receipt_id,attempt_request_id,attempt_trace_id,reserved_answer_id)
+            VALUES ('owner_a',repeat('a',32),'send_a','req_a','trace_a','answer_a');
+          DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_class WHERE oid='history_l1.external_dispatch_claims'::regclass AND relrowsecurity AND relforcerowsecurity)
+              OR has_table_privilege('history_app','history_l1.external_dispatch_claims','SELECT')
+              OR (SELECT rolbypassrls OR rolsuper FROM pg_roles WHERE rolname='history_app')
+            THEN RAISE EXCEPTION '011 role or RLS boundary missing'; END IF;
+          END $$;
+          SQL
+          check_owners() {
+            local db=$1
+            for owner in owner_a owner_b; do
+              test "$(pg -d "$db" -Atq -c "SET ROLE history_app; SET app.owner_id='$owner'; SELECT owner_id FROM history_l1.conversations ORDER BY owner_id")" = "$owner"
+            done
+            test "$(pg -d "$db" -Atq -c 'SET ROLE history_app; SELECT count(*) FROM history_l1.conversations')" = 0
+          }
+          check_owners history_ci
+          claim_sql="SELECT claim_won FROM history_l1.claim_external_dispatch('owner_a',repeat('a',32),'trace_a')"
+          test "$(pg -d history_ci -Atq -c "SET ROLE history_app; SET app.owner_id='owner_b'; $claim_sql")" = f
+          test "$(pg -d history_ci -Atq -c "SET ROLE history_app; SET app.owner_id='owner_a'; $claim_sql")" = t
+          test "$(pg -d history_ci -Atq -c "SET ROLE history_app; SET app.owner_id='owner_a'; $claim_sql")" = f
+          # Keep the dump inside the service container; do not upload it.
+          docker exec "$PG_CONTAINER" pg_dump -U postgres -Fc -f /tmp/spec-p309.dump history_ci
+          create_db restore_ci
+          docker exec "$PG_CONTAINER" pg_restore -U postgres --exit-on-error -d restore_ci /tmp/spec-p309.dump
+          check_owners restore_ci
+          test "$(pg -d restore_ci -Atqc "SELECT to_regclass('history_l1.external_dispatch_claims') IS NOT NULL")" = t
+          docker exec "$PG_CONTAINER" rm -- /tmp/spec-p309.dump
+          printf '%s\n' 'PG16_MIGRATION_001_011_ROLLBACK_001_010_RLS_RESTORE_PASS'
+
+  python-security-and-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          # Disposable fixture only. The service is scoped to this hosted job.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - "127.0.0.1:5432:5432"
+    env:
+      CI: 'true'
+      AUTH_MAP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_mapper connect_timeout=5
+      AUTH_SESSION_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_sessions connect_timeout=5
+      AUTH_REVOKER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_revoker connect_timeout=5
+      AUTH_REAUTH_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reauth connect_timeout=5
+      AUTH_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_migrator connect_timeout=5
+      AUTH_RESET_ISSUER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reset_issuer connect_timeout=5
+      AUTH_RESET_EXEC_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reset_executor connect_timeout=5
+      AUTH_RESET_LOOKUP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reset_lookup connect_timeout=5
+      AUTH_RESET_IDP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_reset_idp_recorder connect_timeout=5
+      LOGIN_BOOTSTRAP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_bootstrap connect_timeout=5
+      LOGIN_CLAIM_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_claim_reader connect_timeout=5
+      LOGIN_ISSUER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_issuer connect_timeout=5
+      LOGIN_BINDER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_binder connect_timeout=5
+      LOGIN_READER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_reader connect_timeout=5
+      LOGIN_CLEANER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_login_cleaner connect_timeout=5
+      REPLAY_API_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_trust_api connect_timeout=5
+      REPLAY_CLEANER_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=auth_replay_cleaner connect_timeout=5
+      DB_APP_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_app connect_timeout=5
+      DB_MIG_DSN: host=127.0.0.1 port=5432 dbname=history_ci user=history_migrator connect_timeout=5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify selected source
+        run: |
+          test "$GITHUB_REF" = refs/heads/phase3/completion
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install hashed API lock
+        run: |
+          (cd locks && sha256sum -c requirements-api.lock.sha256)
+          python -m pip install --require-hashes --only-binary=:all: -r locks/requirements-api.lock
+          python -m pip check
+      - name: Install pinned test runner
+        run: python -m pip install 'pytest==8.4.2' 'iniconfig==2.1.0' 'packaging==25.0' 'pluggy==1.6.0' 'pygments==2.19.2'
+      - name: Contracts, Foundation and 429
+        run: |
+          python -B -m unittest discover -s tests/phase3/contracts -p 'test_*.py'
+          python -B -m unittest discover -s tests/phase3/foundation -p 'test_*.py'
+          python -B -m pytest -q -p no:cacheprovider tests/phase3/api/test_arvan_turn_policy.py
+      - name: API suite and private transport witnesses
+        run: |
+          python -B -m unittest discover -s tests/phase3/api -p 'test_*.py'
+          for test in test_app_only_mtls_network.py test_staging_bootstrap_asgi.py test_staging_bootstrap_network.py; do
+            python -B -m unittest discover -s tests/phase3/integration/api -p "$test"
+          done
+      - name: Provision disposable signed-journey roles and schema
+        run: |
+          set -euo pipefail
+          pg() { psql -h 127.0.0.1 -p 5432 -X -U postgres -v ON_ERROR_STOP=1 "$@"; }
+          pg -d postgres <<'SQL'
+          CREATE ROLE history_migrator LOGIN BYPASSRLS;
+          CREATE ROLE history_app LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_migrator LOGIN BYPASSRLS NOSUPERUSER;
+          CREATE ROLE auth_mapper LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_sessions LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_revoker LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reauth LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_trust_api LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_replay_cleaner LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_issuer LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_executor LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_lookup LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_reset_idp_recorder LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_bootstrap LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_claim_reader LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_issuer LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_binder LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_reader LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE auth_login_cleaner LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE;
+          CREATE ROLE history_dispatch_reporter NOLOGIN NOBYPASSRLS;
+          CREATE ROLE history_dispatch_reconciler NOLOGIN NOBYPASSRLS;
+          GRANT pg_read_all_stats TO auth_migrator;
+          SQL
+          create_db() {
+            local db=$1
+            pg -d postgres -c "CREATE DATABASE $db"
+            pg -d postgres -c "GRANT CONNECT,CREATE ON DATABASE $db TO history_migrator,auth_migrator"
+          }
+          apply_migration() {
+            local db=$1 sql=$2 id=$3 role=auth_migrator
+            local transaction=()
+            case "$id" in
+              001|002|011) role=history_migrator ;;
+              006|007|008) transaction=(-1) ;;
+            esac
+            # SET ROLE persists for this connection, including explicit SQL transactions.
+            pg -d "$db" "${transaction[@]}" -c "SET ROLE $role" -f - < "$sql"
+          }
+          apply_base() {
+            local db=$1
+            for sql in infra/postgres/migrations/0{01,02,03,04,05,06,07,08,09,10}_*.up.sql; do
+              file=${sql##*/}
+              apply_migration "$db" "$sql" "${file%%_*}"
+            done
+          }
+          create_db history_ci
+          apply_base history_ci
+          pg -d history_ci <<'SQL'
+          SET ROLE auth_migrator;
+          CREATE SCHEMA service_replay_ci;
+          CREATE TABLE service_replay_ci.protected_actions(marker text PRIMARY KEY);
+          REVOKE ALL ON SCHEMA service_replay_ci FROM PUBLIC;
+          GRANT USAGE ON SCHEMA service_replay_ci TO auth_trust_api;
+          GRANT INSERT ON TABLE service_replay_ci.protected_actions TO auth_trust_api;
+          CREATE SCHEMA auth_fence_ci;
+          CREATE TABLE auth_fence_ci.protected_actions(marker text PRIMARY KEY);
+          REVOKE ALL ON SCHEMA auth_fence_ci FROM PUBLIC;
+          GRANT USAGE ON SCHEMA auth_fence_ci TO auth_sessions;
+          GRANT INSERT ON TABLE auth_fence_ci.protected_actions TO auth_sessions;
+          SQL
+      - name: Real local Keycloak Bootstrap and signed Product Session
+        run: |
+          python -B -m unittest discover -s tests/phase3/integration/api -p 'test_bootstrap_oidc_010.py'
+          python -B -m unittest discover -s tests/phase3/integration/api -p 'test_product_session_011.py'
+
+  web-playwright-cross-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify selected source
+        run: |
+          test "$GITHUB_REF" = refs/heads/phase3/completion
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Web checks and build
+        working-directory: apps/web
+        run: |
+          npm ci --no-audit --no-fund
+          npx --no-install next typegen
+          npm run lint
+          npm run typecheck
+          TMPDIR=/tmp npm test
+          npm run build
+      - name: Install selected Playwright browser
+        env:
+          BROWSER: ${{ matrix.browser }}
+        run: |
+          npm install --prefix "$RUNNER_TEMP/p309-playwright" --no-audit --no-fund --save-exact playwright@1.65.1
+          "$RUNNER_TEMP/p309-playwright/node_modules/.bin/playwright" install --with-deps "$BROWSER"
+      - name: Browser History and accessibility against loopback Next
+        env:
+          HISTORY_BROWSER_ENGINE: ${{ matrix.browser }}
+        run: |
+          set -euo pipefail
+          node apps/web/node_modules/next/dist/bin/next start apps/web -H 127.0.0.1 -p 32194 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          curl -qfsS --retry 20 --retry-all-errors --retry-delay 1 --max-time 5 http://127.0.0.1:32194/history >/dev/null
+          export PLAYWRIGHT_MODULE="$RUNNER_TEMP/p309-playwright/node_modules/playwright/index.mjs"
+          HISTORY_BROWSER_BASE=http://127.0.0.1:32194 node tests/phase3/integration/ui/history_accessibility_browser.mjs
+          if [[ "$HISTORY_BROWSER_ENGINE" == chromium ]]; then
+            node tests/phase3/integration/ui/sidebar_logout_browser.mjs
+          fi
+
+  staging-and-image-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify selected source
+        run: |
+          test "$GITHUB_REF" = refs/heads/phase3/completion
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Syntax and dry-run
+        run: |
+          mkdir -p "$RUNNER_TEMP/p309-evidence"
+          git ls-files -z -- 'infra/arvan-staging/*.sh' | xargs -0 -n1 bash -n
+          infra/arvan-staging/deploy-arvan.sh --dry-run | tee "$RUNNER_TEMP/p309-evidence/deploy-plan.log"
+      - name: Build only App-only API and Web images
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/p309-evidence"
+          for component in api web; do
+            tag="p309-$component:$GITHUB_SHA"
+            docker build --platform linux/amd64 --build-arg "SOURCE_SHA=$GITHUB_SHA" \
+              -f "infra/phase3_l1/Dockerfile.$component" -t "$tag" . \
+              2>&1 | tee "$RUNNER_TEMP/p309-evidence/$component-build.log"
+            test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$tag")" = "$GITHUB_SHA"
+            docker image inspect --format '{{.Id}}' "$tag" > "$RUNNER_TEMP/p309-evidence/$component-image-id.txt"
+          done
+          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/p309-evidence/source-sha.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: isolated-staging-and-images-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/p309-evidence/
+          if-no-files-found: warn
+          retention-days: 14
