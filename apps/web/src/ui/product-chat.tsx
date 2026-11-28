@@ -244,7 +244,7 @@ export default function ProductChat({logoutCsrf}:{logoutCsrf?:string}){
       privacyEpoch.current++;
       threadEpochs.current={};
       setThreads({});
-      setListState('error');setQuota(null);setError(failureLabel(e));
+      setListState('error');setQuota(null);
     }
   },[invalidate,matchOwner]);
   const loadThread=useCallback(async (id:string,append=false,cursor:string|null=null)=>{
@@ -658,8 +658,8 @@ export default function ProductChat({logoutCsrf}:{logoutCsrf?:string}){
         برای مشاهدهٔ گفت‌وگوها باید <Link href="/login">وارد حساب شوید</Link>.
       </p>}
       {error&&<p className="history-error" role="alert">{error}</p>}
-      {listState==='error'&&<p role="status" data-testid="history-owner-revalidation-required"
-        className="history-note">
+      {listState==='error'&&<p role="alert" data-testid="history-owner-revalidation-required"
+        className="history-error">
         اتصال برای تأیید مالک و نشست برقرار نیست؛ پیام‌های قبلی موقتاً پنهان
         و ارسال پرسش تا بازخوانی موفق غیرفعال است.
       </p>}
