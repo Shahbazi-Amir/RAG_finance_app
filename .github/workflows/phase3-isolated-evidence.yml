@@ -1,6 +1,9 @@
 name: Phase 3 isolated evidence
 "on":
   workflow_dispatch:
+  push:
+    branches:
+      - phase3/completion
 
 permissions:
   contents: read
