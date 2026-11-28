@@ -1,14 +1,27 @@
 # CI-only real API image build; NOT production mTLS listener
 ARG BASE=docker.io/library/python@sha256:168d3a5d10f2152f8e8d77b6843ac82c22a846cfefeef7afdf9aa630404e82a7
-FROM ${BASE}
+ARG RUNTIME=docker.io/library/ubuntu@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db
+FROM ${BASE} AS dependencies
+COPY locks/requirements-api.lock /tmp/requirements-api.lock
+RUN python3 -m venv --without-pip /opt/api-venv \
+    && python3 -m pip --python /opt/api-venv install --require-hashes --only-binary=:all: --no-cache-dir -r /tmp/requirements-api.lock \
+    && python3 -m pip --python /opt/api-venv check \
+    && python3 -m pip uninstall -y pip
+
+FROM ${RUNTIME}
 ARG SOURCE_SHA
 LABEL org.opencontainers.image.revision="${SOURCE_SHA}"
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/home/api
-RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends ca-certificates libbz2-1.0 libexpat1 libffi8 libgdbm6t64 libgdbm-compat4t64 liblzma5 libncursesw6 libreadline8t64 libsqlite3-0 libssl3t64 libuuid1 zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=dependencies /usr/local/bin/python3.13 /usr/local/bin/python3.13
+COPY --from=dependencies /usr/local/lib/libpython3.13.so.1.0 /usr/local/lib/
+COPY --from=dependencies /usr/local/lib/python3.13 /usr/local/lib/python3.13
+COPY --from=dependencies /opt/api-venv /opt/api-venv
+RUN ln -s python3.13 /usr/local/bin/python3 && ldconfig \
+    && /opt/api-venv/bin/python -c "import bz2, ctypes, lzma, sqlite3, ssl"
+ENV PATH=/opt/api-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/home/api
 WORKDIR /srv/release
-COPY locks/requirements-api.lock /tmp/requirements-api.lock
-RUN python3 -m pip install --require-hashes --only-binary=:all: --no-cache-dir -r /tmp/requirements-api.lock && python3 -m pip check \
-    && python3 -m pip uninstall -y pip
 COPY apps/api /srv/release/apps/api
 COPY src/phase3 /srv/release/src/phase3
 COPY packages/contracts /srv/release/packages/contracts
