@@ -106,7 +106,6 @@ jobs:
           test "$(pg -d postgres -Atqc "SELECT current_setting('server_version_num')::int / 10000")" = 16
           create_db history_ci
           apply_base history_ci
-          apply_migration history_ci infra/postgres/migrations/011_external_dispatch_claim.up.sql 011
           # 011 has no DOWN file. Keep it out of the disposable 001-010 rollback DB.
           create_db rollback_ci
           apply_base rollback_ci
@@ -130,6 +129,9 @@ jobs:
           INSERT INTO history_l1.execution_attempts(
             owner_id,id,send_receipt_id,attempt_request_id,attempt_trace_id,reserved_answer_id)
             VALUES ('owner_a',repeat('a',32),'send_a','req_a','trace_a','answer_a');
+          SQL
+          apply_migration history_ci infra/postgres/migrations/011_external_dispatch_claim.up.sql 011
+          pg -d history_ci <<'SQL'
           DO $$ BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_class WHERE oid='history_l1.external_dispatch_claims'::regclass AND relrowsecurity AND relforcerowsecurity)
               OR has_table_privilege('history_app','history_l1.external_dispatch_claims','SELECT')
@@ -149,6 +151,14 @@ jobs:
           test "$(pg -d history_ci -Atq -c "SET ROLE history_app; SET app.owner_id='owner_b'; $claim_sql")" = f
           test "$(pg -d history_ci -Atq -c "SET ROLE history_app; SET app.owner_id='owner_a'; $claim_sql")" = t
           test "$(pg -d history_ci -Atq -c "SET ROLE history_app; SET app.owner_id='owner_a'; $claim_sql")" = f
+          docker restart "$PG_CONTAINER" >/dev/null
+          for attempt in {1..30}; do
+            if docker exec "$PG_CONTAINER" pg_isready -U postgres; then break; fi
+            sleep 1
+          done
+          check_owners history_ci
+          test "$(pg -d history_ci -Atq -c "SET ROLE history_app; SET app.owner_id='owner_a'; $claim_sql")" = f
+          echo 'PG16_POPULATED_011_AND_RESTART_OWNER_REPLAY_PASS'
           # Keep the dump inside the service container; do not upload it.
           docker exec "$PG_CONTAINER" pg_dump -U postgres -Fc -f /tmp/spec-p309.dump history_ci
           create_db restore_ci
@@ -410,6 +420,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/p309-evidence"
           git ls-files -z -- 'infra/arvan-staging/*.sh' | xargs -0 -n1 bash -n
           infra/arvan-staging/deploy-arvan.sh --dry-run | tee "$RUNNER_TEMP/p309-evidence/deploy-plan.log"
+      - name: Build source SBOM and check tracked text for credentials
+        run: |
+          python3 scripts/f3_source_supply_chain.py --self-test
+          python3 scripts/f3_source_supply_chain.py --repo . --out "$RUNNER_TEMP/p309-evidence"
       - name: Build only App-only API and Web images
         run: |
           set -euo pipefail
@@ -423,6 +437,36 @@ jobs:
             docker image inspect --format '{{.Id}}' "$tag" > "$RUNNER_TEMP/p309-evidence/$component-image-id.txt"
           done
           printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/p309-evidence/source-sha.txt"
+      - name: Start and restart App-only images on isolated loopback
+        run: |
+          set -euo pipefail
+          trap 'docker rm -f p313-api p313-web >/dev/null 2>&1 || true' EXIT
+          docker run --detach --network none --name p313-api "p309-api:$GITHUB_SHA"
+          docker run --detach --network none --name p313-web "p309-web:$GITHUB_SHA"
+          for component in api web; do
+            case "$component" in
+              api) expected_uid=11001 ;;
+              web) expected_uid=11003 ;;
+            esac
+            test "$(docker exec "p313-$component" id -u)" = "$expected_uid"
+          done
+          wait_ready() {
+            local component=$1 status
+            for attempt in {1..60}; do
+              status="$(docker inspect --format '{{.State.Health.Status}}' "p313-$component")"
+              if [[ "$status" == healthy ]]; then return 0; fi
+              if [[ "$(docker inspect --format '{{.State.Running}}' "p313-$component")" != true ]]; then break; fi
+              sleep 2
+            done
+            echo "Health check did not pass for $component" >&2
+            return 1
+          }
+          for component in api web; do
+            wait_ready "$component"
+            docker restart "p313-$component" >/dev/null
+            wait_ready "$component"
+          done
+          echo 'APP_ONLY_NONROOT_COLD_START_AND_RESTART_PASS'
       - name: Scan both built images and their installed dependencies
         run: |
           set -euo pipefail
@@ -461,6 +505,10 @@ jobs:
           if blocked:
               raise SystemExit("Unresolved HIGH or CRITICAL image vulnerabilities")
           PYTHON
+          for component in api web; do
+            "$scanner" image --image-src docker --format cyclonedx \
+              --output "$evidence/$component-cyclonedx.json" "p309-$component:$GITHUB_SHA"
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
