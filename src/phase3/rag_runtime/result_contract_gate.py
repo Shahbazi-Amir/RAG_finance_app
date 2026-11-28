@@ -59,7 +59,7 @@ def canonical_schema_digest(schema: Mapping) -> str:
     try:
         encoded = json.dumps(schema, sort_keys=True, separators=(",", ":"),
                              ensure_ascii=True, allow_nan=False).encode("ascii")
-    except (ValueError, TypeError, UnicodeError):
+    except (ValueError, TypeError, UnicodeError, RecursionError):
         raise PreflightDenied() from None
     return hashlib.sha256(encoded).hexdigest()
 
@@ -98,7 +98,7 @@ def _decode_and_validate(raw_result: bytes, schema: Mapping, digest: str) -> dic
         if not isinstance(result, dict):
             raise PreflightDenied()
         Draft202012Validator(schema).validate(result)
-    except (SchemaError, ValidationError, ValueError, UnicodeError, TypeError):
+    except (SchemaError, ValidationError, ValueError, UnicodeError, TypeError, RecursionError):
         raise PreflightDenied() from None
     return result
 
@@ -151,7 +151,7 @@ def validate_no_dispatch_context_ready(
         value = json.loads(
             raw_result.decode("utf-8"),
             object_pairs_hook=_unique_object, parse_constant=_reject_constant)
-    except (ValueError, UnicodeError, TypeError):
+    except (ValueError, UnicodeError, TypeError, RecursionError):
         raise PreflightDenied() from None
     if (not isinstance(value, dict)
             or set(value) != {

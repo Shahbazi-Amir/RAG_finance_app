@@ -2,6 +2,7 @@
 import hashlib
 import json
 import unittest
+from unittest.mock import patch
 
 from src.phase3.rag_runtime.result_contract_gate import (
     ApprovedResultProfile, canonical_schema_digest,
@@ -77,6 +78,19 @@ class ResultSchemaGate(unittest.TestCase):
             with self.assertRaises(PreflightDenied):
                 validate_no_dispatch_context_ready(
                     raw,question=self.question,binding=self.binding)
+
+    def test_decoder_depth_error_uses_standard_denial(self):
+        raw = json.dumps(self.ready).encode()
+        schema = {"$schema": "https://json-schema.org/draft/2020-12/schema"}
+        profile = ApprovedResultProfile(canonical_schema_digest(schema))
+        with patch("src.phase3.rag_runtime.result_contract_gate.json.loads",
+                   side_effect=RecursionError):
+            with self.assertRaises(PreflightDenied):
+                validate_no_dispatch_context_ready(
+                    raw, question=self.question, binding=self.binding)
+            with self.assertRaises(PreflightDenied):
+                validate_schema_pinned_result(
+                    raw, schema=schema, profile=profile, binding=self.binding)
 
     def test_live_result_still_pins_schema_request_id_not_trace(self):
         schema={
