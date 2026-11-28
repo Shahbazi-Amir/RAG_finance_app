@@ -1,5 +1,5 @@
 # CI-only real Next container, actual HTTP synthetic preview only
-ARG BASE=public.ecr.aws/docker/library/node@sha256:4d00acb4bcc42c454c4eb801526f7ad7f772ea3bd4fd168c5cc2e384abcbb9d4
+ARG BASE=docker.io/library/node@sha256:4d00acb4bcc42c454c4eb801526f7ad7f772ea3bd4fd168c5cc2e384abcbb9d4
 FROM ${BASE} AS build
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /srv/release

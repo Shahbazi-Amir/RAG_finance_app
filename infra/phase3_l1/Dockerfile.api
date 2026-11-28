@@ -1,5 +1,5 @@
 # CI-only real API image build; NOT production mTLS listener
-ARG BASE=public.ecr.aws/docker/library/python@sha256:168d3a5d10f2152f8e8d77b6843ac82c22a846cfefeef7afdf9aa630404e82a7
+ARG BASE=docker.io/library/python@sha256:168d3a5d10f2152f8e8d77b6843ac82c22a846cfefeef7afdf9aa630404e82a7
 FROM ${BASE}
 ARG SOURCE_SHA
 LABEL org.opencontainers.image.revision="${SOURCE_SHA}"
