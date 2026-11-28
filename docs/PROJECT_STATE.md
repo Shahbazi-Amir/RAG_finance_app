@@ -64,3 +64,7 @@
 - **01-App-Arvan-Phase3:** Specs, reviews, and deploy commands for Codex-1 (Tracks 1 & 3).
 - **02-Engine-Speed-DaneshBonyan:** Benchmark analysis, specs, and reviews for Codex-2 (Tracks 2 & 4).
 - **03-Phase4-Panels-Learning:** Opens only after Track 3 is signed off.
+
+## Next Arvan release performance queue
+
+- **QUEUED — MANDATORY BEFORE NEXT ARVAN RELEASE** — Transfer the `Qdrant Snapshot Reuse` pattern to `infra/nb23-v4/` and finish UI polish before the next freeze tag, `v0.2-arvan-100users-fast`. Start immediately after the Phase 3 rail closes. The owner-supplied Codex-2 reference is `RAG_finance`, branch `bench/baseline-latency-recall` at `9d0c4471ed8dbcf15624d1402d9d601c01cb5b6d`, `SPEC-02C`, verdict `ADOPT_FOR_PRODUCTION_TRACK`, median reduction `9.57s`, `100/100` agreement and `0.0` Recall loss. SPEC-P3-12 leaves `infra/nb23-v4/` unchanged.

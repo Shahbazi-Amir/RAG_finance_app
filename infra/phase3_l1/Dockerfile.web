@@ -1,13 +1,17 @@
 # CI-only real Next container, actual HTTP synthetic preview only
-ARG BASE=public.ecr.aws/docker/library/node@sha256:47725aca53d3295ec2d3be8f62726599b3033cc262edc2c7e429909b3ac599fc
+ARG BASE=public.ecr.aws/docker/library/node@sha256:4d00acb4bcc42c454c4eb801526f7ad7f772ea3bd4fd168c5cc2e384abcbb9d4
 FROM ${BASE} AS build
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /srv/release
 COPY apps/web /srv/release/apps/web
 COPY packages/contracts /srv/release/packages/contracts
 WORKDIR /srv/release/apps/web
-RUN npm ci --no-audit --no-fund && npm run build
+RUN npm ci --no-audit --no-fund && npm run build && npm prune --omit=dev --no-audit --no-fund
 FROM ${BASE}
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+# npm, Corepack and Yarn are build tools. Next starts directly under Node.
+RUN rm -rf /usr/local/lib/node_modules /opt/yarn-* \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg
 ARG SOURCE_SHA
 LABEL org.opencontainers.image.revision="${SOURCE_SHA}"
 ENV NEXT_TELEMETRY_DISABLED=1 NODE_ENV=production HOME=/home/web
