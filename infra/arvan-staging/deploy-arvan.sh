@@ -162,25 +162,32 @@ step 'Checking service readiness and #143 ingress'
 for unit in "${units[@]}" nginx; do
     systemctl is-active --quiet "$unit" || fail "$unit is not active"
 done
-curl -qfsS --retry 20 --retry-all-errors --retry-delay 2 --max-time 5 \
-    https://ragfinance.ir/api/product-capabilities >/dev/null 2>&1 || fail 'capabilities health'
-curl -qfsS --max-time 10 https://ragfinance.ir/login >/dev/null 2>&1 || fail 'login health'
-curl -qfsS --max-time 10 https://ragfinance.ir/realms/finance-staging/.well-known/openid-configuration |
-    jq -e '.issuer == "https://ragfinance.ir/realms/finance-staging" and
-        (.id_token_signing_alg_values_supported | index("RS256") != null) and
-        (.code_challenge_methods_supported | index("S256") != null)' >/dev/null ||
-    fail 'public OIDC discovery'
-expect_404() {
-    local status
-    status=$(curl -qsS --max-time 10 -o /dev/null -w '%{http_code}' "$1") ||
-        fail "unreachable: $1"
-    [[ $status == 404 ]] || fail "expected 404, received $status: $1"
+expect_status() {
+    local expected=$1 url=$2 status
+    shift 2
+    status=$(curl -qsS --max-time 10 -o /dev/null -w '%{http_code}' "$@" "$url") ||
+        fail "unreachable: $url"
+    [[ $status == "$expected" ]] || fail "expected $expected, received $status: $url"
 }
+expect_status 200 https://ragfinance.ir/api/product-capabilities \
+    --fail --retry 20 --retry-all-errors --retry-delay 2 --max-time 5
+expect_status 200 https://ragfinance.ir/login
+discovery=$(curl -qfsS --max-time 10 -w '\n%{http_code}' \
+    https://ragfinance.ir/realms/finance-staging/.well-known/openid-configuration) ||
+    fail 'public OIDC discovery request'
+[[ ${discovery##*$'\n'} == 200 ]] || fail 'public OIDC discovery status'
+jq -e '.issuer == "https://ragfinance.ir/realms/finance-staging" and
+    (.id_token_signing_alg_values_supported | index("RS256") != null) and
+    (.code_challenge_methods_supported | index("S256") != null)' \
+    <<<"${discovery%$'\n'*}" >/dev/null || fail 'public OIDC discovery policy'
 blocked=(/internal/ /admin/ /realms/master/ /auth/)
-for path in "${blocked[@]}"; do expect_404 "https://ragfinance.ir$path"; done
-for path in / "${blocked[@]}" /realms/finance-staging/.well-known/openid-configuration /resources/; do
-    expect_404 "https://idp-staging.ragfinance.ir$path"
+for path in "${blocked[@]}" /realms/nonexistent/; do
+    expect_status 404 "https://ragfinance.ir$path"
 done
+for path in / "${blocked[@]}" /realms/finance-staging/.well-known/openid-configuration /resources/; do
+    expect_status 404 "https://idp-staging.ragfinance.ir$path"
+done
+expect_status 405 https://ragfinance.ir/api/auth/logout
 python3.13 "$infra/templates/protected-profile-check.py" --smoke-mtls ||
     fail 'private mTLS smoke'
 step 'Arvan smoke gate passed'
