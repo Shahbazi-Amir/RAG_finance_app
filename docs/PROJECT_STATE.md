@@ -17,7 +17,7 @@
 | :---: | :--- | :--- | :--- | :--- |
 | **1** | **100-User Candidate + Repeatable Arvan Deploy** | Codex-1 | `RAG_finance_app`: `apps/web/`, `infra/arvan-staging/`, `tests/phase3/ui/` | Closed and frozen for the pilot (4 items delivered, 2 formally deferred, `deploy-arvan.sh` exercised, live #143 PASS) |
 | **2** | **Engine Latency Optimization (Zero Recall Drop)** | Codex-2 | `/Users/macbookpro/AMIR_DATA/00_WORKS/01_PROJECTS/RAG-projects/RAG_finance` (and later `RAG_finance_app/infra/nb23-v4/` via separate PR) | Next (Step 1: frozen baseline Latency + Recall benchmark) |
-| **3** | **Complete Phase 3 Roadmap Gates** | Codex-1 | `RAG_finance_app`: `apps/`, `src/phase3/`, `tests/phase3/` (after Track 1 merge) | Audit complete; proposed next SPEC-P3-01, subject to assignment |
+| **3** | **Complete Phase 3 Roadmap Gates** | Codex-1 | `RAG_finance_app`: `apps/`, `src/phase3/`, `tests/phase3/` (after Track 1 merge) | App-only Spec sequence P3-00–P3-08 documented; production NO-GO pending evidence and owner decisions |
 | **4** | **Engine Score & Recall Upgrade (Danesh-Bonyan)** | Codex-2 | `/Users/macbookpro/AMIR_DATA/00_WORKS/01_PROJECTS/RAG-projects/RAG_finance` (corpus fixes, index, retrieval, formal evaluation report) | Pending Track 2 baseline |
 | **5** | **Phase 4: Admin Panel + Measurement & Learning Loop** | Codex-1 & 2 | New Phase 4 modules after Phase 3 sign-off (use `git worktree` if concurrent) | Locked until Track 3 complete |
 
@@ -30,6 +30,12 @@
 - **DEFERRED — SMTP password reset** — After the pilot / Phase 4, once real user email addresses and SMTP settings are available. Authorized operators use manual Keycloak reset during the pilot.
 - **DEFERRED — Corpus typo** — Correct `واریس` to `واریز` and rebuild the relevant index under Priority 4 in the engine repository, owned by Codex-2. [Arvan handoff](../infra/arvan-staging/ARVAN_STAGING_HANDOFF.md#3-remaining-backlog)
 - Closing the pilot delivery scope does not certify a 100-user workload or accept a Phase 3 module gate.
+
+### Phase 3 App-only handoff
+
+- The local Spec sequence ends at SPEC-P3-08. No SPEC-P3-09 is defined in the approved audit map. The documented sequence is ready for supervisor review. Open checks remain prerequisites for acceptance.
+- The 26 independent Gate totals are **DONE 0 / PARTIAL 22 / PENDING 4**, with 16 producer-dependent labels overlapping those statuses. M24 and M25 remain PENDING. The frozen pilot's live #143 PASS remains scoped to that deployment.
+- Remaining local prerequisites include pinned Docker/PostgreSQL/Keycloak and Python/browser toolchains, same-SHA runtime/restore/load receipts, and owner decisions for SLO, UAT, risk and hypercare. Codex-2 owns the accepted engine Release and producer evidence. [App-only closeout matrix](reports/SPEC-P3-08-production-readiness-handoff.md) · [Production decision runbook](operations/phase3-production-readiness-handoff.md)
 
 ## 2. Codex Account Isolation & Recovery
 
