@@ -185,6 +185,7 @@ jobs:
           bash scripts/05_test_roles_tls_rls.sh
           bash scripts/09_shared_stack_db_preflight.sh
           bash scripts/06_backup_restore_independent.sh
+          bash scripts/22_restore_catalog_parity_probe.sh
           bash scripts/10_restored_stack_db_preflight.sh
           bash scripts/13_catalog_erd_inventory.sh
           bash scripts/12_rollback_rls_constraints_probe.sh
